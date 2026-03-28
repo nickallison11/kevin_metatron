@@ -1,0 +1,9 @@
+[package]
+name = "metatron_core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+solana-program = "1.18"
+borsh = { version = "1.5", features = ["derive"] }
+

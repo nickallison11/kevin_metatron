@@ -1,0 +1,33 @@
+use axum::Router;
+use std::net::SocketAddr;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+
+mod app;
+mod state;
+mod settings;
+
+#[tokio::main]
+async fn main() {
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::EnvFilter::new(
+            std::env::var("RUST_LOG").unwrap_or_else(|_| "backend=debug,axum=info".into()),
+        ))
+        .with(tracing_subscriber::fmt::layer())
+        .init();
+
+    let settings = settings::Settings::from_env().expect("valid settings");
+    let shared_state = state::AppState::initialise(&settings)
+        .await
+        .expect("state init");
+
+    let app = app::build_app(&settings, shared_state.clone());
+
+    let port = settings.port;
+    let addr = SocketAddr::from(([0, 0, 0, 0], port));
+    tracing::info!("listening on {}", addr);
+    axum::Server::bind(&addr)
+        .serve(app.into_make_service())
+        .await
+        .unwrap();
+}
+

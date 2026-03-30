@@ -2,11 +2,15 @@ use std::sync::Arc;
 
 use axum::{
     extract::State,
+    routing::post,
+    Json, Router,
+};
+use axum_extra::{
     headers::{authorization::Bearer, Authorization},
-    routing::{get, post},
-    Json, Router, TypedHeader,
+    TypedHeader,
 };
 use serde::{Deserialize, Serialize};
+use sqlx::Row;
 use uuid::Uuid;
 
 use crate::auth::Claims;
@@ -41,16 +45,16 @@ async fn create_pool(
 
     let pool_id = Uuid::new_v4();
 
-    sqlx::query!(
+    sqlx::query(
         r#"
         INSERT INTO funding_pools (id, name, description, created_by)
         VALUES ($1, $2, $3, $4)
         "#,
-        pool_id,
-        body.name,
-        body.description,
-        user_id
     )
+    .bind(pool_id)
+    .bind(&body.name)
+    .bind(&body.description)
+    .bind(user_id)
     .execute(&state.db)
     .await
     .map_err(internal)?;
@@ -68,12 +72,12 @@ async fn list_pools(
 ) -> Result<Json<Vec<PoolResponse>>, (axum::http::StatusCode, String)> {
     let _claims = decode_claims(&state, bearer.token())?;
 
-    let rows = sqlx::query!(
+    let rows = sqlx::query(
         r#"
         SELECT id, name, description
         FROM funding_pools
         ORDER BY created_at DESC
-        "#
+        "#,
     )
     .fetch_all(&state.db)
     .await
@@ -81,12 +85,16 @@ async fn list_pools(
 
     let items = rows
         .into_iter()
-        .map(|r| PoolResponse {
-            id: r.id,
-            name: r.name,
-            description: r.description,
+        .map(|r| {
+            Ok(PoolResponse {
+                id: r.try_get::<Uuid, _>("id").map_err(internal)?,
+                name: r.try_get::<String, _>("name").map_err(internal)?,
+                description: r
+                    .try_get::<Option<String>, _>("description")
+                    .map_err(internal)?,
+            })
         })
-        .collect();
+        .collect::<Result<Vec<_>, _>>()?;
 
     Ok(Json(items))
 }

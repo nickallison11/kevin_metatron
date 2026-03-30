@@ -4,18 +4,27 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-axum = { version = "0.7", features = ["json", "headers"] }
+axum = { version = "0.7", features = ["json", "multipart"] }
+axum-extra = { version = "0.9.6", features = ["typed-header"] }
 tokio = { version = "1.40", features = ["full"] }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+serde = { workspace = true }
+serde_json = { workspace = true }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
-sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "migrate"] }
+sqlx = { version = "0.8.6", default-features = false, features = [
+    "runtime-tokio-rustls",
+    "postgres",
+    "macros",
+    "migrate",
+    "uuid",
+    "chrono",
+] }
 uuid = { version = "1.10", features = ["serde", "v4"] }
 chrono = { version = "0.4", features = ["serde"] }
 argon2 = "0.5"
 rand_core = "0.6"
-jsonwebtoken = { version = "9", default-features = false, features = ["hs256"] }
+jsonwebtoken = "9"
 thiserror = "1.0"
-
-
+tower-http = { version = "0.5", features = ["cors"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+mime_guess = "2.0"

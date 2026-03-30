@@ -1,7 +1,11 @@
+use std::sync::Arc;
+
 use axum::{routing::post, Json, Router};
 use serde::Deserialize;
 
-pub fn router() -> Router {
+use crate::state::AppState;
+
+pub fn router() -> Router<Arc<AppState>> {
     Router::new().route("/commit", post(commit))
 }
 

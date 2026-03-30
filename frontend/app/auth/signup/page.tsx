@@ -1,8 +1,21 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import { useRouter } from "next/navigation";
+
+function dashboardPathForRole(role: string | null): string {
+  switch (role) {
+    case "investor":
+      return "/investor";
+    case "connector":
+      return "/connector";
+    default:
+      return "/startup";
+  }
+}
 
 export default function SignupPage() {
+  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [result, setResult] = useState<string | null>(null);
@@ -10,19 +23,41 @@ export default function SignupPage() {
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setResult(null);
+    const selectedRole =
+      typeof window !== "undefined"
+        ? window.sessionStorage.getItem("metatron_role")
+        : null;
     try {
       const res = await fetch(
         `${process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000"}/auth/signup`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email, password })
+          body: JSON.stringify({
+            email,
+            password,
+            ...(selectedRole ? { role: selectedRole } : {})
+          })
         }
       );
-      const data = await res.json();
+      const text = await res.text();
+      let data: { token?: string } = {};
+      try {
+        data = JSON.parse(text) as { token?: string };
+      } catch {
+        /* non-JSON error body */
+      }
+      if (!res.ok) {
+        setResult(text.trim() || "Signup failed");
+        return;
+      }
+      if (!data.token) {
+        setResult("Signup failed: no token returned");
+        return;
+      }
       window.localStorage.setItem("metatron_token", data.token);
-      setResult("Signed up. Token stored locally.");
-    } catch (err) {
+      router.push(dashboardPathForRole(selectedRole));
+    } catch {
       setResult("Signup failed");
     }
   }

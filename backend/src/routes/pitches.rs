@@ -2,12 +2,15 @@ use std::sync::Arc;
 
 use axum::{
     extract::State,
+    routing::post,
+    Json, Router,
+};
+use axum_extra::{
     headers::{authorization::Bearer, Authorization},
-    routing::{get, post},
-    Json, Router, TypedHeader,
+    TypedHeader,
 };
 use serde::{Deserialize, Serialize};
-use sqlx::PgPool;
+use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
 use crate::auth::Claims;
@@ -46,17 +49,17 @@ async fn create_pitch(
 
     let pitch_id = Uuid::new_v4();
 
-    sqlx::query!(
+    sqlx::query(
         r#"
         INSERT INTO pitches (id, organization_id, created_by, title, description)
         VALUES ($1, $2, $3, $4, $5)
         "#,
-        pitch_id,
-        org_id,
-        user_id,
-        body.title,
-        body.description
     )
+    .bind(pitch_id)
+    .bind(org_id)
+    .bind(user_id)
+    .bind(&body.title)
+    .bind(&body.description)
     .execute(&state.db)
     .await
     .map_err(internal)?;
@@ -80,27 +83,31 @@ async fn list_pitches(
         .await
         .map_err(internal)?;
 
-    let rows = sqlx::query!(
+    let rows = sqlx::query(
         r#"
         SELECT id, title, description
         FROM pitches
         WHERE organization_id = $1
         ORDER BY created_at DESC
         "#,
-        org_id
     )
+    .bind(org_id)
     .fetch_all(&state.db)
     .await
     .map_err(internal)?;
 
     let items = rows
         .into_iter()
-        .map(|r| PitchResponse {
-            id: r.id,
-            title: r.title,
-            description: r.description,
+        .map(|r| {
+            Ok(PitchResponse {
+                id: r.try_get::<Uuid, _>("id").map_err(internal)?,
+                title: r.try_get::<String, _>("title").map_err(internal)?,
+                description: r
+                    .try_get::<Option<String>, _>("description")
+                    .map_err(internal)?,
+            })
         })
-        .collect();
+        .collect::<Result<Vec<_>, _>>()?;
 
     Ok(Json(items))
 }
@@ -124,45 +131,47 @@ fn decode_claims(
 }
 
 async fn ensure_user_org(db: &PgPool, user_id: Uuid) -> Result<Uuid, sqlx::Error> {
-    let row = sqlx::query!(
+    let row = sqlx::query(
         r#"
         SELECT organization_id, email
         FROM users
         WHERE id = $1
         "#,
-        user_id
     )
+    .bind(user_id)
     .fetch_one(db)
     .await?;
 
-    if let Some(org_id) = row.organization_id {
+    let org_existing: Option<Uuid> = row.try_get::<Option<Uuid>, _>("organization_id")?;
+    if let Some(org_id) = org_existing {
         return Ok(org_id);
     }
 
+    let email: String = row.try_get::<String, _>("email")?;
     let org_id = Uuid::new_v4();
-    let name = format!("{} org", row.email);
+    let name = format!("{} org", email);
 
-    sqlx::query!(
+    sqlx::query(
         r#"
         INSERT INTO organizations (id, name, country_code)
         VALUES ($1, $2, $3)
         "#,
-        org_id,
-        name,
-        "US"
     )
+    .bind(org_id)
+    .bind(&name)
+    .bind("US")
     .execute(db)
     .await?;
 
-    sqlx::query!(
+    sqlx::query(
         r#"
         UPDATE users
         SET organization_id = $1
         WHERE id = $2
         "#,
-        org_id,
-        user_id
     )
+    .bind(org_id)
+    .bind(user_id)
     .execute(db)
     .await?;
 

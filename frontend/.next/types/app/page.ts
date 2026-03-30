@@ -1,4 +1,4 @@
-// File: /Users/nickallison/Documents/GitHub/metatron-connect-base44/frontend/app/page.tsx
+// File: /Users/nickallison/Documents/GitHub/kevin_metatron/frontend/app/page.tsx
 import * as entry from '../../../app/page.js'
 import type { ResolvingMetadata, ResolvingViewport } from 'next/dist/lib/metadata/types/metadata-interface.js'
 

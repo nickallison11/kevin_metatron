@@ -1,6 +1,11 @@
 pub mod auth;
+pub mod calls;
 pub mod compliance;
+pub mod deals;
 pub mod investments;
+pub mod kevin;
+pub mod oauth;
 pub mod pitches;
 pub mod pools;
-
+pub mod profile;
+pub mod uploads;

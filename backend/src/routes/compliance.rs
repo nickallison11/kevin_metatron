@@ -1,9 +1,12 @@
+use std::sync::Arc;
+
 use axum::{routing::post, Json, Router};
 use serde::{Deserialize, Serialize};
 
-use crate::compliance::{MockAmlProvider, MockKycProvider};
+use crate::compliance::{AmlProvider, KycProvider, MockAmlProvider, MockKycProvider};
+use crate::state::AppState;
 
-pub fn router() -> Router {
+pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/kyc/start", post(start_kyc))
         .route("/aml/start", post(start_aml))

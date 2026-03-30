@@ -1,3 +1,11 @@
 [workspace]
-members = ["backend", "solana/metatron_core"]
+resolver = "2"
+# Backend only: Solana 1.x (metatron_core) and sqlx/rustls need incompatible `zeroize` ranges, so the
+# on-chain crate stays out of the workspace (see `exclude`) and is built with
+# `cargo build --manifest-path solana/metatron_core/Cargo.toml`.
+members = ["backend"]
+exclude = ["solana/metatron_core"]
 
+[workspace.dependencies]
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0"

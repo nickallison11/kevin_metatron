@@ -1,10 +1,13 @@
-use axum::Router;
-use std::net::SocketAddr;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 mod app;
-mod state;
+mod auth;
+mod claude;
+mod compliance;
+mod identity;
+mod routes;
 mod settings;
+mod state;
 
 #[tokio::main]
 async fn main() {
@@ -23,11 +26,10 @@ async fn main() {
     let app = app::build_app(&settings, shared_state.clone());
 
     let port = settings.port;
-    let addr = SocketAddr::from(([0, 0, 0, 0], port));
-    tracing::info!("listening on {}", addr);
-    axum::Server::bind(&addr)
-        .serve(app.into_make_service())
+    let addr = std::net::SocketAddr::from(([0, 0, 0, 0], port));
+    let listener = tokio::net::TcpListener::bind(addr)
         .await
-        .unwrap();
+        .expect("bind listen address");
+    tracing::info!("listening on {}", addr);
+    axum::serve(listener, app).await.expect("server error");
 }
-

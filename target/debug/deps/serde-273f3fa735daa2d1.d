@@ -1,0 +1,14 @@
+/Users/nickallison/Documents/GitHub/kevin_metatron/target/debug/deps/serde-273f3fa735daa2d1.d: /Users/nickallison/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /Users/nickallison/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /Users/nickallison/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /Users/nickallison/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /Users/nickallison/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /Users/nickallison/Documents/GitHub/kevin_metatron/target/debug/build/serde-23fcc076a5b7eed8/out/private.rs
+
+/Users/nickallison/Documents/GitHub/kevin_metatron/target/debug/deps/libserde-273f3fa735daa2d1.rlib: /Users/nickallison/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /Users/nickallison/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /Users/nickallison/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /Users/nickallison/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /Users/nickallison/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /Users/nickallison/Documents/GitHub/kevin_metatron/target/debug/build/serde-23fcc076a5b7eed8/out/private.rs
+
+/Users/nickallison/Documents/GitHub/kevin_metatron/target/debug/deps/libserde-273f3fa735daa2d1.rmeta: /Users/nickallison/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /Users/nickallison/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /Users/nickallison/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /Users/nickallison/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /Users/nickallison/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /Users/nickallison/Documents/GitHub/kevin_metatron/target/debug/build/serde-23fcc076a5b7eed8/out/private.rs
+
+/Users/nickallison/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs:
+/Users/nickallison/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs:
+/Users/nickallison/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs:
+/Users/nickallison/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs:
+/Users/nickallison/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs:
+/Users/nickallison/Documents/GitHub/kevin_metatron/target/debug/build/serde-23fcc076a5b7eed8/out/private.rs:
+
+# env-dep:OUT_DIR=/Users/nickallison/Documents/GitHub/kevin_metatron/target/debug/build/serde-23fcc076a5b7eed8/out

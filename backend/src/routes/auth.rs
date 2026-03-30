@@ -21,6 +21,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/signup", post(signup))
         .route("/login", post(login))
         .route("/role", put(set_role))
+        .route("/ai-settings", put(set_ai_settings))
 }
 
 #[derive(Deserialize)]
@@ -122,6 +123,47 @@ async fn set_role(
         "#,
     )
     .bind(auth::signup_role_from_frontend(Some(&body.role)))
+    .bind(authed.id)
+    .execute(&state.db)
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string()))?;
+
+    Ok(StatusCode::OK)
+}
+
+#[derive(Deserialize)]
+pub struct AiSettingsRequest {
+    pub provider: String,
+    pub api_key: String,
+    pub model: String,
+}
+
+async fn set_ai_settings(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+    Json(body): Json<AiSettingsRequest>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let authed = require_user(&state, bearer.token()).await?;
+
+    if !authed.is_pro {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "pro subscription required".to_string(),
+        ));
+    }
+
+    sqlx::query(
+        r#"
+        UPDATE users
+        SET custom_ai_provider = $1,
+            custom_ai_api_key = $2,
+            custom_ai_model = $3
+        WHERE id = $4
+        "#,
+    )
+    .bind(body.provider)
+    .bind(body.api_key)
+    .bind(body.model)
     .bind(authed.id)
     .execute(&state.db)
     .await

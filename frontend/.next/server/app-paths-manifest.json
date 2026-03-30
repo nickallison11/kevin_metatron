@@ -1,9 +1,6 @@
 {
+  "/page": "app/page.js",
   "/login/page": "app/login/page.js",
   "/auth/callback/page": "app/auth/callback/page.js",
-  "/page": "app/page.js",
-  "/auth/signup/page": "app/auth/signup/page.js",
-  "/(dashboards)/startup/profile/page": "app/(dashboards)/startup/profile/page.js",
-  "/(dashboards)/startup/page": "app/(dashboards)/startup/page.js",
-  "/(dashboards)/startup/calls/page": "app/(dashboards)/startup/calls/page.js"
+  "/(dashboards)/startup/page": "app/(dashboards)/startup/page.js"
 }

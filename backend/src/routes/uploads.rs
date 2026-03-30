@@ -152,7 +152,7 @@ fn is_safe_stored_name(name: &str) -> bool {
         && ext.chars().all(|c| c.is_ascii_alphanumeric())
 }
 
-/// Used by claude context builder (optional).
+/// Used by Kevin / AI context builder (optional).
 #[allow(dead_code)]
 pub fn file_url_for_stored_name(state: &AppState, stored: &str) -> String {
     format!("{}/files/{}", state.public_base_url, stored)

@@ -1,148 +1,366 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { API_BASE, authJsonHeaders } from "@/lib/api";
 
 type Msg = { role: "user" | "assistant"; content: string };
 
+const UPGRADE_MESSAGE =
+  "Kevin is available on the Pro plan. Upgrade to unlock AI powered by Claude.";
+
 export default function KevinChat() {
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
-  const [messages, setMessages] = useState<Msg[]>([
-    {
-      role: "assistant",
-      content:
-        "Hi — I'm Kevin, your Metatron copilot. Ask about pitches, intros, or your raise."
-    }
-  ]);
+  const [messages, setMessages] = useState<Msg[]>([]);
   const [loading, setLoading] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-  const bottom = useRef<HTMLDivElement>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
 
-  const token =
-    typeof window !== "undefined"
-      ? window.localStorage.getItem("metatron_token")
-      : null;
+  const token = useMemo(() => {
+    if (typeof window === "undefined") return null;
+    return window.localStorage.getItem("metatron_token");
+  }, []);
 
   useEffect(() => {
-    bottom.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, open]);
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, loading, open]);
 
   const send = useCallback(async () => {
     const t = input.trim();
     if (!t || loading) return;
-    setErr(null);
-    const next: Msg[] = [...messages, { role: "user", content: t }];
-    setMessages(next);
+
+    const nextHistory: Msg[] = [...messages, { role: "user", content: t }];
+    setMessages(nextHistory);
     setInput("");
     setLoading(true);
+
     try {
       const res = await fetch(`${API_BASE}/api/kevin/chat`, {
         method: "POST",
         headers: authJsonHeaders(token),
         body: JSON.stringify({
-          messages: next.map((m) => ({ role: m.role, content: m.content }))
+          messages: nextHistory.map((m) => ({
+            role: m.role,
+            content: m.content
+          }))
         })
       });
-      const raw = await res.text();
-      if (!res.ok) {
-        throw new Error(raw || "Chat failed");
+
+      // Backend uses 503 when AI isn't configured (e.g. free tier).
+      if (res.status === 503) {
+        setMessages((m) => [
+          ...m,
+          {
+            role: "assistant",
+            content: UPGRADE_MESSAGE
+          }
+        ]);
+        return;
       }
+
+      const raw = await res.text();
+      if (!res.ok) throw new Error(raw || "Chat failed");
+
       let data: { reply?: string } = {};
       try {
         data = JSON.parse(raw) as { reply?: string };
       } catch {
         throw new Error("Invalid response");
       }
-      const reply = data.reply ?? "";
-      setMessages((m) => [...m, { role: "assistant", content: reply || "…" }]);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "Chat failed";
-      setErr(msg);
+
       setMessages((m) => [
         ...m,
         {
           role: "assistant",
-          content:
-            "Sorry — I couldn't complete that. If the server has no ANTHROPIC_API_KEY, Kevin cannot call Claude."
+          content: data.reply ?? "…"
+        }
+      ]);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Chat failed";
+      setMessages((m) => [
+        ...m,
+        {
+          role: "assistant",
+          content: `Sorry — I couldn't complete that. ${msg}`
         }
       ]);
     } finally {
       setLoading(false);
     }
-  }, [input, loading, messages, token]);
+  }, [API_BASE, input, loading, messages, token]);
 
   return (
     <>
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="fixed bottom-6 right-6 z-[200] flex h-14 w-14 items-center justify-center rounded-full bg-metatron-accent text-white shadow-[0_8px_32px_rgba(108,92,231,0.45)] hover:bg-metatron-accent-hover transition-all hover:scale-105"
         aria-label={open ? "Close Kevin chat" : "Open Kevin chat"}
+        style={{
+          width: 56,
+          height: 56,
+          bottom: 24,
+          right: 24,
+          position: "fixed",
+          zIndex: 200,
+          borderRadius: 9999,
+          border: "none",
+          background: "#6c5ce7",
+          color: "#ffffff",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          boxShadow: "0 8px 32px rgba(108,92,231,0.45)",
+          cursor: "pointer"
+        }}
       >
-        <span className="text-xl font-semibold">K</span>
+        <svg
+          width="22"
+          height="22"
+          viewBox="0 0 24 24"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+          aria-hidden="true"
+        >
+          <path
+            d="M4 6.5C4 5.11929 5.11929 4 6.5 4H17.5C18.8807 4 20 5.11929 20 6.5V13C20 14.3807 18.8807 15.5 17.5 15.5H10L6 19V15.5H6.5C5.11929 15.5 4 14.3807 4 13V6.5Z"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinejoin="round"
+          />
+          <path
+            d="M8 9H16"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+          />
+        </svg>
       </button>
 
       {open && (
         <div
-          className="fixed bottom-24 right-6 z-[200] flex w-[min(100vw-2rem,380px)] flex-col rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] shadow-[0_24px_64px_rgba(0,0,0,0.45)] overflow-hidden"
-          style={{ maxHeight: "min(70vh, 520px)" }}
+          style={{
+            position: "fixed",
+            zIndex: 200,
+            right: 24,
+            bottom: 88,
+            width: 380,
+            maxWidth: "calc(100vw - 2rem)",
+            height: 500,
+            maxHeight: "min(70vh, 520px)",
+            background: "#16161f",
+            border: "1px solid rgba(255,255,255,0.06)",
+            borderRadius: 12,
+            backdropFilter: "blur(12px)",
+            WebkitBackdropFilter: "blur(12px)",
+            boxShadow: "0 24px 64px rgba(0,0,0,0.45)",
+            overflow: "hidden",
+            display: "flex",
+            flexDirection: "column"
+          }}
         >
-          <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3">
+          <div
+            style={{
+              borderBottom: "1px solid rgba(255,255,255,0.06)",
+              padding: "12px 16px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between"
+            }}
+          >
             <div>
-              <p className="text-sm font-semibold text-[var(--text)]">Kevin</p>
-              <p className="text-[11px] text-[var(--text-muted)]">
-                Metatron copilot
-              </p>
+              <div
+                style={{
+                  fontFamily: "var(--font-dm-sans), DM Sans, sans-serif",
+                  fontSize: 14,
+                  fontWeight: 600,
+                  color: "#e8e8ed"
+                }}
+              >
+                Kevin
+              </div>
+              <div
+                style={{
+                  fontSize: 11,
+                  color: "#8888a0",
+                  fontFamily:
+                    "var(--font-jetbrains-mono), 'JetBrains Mono', monospace"
+                }}
+              >
+                AI copilot
+              </div>
             </div>
+
             <button
               type="button"
               onClick={() => setOpen(false)}
-              className="text-[var(--text-muted)] hover:text-[var(--text)] text-lg leading-none px-1"
               aria-label="Close"
+              style={{
+                width: 28,
+                height: 28,
+                borderRadius: 8,
+                border: "none",
+                background: "transparent",
+                color: "#8888a0",
+                fontSize: 20,
+                lineHeight: "28px",
+                cursor: "pointer"
+              }}
             >
               ×
             </button>
           </div>
-          <div className="flex-1 overflow-y-auto px-3 py-3 space-y-3 text-sm">
+
+          <div
+            style={{
+              flex: 1,
+              overflowY: "auto",
+              padding: "10px 12px",
+              display: "flex",
+              flexDirection: "column",
+              gap: 12,
+              color: "#e8e8ed"
+            }}
+          >
             {messages.map((m, i) => (
               <div
                 key={i}
-                className={
-                  m.role === "user"
-                    ? "ml-6 rounded-lg bg-metatron-accent/12 border border-metatron-accent/20 px-3 py-2 text-[var(--text)]"
-                    : "mr-4 rounded-lg bg-[color-mix(in_srgb,var(--bg)_70%,transparent)] border border-[var(--border)] px-3 py-2 text-[var(--text)] whitespace-pre-wrap"
-                }
+                style={{
+                  display: "flex",
+                  justifyContent:
+                    m.role === "user" ? "flex-end" : "flex-start"
+                }}
               >
-                {m.content}
+                <div
+                  style={{
+                    maxWidth: "85%",
+                    padding: "10px 12px",
+                    borderRadius: 12,
+                    background: m.role === "user" ? "#6c5ce7" : "#1e1e2a",
+                    color: m.role === "user" ? "#ffffff" : "#e8e8ed",
+                    whiteSpace: "pre-wrap",
+                    lineHeight: 1.4
+                  }}
+                >
+                  {m.content}
+                </div>
               </div>
             ))}
+
             {loading && (
-              <p className="text-xs text-[var(--text-muted)] px-1">Thinking…</p>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "flex-start",
+                  marginTop: 2
+                }}
+              >
+                <div
+                  style={{
+                    maxWidth: "85%",
+                    padding: "10px 12px",
+                    borderRadius: 12,
+                    background: "#1e1e2a",
+                    color: "#e8e8ed",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10
+                  }}
+                >
+                  <span
+                    style={{
+                      fontSize: 12,
+                      color: "#8888a0"
+                    }}
+                  >
+                    Thinking
+                  </span>
+                  <span className="kevinchat-dots" aria-hidden="true">
+                    <span />
+                    <span />
+                    <span />
+                  </span>
+                </div>
+              </div>
             )}
-            {err && (
-              <p className="text-xs text-red-400/90 px-1">{err}</p>
-            )}
-            <div ref={bottom} />
+
+            <div ref={bottomRef} />
           </div>
-          <div className="border-t border-[var(--border)] p-3 flex gap-2">
+
+          <div
+            style={{
+              padding: 12,
+              borderTop: "1px solid rgba(255,255,255,0.06)",
+              display: "flex",
+              gap: 10
+            }}
+          >
             <input
               className="input-metatron flex-1 text-sm py-2.5"
               placeholder="Message Kevin…"
               value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && (e.preventDefault(), send())}
               disabled={loading}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key !== "Enter") return;
+                e.preventDefault();
+                send();
+              }}
+              style={{
+                color: "#e8e8ed",
+                background: "#0a0a0f"
+              }}
             />
             <button
               type="button"
               onClick={send}
               disabled={loading || !input.trim()}
-              className="shrink-0 rounded-lg bg-metatron-accent px-4 py-2 text-xs font-semibold text-white disabled:opacity-40 hover:bg-metatron-accent-hover"
+              style={{
+                borderRadius: 12,
+                padding: "10px 16px",
+                background: "#6c5ce7",
+                color: "#ffffff",
+                fontSize: 12,
+                fontWeight: 600,
+                border: "none",
+                cursor: loading || !input.trim() ? "not-allowed" : "pointer",
+                opacity: loading || !input.trim() ? 0.4 : 1
+              }}
             >
               Send
             </button>
           </div>
+
+          <style jsx>{`
+            .kevinchat-dots {
+              display: inline-flex;
+              align-items: center;
+              gap: 3px;
+            }
+            .kevinchat-dots span {
+              width: 6px;
+              height: 6px;
+              border-radius: 999px;
+              background: rgba(232, 232, 237, 0.85);
+              animation: kevinchat-bounce 1.1s infinite ease-in-out;
+            }
+            .kevinchat-dots span:nth-child(2) {
+              animation-delay: 0.15s;
+            }
+            .kevinchat-dots span:nth-child(3) {
+              animation-delay: 0.3s;
+            }
+            @keyframes kevinchat-bounce {
+              0%,
+              80%,
+              100% {
+                transform: translateY(0);
+                opacity: 0.6;
+              }
+              40% {
+                transform: translateY(-4px);
+                opacity: 1;
+              }
+            }
+          `}</style>
         </div>
       )}
     </>

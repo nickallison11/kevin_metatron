@@ -16,7 +16,7 @@ use sqlx::types::Json as SqlxJson;
 use tokio::io::AsyncWriteExt;
 use uuid::Uuid;
 
-use crate::claude::{complete_json_object, mock_call_analysis_json};
+use crate::ai::{complete_json_object, mock_call_analysis_json};
 use crate::identity::{require_role, AuthedUser};
 use crate::state::AppState;
 
@@ -164,15 +164,24 @@ async fn upload_call(
 
     let transcript = mock_transcribe(&original);
 
-    let analysis = if let Some(ref key) = state.anthropic_api_key {
+    let analysis = if let Some(ref key) = state.ai_api_key {
         let system = "You are an expert venture analyst. Read call transcripts and extract structured diligence signals.";
         let prompt = format!(
             "Transcript:\n{transcript}\n\nReturn JSON with keys: summary (string), key_takeaways (array of strings), action_items (array of strings), investor_sentiment (one of: very_positive, positive, neutral, skeptical, negative)."
         );
-        match complete_json_object(&state.http_client, key, system, &prompt).await {
+        match complete_json_object(
+            &state.http_client,
+            "gemini",
+            key,
+            "gemini-2.0-flash",
+            system,
+            &prompt,
+        )
+        .await
+        {
             Ok(v) => v,
             Err(e) => {
-                tracing::warn!("claude analysis failed: {e}");
+                tracing::warn!("gemini analysis failed: {e}");
                 mock_call_analysis_json(&transcript)
             }
         }

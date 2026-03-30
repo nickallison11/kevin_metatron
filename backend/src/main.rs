@@ -2,7 +2,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 mod app;
 mod auth;
-mod claude;
+mod ai;
 mod compliance;
 mod identity;
 mod routes;

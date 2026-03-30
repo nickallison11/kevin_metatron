@@ -7,7 +7,7 @@ use axum_extra::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::claude::complete_chat;
+use crate::ai::complete_chat;
 use crate::identity::require_user;
 use crate::state::AppState;
 
@@ -37,14 +37,6 @@ async fn chat(
     Json(body): Json<ChatRequest>,
 ) -> Result<Json<ChatResponse>, (axum::http::StatusCode, String)> {
     let user = require_user(&state, bearer.token()).await?;
-
-    let key = state
-        .anthropic_api_key
-        .as_ref()
-        .ok_or((
-            axum::http::StatusCode::SERVICE_UNAVAILABLE,
-            "ANTHROPIC_API_KEY not configured".to_string(),
-        ))?;
 
     let context = build_context(&state, user.id, &user.role).await;
 
@@ -76,9 +68,48 @@ Stay in character as Kevin. If asked about capabilities you don't have, say what
         ));
     }
 
-    let reply = complete_chat(&state.http_client, key, &system, msgs)
-        .await
-        .map_err(|e| (axum::http::StatusCode::BAD_GATEWAY, e))?;
+    let (provider, api_key, model) = if user.is_pro {
+        // Pro custom routing: only the custom API key is required; provider/model can default.
+        if let Some(custom_key) = user.custom_ai_api_key.as_deref() {
+            let provider = user
+                .custom_ai_provider
+                .as_deref()
+                .unwrap_or("openai");
+            let model = user.custom_ai_model.as_deref().unwrap_or("gpt-4o-mini");
+            (provider, custom_key, model)
+        } else if let Some(key) = state.anthropic_api_key.as_deref() {
+            (
+                "anthropic",
+                key,
+                "claude-haiku-4-5-20251001",
+            )
+        } else if let Some(key) = state.ai_api_key.as_deref() {
+            ("gemini", key, "gemini-2.5-flash-lite")
+        } else {
+            return Err((
+                axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                "AI not configured".to_string(),
+            ));
+        }
+    } else if let Some(key) = state.ai_api_key.as_deref() {
+        ("gemini", key, "gemini-2.5-flash-lite")
+    } else {
+        return Err((
+            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            "AI not configured".to_string(),
+        ));
+    };
+
+    let reply = complete_chat(
+        &state.http_client,
+        provider,
+        api_key,
+        model,
+        &system,
+        msgs,
+    )
+    .await
+    .map_err(|e| (axum::http::StatusCode::BAD_GATEWAY, e))?;
 
     Ok(Json(ChatResponse { reply }))
 }

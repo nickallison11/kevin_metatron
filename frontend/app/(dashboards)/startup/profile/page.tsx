@@ -1,9 +1,9 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { API_BASE, authHeaders, authJsonHeaders } from "@/lib/api";
 
-type Profile = {
+type ApiProfile = {
   company_name?: string | null;
   one_liner?: string | null;
   stage?: string | null;
@@ -13,18 +13,97 @@ type Profile = {
   pitch_deck_url?: string | null;
 };
 
+type Profile = {
+  company_name?: string | null;
+  one_liner?: string | null;
+  stage?: string | null;
+  // Stored as a tag array in the UI; backend expects TEXT (comma-separated).
+  sectors?: string[];
+  country?: string | null;
+  website?: string | null;
+  pitch_deck_url?: string | null;
+};
+
 const STAGES = [
+  { v: "idea", label: "Idea" },
   { v: "pre-seed", label: "Pre-seed" },
   { v: "seed", label: "Seed" },
-  { v: "series-a", label: "Series A" }
+  { v: "series-a", label: "Series A" },
+  { v: "series-b", label: "Series B" },
+  { v: "series-c", label: "Series C" },
+  { v: "growth", label: "Growth" },
+  { v: "profitable", label: "Profitable" },
 ];
+
+const COUNTRIES = [
+  { code: "US", label: "United States" },
+  { code: "GB", label: "United Kingdom" },
+  { code: "AU", label: "Australia" },
+  { code: "CA", label: "Canada" },
+  { code: "ZA", label: "South Africa" },
+  { code: "KE", label: "Kenya" },
+  { code: "NG", label: "Nigeria" },
+  { code: "IN", label: "India" },
+  { code: "SG", label: "Singapore" },
+  { code: "HK", label: "Hong Kong" },
+  { code: "DE", label: "Germany" },
+  { code: "FR", label: "France" },
+  { code: "NL", label: "Netherlands" },
+  { code: "SE", label: "Sweden" },
+  { code: "AE", label: "United Arab Emirates" },
+  { code: "RW", label: "Rwanda" },
+  { code: "PA", label: "Panama" },
+];
+
+function transformFromApi(api: ApiProfile): Profile {
+  const sectorString = api.sector ?? "";
+  const sectors =
+    sectorString.trim().length > 0
+      ? sectorString
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : [];
+
+  return {
+    company_name: api.company_name ?? null,
+    one_liner: api.one_liner ?? null,
+    stage: api.stage ?? null,
+    sectors,
+    country: api.country ?? null,
+    website: api.website ?? null,
+    pitch_deck_url: api.pitch_deck_url ?? null,
+  };
+}
+
+function transformToApi(profile: Profile): ApiProfile {
+  return {
+    company_name: profile.company_name ?? null,
+    one_liner: profile.one_liner ?? null,
+    stage: profile.stage ?? null,
+    sector:
+      (profile.sectors ?? []).length > 0
+        ? (profile.sectors ?? []).join(", ")
+        : null,
+    country: profile.country ?? null,
+    website: profile.website ?? null,
+    pitch_deck_url: profile.pitch_deck_url ?? null,
+  };
+}
+
+function normalizeSectorTag(s: string): string {
+  return s.trim();
+}
 
 export default function StartupProfilePage() {
   const [token, setToken] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [profile, setProfile] = useState<Profile>({});
+  const [profile, setProfile] = useState<Profile>({ sectors: [] });
+  const [sectorDraft, setSectorDraft] = useState("");
+
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     setToken(window.localStorage.getItem("metatron_token"));
@@ -42,7 +121,7 @@ export default function StartupProfilePage() {
         });
         if (res.ok) {
           const data = await res.json();
-          setProfile(data);
+          setProfile(transformFromApi(data as ApiProfile));
         }
       } catch {
         setMsg("Could not load profile.");
@@ -64,11 +143,11 @@ export default function StartupProfilePage() {
       const res = await fetch(`${API_BASE}/profile`, {
         method: "PUT",
         headers: authJsonHeaders(token),
-        body: JSON.stringify(profile)
+        body: JSON.stringify(transformToApi(profile))
       });
       const text = await res.text();
       if (!res.ok) throw new Error(text || "Save failed");
-      setProfile(JSON.parse(text));
+      setProfile(transformFromApi(JSON.parse(text) as ApiProfile));
       setMsg("Saved.");
     } catch (err) {
       setMsg(err instanceof Error ? err.message : "Save failed");
@@ -104,6 +183,29 @@ export default function StartupProfilePage() {
       setMsg("Upload failed.");
     }
     e.target.value = "";
+  }
+
+  function addSectorsFromRaw(raw: string) {
+    const parts = raw
+      .split(",")
+      .map((s) => normalizeSectorTag(s))
+      .filter(Boolean);
+    if (parts.length === 0) return;
+
+    setProfile((p) => {
+      const current = p.sectors ?? [];
+      const next: string[] = [...current];
+      const existingLower = new Set(next.map((x) => x.toLowerCase()));
+      for (const tag of parts) {
+        const key = tag.toLowerCase();
+        if (!existingLower.has(key)) {
+          existingLower.add(key);
+          next.push(tag);
+        }
+      }
+      return { ...p, sectors: next };
+    });
+    setSectorDraft("");
   }
 
   return (
@@ -167,14 +269,52 @@ export default function StartupProfilePage() {
                 <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
                   Sector
                 </span>
-                <input
-                  className="input-metatron"
-                  placeholder="e.g. Fintech"
-                  value={profile.sector ?? ""}
-                  onChange={(e) =>
-                    setProfile((p) => ({ ...p, sector: e.target.value }))
-                  }
-                />
+                <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-3 space-y-2">
+                  <div className="flex flex-wrap gap-2">
+                    {(profile.sectors ?? []).map((s) => (
+                      <button
+                        key={s}
+                        type="button"
+                        onClick={() => {
+                          setProfile((p) => ({
+                            ...p,
+                            sectors: (p.sectors ?? []).filter(
+                              (x) => x.toLowerCase() !== s.toLowerCase()
+                            ),
+                          }));
+                        }}
+                        className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--bg-card)] px-3 py-1 text-xs text-[var(--text)] hover:border-metatron-accent/30"
+                        aria-label={`Remove sector ${s}`}
+                      >
+                        {s}
+                        <span aria-hidden className="text-[var(--text-muted)]">
+                          ×
+                        </span>
+                      </button>
+                    ))}
+                    {(profile.sectors ?? []).length === 0 && (
+                      <span className="text-xs text-[var(--text-muted)]">
+                        Add sectors (press Enter or comma)
+                      </span>
+                    )}
+                  </div>
+
+                  <input
+                    className="input-metatron"
+                    placeholder="e.g. Fintech"
+                    value={sectorDraft}
+                    onChange={(e) => setSectorDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === ",") {
+                        e.preventDefault();
+                        addSectorsFromRaw(sectorDraft);
+                      }
+                    }}
+                  />
+                  <div className="text-[11px] text-[var(--text-muted)]">
+                    Suggestions won’t be stored — press Enter or comma to add.
+                  </div>
+                </div>
               </label>
             </div>
             <div className="grid sm:grid-cols-2 gap-4">
@@ -182,18 +322,23 @@ export default function StartupProfilePage() {
                 <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
                   Country (ISO-2)
                 </span>
-                <input
+                <select
                   className="input-metatron"
-                  placeholder="US"
-                  maxLength={2}
                   value={profile.country ?? ""}
                   onChange={(e) =>
                     setProfile((p) => ({
                       ...p,
-                      country: e.target.value.toUpperCase()
+                      country: e.target.value || null,
                     }))
                   }
-                />
+                >
+                  <option value="">Select country…</option>
+                  {COUNTRIES.map((c) => (
+                    <option key={c.code} value={c.code}>
+                      {c.label} ({c.code})
+                    </option>
+                  ))}
+                </select>
               </label>
               <label className="block space-y-1">
                 <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
@@ -201,12 +346,23 @@ export default function StartupProfilePage() {
                 </span>
                 <input
                   className="input-metatron"
-                  type="url"
-                  placeholder="https://"
+                  type="text"
+                  placeholder="yoursite.com"
                   value={profile.website ?? ""}
                   onChange={(e) =>
                     setProfile((p) => ({ ...p, website: e.target.value }))
                   }
+                  onBlur={(e) => {
+                    const v = e.target.value.trim();
+                    if (!v) {
+                      setProfile((p) => ({ ...p, website: null }));
+                      return;
+                    }
+                    const startsWithHttp =
+                      v.startsWith("http://") || v.startsWith("https://");
+                    if (startsWithHttp) return;
+                    setProfile((p) => ({ ...p, website: `https://${v}` }));
+                  }}
                 />
               </label>
             </div>
@@ -219,11 +375,19 @@ export default function StartupProfilePage() {
                 profile.
               </p>
               <input
+                ref={fileInputRef}
                 type="file"
                 accept=".pdf,.ppt,.pptx,.key,.zip,application/pdf,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation"
                 onChange={onDeckUpload}
-                className="text-xs text-[var(--text-muted)] file:mr-3 file:rounded-lg file:border-0 file:bg-metatron-accent file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-white"
+                className="hidden"
               />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="rounded-lg bg-metatron-accent px-5 py-2.5 text-sm font-semibold text-white hover:bg-metatron-accent-hover hover:shadow-[0_4px_20px_rgba(108,92,231,0.3)] transition-all"
+              >
+                Upload deck
+              </button>
               {profile.pitch_deck_url && (
                 <a
                   href={profile.pitch_deck_url}

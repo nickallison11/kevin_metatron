@@ -1,0 +1,13 @@
+ALTER TABLE users
+    ADD COLUMN is_pro BOOLEAN NOT NULL DEFAULT FALSE;
+
+ALTER TABLE users
+    ADD COLUMN custom_ai_provider TEXT;
+
+ALTER TABLE users
+    ADD COLUMN custom_ai_api_key TEXT;
+
+ALTER TABLE users
+    ADD COLUMN custom_ai_model TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS is_pro BOOLEAN NOT NULL DEFAULT FALSE;
+

@@ -13,6 +13,7 @@ pub struct Settings {
     pub jwt_secret: String,
     pub upload_dir: PathBuf,
     pub public_base_url: String,
+    pub ai_api_key: Option<String>,
     pub anthropic_api_key: Option<String>,
     pub frontend_url: String,
     pub oauth_google: Option<OAuthProviderConfig>,
@@ -51,7 +52,12 @@ impl Settings {
         let upload_dir = env::var("BACKEND_UPLOAD_DIR").unwrap_or_else(|_| "./uploads".into());
         let public_base_url =
             env::var("BACKEND_PUBLIC_URL").unwrap_or_else(|_| "http://localhost:4000".into());
-        let anthropic_api_key = env::var("ANTHROPIC_API_KEY").ok();
+        let ai_api_key = env::var("GEMINI_API_KEY")
+            .ok()
+            .and_then(|s| (!s.trim().is_empty()).then_some(s));
+        let anthropic_api_key = env::var("ANTHROPIC_API_KEY")
+            .ok()
+            .and_then(|s| (!s.trim().is_empty()).then_some(s));
 
         let frontend_url =
             env::var("FRONTEND_URL").unwrap_or_else(|_| "http://localhost:3000".into());
@@ -62,6 +68,7 @@ impl Settings {
             jwt_secret,
             upload_dir: PathBuf::from(upload_dir),
             public_base_url: public_base_url.trim_end_matches('/').to_string(),
+            ai_api_key,
             anthropic_api_key,
             frontend_url: frontend_url.trim_end_matches('/').to_string(),
             oauth_google: Self::load_oauth_provider(

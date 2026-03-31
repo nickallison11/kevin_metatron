@@ -19,6 +19,7 @@ pub struct Settings {
     pub oauth_google: Option<OAuthProviderConfig>,
     pub oauth_linkedin: Option<OAuthProviderConfig>,
     pub oauth_github: Option<OAuthProviderConfig>,
+    pub telegram_bot_secret: Option<String>,
 }
 
 impl Settings {
@@ -61,6 +62,9 @@ impl Settings {
 
         let frontend_url =
             env::var("FRONTEND_URL").unwrap_or_else(|_| "http://localhost:3000".into());
+        let telegram_bot_secret = env::var("TELEGRAM_BOT_SECRET")
+            .ok()
+            .and_then(|s| (!s.trim().is_empty()).then_some(s));
 
         Ok(Self {
             database_url,
@@ -83,6 +87,7 @@ impl Settings {
                 "OAUTH_GITHUB_CLIENT_ID",
                 "OAUTH_GITHUB_CLIENT_SECRET",
             ),
+            telegram_bot_secret,
         })
     }
 }

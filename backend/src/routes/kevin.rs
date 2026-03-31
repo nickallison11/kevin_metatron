@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::ai::complete_chat;
 use crate::identity::require_user;
+use crate::memory;
 use crate::state::AppState;
 
 pub fn router() -> Router<Arc<AppState>> {
@@ -38,27 +39,14 @@ async fn chat(
 ) -> Result<Json<ChatResponse>, (axum::http::StatusCode, String)> {
     let user = require_user(&state, bearer.token()).await?;
 
-    let context = build_context(&state, user.id, &user.role).await;
-
-    let system = format!(
-        r#"You are Kevin, the AI copilot for Metatron (metatron.id).
-
-Metatron is the intelligence layer connecting founders, investors, and ecosystem partners globally. You help users navigate fundraising, diligence, pitch refinement, and relationship context. Be concise, practical, and professional.
-
-## Current user context
-{context}
-
-Stay in character as Kevin. If asked about capabilities you don't have, say what you can help with within Metatron (profiles, pitches, intros, call notes)."#
-    );
-
     let mut msgs: Vec<(String, String)> = Vec::new();
-    for m in body.messages {
+    for m in &body.messages {
         let role = if m.role == "assistant" {
             "assistant"
         } else {
             "user"
         };
-        msgs.push((role.to_string(), m.content));
+        msgs.push((role.to_string(), m.content.clone()));
     }
 
     if msgs.is_empty() {
@@ -67,6 +55,59 @@ Stay in character as Kevin. If asked about capabilities you don't have, say what
             "messages required".into(),
         ));
     }
+
+    let last_user_message = msgs
+        .iter()
+        .rev()
+        .find_map(|(role, content)| (role == "user").then_some(content.clone()))
+        .unwrap_or_default();
+
+    let recalled = if let Some(gemini_key) = state.ai_api_key.as_deref() {
+        if last_user_message.trim().is_empty() {
+            Vec::new()
+        } else {
+            match memory::recall_memories(
+                &state.db,
+                &state.http_client,
+                gemini_key,
+                user.id,
+                &last_user_message,
+            )
+            .await
+            {
+                Ok(v) => v,
+                Err(e) => {
+                    tracing::warn!("kevin memory recall failed: {e}");
+                    Vec::new()
+                }
+            }
+        }
+    } else {
+        Vec::new()
+    };
+
+    let context = build_context(&state, user.id, &user.role).await;
+    let memory_section = if recalled.is_empty() {
+        String::new()
+    } else {
+        let lines = recalled
+            .into_iter()
+            .map(|m| format!("- {m}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        format!("\n\n## Kevin's memory of this user\n{lines}")
+    };
+
+    let system = format!(
+        r#"You are Kevin, the AI copilot for Metatron (metatron.id).
+
+Metatron is the intelligence layer connecting founders, investors, and ecosystem partners globally. You help users navigate fundraising, diligence, pitch refinement, and relationship context. Be concise, practical, and professional.
+
+## Current user context
+{context}{memory_section}
+
+Stay in character as Kevin. If asked about capabilities you don't have, say what you can help with within Metatron (profiles, pitches, intros, call notes)."#
+    );
 
     let (provider, api_key, model) = if user.is_pro {
         // Pro custom routing: only the custom API key is required; provider/model can default.
@@ -110,6 +151,26 @@ Stay in character as Kevin. If asked about capabilities you don't have, say what
     )
     .await
     .map_err(|e| (axum::http::StatusCode::BAD_GATEWAY, e))?;
+
+    if let Some(gemini_key) = state.ai_api_key.clone() {
+        let db = state.db.clone();
+        let http = state.http_client.clone();
+        let uid = user.id;
+        let conversation = format!("User: {last_user_message}\nKevin: {reply}");
+        tokio::spawn(async move {
+            if let Err(e) = memory::store_memory(
+                &db,
+                &http,
+                &gemini_key,
+                uid,
+                &conversation,
+            )
+            .await
+            {
+                tracing::warn!("kevin memory store failed: {e}");
+            }
+        });
+    }
 
     Ok(Json(ChatResponse { reply }))
 }

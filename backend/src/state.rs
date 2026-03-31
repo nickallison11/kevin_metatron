@@ -21,6 +21,7 @@ pub struct AppState {
     pub oauth_google: Option<OAuthProviderConfig>,
     pub oauth_linkedin: Option<OAuthProviderConfig>,
     pub oauth_github: Option<OAuthProviderConfig>,
+    pub telegram_bot_secret: Option<String>,
     pub http_client: Client,
 }
 
@@ -54,6 +55,7 @@ impl AppState {
             oauth_google: settings.oauth_google.clone(),
             oauth_linkedin: settings.oauth_linkedin.clone(),
             oauth_github: settings.oauth_github.clone(),
+            telegram_bot_secret: settings.telegram_bot_secret.clone(),
             http_client,
         }))
     }

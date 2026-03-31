@@ -20,6 +20,7 @@ pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/signup", post(signup))
         .route("/login", post(login))
+        .route("/telegram", post(telegram_auth))
         .route("/role", put(set_role))
         .route("/ai-settings", put(set_ai_settings))
 }
@@ -36,6 +37,13 @@ pub struct SignupRequest {
 #[derive(Serialize)]
 pub struct AuthResponse {
     pub token: String,
+}
+
+#[derive(Deserialize)]
+pub struct TelegramAuthRequest {
+    pub telegram_id: String,
+    pub telegram_name: Option<String>,
+    pub bot_secret: String,
 }
 
 async fn signup(
@@ -99,6 +107,70 @@ async fn login(
                 "could not issue token".to_string(),
             )
         })?;
+
+    Ok(Json(AuthResponse { token }))
+}
+
+async fn telegram_auth(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<TelegramAuthRequest>,
+) -> Result<Json<AuthResponse>, (axum::http::StatusCode, String)> {
+    let expected = state.telegram_bot_secret.as_deref().ok_or((
+        axum::http::StatusCode::UNAUTHORIZED,
+        "bot auth not configured".to_string(),
+    ))?;
+
+    if body.bot_secret != expected {
+        return Err((
+            axum::http::StatusCode::UNAUTHORIZED,
+            "invalid bot secret".to_string(),
+        ));
+    }
+
+    let _ = &body.telegram_name;
+    let existing: Option<(uuid::Uuid, String)> = sqlx::query_as(
+        "SELECT id, role::text FROM users WHERE telegram_id = $1",
+    )
+    .bind(&body.telegram_id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|_| {
+        (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            "internal error".to_string(),
+        )
+    })?;
+
+    let (user_id, role) = if let Some((id, role)) = existing {
+        (id, role)
+    } else {
+        let generated_email = format!("tg_{}@telegram.local", body.telegram_id);
+        let user_id: uuid::Uuid = sqlx::query_scalar(
+            r#"
+            INSERT INTO users (email, telegram_id, role)
+            VALUES ($1, $2, 'STARTUP')
+            RETURNING id
+            "#,
+        )
+        .bind(generated_email)
+        .bind(&body.telegram_id)
+        .fetch_one(&state.db)
+        .await
+        .map_err(|_| {
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "internal error".to_string(),
+            )
+        })?;
+        (user_id, "STARTUP".to_string())
+    };
+
+    let token = auth::issue_jwt(&state, user_id, &role).map_err(|_| {
+        (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            "could not issue token".to_string(),
+        )
+    })?;
 
     Ok(Json(AuthResponse { token }))
 }

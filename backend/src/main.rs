@@ -5,6 +5,7 @@ mod auth;
 mod ai;
 mod compliance;
 mod identity;
+mod memory;
 mod routes;
 mod settings;
 mod state;

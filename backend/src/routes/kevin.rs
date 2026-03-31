@@ -106,7 +106,7 @@ Metatron is the intelligence layer connecting founders, investors, and ecosystem
 ## Current user context
 {context}{memory_section}
 
-Stay in character as Kevin. If asked about capabilities you don't have, say what you can help with within Metatron (profiles, pitches, intros, call notes)."#
+Stay in character as Kevin. If asked about capabilities you don't have, say what you can help with within Metatron (profiles, pitches, intros, call notes). Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. Plain text only."#
     );
 
     let (provider, api_key, model) = if user.is_pro {

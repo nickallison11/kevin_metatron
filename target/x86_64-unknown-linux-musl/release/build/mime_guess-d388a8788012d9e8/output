@@ -1,0 +1,1 @@
+cargo:rustc-env=MIME_TYPES_GENERATED_PATH=/Users/nickallison/Documents/GitHub/kevin_metatron/target/x86_64-unknown-linux-musl/release/build/mime_guess-d388a8788012d9e8/out/mime_types_generated.rs

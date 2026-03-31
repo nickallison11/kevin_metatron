@@ -1,0 +1,12 @@
+/Users/nickallison/Documents/GitHub/kevin_metatron/target/x86_64-unknown-linux-musl/release/deps/mime_guess-477f105030c0000e.d: /Users/nickallison/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mime_guess-2.0.5/src/lib.rs /Users/nickallison/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mime_guess-2.0.5/src/impl_bin_search.rs /Users/nickallison/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mime_guess-2.0.5/src/mime_types.rs /Users/nickallison/Documents/GitHub/kevin_metatron/target/x86_64-unknown-linux-musl/release/build/mime_guess-d388a8788012d9e8/out/mime_types_generated.rs
+
+/Users/nickallison/Documents/GitHub/kevin_metatron/target/x86_64-unknown-linux-musl/release/deps/libmime_guess-477f105030c0000e.rlib: /Users/nickallison/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mime_guess-2.0.5/src/lib.rs /Users/nickallison/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mime_guess-2.0.5/src/impl_bin_search.rs /Users/nickallison/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mime_guess-2.0.5/src/mime_types.rs /Users/nickallison/Documents/GitHub/kevin_metatron/target/x86_64-unknown-linux-musl/release/build/mime_guess-d388a8788012d9e8/out/mime_types_generated.rs
+
+/Users/nickallison/Documents/GitHub/kevin_metatron/target/x86_64-unknown-linux-musl/release/deps/libmime_guess-477f105030c0000e.rmeta: /Users/nickallison/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mime_guess-2.0.5/src/lib.rs /Users/nickallison/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mime_guess-2.0.5/src/impl_bin_search.rs /Users/nickallison/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mime_guess-2.0.5/src/mime_types.rs /Users/nickallison/Documents/GitHub/kevin_metatron/target/x86_64-unknown-linux-musl/release/build/mime_guess-d388a8788012d9e8/out/mime_types_generated.rs
+
+/Users/nickallison/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mime_guess-2.0.5/src/lib.rs:
+/Users/nickallison/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mime_guess-2.0.5/src/impl_bin_search.rs:
+/Users/nickallison/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mime_guess-2.0.5/src/mime_types.rs:
+/Users/nickallison/Documents/GitHub/kevin_metatron/target/x86_64-unknown-linux-musl/release/build/mime_guess-d388a8788012d9e8/out/mime_types_generated.rs:
+
+# env-dep:MIME_TYPES_GENERATED_PATH=/Users/nickallison/Documents/GitHub/kevin_metatron/target/x86_64-unknown-linux-musl/release/build/mime_guess-d388a8788012d9e8/out/mime_types_generated.rs

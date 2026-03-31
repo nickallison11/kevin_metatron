@@ -265,23 +265,25 @@ struct InvestorCtx {
 }
 
 fn strip_markdown(text: &str) -> String {
-    text.lines()
-        .map(|line| {
-            // Remove ** bold markers
-            let line = line.replace("**", "");
-            // Remove * italic markers (but not bullet points at start)
-            let line = if line.trim_start().starts_with("* ") {
-                // Convert bullet to dash-less plain text
-                line.trim_start().trim_start_matches("* ").to_string()
-            } else {
-                line.replace('*', "")
-            };
-            // Remove # headers
-            let line = line.trim_start_matches('#').trim_start().to_string();
-            // Remove __ underscore bold
-            let line = line.replace("__", "");
-            line
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
+    let mut result = String::new();
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '*' {
+            // skip all consecutive asterisks
+            while chars.peek() == Some(&'*') {
+                chars.next();
+            }
+            continue;
+        }
+        if c == '_' && chars.peek() == Some(&'_') {
+            chars.next();
+            continue;
+        }
+        if c == '#' {
+            // skip # characters at start of content or after newline
+            continue;
+        }
+        result.push(c);
+    }
+    result
 }

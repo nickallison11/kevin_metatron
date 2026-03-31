@@ -151,6 +151,7 @@ Stay in character as Kevin. If asked about capabilities you don't have, say what
     )
     .await
     .map_err(|e| (axum::http::StatusCode::BAD_GATEWAY, e))?;
+    let reply = strip_markdown(&reply);
 
     if let Some(gemini_key) = state.ai_api_key.clone() {
         let db = state.db.clone();
@@ -261,4 +262,26 @@ struct PitchCtx {
 struct InvestorCtx {
     sectors: Option<Vec<String>>,
     stages: Option<Vec<String>>,
+}
+
+fn strip_markdown(text: &str) -> String {
+    text.lines()
+        .map(|line| {
+            // Remove ** bold markers
+            let line = line.replace("**", "");
+            // Remove * italic markers (but not bullet points at start)
+            let line = if line.trim_start().starts_with("* ") {
+                // Convert bullet to dash-less plain text
+                line.trim_start().trim_start_matches("* ").to_string()
+            } else {
+                line.replace('*', "")
+            };
+            // Remove # headers
+            let line = line.trim_start_matches('#').trim_start().to_string();
+            // Remove __ underscore bold
+            let line = line.replace("__", "");
+            line
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }

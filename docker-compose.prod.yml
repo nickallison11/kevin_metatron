@@ -1,0 +1,49 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    restart: always
+    environment:
+      POSTGRES_USER: metatron
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: metatron
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U metatron"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: .
+    restart: always
+    ports:
+      - "4000:4000"
+    environment:
+      BACKEND_DATABASE_URL: postgres://metatron:${DB_PASSWORD}@db:5432/metatron
+      BACKEND_JWT_SECRET: ${BACKEND_JWT_SECRET}
+      BACKEND_ENCRYPTION_KEY: ${BACKEND_ENCRYPTION_KEY}
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      PINATA_JWT: ${PINATA_JWT}
+      PINATA_GATEWAY: ${PINATA_GATEWAY}
+      SOLANA_RPC_URL: ${SOLANA_RPC_URL}
+      SOLANA_TREASURY: ${SOLANA_TREASURY}
+      USDC_MINT: ${USDC_MINT}
+      SOLANA_NETWORK: ${SOLANA_NETWORK}
+      FRONTEND_URL: ${FRONTEND_URL}
+      OAUTH_GOOGLE_CLIENT_ID: ${OAUTH_GOOGLE_CLIENT_ID}
+      OAUTH_GOOGLE_CLIENT_SECRET: ${OAUTH_GOOGLE_CLIENT_SECRET}
+      OAUTH_LINKEDIN_CLIENT_ID: ${OAUTH_LINKEDIN_CLIENT_ID}
+      OAUTH_LINKEDIN_CLIENT_SECRET: ${OAUTH_LINKEDIN_CLIENT_SECRET}
+      OAUTH_GITHUB_CLIENT_ID: ${OAUTH_GITHUB_CLIENT_ID}
+      OAUTH_GITHUB_CLIENT_SECRET: ${OAUTH_GITHUB_CLIENT_SECRET}
+      TELEGRAM_BOT_SECRET: ${TELEGRAM_BOT_SECRET}
+      BACKEND_PUBLIC_URL: ${BACKEND_PUBLIC_URL}
+      RUST_LOG: info
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:

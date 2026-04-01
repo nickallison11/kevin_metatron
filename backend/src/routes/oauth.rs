@@ -10,6 +10,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::auth;
+use crate::crypto;
 use crate::settings::OAuthProviderConfig;
 use crate::state::AppState;
 
@@ -421,13 +422,21 @@ async fn callback(
         }
     };
 
+    let encrypted_access_token =
+        crypto::encrypt(&state.encryption_key, &access_token).map_err(|e| {
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                format!("oauth token encryption failed: {e}"),
+            )
+        })?;
+
     let email_ref = email_opt.as_deref();
     let (user_id, is_new) = auth::find_or_create_oauth_user(
         &state.db,
         &provider_lc,
         &provider_uid,
         email_ref,
-        &access_token,
+        &encrypted_access_token,
     )
     .await
     .map_err(|_| {

@@ -91,6 +91,14 @@ export default function AppShell({ children }: { children: ReactNode }) {
             className="h-[42px] w-auto"
           />
         </Link>
+        <div className="flex-1 flex items-center justify-center">
+          <Link
+            href="/pricing"
+            className="text-sm text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"
+          >
+            Pricing
+          </Link>
+        </div>
         <div className="flex items-center gap-3 flex-wrap justify-end">
           {token ? (
             <>

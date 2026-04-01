@@ -85,6 +85,8 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [oauthConsentGiven, setOauthConsentGiven] = useState(false);
+  const [oauthConsentError, setOauthConsentError] = useState<string | null>(null);
 
   const socialButtons = useMemo(
     () => [
@@ -148,19 +150,58 @@ export default function LoginPage() {
           </div>
 
           <div className="space-y-3">
+            <label className="flex items-start gap-2 text-sm text-[var(--text-muted)]">
+              <input
+                type="checkbox"
+                checked={oauthConsentGiven}
+                onChange={(e) => {
+                  setOauthConsentGiven(e.target.checked);
+                  if (e.target.checked) setOauthConsentError(null);
+                }}
+                className="mt-0.5 h-4 w-4 rounded border border-metatron-accent bg-transparent accent-[var(--accent)]"
+              />
+              <span>
+                By continuing with OAuth, I agree to the{" "}
+                <a
+                  href="/terms"
+                  className="text-[var(--text)] hover:text-metatron-accent"
+                >
+                  Terms of Service
+                </a>{" "}
+                and{" "}
+                <a
+                  href="/privacy"
+                  className="text-[var(--text)] hover:text-metatron-accent"
+                >
+                  Privacy Policy
+                </a>
+                .
+              </span>
+            </label>
             {socialButtons.map(({ provider, label, Icon }) => (
               <button
                 key={provider}
                 type="button"
+                disabled={!oauthConsentGiven}
                 onClick={() => {
+                  if (!oauthConsentGiven) {
+                    setOauthConsentError(
+                      "You must agree to the Terms and Privacy notice before using OAuth.",
+                    );
+                    return;
+                  }
+                  setOauthConsentError(null);
                   window.location.href = `${API_BASE}/auth/oauth/${provider}/authorize`;
                 }}
-                className="w-full inline-flex items-center justify-center gap-3 rounded-lg border border-[var(--border)] bg-transparent px-4 py-2.5 text-sm font-semibold text-[var(--text)] hover:border-metatron-accent/30 hover:shadow-[0_0_24px_rgba(108,92,231,0.08)] transition-all"
+                className="w-full inline-flex items-center justify-center gap-3 rounded-lg border border-[var(--border)] bg-transparent px-4 py-2.5 text-sm font-semibold text-[var(--text)] hover:border-metatron-accent/30 hover:shadow-[0_0_24px_rgba(108,92,231,0.08)] transition-all disabled:opacity-60 disabled:hover:border-[var(--border)] disabled:hover:shadow-none"
               >
                 <Icon />
                 {label}
               </button>
             ))}
+            {oauthConsentError && (
+              <p className="text-xs text-[var(--text-muted)]">{oauthConsentError}</p>
+            )}
           </div>
 
           <div className="mt-4 flex items-center gap-3">

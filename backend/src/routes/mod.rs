@@ -8,4 +8,5 @@ pub mod oauth;
 pub mod pitches;
 pub mod pools;
 pub mod profile;
+pub mod subscriptions;
 pub mod uploads;

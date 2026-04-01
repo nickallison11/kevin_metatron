@@ -12,15 +12,26 @@ from pathlib import Path
 
 # Source inserted into wallet_bot.py by the remote patch (regex replacement target).
 NEW_FUNCTIONS_BODY = r"""def get_platform_jwt(telegram_id, name=''):
+    platform_url = os.getenv('PLATFORM_URL', PLATFORM_URL)
+    bot_secret = os.getenv('PLATFORM_BOT_SECRET', PLATFORM_BOT_SECRET)
+    if not bot_secret:
+        print('get_platform_jwt error: PLATFORM_BOT_SECRET is empty', flush=True)
+        return None
     if telegram_id in platform_jwt_cache:
         return platform_jwt_cache[telegram_id]
     try:
-        r = requests.post(f'{PLATFORM_URL}/auth/telegram', json={
+        r = requests.post(f'{platform_url}/auth/telegram', json={
             'telegram_id': str(telegram_id),
             'telegram_name': name,
-            'bot_secret': PLATFORM_BOT_SECRET
+            'bot_secret': bot_secret
         }, timeout=10)
-        token = r.json()['token']
+        if r.status_code != 200:
+            print(f'get_platform_jwt non-200: status={r.status_code} body={r.text[:300]}', flush=True)
+            return None
+        token = r.json().get('token')
+        if not token:
+            print(f'get_platform_jwt missing token: body={r.text[:300]}', flush=True)
+            return None
         platform_jwt_cache[telegram_id] = token
         return token
     except Exception as e:
@@ -28,14 +39,15 @@ NEW_FUNCTIONS_BODY = r"""def get_platform_jwt(telegram_id, name=''):
         return None
 
 def ask_kevin(chat_id, user_message, user_name=''):
-    if chat_id not in sessions:
-        sessions[chat_id] = []
-    sessions[chat_id].append({'role': 'user', 'content': user_message})
-    history = sessions[chat_id][-10:]
-    jwt = get_platform_jwt(chat_id, user_name)
-    if not jwt:
-        return "Sorry, I'm having trouble responding right now. Please try again. 🌍"
     try:
+        sessions_store = globals().setdefault('sessions', {})
+        if chat_id not in sessions_store:
+            sessions_store[chat_id] = []
+        sessions_store[chat_id].append({'role': 'user', 'content': user_message})
+        history = sessions_store[chat_id][-10:]
+        jwt = get_platform_jwt(chat_id, user_name)
+        if not jwt:
+            return "Sorry, I'm having trouble responding right now. Please try again. 🌍"
         r = requests.post(
             f'{PLATFORM_URL}/api/kevin/chat',
             json={'messages': history},
@@ -45,14 +57,18 @@ def ask_kevin(chat_id, user_message, user_name=''):
         if r.status_code == 401:
             platform_jwt_cache.pop(chat_id, None)
             jwt = get_platform_jwt(chat_id, user_name)
+            if not jwt:
+                return "Sorry, I'm having trouble responding right now. Please try again. 🌍"
             r = requests.post(
                 f'{PLATFORM_URL}/api/kevin/chat',
                 json={'messages': history},
                 headers={'Authorization': f'Bearer {jwt}', 'Content-Type': 'application/json'},
                 timeout=60
             )
-        reply = r.json()['reply']
-        sessions[chat_id].append({'role': 'assistant', 'content': reply})
+        r.raise_for_status()
+        payload = r.json()
+        reply = payload.get('reply') or "Sorry, I'm having trouble responding right now. Please try again. 🌍"
+        sessions_store[chat_id].append({'role': 'assistant', 'content': reply})
         return reply
     except Exception as e:
         print(f'ask_kevin error: {e}', flush=True)
@@ -96,8 +112,8 @@ def main() -> None:
             1,
         )
 
-    # Change 2: replace def ask_kevin(chat_id, user_message): ... up to next def
-    pattern = r"def ask_kevin\\(chat_id, user_message\\)\\s*:.*?(?=^def |\\Z)"
+    # Change 2: replace any def ask_kevin(...): ... up to next top-level def
+    pattern = r"def ask_kevin\\([^\\n]*\\)\\s*:.*?(?=^def |\\Z)"
     new_text, n = re.subn(pattern, NEW_FUNCTIONS, text, flags=re.MULTILINE | re.DOTALL)
     if n != 1:
         raise SystemExit(

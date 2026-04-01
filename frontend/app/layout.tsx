@@ -1,5 +1,6 @@
 import "./globals.css";
 import AppShell from "@/components/AppShell";
+import ClientWalletProvider from "../components/ClientWalletProvider";
 import { DM_Sans, JetBrains_Mono } from "next/font/google";
 import type { ReactNode } from "react";
 
@@ -27,7 +28,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       <body
         className={`${dmSans.variable} ${jetbrainsMono.variable} font-sans`}
       >
-        <AppShell>{children}</AppShell>
+        <ClientWalletProvider>
+          <AppShell>{children}</AppShell>
+        </ClientWalletProvider>
       </body>
     </html>
   );

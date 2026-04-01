@@ -3,6 +3,7 @@ use jsonwebtoken::{decode, Algorithm, Validation};
 use uuid::Uuid;
 
 use crate::auth::Claims;
+use crate::crypto;
 use crate::state::AppState;
 
 pub struct AuthedUser {
@@ -57,6 +58,17 @@ pub async fn require_user(
     .fetch_one(&state.db)
     .await
     .map_err(|_| (StatusCode::UNAUTHORIZED, "user not found".to_string()))?;
+
+    let custom_ai_api_key = match custom_ai_api_key {
+        Some(encrypted) => match crypto::decrypt(&state.encryption_key, &encrypted) {
+            Ok(value) => Some(value),
+            Err(e) => {
+                tracing::warn!("custom_ai_api_key decrypt failed for user {}: {}", uid, e);
+                None
+            }
+        },
+        None => None,
+    };
 
     Ok(AuthedUser {
         id: uid,

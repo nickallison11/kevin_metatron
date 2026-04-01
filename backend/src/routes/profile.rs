@@ -28,6 +28,7 @@ pub struct ProfileDto {
     pub country: Option<String>,
     pub website: Option<String>,
     pub pitch_deck_url: Option<String>,
+    pub ipfs_visibility: Option<String>,
 }
 
 async fn get_profile(
@@ -46,7 +47,7 @@ async fn fetch_profile(
     let row = sqlx::query_as::<_, ProfileRow>(
         r#"
         SELECT company_name, one_liner, stage, sector, country::text as country,
-               website, pitch_deck_url
+               website, pitch_deck_url, ipfs_visibility
         FROM profiles WHERE user_id = $1
         "#,
     )
@@ -67,6 +68,7 @@ struct ProfileRow {
     country: Option<String>,
     website: Option<String>,
     pitch_deck_url: Option<String>,
+    ipfs_visibility: Option<String>,
 }
 
 impl From<ProfileRow> for ProfileDto {
@@ -79,6 +81,7 @@ impl From<ProfileRow> for ProfileDto {
             country: r.country,
             website: r.website,
             pitch_deck_url: r.pitch_deck_url,
+            ipfs_visibility: r.ipfs_visibility,
         }
     }
 }

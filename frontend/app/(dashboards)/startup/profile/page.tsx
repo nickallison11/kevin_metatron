@@ -11,6 +11,7 @@ type ApiProfile = {
   country?: string | null;
   website?: string | null;
   pitch_deck_url?: string | null;
+  ipfs_visibility?: string | null;
 };
 
 type Profile = {
@@ -22,6 +23,7 @@ type Profile = {
   country?: string | null;
   website?: string | null;
   pitch_deck_url?: string | null;
+  ipfs_visibility?: "public" | "private";
 };
 
 const STAGES = [
@@ -73,6 +75,7 @@ function transformFromApi(api: ApiProfile): Profile {
     country: api.country ?? null,
     website: api.website ?? null,
     pitch_deck_url: api.pitch_deck_url ?? null,
+    ipfs_visibility: api.ipfs_visibility === "public" ? "public" : "private",
   };
 }
 
@@ -95,18 +98,39 @@ function normalizeSectorTag(s: string): string {
   return s.trim();
 }
 
+function decodeIsProFromJwt(token: string | null): boolean {
+  if (!token) return false;
+  try {
+    const parts = token.split(".");
+    if (parts.length < 2) return false;
+    const payload = parts[1];
+    const base64 = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const padLen = (4 - (base64.length % 4)) % 4;
+    const normalized = base64 + "=".repeat(padLen);
+    const json = atob(normalized);
+    const parsed = JSON.parse(json) as { is_pro?: unknown };
+    return parsed.is_pro === true;
+  } catch {
+    return false;
+  }
+}
+
 export default function StartupProfilePage() {
   const [token, setToken] = useState<string | null>(null);
+  const [isPro, setIsPro] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [savingVisibility, setSavingVisibility] = useState(false);
   const [profile, setProfile] = useState<Profile>({ sectors: [] });
   const [sectorDraft, setSectorDraft] = useState("");
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
-    setToken(window.localStorage.getItem("metatron_token"));
+    const t = window.localStorage.getItem("metatron_token");
+    setToken(t);
+    setIsPro(decodeIsProFromJwt(t));
   }, []);
 
   useEffect(() => {
@@ -177,7 +201,14 @@ export default function StartupProfilePage() {
         typeof data === "object" && data && "url" in data
           ? String((data as { url: string }).url)
           : "";
-      setProfile((p) => ({ ...p, pitch_deck_url: url }));
+      const visibility =
+        typeof data === "object" &&
+        data &&
+        "visibility" in data &&
+        (data as { visibility?: string }).visibility === "public"
+          ? "public"
+          : "private";
+      setProfile((p) => ({ ...p, pitch_deck_url: url, ipfs_visibility: visibility }));
       setMsg("Pitch deck uploaded.");
     } catch {
       setMsg("Upload failed.");
@@ -206,6 +237,29 @@ export default function StartupProfilePage() {
       return { ...p, sectors: next };
     });
     setSectorDraft("");
+  }
+
+  async function onVisibilityChange(nextVisibility: "public" | "private") {
+    if (!token) {
+      setMsg("Sign in first.");
+      return;
+    }
+    setSavingVisibility(true);
+    setMsg(null);
+    try {
+      const res = await fetch(`${API_BASE}/uploads/ipfs-visibility`, {
+        method: "PUT",
+        headers: authJsonHeaders(token),
+        body: JSON.stringify({ visibility: nextVisibility }),
+      });
+      const txt = await res.text();
+      if (!res.ok) throw new Error(txt || "Could not update visibility");
+      setProfile((p) => ({ ...p, ipfs_visibility: nextVisibility }));
+    } catch {
+      setMsg("Could not update deck visibility.");
+    } finally {
+      setSavingVisibility(false);
+    }
   }
 
   return (
@@ -370,24 +424,94 @@ export default function StartupProfilePage() {
               <p className="text-xs font-semibold text-[var(--text)]">
                 Pitch deck
               </p>
-              <p className="text-[11px] text-[var(--text-muted)]">
-                PDF, PPTX, or Key. Upload replaces the stored deck URL on your
-                profile.
-              </p>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".pdf,.ppt,.pptx,.key,.zip,application/pdf,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation"
-                onChange={onDeckUpload}
-                className="hidden"
-              />
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="rounded-lg bg-metatron-accent px-5 py-2.5 text-sm font-semibold text-white hover:bg-metatron-accent-hover hover:shadow-[0_4px_20px_rgba(108,92,231,0.3)] transition-all"
-              >
-                Upload deck
-              </button>
+              {isPro ? (
+                <>
+                  <p className="text-[11px] text-[var(--text-muted)]">
+                    PDF, PPTX, or Key. Upload replaces the stored deck URL on your
+                    profile.
+                  </p>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".pdf,.ppt,.pptx,.key,.zip,application/pdf,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                    onChange={onDeckUpload}
+                    className="hidden"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="rounded-lg bg-metatron-accent px-5 py-2.5 text-sm font-semibold text-white hover:bg-metatron-accent-hover hover:shadow-[0_4px_20px_rgba(108,92,231,0.3)] transition-all"
+                  >
+                    Upload deck
+                  </button>
+                  <div className="mt-2 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg)] p-3 space-y-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-xs font-semibold text-[var(--text)]">
+                        Pitch Deck Visibility
+                      </span>
+                      <div className="inline-flex rounded-full border border-[var(--border)] p-1">
+                        <button
+                          type="button"
+                          disabled={savingVisibility}
+                          onClick={() => onVisibilityChange("private")}
+                          className={`rounded-full px-3 py-1 text-xs transition-colors ${
+                            (profile.ipfs_visibility ?? "private") === "private"
+                              ? "bg-metatron-accent text-white"
+                              : "text-[var(--text-muted)] hover:text-[var(--text)]"
+                          }`}
+                        >
+                          Private
+                        </button>
+                        <button
+                          type="button"
+                          disabled={savingVisibility}
+                          onClick={() => onVisibilityChange("public")}
+                          className={`rounded-full px-3 py-1 text-xs transition-colors ${
+                            (profile.ipfs_visibility ?? "private") === "public"
+                              ? "bg-metatron-accent text-white"
+                              : "text-[var(--text-muted)] hover:text-[var(--text)]"
+                          }`}
+                        >
+                          Public IPFS
+                        </button>
+                      </div>
+                    </div>
+                    {(profile.ipfs_visibility ?? "private") === "private" ? (
+                      <p className="text-xs text-[var(--text-muted)]">
+                        Your deck is stored privately. Only accessible via a secure link. Can
+                        be deleted at any time.
+                      </p>
+                    ) : (
+                      <p className="text-xs text-[var(--text-muted)]">
+                        Your deck will be published to the public IPFS network. It becomes
+                        permanently accessible and cannot be fully erased. Only choose this if
+                        you want maximum decentralisation.
+                      </p>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <label className="block space-y-1">
+                    <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
+                      Pitch Deck Link
+                    </span>
+                    <input
+                      className="input-metatron"
+                      type="url"
+                      placeholder="https://drive.google.com/..."
+                      value={profile.pitch_deck_url ?? ""}
+                      onChange={(e) =>
+                        setProfile((p) => ({ ...p, pitch_deck_url: e.target.value }))
+                      }
+                    />
+                  </label>
+                  <p className="text-xs text-[var(--text-muted)]">
+                    Paste a link to your deck on Google Drive, Dropbox, or any cloud
+                    storage. Make sure sharing is set to &apos;Anyone with the link&apos;.
+                  </p>
+                </>
+              )}
               {profile.pitch_deck_url && (
                 <a
                   href={profile.pitch_deck_url}

@@ -6,7 +6,7 @@ import { API_BASE, authJsonHeaders } from "@/lib/api";
 type Msg = { role: "user" | "assistant"; content: string };
 
 const UPGRADE_MESSAGE =
-  "Kevin is available on the Pro plan. Upgrade to unlock AI powered by Claude.";
+  "Kevin is temporarily unavailable. Please try again later.";
 
 export default function KevinChat() {
   const [open, setOpen] = useState(false);

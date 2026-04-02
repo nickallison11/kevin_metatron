@@ -2,6 +2,8 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { API_BASE, authHeaders, authJsonHeaders } from "@/lib/api";
+import { useRouter } from "next/navigation";
+import { useAuth } from "@/lib/auth";
 
 type Pitch = {
   id: string;
@@ -10,18 +12,18 @@ type Pitch = {
 };
 
 export default function StartupPitchesPage() {
-  const [token, setToken] = useState<string | null>(null);
+  const router = useRouter();
+  const { token, isPro, loading } = useAuth();
   const [pitches, setPitches] = useState<Pitch[]>([]);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
-
   useEffect(() => {
-    setToken(window.localStorage.getItem("metatron_token"));
-  }, []);
+    if (!loading && token && !isPro) router.replace("/pricing");
+  }, [loading, token, isPro, router]);
 
   async function load() {
-    if (!token) return;
+    if (!token || !isPro) return;
     try {
       const res = await fetch(`${API_BASE}/pitches`, {
         headers: authHeaders(token)
@@ -34,8 +36,11 @@ export default function StartupPitchesPage() {
 
   useEffect(() => {
     load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token]);
+  }, [token, isPro, loading]);
+
+  if (loading) return null;
+  if (!token) return null;
+  if (!isPro) return null;
 
   async function onCreate(e: FormEvent) {
     e.preventDefault();

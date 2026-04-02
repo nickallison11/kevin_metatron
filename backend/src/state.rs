@@ -28,6 +28,7 @@ pub struct AppState {
     pub solana_rpc_url: String,
     pub solana_treasury: String,
     pub usdc_mint: String,
+    pub whisper_url: String,
     pub http_client: Client,
 }
 
@@ -70,6 +71,7 @@ impl AppState {
             solana_rpc_url: settings.solana_rpc_url.clone(),
             solana_treasury: settings.solana_treasury.clone(),
             usdc_mint: settings.usdc_mint.clone(),
+            whisper_url: settings.whisper_url.clone(),
             http_client,
         }))
     }

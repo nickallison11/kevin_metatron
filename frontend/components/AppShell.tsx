@@ -123,28 +123,16 @@ export default function AppShell({ children }: { children: ReactNode }) {
           ) : (
             <>
               <Link
-                href="/startup"
-                className="text-sm text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"
-              >
-                Founder
-              </Link>
-              <Link
-                href="/investor"
-                className="text-sm text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"
-              >
-                Investor
-              </Link>
-              <Link
-                href="/connector"
-                className="text-sm text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"
-              >
-                Connector
-              </Link>
-              <Link
                 href="/login"
+                className="text-sm text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"
+              >
+                Sign in
+              </Link>
+              <Link
+                href="/auth/signup"
                 className="rounded-lg bg-metatron-accent px-4 py-2 text-sm font-semibold text-white hover:bg-metatron-accent-hover hover:shadow-[0_4px_20px_rgba(108,92,231,0.3)] transition-all"
               >
-                Login
+                Get started
               </Link>
             </>
           )}

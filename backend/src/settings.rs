@@ -26,6 +26,7 @@ pub struct Settings {
     pub solana_rpc_url: String,
     pub solana_treasury: String,
     pub usdc_mint: String,
+    pub whisper_url: String,
 }
 
 impl Settings {
@@ -86,6 +87,8 @@ impl Settings {
             .map_err(|_| "SOLANA_TREASURY must be set".to_string())?;
         let usdc_mint =
             env::var("USDC_MINT").map_err(|_| "USDC_MINT must be set".to_string())?;
+        let whisper_url =
+            env::var("WHISPER_URL").unwrap_or_else(|_| "http://localhost:9000".to_string());
 
         Ok(Self {
             database_url,
@@ -115,6 +118,7 @@ impl Settings {
             solana_rpc_url,
             solana_treasury,
             usdc_mint,
+            whisper_url,
         })
     }
 }

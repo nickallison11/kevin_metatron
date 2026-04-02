@@ -10,6 +10,7 @@ use axum_extra::{
     TypedHeader,
 };
 use chrono::{DateTime, Utc};
+use reqwest::multipart::{Form, Part};
 use serde::Serialize;
 use serde_json::Value as JsonValue;
 use sqlx::types::Json as SqlxJson;
@@ -17,7 +18,7 @@ use tokio::io::AsyncWriteExt;
 use uuid::Uuid;
 
 use crate::ai::{complete_json_object, mock_call_analysis_json};
-use crate::identity::{require_role, AuthedUser};
+use crate::identity::require_role;
 use crate::state::AppState;
 
 const MAX_AUDIO_BYTES: usize = 80 * 1024 * 1024;
@@ -63,8 +64,14 @@ async fn list_calls(
     State(state): State<Arc<AppState>>,
     TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
 ) -> Result<Json<Vec<CallDto>>, (axum::http::StatusCode, String)> {
-    let AuthedUser { id, .. } =
-        require_role(&state, bearer.token(), &["STARTUP"]).await?;
+    let authed_user = require_role(&state, bearer.token(), &["STARTUP"]).await?;
+    if !authed_user.is_pro {
+        return Err((
+            axum::http::StatusCode::FORBIDDEN,
+            "pro subscription required".to_string(),
+        ));
+    }
+    let id = authed_user.id;
 
     let rows = sqlx::query_as::<_, CallRow>(
         r#"
@@ -87,8 +94,14 @@ async fn upload_call(
     TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
     mut multipart: Multipart,
 ) -> Result<Json<CallDto>, (axum::http::StatusCode, String)> {
-    let AuthedUser { id, .. } =
-        require_role(&state, bearer.token(), &["STARTUP"]).await?;
+    let authed_user = require_role(&state, bearer.token(), &["STARTUP"]).await?;
+    if !authed_user.is_pro {
+        return Err((
+            axum::http::StatusCode::FORBIDDEN,
+            "pro subscription required".to_string(),
+        ));
+    }
+    let id = authed_user.id;
 
     let mut file_bytes: Option<Vec<u8>> = None;
     let mut original = String::from("recording");
@@ -162,7 +175,21 @@ async fn upload_call(
     .await
     .map_err(internal)?;
 
-    let transcript = mock_transcribe(&original);
+    let transcript = match whisper_transcribe(
+        &state.http_client,
+        &state.whisper_url,
+        &raw,
+        &original,
+        &mime,
+    )
+    .await
+    {
+        Ok(t) => t,
+        Err(e) => {
+            tracing::warn!("whisper transcription failed: {e}");
+            mock_transcribe(&original)
+        }
+    };
 
     let analysis = if let Some(ref key) = state.ai_api_key {
         let system = "You are an expert venture analyst. Read call transcripts and extract structured diligence signals.";
@@ -173,7 +200,7 @@ async fn upload_call(
             &state.http_client,
             "gemini",
             key,
-            "gemini-2.0-flash",
+            "gemini-2.5-flash",
             system,
             &prompt,
         )
@@ -215,6 +242,42 @@ async fn upload_call(
     .map_err(internal)?;
 
     Ok(Json(row.into()))
+}
+
+async fn whisper_transcribe(
+    http_client: &reqwest::Client,
+    whisper_url: &str,
+    audio_bytes: &[u8],
+    original_filename: &str,
+    _mime: &str,
+) -> Result<String, String> {
+    let base = whisper_url.trim_end_matches('/');
+    let url = format!("{base}/asr?output=txt&language=en");
+
+    let form = Form::new()
+        .part(
+            "audio_file",
+            Part::bytes(audio_bytes.to_vec()).file_name(original_filename.to_string()),
+        );
+
+    let resp = http_client
+        .post(url)
+        .multipart(form)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let status = resp.status();
+    let txt = resp.text().await.map_err(|e| e.to_string())?;
+    if !status.is_success() {
+        return Err(format!(
+            "whisper non-success: status={} body={}",
+            status,
+            txt.chars().take(300).collect::<String>()
+        ));
+    }
+
+    Ok(txt.trim().to_string())
 }
 
 fn mock_transcribe(filename: &str) -> String {

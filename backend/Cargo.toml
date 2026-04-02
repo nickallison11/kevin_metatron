@@ -34,3 +34,4 @@ base64 = "0.22"
 rand = "0.8"
 anyhow = "1"
 dotenvy = "0.15"
+totp-rs = { version = "5", features = ["gen_secret", "otpauth"] }

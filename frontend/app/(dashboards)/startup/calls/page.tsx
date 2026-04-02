@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { API_BASE, authHeaders } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 
 type Analysis = {
   summary?: string;
@@ -19,17 +21,18 @@ type CallRow = {
 };
 
 export default function StartupCallsPage() {
-  const [token, setToken] = useState<string | null>(null);
+  const router = useRouter();
+  const { token, isPro, loading } = useAuth();
   const [calls, setCalls] = useState<CallRow[]>([]);
   const [msg, setMsg] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
-    setToken(window.localStorage.getItem("metatron_token"));
-  }, []);
+    if (!loading && token && !isPro) router.replace("/pricing");
+  }, [loading, token, isPro, router]);
 
   const load = useCallback(async () => {
-    if (!token) return;
+    if (!token || !isPro) return;
     try {
       const res = await fetch(`${API_BASE}/calls`, {
         headers: authHeaders(token)
@@ -38,11 +41,15 @@ export default function StartupCallsPage() {
     } catch {
       setMsg("Failed to load calls.");
     }
-  }, [token]);
+  }, [token, isPro]);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  if (loading) return null;
+  if (!token) return null;
+  if (!isPro) return null;
 
   async function onUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];

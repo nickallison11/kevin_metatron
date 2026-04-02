@@ -1,5 +1,10 @@
 use std::sync::Arc;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use argon2::{
+    password_hash::{PasswordHash, PasswordHasher, SaltString},
+    Argon2, PasswordVerifier,
+};
 use axum::{
     extract::State,
     http::StatusCode,
@@ -11,6 +16,11 @@ use axum_extra::{
     TypedHeader,
 };
 use serde::{Deserialize, Serialize};
+use totp_rs::{Algorithm as TotpAlgorithm, Secret as TotpSecret, TOTP};
+
+use jsonwebtoken::{decode, encode, Algorithm as JwtAlgorithm, Header, Validation};
+use rand_core::OsRng;
+use uuid::Uuid;
 
 use crate::auth;
 use crate::crypto;
@@ -22,6 +32,14 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/signup", post(signup))
         .route("/login", post(login))
         .route("/telegram", post(telegram_auth))
+        .route("/change-email", put(change_email))
+        .route("/change-password", put(change_password))
+        .route("/profile", put(update_profile))
+        .route("/me", get(get_me))
+        .route("/2fa/setup", post(two_fa_setup))
+        .route("/2fa/confirm", post(two_fa_confirm))
+        .route("/2fa", delete(two_fa_disable))
+        .route("/2fa/login", post(two_fa_login))
         .route("/account", delete(delete_account))
         .route("/me/export", get(export_data))
         .route("/role", put(set_role))
@@ -37,9 +55,66 @@ pub struct SignupRequest {
     pub role: Option<String>,
 }
 
+#[derive(Deserialize)]
+pub struct ChangeEmailRequest {
+    pub current_password: String,
+    pub new_email: String,
+}
+
+#[derive(Deserialize)]
+pub struct ChangePasswordRequest {
+    pub current_password: String,
+    pub new_password: String,
+}
+
+#[derive(Deserialize)]
+pub struct UpdateProfileRequest {
+    pub first_name: String,
+    pub last_name: String,
+}
+
+#[derive(Deserialize)]
+pub struct TwoFaConfirmRequest {
+    pub code: String,
+}
+
+#[derive(Deserialize)]
+pub struct TwoFaDisableRequest {
+    pub code: String,
+}
+
+#[derive(Deserialize)]
+pub struct TwoFaLoginRequest {
+    pub partial_token: String,
+    pub code: String,
+}
+
+#[derive(Serialize)]
+pub struct TwoFaSetupResponse {
+    pub otpauth_uri: String,
+    pub secret: String,
+}
+
 #[derive(Serialize)]
 pub struct AuthResponse {
     pub token: String,
+}
+
+#[derive(Serialize)]
+struct LoginResponse {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    token: Option<String>,
+    requires_2fa: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    partial_token: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct TwoFaPendingClaims {
+    pub sub: String,
+    pub role: String,
+    pub exp: usize,
+    pub two_fa_pending: bool,
 }
 
 #[derive(Serialize)]
@@ -86,7 +161,7 @@ async fn signup(
 async fn login(
     State(state): State<Arc<AppState>>,
     Json(body): Json<SignupRequest>,
-) -> Result<Json<AuthResponse>, (axum::http::StatusCode, String)> {
+) -> Result<Json<LoginResponse>, (axum::http::StatusCode, String)> {
     let user_id =
         auth::verify_user_credentials(&state.db, &body.email, &body.password)
             .await
@@ -108,13 +183,506 @@ async fn login(
             )
         })?;
 
-    let token = auth::issue_jwt(&state, user_id, &role)
+    let totp_enabled: bool = sqlx::query_scalar("SELECT totp_enabled FROM users WHERE id = $1")
+        .bind(user_id)
+        .fetch_one(&state.db)
+        .await
         .map_err(|_| {
             (
                 axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                "could not issue token".to_string(),
+                "could not load 2FA status".to_string(),
             )
         })?;
+
+    if totp_enabled {
+        let partial_token = issue_two_fa_pending_jwt(&state, user_id, &role).map_err(
+            |_| {
+                (
+                    axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                    "could not issue 2FA token".to_string(),
+                )
+            },
+        )?;
+        return Ok(Json(LoginResponse {
+            token: None,
+            requires_2fa: true,
+            partial_token: Some(partial_token),
+        }));
+    }
+
+    let token = auth::issue_jwt(&state, user_id, &role).map_err(|_| {
+        (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            "could not issue token".to_string(),
+        )
+    })?;
+
+    Ok(Json(LoginResponse {
+        token: Some(token),
+        requires_2fa: false,
+        partial_token: None,
+    }))
+}
+
+fn issue_two_fa_pending_jwt(
+    state: &AppState,
+    user_id: uuid::Uuid,
+    role: &str,
+) -> Result<String, auth::AuthError> {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| auth::AuthError::Internal)?
+        .as_secs();
+    let exp = now + Duration::from_secs(300).as_secs(); // short-lived (5 minutes)
+
+    let claims = TwoFaPendingClaims {
+        sub: user_id.to_string(),
+        role: role.to_string(),
+        exp: exp as usize,
+        two_fa_pending: true,
+    };
+
+    encode(
+        &Header::new(JwtAlgorithm::HS256),
+        &claims,
+        &state.jwt_encoding,
+    )
+    .map_err(|_| auth::AuthError::Internal)
+}
+
+fn verify_password_hash(stored_hash: &str, password: &str) -> Result<(), String> {
+    let parsed_hash = PasswordHash::new(stored_hash).map_err(|_| "invalid password hash".to_string())?;
+    Argon2::default()
+        .verify_password(password.as_bytes(), &parsed_hash)
+        .map_err(|_| "invalid current password".to_string())?;
+    Ok(())
+}
+
+fn hash_password(password: &str) -> Result<String, String> {
+    let salt = SaltString::generate(&mut OsRng);
+    let argon2 = Argon2::default();
+    argon2
+        .hash_password(password.as_bytes(), &salt)
+        .map_err(|_| "could not hash password".to_string())
+        .map(|h| h.to_string())
+}
+
+fn totp_from_base32_secret(secret_base32: &str, account_name: String) -> Result<TOTP, String> {
+    let secret = TotpSecret::Encoded(secret_base32.to_string());
+    TOTP::new(
+        TotpAlgorithm::SHA1,
+        6,
+        1,
+        30,
+        secret.to_bytes().map_err(|_| "invalid 2FA secret".to_string())?,
+        Some("Metatron".to_string()),
+        account_name,
+    )
+    .map_err(|e| format!("could not build TOTP: {e}"))
+}
+
+fn decode_partial_token(
+    state: &AppState,
+    partial_token: &str,
+) -> Result<TwoFaPendingClaims, (StatusCode, String)> {
+    let claims = decode::<TwoFaPendingClaims>(
+        partial_token,
+        &state.jwt_decoding,
+        &Validation::new(JwtAlgorithm::HS256),
+    )
+    .map_err(|_| (StatusCode::UNAUTHORIZED, "invalid 2FA token".to_string()))?
+    .claims;
+
+    if !claims.two_fa_pending {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            "2FA token not pending".to_string(),
+        ));
+    }
+
+    Ok(claims)
+}
+
+async fn change_email(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+    Json(body): Json<ChangeEmailRequest>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let authed = require_user(&state, bearer.token()).await?;
+
+    let stored_hash: Option<String> = sqlx::query_scalar(
+        "SELECT password_hash FROM users WHERE id = $1",
+    )
+    .bind(authed.id)
+    .fetch_one(&state.db)
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string()))?;
+
+    let stored_hash = stored_hash.ok_or((
+        StatusCode::FORBIDDEN,
+        "password not set for this account".to_string(),
+    ))?;
+
+    verify_password_hash(&stored_hash, &body.current_password)
+        .map_err(|e| (StatusCode::UNAUTHORIZED, e))?;
+
+    let email_in_use: Option<uuid::Uuid> = sqlx::query_scalar(
+        "SELECT id FROM users WHERE email = $1 AND id <> $2",
+    )
+    .bind(&body.new_email)
+    .bind(authed.id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string()))?;
+
+    if email_in_use.is_some() {
+        return Err((
+            StatusCode::CONFLICT,
+            "email already in use".to_string(),
+        ));
+    }
+
+    sqlx::query("UPDATE users SET email = $1 WHERE id = $2")
+        .bind(&body.new_email)
+        .bind(authed.id)
+        .execute(&state.db)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string()))?;
+
+    Ok(StatusCode::OK)
+}
+
+async fn change_password(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+    Json(body): Json<ChangePasswordRequest>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let authed = require_user(&state, bearer.token()).await?;
+
+    let stored_hash: Option<String> = sqlx::query_scalar(
+        "SELECT password_hash FROM users WHERE id = $1",
+    )
+    .bind(authed.id)
+    .fetch_one(&state.db)
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string()))?;
+
+    let stored_hash = stored_hash.ok_or((
+        StatusCode::FORBIDDEN,
+        "password not set for this account".to_string(),
+    ))?;
+
+    verify_password_hash(&stored_hash, &body.current_password)
+        .map_err(|e| (StatusCode::UNAUTHORIZED, e))?;
+
+    let new_hash =
+        hash_password(&body.new_password).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+    sqlx::query("UPDATE users SET password_hash = $1 WHERE id = $2")
+        .bind(new_hash)
+        .bind(authed.id)
+        .execute(&state.db)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string()))?;
+
+    Ok(StatusCode::OK)
+}
+
+#[derive(Serialize, sqlx::FromRow)]
+pub struct MeResponse {
+    pub id: Uuid,
+    pub email: String,
+    pub role: String,
+    pub is_pro: bool,
+    pub totp_enabled: bool,
+    pub first_name: Option<String>,
+    pub last_name: Option<String>,
+}
+
+async fn update_profile(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+    Json(body): Json<UpdateProfileRequest>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let authed = require_user(&state, bearer.token()).await?;
+
+    let first = body.first_name.trim();
+    let last = body.last_name.trim();
+    let first_opt = if first.is_empty() { None } else { Some(first.to_string()) };
+    let last_opt = if last.is_empty() { None } else { Some(last.to_string()) };
+
+    sqlx::query(
+        r#"
+        UPDATE users
+        SET first_name = $1,
+            last_name = $2
+        WHERE id = $3
+        "#,
+    )
+    .bind(first_opt)
+    .bind(last_opt)
+    .bind(authed.id)
+    .execute(&state.db)
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string()))?;
+
+    Ok(StatusCode::OK)
+}
+
+async fn get_me(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+) -> Result<Json<MeResponse>, (StatusCode, String)> {
+    let authed = require_user(&state, bearer.token()).await?;
+
+    let me = sqlx::query_as::<_, MeResponse>(
+        r#"
+        SELECT
+            id,
+            email,
+            role::text AS role,
+            is_pro,
+            totp_enabled,
+            first_name,
+            last_name
+        FROM users
+        WHERE id = $1
+        "#,
+    )
+    .bind(authed.id)
+    .fetch_one(&state.db)
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string()))?;
+
+    Ok(Json(me))
+}
+
+async fn two_fa_setup(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+) -> Result<Json<TwoFaSetupResponse>, (StatusCode, String)> {
+    let authed = require_user(&state, bearer.token()).await?;
+
+    let email: String = sqlx::query_scalar("SELECT email FROM users WHERE id = $1")
+        .bind(authed.id)
+        .fetch_one(&state.db)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string()))?;
+
+    let secret = TotpSecret::generate_secret();
+    let totp = TOTP::new(
+        TotpAlgorithm::SHA1,
+        6,
+        1,
+        30,
+        secret.to_bytes().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "invalid 2FA secret".to_string(),
+            )
+        })?,
+        Some("Metatron".to_string()),
+        email.clone(),
+    )
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("could not build TOTP: {e}")))?;
+    let secret_base32 = totp.get_secret_base32();
+    let otpauth_uri = totp.get_url();
+
+    let encrypted_secret =
+        crypto::encrypt(&state.encryption_key, &secret_base32).map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "internal error".to_string(),
+            )
+        })?;
+
+    sqlx::query(
+        r#"
+        UPDATE users
+        SET totp_secret = $1,
+            totp_enabled = FALSE
+        WHERE id = $2
+        "#,
+    )
+    .bind(encrypted_secret)
+    .bind(authed.id)
+    .execute(&state.db)
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string()))?;
+
+    Ok(Json(TwoFaSetupResponse {
+        otpauth_uri,
+        secret: secret_base32,
+    }))
+}
+
+async fn two_fa_confirm(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+    Json(body): Json<TwoFaConfirmRequest>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let authed = require_user(&state, bearer.token()).await?;
+
+    let (totp_enabled, totp_secret_enc): (bool, Option<String>) = sqlx::query_as(
+        "SELECT totp_enabled, totp_secret FROM users WHERE id = $1",
+    )
+    .bind(authed.id)
+    .fetch_one(&state.db)
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string()))?;
+
+    let totp_secret_enc = totp_secret_enc.ok_or((
+        StatusCode::BAD_REQUEST,
+        "2FA not set up".to_string(),
+    ))?;
+
+    // Allow confirming even if already enabled; we just validate the code.
+    let secret_base32 = crypto::decrypt(&state.encryption_key, &totp_secret_enc)
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string()))?;
+
+    let email: String = sqlx::query_scalar("SELECT email FROM users WHERE id = $1")
+        .bind(authed.id)
+        .fetch_one(&state.db)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string()))?;
+
+    let totp = totp_from_base32_secret(&secret_base32, email)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+    let ok = totp
+        .check_current(&body.code)
+        .map_err(|_| (StatusCode::BAD_REQUEST, "invalid code".to_string()))?;
+
+    if !ok {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "invalid 2FA code".to_string(),
+        ));
+    }
+
+    sqlx::query("UPDATE users SET totp_enabled = TRUE WHERE id = $1")
+        .bind(authed.id)
+        .execute(&state.db)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string()))?;
+
+    // Use `totp_enabled` only to avoid an unused variable warning.
+    let _ = totp_enabled;
+
+    Ok(StatusCode::OK)
+}
+
+async fn two_fa_disable(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+    Json(body): Json<TwoFaDisableRequest>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let authed = require_user(&state, bearer.token()).await?;
+
+    let (totp_secret_enc, _totp_enabled): (Option<String>, bool) = sqlx::query_as(
+        "SELECT totp_secret, totp_enabled FROM users WHERE id = $1",
+    )
+    .bind(authed.id)
+    .fetch_one(&state.db)
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string()))?;
+
+    let totp_secret_enc = totp_secret_enc.ok_or((
+        StatusCode::BAD_REQUEST,
+        "2FA not set up".to_string(),
+    ))?;
+
+    let secret_base32 = crypto::decrypt(&state.encryption_key, &totp_secret_enc)
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string()))?;
+
+    let email: String = sqlx::query_scalar("SELECT email FROM users WHERE id = $1")
+        .bind(authed.id)
+        .fetch_one(&state.db)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string()))?;
+
+    let totp = totp_from_base32_secret(&secret_base32, email)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+    let ok = totp
+        .check_current(&body.code)
+        .map_err(|_| (StatusCode::BAD_REQUEST, "invalid code".to_string()))?;
+
+    if !ok {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "invalid 2FA code".to_string(),
+        ));
+    }
+
+    sqlx::query(
+        r#"
+        UPDATE users
+        SET totp_secret = NULL,
+            totp_enabled = FALSE
+        WHERE id = $1
+        "#,
+    )
+    .bind(authed.id)
+    .execute(&state.db)
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string()))?;
+
+    Ok(StatusCode::OK)
+}
+
+async fn two_fa_login(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<TwoFaLoginRequest>,
+) -> Result<Json<AuthResponse>, (StatusCode, String)> {
+    let claims = decode_partial_token(&state, &body.partial_token)?;
+    let user_id = uuid::Uuid::parse_str(&claims.sub)
+        .map_err(|_| (StatusCode::UNAUTHORIZED, "invalid token".to_string()))?;
+
+    let (totp_enabled, totp_secret_enc): (bool, Option<String>) = sqlx::query_as(
+        "SELECT totp_enabled, totp_secret FROM users WHERE id = $1",
+    )
+    .bind(user_id)
+    .fetch_one(&state.db)
+    .await
+    .map_err(|_| (StatusCode::UNAUTHORIZED, "invalid token".to_string()))?;
+
+    if !totp_enabled {
+        return Err((StatusCode::FORBIDDEN, "2FA not enabled".to_string()));
+    }
+
+    let totp_secret_enc = totp_secret_enc.ok_or((
+        StatusCode::FORBIDDEN,
+        "2FA secret missing".to_string(),
+    ))?;
+
+    let secret_base32 = crypto::decrypt(&state.encryption_key, &totp_secret_enc)
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string()))?;
+
+    let email: String = sqlx::query_scalar("SELECT email FROM users WHERE id = $1")
+        .bind(user_id)
+        .fetch_one(&state.db)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string()))?;
+
+    let totp = totp_from_base32_secret(&secret_base32, email)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let ok = totp
+        .check_current(&body.code)
+        .map_err(|_| (StatusCode::BAD_REQUEST, "invalid code".to_string()))?;
+
+    if !ok {
+        return Err((StatusCode::BAD_REQUEST, "invalid 2FA code".to_string()));
+    }
+
+    let token = auth::issue_jwt(&state, user_id, &claims.role).map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "could not issue token".to_string(),
+        )
+    })?;
+
+    let _ = totp_enabled;
 
     Ok(Json(AuthResponse { token }))
 }
@@ -263,6 +831,7 @@ struct AccountExport {
     jurisdiction_country: Option<String>,
     is_accredited: Option<bool>,
     is_pro: bool,
+    totp_enabled: bool,
     custom_ai_provider: Option<String>,
     custom_ai_model: Option<String>,
     telegram_id: Option<String>,
@@ -435,6 +1004,7 @@ async fn export_data(
             jurisdiction_country::text AS jurisdiction_country,
             is_accredited,
             is_pro,
+            totp_enabled,
             custom_ai_provider,
             custom_ai_model,
             telegram_id,

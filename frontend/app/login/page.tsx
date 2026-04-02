@@ -85,6 +85,11 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [twoFaStep, setTwoFaStep] = useState(false);
+  const [partialToken, setPartialToken] = useState<string | null>(null);
+  const [twoFaCode, setTwoFaCode] = useState("");
+  const [twoFaLoading, setTwoFaLoading] = useState(false);
+  const [twoFaError, setTwoFaError] = useState<string | null>(null);
   const [oauthConsentGiven, setOauthConsentGiven] = useState(false);
   const [oauthConsentError, setOauthConsentError] = useState<string | null>(null);
 
@@ -121,13 +126,22 @@ export default function LoginPage() {
         // ignore non-json errors
       }
 
-      if (!res.ok || !data.token) {
+      if (res.ok && (data as any).requires_2fa && (data as any).partial_token) {
+        setTwoFaStep(true);
+        setPartialToken((data as any).partial_token as string);
+        setTwoFaCode("");
+        setTwoFaError(null);
+        setError(null);
+        return;
+      }
+
+      if (!res.ok || !(data as any).token) {
         setError(text.trim() || "Login failed");
         return;
       }
 
-      window.localStorage.setItem("metatron_token", data.token);
-      const role = decodeRoleFromJwt(data.token);
+      window.localStorage.setItem("metatron_token", (data as any).token);
+      const role = decodeRoleFromJwt((data as any).token);
       router.push(dashboardPathForRole(role));
     } catch {
       setError("Login failed");
@@ -136,132 +150,228 @@ export default function LoginPage() {
     }
   }
 
+  async function onConfirm2fa(e: FormEvent) {
+    e.preventDefault();
+    if (!partialToken) return;
+    setTwoFaError(null);
+    setTwoFaLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/auth/2fa/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ partial_token: partialToken, code: twoFaCode }),
+      });
+
+      const text = await res.text();
+      let data: { token?: string } = {};
+      try {
+        data = JSON.parse(text) as { token?: string };
+      } catch {
+        // ignore non-json errors
+      }
+
+      if (!res.ok || !data.token) {
+        setTwoFaError(text.trim() || "Verification failed");
+        return;
+      }
+
+      window.localStorage.setItem("metatron_token", data.token);
+      const role = decodeRoleFromJwt(data.token);
+      router.push(dashboardPathForRole(role));
+    } catch {
+      setTwoFaError("Verification failed");
+    } finally {
+      setTwoFaLoading(false);
+    }
+  }
+
   return (
     <div className="flex items-center justify-center min-h-[calc(100vh-72px)] px-5 py-10">
       <div className="w-full max-w-sm space-y-4">
         <div className="w-full rounded-metatron border border-[var(--border)] bg-[var(--bg-card)] p-6">
-          <div className="mb-4">
-            <h1 className="text-xl font-semibold text-[var(--text)]">
-              Sign in
-            </h1>
-            <p className="text-xs text-[var(--text-muted)] mt-1">
-              Use OAuth or email/password
-            </p>
-          </div>
+          {!twoFaStep ? (
+            <>
+              <div className="mb-4">
+                <h1 className="text-xl font-semibold text-[var(--text)]">
+                  Sign in
+                </h1>
+                <p className="text-xs text-[var(--text-muted)] mt-1">
+                  Use OAuth or email/password
+                </p>
+              </div>
 
-          <div className="space-y-3">
-            <label className="flex items-start gap-2 text-sm text-[var(--text-muted)]">
-              <input
-                type="checkbox"
-                checked={oauthConsentGiven}
-                onChange={(e) => {
-                  setOauthConsentGiven(e.target.checked);
-                  if (e.target.checked) setOauthConsentError(null);
-                }}
-                className="mt-0.5 h-4 w-4 rounded border border-metatron-accent bg-transparent accent-[var(--accent)]"
-              />
-              <span>
-                By continuing with OAuth, I agree to the{" "}
-                <a
-                  href="/terms"
-                  className="text-[var(--text)] hover:text-metatron-accent"
+              <div className="space-y-3">
+                <label className="flex items-start gap-2 text-sm text-[var(--text-muted)]">
+                  <input
+                    type="checkbox"
+                    checked={oauthConsentGiven}
+                    onChange={(e) => {
+                      setOauthConsentGiven(e.target.checked);
+                      if (e.target.checked) setOauthConsentError(null);
+                    }}
+                    className="mt-0.5 h-4 w-4 rounded border border-metatron-accent bg-transparent accent-[var(--accent)]"
+                  />
+                  <span>
+                    By continuing with OAuth, I agree to the{" "}
+                    <a
+                      href="/terms"
+                      className="text-[var(--text)] hover:text-metatron-accent"
+                    >
+                      Terms of Service
+                    </a>{" "}
+                    and{" "}
+                    <a
+                      href="/privacy"
+                      className="text-[var(--text)] hover:text-metatron-accent"
+                    >
+                      Privacy Policy
+                    </a>
+                    .
+                  </span>
+                </label>
+                {socialButtons.map(({ provider, label, Icon }) => (
+                  <button
+                    key={provider}
+                    type="button"
+                    disabled={!oauthConsentGiven}
+                    onClick={() => {
+                      if (!oauthConsentGiven) {
+                        setOauthConsentError(
+                          "You must agree to the Terms and Privacy notice before using OAuth.",
+                        );
+                        return;
+                      }
+                      setOauthConsentError(null);
+                      window.location.href = `${API_BASE}/auth/oauth/${provider}/authorize`;
+                    }}
+                    className="w-full inline-flex items-center justify-center gap-3 rounded-lg border border-[var(--border)] bg-transparent px-4 py-2.5 text-sm font-semibold text-[var(--text)] hover:border-metatron-accent/30 hover:shadow-[0_0_24px_rgba(108,92,231,0.08)] transition-all disabled:opacity-60 disabled:hover:border-[var(--border)] disabled:hover:shadow-none"
+                  >
+                    <Icon />
+                    {label}
+                  </button>
+                ))}
+                {oauthConsentError && (
+                  <p className="text-xs text-[var(--text-muted)]">
+                    {oauthConsentError}
+                  </p>
+                )}
+              </div>
+
+              <div className="mt-4 flex items-center gap-3">
+                <div className="h-px flex-1 bg-[var(--border)]" />
+                <div className="text-xs text-[var(--text-muted)]">or</div>
+                <div className="h-px flex-1 bg-[var(--border)]" />
+              </div>
+
+              <form onSubmit={onSubmit} className="mt-4 space-y-4">
+                <label className="block text-sm space-y-1 text-[var(--text)]">
+                  <span className="font-mono text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
+                    Email
+                  </span>
+                  <input
+                    className="input-metatron w-full"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    type="email"
+                    required
+                    disabled={loading}
+                  />
+                </label>
+                <label className="block text-sm space-y-1 text-[var(--text)]">
+                  <span className="font-mono text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
+                    Password
+                  </span>
+                  <input
+                    className="input-metatron w-full"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    type="password"
+                    required
+                    disabled={loading}
+                  />
+                </label>
+
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full rounded-lg bg-metatron-accent py-2.5 text-sm font-semibold text-white hover:bg-metatron-accent-hover hover:shadow-[0_4px_20px_rgba(108,92,231,0.3)] transition-all disabled:opacity-60"
                 >
-                  Terms of Service
-                </a>{" "}
-                and{" "}
-                <a
-                  href="/privacy"
-                  className="text-[var(--text)] hover:text-metatron-accent"
+                  {loading ? "Signing in…" : "Log in"}
+                </button>
+
+                {error && (
+                  <p className="text-xs text-[var(--text-muted)]">{error}</p>
+                )}
+              </form>
+
+              <div className="mt-4 text-center">
+                <span className="text-xs text-[var(--text-muted)]">
+                  No account?{" "}
+                </span>
+                <Link
+                  href="/auth/signup"
+                  className="text-xs text-metatron-accent hover:text-metatron-accent-hover transition-colors"
                 >
-                  Privacy Policy
-                </a>
-                .
-              </span>
-            </label>
-            {socialButtons.map(({ provider, label, Icon }) => (
-              <button
-                key={provider}
-                type="button"
-                disabled={!oauthConsentGiven}
-                onClick={() => {
-                  if (!oauthConsentGiven) {
-                    setOauthConsentError(
-                      "You must agree to the Terms and Privacy notice before using OAuth.",
-                    );
-                    return;
+                  Sign up →
+                </Link>
+              </div>
+            </>
+          ) : (
+            <form onSubmit={onConfirm2fa} className="space-y-4">
+              <div className="mb-2">
+                <h1 className="text-xl font-semibold text-[var(--text)]">
+                  Verify 2FA
+                </h1>
+                <p className="text-xs text-[var(--text-muted)] mt-1">
+                  Enter the 6-digit code from your authenticator app.
+                </p>
+              </div>
+
+              <label className="block text-sm space-y-1 text-[var(--text)]">
+                <span className="font-mono text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
+                  6-digit code
+                </span>
+                <input
+                  className="input-metatron w-full"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  maxLength={6}
+                  value={twoFaCode}
+                  onChange={(e) =>
+                    setTwoFaCode(e.target.value.replace(/[^0-9]/g, ""))
                   }
-                  setOauthConsentError(null);
-                  window.location.href = `${API_BASE}/auth/oauth/${provider}/authorize`;
-                }}
-                className="w-full inline-flex items-center justify-center gap-3 rounded-lg border border-[var(--border)] bg-transparent px-4 py-2.5 text-sm font-semibold text-[var(--text)] hover:border-metatron-accent/30 hover:shadow-[0_0_24px_rgba(108,92,231,0.08)] transition-all disabled:opacity-60 disabled:hover:border-[var(--border)] disabled:hover:shadow-none"
+                  required
+                  disabled={twoFaLoading}
+                />
+              </label>
+
+              <button
+                type="submit"
+                disabled={twoFaLoading || twoFaCode.length !== 6}
+                className="w-full rounded-lg bg-metatron-accent py-2.5 text-sm font-semibold text-white hover:bg-metatron-accent-hover hover:shadow-[0_4px_20px_rgba(108,92,231,0.3)] transition-all disabled:opacity-60"
               >
-                <Icon />
-                {label}
+                {twoFaLoading ? "Verifying…" : "Verify"}
               </button>
-            ))}
-            {oauthConsentError && (
-              <p className="text-xs text-[var(--text-muted)]">{oauthConsentError}</p>
-            )}
-          </div>
 
-          <div className="mt-4 flex items-center gap-3">
-            <div className="h-px flex-1 bg-[var(--border)]" />
-            <div className="text-xs text-[var(--text-muted)]">or</div>
-            <div className="h-px flex-1 bg-[var(--border)]" />
-          </div>
+              {twoFaError && (
+                <p className="text-xs text-[var(--text-muted)]">{twoFaError}</p>
+              )}
 
-          <form onSubmit={onSubmit} className="mt-4 space-y-4">
-            <label className="block text-sm space-y-1 text-[var(--text)]">
-              <span className="font-mono text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
-                Email
-              </span>
-              <input
-                className="input-metatron w-full"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                type="email"
-                required
-                disabled={loading}
-              />
-            </label>
-            <label className="block text-sm space-y-1 text-[var(--text)]">
-              <span className="font-mono text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
-                Password
-              </span>
-              <input
-                className="input-metatron w-full"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                type="password"
-                required
-                disabled={loading}
-              />
-            </label>
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full rounded-lg bg-metatron-accent py-2.5 text-sm font-semibold text-white hover:bg-metatron-accent-hover hover:shadow-[0_4px_20px_rgba(108,92,231,0.3)] transition-all disabled:opacity-60"
-            >
-              {loading ? "Signing in…" : "Log in"}
-            </button>
-
-            {error && (
-              <p className="text-xs text-[var(--text-muted)]">{error}</p>
-            )}
-          </form>
-
-          <div className="mt-4 text-center">
-            <span className="text-xs text-[var(--text-muted)]">
-              No account?{" "}
-            </span>
-            <Link
-              href="/auth/signup"
-              className="text-xs text-metatron-accent hover:text-metatron-accent-hover transition-colors"
-            >
-              Sign up →
-            </Link>
-          </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setTwoFaStep(false);
+                  setPartialToken(null);
+                  setTwoFaCode("");
+                  setTwoFaError(null);
+                }}
+                className="w-full rounded-lg border border-[var(--border)] py-2.5 text-sm font-semibold text-[var(--text-muted)] hover:text-[var(--text)] disabled:opacity-60"
+                disabled={twoFaLoading}
+              >
+                Back
+              </button>
+            </form>
+          )}
         </div>
       </div>
     </div>

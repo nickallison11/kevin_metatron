@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { API_BASE, authHeaders, authJsonHeaders } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 
 type ApiProfile = {
   company_name?: string | null;
@@ -98,26 +99,8 @@ function normalizeSectorTag(s: string): string {
   return s.trim();
 }
 
-function decodeIsProFromJwt(token: string | null): boolean {
-  if (!token) return false;
-  try {
-    const parts = token.split(".");
-    if (parts.length < 2) return false;
-    const payload = parts[1];
-    const base64 = payload.replace(/-/g, "+").replace(/_/g, "/");
-    const padLen = (4 - (base64.length % 4)) % 4;
-    const normalized = base64 + "=".repeat(padLen);
-    const json = atob(normalized);
-    const parsed = JSON.parse(json) as { is_pro?: unknown };
-    return parsed.is_pro === true;
-  } catch {
-    return false;
-  }
-}
-
 export default function StartupProfilePage() {
-  const [token, setToken] = useState<string | null>(null);
-  const [isPro, setIsPro] = useState(false);
+  const { token, isPro, loading: authLoading } = useAuth();
   const [msg, setMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -128,16 +111,11 @@ export default function StartupProfilePage() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
-    const t = window.localStorage.getItem("metatron_token");
-    setToken(t);
-    setIsPro(decodeIsProFromJwt(t));
-  }, []);
-
-  useEffect(() => {
     if (!token) {
       setLoading(false);
       return;
     }
+    setLoading(true);
     (async () => {
       try {
         const res = await fetch(`${API_BASE}/profile`, {
@@ -154,6 +132,8 @@ export default function StartupProfilePage() {
       }
     })();
   }, [token]);
+
+  if (authLoading) return null;
 
   async function onSave(e: FormEvent) {
     e.preventDefault();

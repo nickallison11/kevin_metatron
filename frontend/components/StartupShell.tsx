@@ -1,18 +1,63 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import type { ReactNode } from "react";
+import { useAuth } from "@/lib/auth";
 
-const NAV = [
+const FREE_NAV = [
   { href: "/startup", label: "Dashboard" },
   { href: "/startup/profile", label: "Profile" },
+  { href: "/startup/settings", label: "Settings" },
+];
+
+const PRO_NAV = [
+  { href: "/startup", label: "Dashboard" },
+  { href: "/startup/profile", label: "Profile" },
+  { href: "/startup/settings", label: "Settings" },
   { href: "/startup/pitches", label: "Pitches" },
-  { href: "/startup/calls", label: "Calls" }
+  { href: "/startup/calls", label: "Calls" },
+];
+
+const LOCKED_NAV = [
+  { label: "Pitches" },
+  { label: "Calls" },
 ];
 
 export default function StartupShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
+  const { token, isPro, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="flex min-h-[calc(100vh-72px)] items-center justify-center">
+        <p className="text-sm text-[var(--text-muted)]">Loading…</p>
+      </div>
+    );
+  }
+
+  if (!token) return null;
+
+  const nav = isPro ? PRO_NAV : FREE_NAV;
+
+  function NavLink({ href, label }: { href: string; label: string }) {
+    const active =
+      href === "/startup" ? pathname === "/startup" : pathname.startsWith(href);
+    return (
+      <Link
+        href={href}
+        className={[
+          "rounded-[var(--radius)] px-3 py-2.5 text-sm font-medium transition-colors",
+          active
+            ? "bg-metatron-accent/15 text-metatron-accent border border-metatron-accent/25"
+            : "text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--border)]",
+        ].join(" ")}
+      >
+        {label}
+      </Link>
+    );
+  }
 
   return (
     <div className="flex min-h-[calc(100vh-72px)] text-[var(--text)]">
@@ -20,30 +65,35 @@ export default function StartupShell({ children }: { children: ReactNode }) {
         <p className="font-mono text-[10px] uppercase tracking-[2px] text-[var(--text-muted)] px-3 mb-3">
           Founder
         </p>
-        {NAV.map((item) => {
-          const active =
-            item.href === "/startup"
-              ? pathname === "/startup"
-              : pathname.startsWith(item.href);
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={[
-                "rounded-[var(--radius)] px-3 py-2.5 text-sm font-medium transition-colors",
-                active
-                  ? "bg-metatron-accent/15 text-metatron-accent border border-metatron-accent/25"
-                  : "text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--border)]"
-              ].join(" ")}
+        {nav.map((item) => (
+          <NavLink key={item.href} href={item.href} label={item.label} />
+        ))}
+        {!isPro &&
+          LOCKED_NAV.map((item) => (
+            <button
+              key={item.label}
+              type="button"
+              onClick={() => router.push("/pricing")}
+              className="cursor-pointer rounded-[var(--radius)] px-3 py-2.5 text-sm font-medium text-left text-[var(--text-muted)] opacity-50 bg-transparent hover:opacity-50 hover:bg-transparent flex items-center justify-between"
             >
               {item.label}
-            </Link>
-          );
-        })}
+              <span className="font-mono text-[9px] uppercase tracking-wider border border-metatron-accent/40 text-metatron-accent px-1.5 py-0.5 rounded">
+                Pro
+              </span>
+            </button>
+          ))}
+        {!isPro && (
+          <Link
+            href="/pricing"
+            className="mt-4 mx-1 rounded-[var(--radius)] px-3 py-2 text-xs font-semibold text-center bg-metatron-accent/10 text-metatron-accent border border-metatron-accent/20 hover:bg-metatron-accent/20 transition-colors"
+          >
+            Upgrade to Pro →
+          </Link>
+        )}
       </aside>
       <div className="flex-1 min-w-0 flex flex-col">
         <div className="md:hidden flex gap-2 px-4 py-3 border-b border-[var(--border)] overflow-x-auto">
-          {NAV.map((item) => (
+          {nav.map((item) => (
             <Link
               key={item.href}
               href={item.href}
@@ -52,6 +102,14 @@ export default function StartupShell({ children }: { children: ReactNode }) {
               {item.label}
             </Link>
           ))}
+          {!isPro && (
+            <Link
+              href="/pricing"
+              className="shrink-0 rounded-lg border border-metatron-accent/30 px-3 py-1.5 text-xs text-metatron-accent"
+            >
+              Upgrade →
+            </Link>
+          )}
         </div>
         {children}
       </div>

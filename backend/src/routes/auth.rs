@@ -29,7 +29,7 @@ use crate::state::AppState;
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
-        .route("/signup", post(signup))
+        .route("/register", post(signup))
         .route("/login", post(login))
         .route("/telegram", post(telegram_auth))
         .route("/change-email", put(change_email))

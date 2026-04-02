@@ -24,6 +24,7 @@ use uuid::Uuid;
 
 use crate::auth;
 use crate::crypto;
+use crate::email;
 use crate::identity::require_user;
 use crate::state::AppState;
 
@@ -154,6 +155,16 @@ async fn signup(
                 "could not issue token".to_string(),
             )
         })?;
+
+    email::send_email(
+        &state.http_client,
+        state.resend_api_key.as_deref(),
+        &state.email_from,
+        &body.email,
+        "Welcome to metatron",
+        &email::welcome_email_html(),
+    )
+    .await;
 
     Ok(Json(AuthResponse { token }))
 }
@@ -326,6 +337,12 @@ async fn change_email(
     verify_password_hash(&stored_hash, &body.current_password)
         .map_err(|e| (StatusCode::UNAUTHORIZED, e))?;
 
+    let old_email: String = sqlx::query_scalar("SELECT email FROM users WHERE id = $1")
+        .bind(authed.id)
+        .fetch_one(&state.db)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string()))?;
+
     let email_in_use: Option<uuid::Uuid> = sqlx::query_scalar(
         "SELECT id FROM users WHERE email = $1 AND id <> $2",
     )
@@ -348,6 +365,16 @@ async fn change_email(
         .execute(&state.db)
         .await
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string()))?;
+
+    email::send_email(
+        &state.http_client,
+        state.resend_api_key.as_deref(),
+        &state.email_from,
+        &old_email,
+        "Your metatron email has been changed",
+        &email::email_changed_notice_html(&body.new_email),
+    )
+    .await;
 
     Ok(StatusCode::OK)
 }

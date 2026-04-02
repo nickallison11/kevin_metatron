@@ -29,6 +29,8 @@ pub struct AppState {
     pub solana_treasury: String,
     pub usdc_mint: String,
     pub whisper_url: String,
+    pub resend_api_key: Option<String>,
+    pub email_from: String,
     pub http_client: Client,
 }
 
@@ -72,6 +74,8 @@ impl AppState {
             solana_treasury: settings.solana_treasury.clone(),
             usdc_mint: settings.usdc_mint.clone(),
             whisper_url: settings.whisper_url.clone(),
+            resend_api_key: settings.resend_api_key.clone(),
+            email_from: settings.email_from.clone(),
             http_client,
         }))
     }

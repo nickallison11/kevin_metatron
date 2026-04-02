@@ -6,6 +6,7 @@ mod ai;
 mod cleanup;
 mod compliance;
 mod crypto;
+mod email;
 mod identity;
 mod memory;
 mod routes;
@@ -28,7 +29,7 @@ async fn main() {
         .expect("state init");
 
     let app = app::build_app(&settings, shared_state.clone());
-    cleanup::start_cleanup_task(shared_state.db.clone());
+    cleanup::start_cleanup_task(shared_state.clone());
 
     let port = settings.port;
     let addr = std::net::SocketAddr::from(([0, 0, 0, 0], port));

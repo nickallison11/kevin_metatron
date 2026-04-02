@@ -1,12 +1,17 @@
 use std::time::Duration;
 
-pub fn start_cleanup_task(pool: sqlx::PgPool) {
+use std::sync::Arc;
+
+use crate::email;
+use crate::state::AppState;
+
+pub fn start_cleanup_task(state: Arc<AppState>) {
     tokio::task::spawn(async move {
         loop {
             match sqlx::query(
                 "DELETE FROM kevin_memories WHERE created_at < NOW() - INTERVAL '12 months'",
             )
-            .execute(&pool)
+            .execute(&state.db)
             .await
             {
                 Ok(result) => {
@@ -20,22 +25,32 @@ pub fn start_cleanup_task(pool: sqlx::PgPool) {
                 }
             }
 
-            match sqlx::query_as::<_, (sqlx::types::Uuid, String)>(
+            match sqlx::query_as::<_, (sqlx::types::Uuid, String, Option<String>)>(
                 r#"
-                SELECT id, email FROM users
+                SELECT id, email, subscription_period_end::text FROM users
                 WHERE subscription_status = 'active'
                 AND subscription_period_end BETWEEN NOW() + INTERVAL '3 days' AND NOW() + INTERVAL '4 days'
                 "#,
             )
-            .fetch_all(&pool)
+            .fetch_all(&state.db)
             .await
             {
                 Ok(rows) => {
-                    for (id, email) in rows {
+                    for (id, email_addr, period_end) in rows {
+                        let expiry = period_end.unwrap_or_else(|| "in 3 days".to_string());
+                        email::send_email(
+                            &state.http_client,
+                            state.resend_api_key.as_deref(),
+                            &state.email_from,
+                            &email_addr,
+                            "Your metatron Pro subscription renews in 3 days",
+                            &email::renewal_reminder_email_html(&expiry),
+                        )
+                        .await;
                         tracing::info!(
-                            "RENEWAL REMINDER: user {} ({}) subscription expires in ~3 days",
+                            "cleanup: renewal reminder sent attempt for user {} ({})",
                             id,
-                            email
+                            email_addr
                         );
                     }
                 }

@@ -15,6 +15,7 @@ use serde_json::{json, Value};
 use uuid::Uuid;
 
 use crate::identity::require_user;
+use crate::email;
 use crate::state::AppState;
 
 pub fn router() -> Router<Arc<AppState>> {
@@ -67,6 +68,16 @@ async fn confirm_subscription(
     let authed = require_user(&state, bearer.token())
         .await
         .map_err(|(_, msg)| (StatusCode::UNAUTHORIZED, Json(json!({ "error": msg }))))?;
+    let user_email: String = sqlx::query_scalar("SELECT email FROM users WHERE id = $1")
+        .bind(authed.id)
+        .fetch_one(&state.db)
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "internal error" })),
+            )
+        })?;
 
     let tier = body.tier.to_ascii_lowercase();
     if tier != "monthly" && tier != "annual" {
@@ -255,6 +266,17 @@ async fn confirm_subscription(
             )
         })?
     };
+
+    let amount_paid = if tier == "monthly" { "$9.99 USDC" } else { "$99.00 USDC" };
+    email::send_email(
+        &state.http_client,
+        state.resend_api_key.as_deref(),
+        &state.email_from,
+        &user_email,
+        "You're now on metatron Pro 🚀",
+        &email::pro_activated_email_html(&period_end, amount_paid),
+    )
+    .await;
 
     Ok(Json(ConfirmResponse {
         status: "active".to_string(),

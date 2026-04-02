@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { API_BASE, authHeaders, authJsonHeaders } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 
 type Pool = {
   id: string;
@@ -19,15 +20,13 @@ type StartupCard = {
 };
 
 export default function InvestorDashboardPage() {
-  const [token, setToken] = useState<string | null>(null);
+  const { token, loading } = useAuth();
   const [pools, setPools] = useState<Pool[]>([]);
   const [startups, setStartups] = useState<StartupCard[]>([]);
   const [message, setMessage] = useState<string | null>(null);
   const [introMsg, setIntroMsg] = useState<string | null>(null);
 
-  useEffect(() => {
-    setToken(window.localStorage.getItem("metatron_token"));
-  }, []);
+  if (loading) return null;
 
   const loadPools = useCallback(async () => {
     if (!token) {

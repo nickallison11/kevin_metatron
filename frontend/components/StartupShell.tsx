@@ -8,13 +8,11 @@ import { useAuth } from "@/lib/auth";
 const FREE_NAV = [
   { href: "/startup", label: "Dashboard" },
   { href: "/startup/profile", label: "Profile" },
-  { href: "/startup/settings", label: "Settings" },
 ];
 
 const PRO_NAV = [
   { href: "/startup", label: "Dashboard" },
   { href: "/startup/profile", label: "Profile" },
-  { href: "/startup/settings", label: "Settings" },
   { href: "/startup/pitches", label: "Pitches" },
   { href: "/startup/calls", label: "Calls" },
 ];
@@ -90,6 +88,10 @@ export default function StartupShell({ children }: { children: ReactNode }) {
             Upgrade to Pro →
           </Link>
         )}
+
+        <div className="border-t border-[var(--border)] mt-2 pt-2">
+          <NavLink href="/startup/settings" label="Settings" />
+        </div>
       </aside>
       <div className="flex-1 min-w-0 flex flex-col">
         <div className="md:hidden flex gap-2 px-4 py-3 border-b border-[var(--border)] overflow-x-auto">
@@ -110,6 +112,13 @@ export default function StartupShell({ children }: { children: ReactNode }) {
               Upgrade →
             </Link>
           )}
+
+          <Link
+            href="/startup/settings"
+            className="shrink-0 rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--text-muted)]"
+          >
+            Settings
+          </Link>
         </div>
         {children}
       </div>

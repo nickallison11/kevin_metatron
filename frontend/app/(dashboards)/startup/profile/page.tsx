@@ -25,6 +25,7 @@ type Profile = {
   website?: string | null;
   pitch_deck_url?: string | null;
   ipfs_visibility?: "public" | "private";
+  deckStorageOption?: "link" | "public_ipfs" | "private_ipfs";
 };
 
 const STAGES = [
@@ -38,24 +39,179 @@ const STAGES = [
   { v: "profitable", label: "Profitable" },
 ];
 
-const COUNTRIES = [
-  { code: "US", label: "United States" },
-  { code: "GB", label: "United Kingdom" },
-  { code: "AU", label: "Australia" },
-  { code: "CA", label: "Canada" },
-  { code: "ZA", label: "South Africa" },
-  { code: "KE", label: "Kenya" },
-  { code: "NG", label: "Nigeria" },
-  { code: "IN", label: "India" },
-  { code: "SG", label: "Singapore" },
-  { code: "HK", label: "Hong Kong" },
-  { code: "DE", label: "Germany" },
-  { code: "FR", label: "France" },
-  { code: "NL", label: "Netherlands" },
-  { code: "SE", label: "Sweden" },
-  { code: "AE", label: "United Arab Emirates" },
-  { code: "RW", label: "Rwanda" },
-  { code: "PA", label: "Panama" },
+const COUNTRIES: { code: string; name: string }[] = [
+  { code: "AF", name: "Afghanistan" },
+  { code: "AL", name: "Albania" },
+  { code: "DZ", name: "Algeria" },
+  { code: "AD", name: "Andorra" },
+  { code: "AO", name: "Angola" },
+  { code: "AG", name: "Antigua and Barbuda" },
+  { code: "AR", name: "Argentina" },
+  { code: "AM", name: "Armenia" },
+  { code: "AU", name: "Australia" },
+  { code: "AT", name: "Austria" },
+  { code: "AZ", name: "Azerbaijan" },
+  { code: "BS", name: "Bahamas" },
+  { code: "BH", name: "Bahrain" },
+  { code: "BD", name: "Bangladesh" },
+  { code: "BB", name: "Barbados" },
+  { code: "BE", name: "Belgium" },
+  { code: "BZ", name: "Belize" },
+  { code: "BJ", name: "Benin" },
+  { code: "BT", name: "Bhutan" },
+  { code: "BO", name: "Bolivia" },
+  { code: "BA", name: "Bosnia and Herzegovina" },
+  { code: "BW", name: "Botswana" },
+  { code: "BR", name: "Brazil" },
+  { code: "BN", name: "Brunei" },
+  { code: "BG", name: "Bulgaria" },
+  { code: "BF", name: "Burkina Faso" },
+  { code: "BI", name: "Burundi" },
+  { code: "CV", name: "Cabo Verde" },
+  { code: "KH", name: "Cambodia" },
+  { code: "CM", name: "Cameroon" },
+  { code: "CA", name: "Canada" },
+  { code: "TD", name: "Chad" },
+  { code: "CL", name: "Chile" },
+  { code: "CN", name: "China" },
+  { code: "CO", name: "Colombia" },
+  { code: "KM", name: "Comoros" },
+  { code: "CG", name: "Congo" },
+  { code: "CR", name: "Costa Rica" },
+  { code: "HR", name: "Croatia" },
+  { code: "CY", name: "Cyprus" },
+  { code: "CZ", name: "Czech Republic" },
+  { code: "DK", name: "Denmark" },
+  { code: "DJ", name: "Djibouti" },
+  { code: "DM", name: "Dominica" },
+  { code: "DO", name: "Dominican Republic" },
+  { code: "EC", name: "Ecuador" },
+  { code: "EG", name: "Egypt" },
+  { code: "SV", name: "El Salvador" },
+  { code: "GQ", name: "Equatorial Guinea" },
+  { code: "EE", name: "Estonia" },
+  { code: "SZ", name: "Eswatini" },
+  { code: "ET", name: "Ethiopia" },
+  { code: "FJ", name: "Fiji" },
+  { code: "FI", name: "Finland" },
+  { code: "FR", name: "France" },
+  { code: "GA", name: "Gabon" },
+  { code: "GM", name: "Gambia" },
+  { code: "GE", name: "Georgia" },
+  { code: "DE", name: "Germany" },
+  { code: "GH", name: "Ghana" },
+  { code: "GR", name: "Greece" },
+  { code: "GD", name: "Grenada" },
+  { code: "GT", name: "Guatemala" },
+  { code: "GN", name: "Guinea" },
+  { code: "GW", name: "Guinea-Bissau" },
+  { code: "GY", name: "Guyana" },
+  { code: "HN", name: "Honduras" },
+  { code: "HU", name: "Hungary" },
+  { code: "IS", name: "Iceland" },
+  { code: "IN", name: "India" },
+  { code: "ID", name: "Indonesia" },
+  { code: "IQ", name: "Iraq" },
+  { code: "IE", name: "Ireland" },
+  { code: "IL", name: "Israel" },
+  { code: "IT", name: "Italy" },
+  { code: "JM", name: "Jamaica" },
+  { code: "JP", name: "Japan" },
+  { code: "JO", name: "Jordan" },
+  { code: "KZ", name: "Kazakhstan" },
+  { code: "KE", name: "Kenya" },
+  { code: "KI", name: "Kiribati" },
+  { code: "KW", name: "Kuwait" },
+  { code: "KG", name: "Kyrgyzstan" },
+  { code: "LA", name: "Laos" },
+  { code: "LV", name: "Latvia" },
+  { code: "LB", name: "Lebanon" },
+  { code: "LS", name: "Lesotho" },
+  { code: "LR", name: "Liberia" },
+  { code: "LI", name: "Liechtenstein" },
+  { code: "LT", name: "Lithuania" },
+  { code: "LU", name: "Luxembourg" },
+  { code: "MG", name: "Madagascar" },
+  { code: "MW", name: "Malawi" },
+  { code: "MY", name: "Malaysia" },
+  { code: "MV", name: "Maldives" },
+  { code: "MT", name: "Malta" },
+  { code: "MH", name: "Marshall Islands" },
+  { code: "MR", name: "Mauritania" },
+  { code: "MU", name: "Mauritius" },
+  { code: "MX", name: "Mexico" },
+  { code: "FM", name: "Micronesia" },
+  { code: "MD", name: "Moldova" },
+  { code: "MC", name: "Monaco" },
+  { code: "MN", name: "Mongolia" },
+  { code: "ME", name: "Montenegro" },
+  { code: "MA", name: "Morocco" },
+  { code: "MZ", name: "Mozambique" },
+  { code: "NA", name: "Namibia" },
+  { code: "NR", name: "Nauru" },
+  { code: "NP", name: "Nepal" },
+  { code: "NL", name: "Netherlands" },
+  { code: "NZ", name: "New Zealand" },
+  { code: "NE", name: "Niger" },
+  { code: "NG", name: "Nigeria" },
+  { code: "MK", name: "North Macedonia" },
+  { code: "NO", name: "Norway" },
+  { code: "OM", name: "Oman" },
+  { code: "PK", name: "Pakistan" },
+  { code: "PW", name: "Palau" },
+  { code: "PA", name: "Panama" },
+  { code: "PG", name: "Papua New Guinea" },
+  { code: "PY", name: "Paraguay" },
+  { code: "PE", name: "Peru" },
+  { code: "PH", name: "Philippines" },
+  { code: "PL", name: "Poland" },
+  { code: "PT", name: "Portugal" },
+  { code: "QA", name: "Qatar" },
+  { code: "RO", name: "Romania" },
+  { code: "RW", name: "Rwanda" },
+  { code: "KN", name: "Saint Kitts and Nevis" },
+  { code: "LC", name: "Saint Lucia" },
+  { code: "VC", name: "Saint Vincent and the Grenadines" },
+  { code: "WS", name: "Samoa" },
+  { code: "SM", name: "San Marino" },
+  { code: "ST", name: "Sao Tome and Principe" },
+  { code: "SA", name: "Saudi Arabia" },
+  { code: "SN", name: "Senegal" },
+  { code: "RS", name: "Serbia" },
+  { code: "SC", name: "Seychelles" },
+  { code: "SL", name: "Sierra Leone" },
+  { code: "SG", name: "Singapore" },
+  { code: "SK", name: "Slovakia" },
+  { code: "SI", name: "Slovenia" },
+  { code: "SB", name: "Solomon Islands" },
+  { code: "ZA", name: "South Africa" },
+  { code: "ES", name: "Spain" },
+  { code: "LK", name: "Sri Lanka" },
+  { code: "SR", name: "Suriname" },
+  { code: "SE", name: "Sweden" },
+  { code: "CH", name: "Switzerland" },
+  { code: "TW", name: "Taiwan" },
+  { code: "TJ", name: "Tajikistan" },
+  { code: "TZ", name: "Tanzania" },
+  { code: "TH", name: "Thailand" },
+  { code: "TL", name: "Timor-Leste" },
+  { code: "TG", name: "Togo" },
+  { code: "TO", name: "Tonga" },
+  { code: "TT", name: "Trinidad and Tobago" },
+  { code: "TN", name: "Tunisia" },
+  { code: "TR", name: "Turkey" },
+  { code: "TM", name: "Turkmenistan" },
+  { code: "TV", name: "Tuvalu" },
+  { code: "UG", name: "Uganda" },
+  { code: "UA", name: "Ukraine" },
+  { code: "AE", name: "United Arab Emirates" },
+  { code: "GB", name: "United Kingdom" },
+  { code: "US", name: "United States" },
+  { code: "UY", name: "Uruguay" },
+  { code: "UZ", name: "Uzbekistan" },
+  { code: "VU", name: "Vanuatu" },
+  { code: "VN", name: "Vietnam" },
+  { code: "ZM", name: "Zambia" },
 ];
 
 function transformFromApi(api: ApiProfile): Profile {
@@ -68,6 +224,17 @@ function transformFromApi(api: ApiProfile): Profile {
           .filter(Boolean)
       : [];
 
+  const pitchUrl = api.pitch_deck_url ?? null;
+  const looksLikeIpfs =
+    typeof pitchUrl === "string" &&
+    (pitchUrl.startsWith("ipfs://") || pitchUrl.includes("gateway.pinata"));
+  const ipfsVisibility = api.ipfs_visibility === "public" ? "public" : "private";
+  const deckStorageOption: Profile["deckStorageOption"] = looksLikeIpfs
+    ? ipfsVisibility === "public"
+      ? "public_ipfs"
+      : "private_ipfs"
+    : "link";
+
   return {
     company_name: api.company_name ?? null,
     one_liner: api.one_liner ?? null,
@@ -75,8 +242,9 @@ function transformFromApi(api: ApiProfile): Profile {
     sectors,
     country: api.country ?? null,
     website: api.website ?? null,
-    pitch_deck_url: api.pitch_deck_url ?? null,
-    ipfs_visibility: api.ipfs_visibility === "public" ? "public" : "private",
+    pitch_deck_url: pitchUrl,
+    ipfs_visibility: ipfsVisibility,
+    deckStorageOption,
   };
 }
 
@@ -105,6 +273,7 @@ export default function StartupProfilePage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savingVisibility, setSavingVisibility] = useState(false);
+  const [deckUpgradePrompt, setDeckUpgradePrompt] = useState(false);
   const [profile, setProfile] = useState<Profile>({ sectors: [] });
   const [sectorDraft, setSectorDraft] = useState("");
 
@@ -166,10 +335,33 @@ export default function StartupProfilePage() {
       setMsg("Pick a file and ensure you are signed in.");
       return;
     }
+    if (!isPro) {
+      setDeckUpgradePrompt(true);
+      setMsg("Upgrade to Pro to use IPFS storage.");
+      e.target.value = "";
+      return;
+    }
     setMsg(null);
     const fd = new FormData();
     fd.append("file", file);
     try {
+      const desiredVisibility =
+        (profile.deckStorageOption ?? "link") === "private_ipfs"
+          ? "private"
+          : "public";
+      // Ensure the backend uploads to the correct Pinata network.
+      setSavingVisibility(true);
+      const visRes = await fetch(`${API_BASE}/uploads/ipfs-visibility`, {
+        method: "PUT",
+        headers: authJsonHeaders(token),
+        body: JSON.stringify({ visibility: desiredVisibility }),
+      });
+      if (!visRes.ok) {
+        const t = await visRes.text();
+        throw new Error(t || "Could not set IPFS visibility");
+      }
+      setProfile((p) => ({ ...p, ipfs_visibility: desiredVisibility as "public" | "private" }));
+
       const res = await fetch(`${API_BASE}/uploads/pitch-deck`, {
         method: "POST",
         headers: authHeaders(token),
@@ -192,6 +384,8 @@ export default function StartupProfilePage() {
       setMsg("Pitch deck uploaded.");
     } catch {
       setMsg("Upload failed.");
+    } finally {
+      setSavingVisibility(false);
     }
     e.target.value = "";
   }
@@ -222,6 +416,11 @@ export default function StartupProfilePage() {
   async function onVisibilityChange(nextVisibility: "public" | "private") {
     if (!token) {
       setMsg("Sign in first.");
+      return;
+    }
+    if (!isPro) {
+      setDeckUpgradePrompt(true);
+      setMsg("Upgrade to Pro to use IPFS storage.");
       return;
     }
     setSavingVisibility(true);
@@ -357,20 +556,15 @@ export default function StartupProfilePage() {
                   Country (ISO-2)
                 </span>
                 <select
-                  className="input-metatron"
+                  className="input-metatron w-full"
                   value={profile.country ?? ""}
                   onChange={(e) =>
-                    setProfile((p) => ({
-                      ...p,
-                      country: e.target.value || null,
-                    }))
+                    setProfile((p) => ({ ...p, country: e.target.value || null }))
                   }
                 >
                   <option value="">Select country…</option>
                   {COUNTRIES.map((c) => (
-                    <option key={c.code} value={c.code}>
-                      {c.label} ({c.code})
-                    </option>
+                    <option key={c.code} value={c.code}>{c.name}</option>
                   ))}
                 </select>
               </label>
@@ -400,16 +594,158 @@ export default function StartupProfilePage() {
                 />
               </label>
             </div>
-            <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-4 space-y-2">
-              <p className="text-xs font-semibold text-[var(--text)]">
-                Pitch deck
-              </p>
-              {isPro ? (
+            <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-4 space-y-3">
+              <p className="text-xs font-semibold text-[var(--text)]">Pitch deck</p>
+
+              <div className="grid gap-3 sm:grid-cols-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDeckUpgradePrompt(false);
+                    setProfile((p) => ({ ...p, deckStorageOption: "link", ipfs_visibility: "public" }));
+                  }}
+                  className={[
+                    "text-left rounded-[var(--radius)] border border-[var(--border)] bg-[color-mix(in_srgb,var(--bg)_55%,transparent)] p-3 transition-all",
+                    (profile.deckStorageOption ?? "link") === "link"
+                      ? "border-metatron-accent/40 shadow-[0_0_24px_rgba(108,92,231,0.12)]"
+                      : "hover:border-metatron-accent/20 hover:shadow-[0_0_24px_rgba(108,92,231,0.08)]",
+                  ].join(" ")}
+                >
+                  <div className="text-lg">🔗</div>
+                  <div className="mt-1 text-sm font-semibold text-[var(--text)]">
+                    Link to your deck
+                  </div>
+                  <div className="mt-1 text-xs text-[var(--text-muted)] leading-relaxed">
+                    Store your pitch deck on your own cloud (Google Drive, Dropbox, Notion,
+                    etc.) and share a link. You control access directly.
+                  </div>
+                  <div className="mt-2 font-mono text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
+                    Your own cloud
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!isPro) {
+                      setDeckUpgradePrompt(true);
+                      return;
+                    }
+                    setDeckUpgradePrompt(false);
+                    setProfile((p) => ({
+                      ...p,
+                      deckStorageOption: "public_ipfs",
+                      ipfs_visibility: "public",
+                    }));
+                  }}
+                  className={[
+                    "text-left rounded-[var(--radius)] border border-[var(--border)] bg-[color-mix(in_srgb,var(--bg)_55%,transparent)] p-3 transition-all relative",
+                    (profile.deckStorageOption ?? "link") === "public_ipfs"
+                      ? "border-metatron-accent/40 shadow-[0_0_24px_rgba(108,92,231,0.12)]"
+                      : "hover:border-metatron-accent/20 hover:shadow-[0_0_24px_rgba(108,92,231,0.08)]",
+                  ].join(" ")}
+                >
+                  {!isPro && (
+                    <span className="absolute top-2 right-2 font-mono text-[9px] uppercase tracking-wider border border-metatron-accent/40 text-metatron-accent px-1.5 py-0.5 rounded">
+                      Pro
+                    </span>
+                  )}
+                  <div className="text-lg">🌐</div>
+                  <div className="mt-1 text-sm font-semibold text-[var(--text)]">
+                    Public IPFS storage
+                  </div>
+                  <div className="mt-1 text-xs text-[var(--text-muted)] leading-relaxed">
+                    Your deck is stored on decentralised IPFS storage. Investors with access
+                    to your profile can view it directly through the platform. Best for open
+                    fundraising rounds.
+                  </div>
+                  <div className="mt-2 font-mono text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
+                    Public IPFS
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!isPro) {
+                      setDeckUpgradePrompt(true);
+                      return;
+                    }
+                    setDeckUpgradePrompt(false);
+                    setProfile((p) => ({
+                      ...p,
+                      deckStorageOption: "private_ipfs",
+                      ipfs_visibility: "private",
+                    }));
+                  }}
+                  className={[
+                    "text-left rounded-[var(--radius)] border border-[var(--border)] bg-[color-mix(in_srgb,var(--bg)_55%,transparent)] p-3 transition-all relative",
+                    (profile.deckStorageOption ?? "link") === "private_ipfs"
+                      ? "border-metatron-accent/40 shadow-[0_0_24px_rgba(108,92,231,0.12)]"
+                      : "hover:border-metatron-accent/20 hover:shadow-[0_0_24px_rgba(108,92,231,0.08)]",
+                  ].join(" ")}
+                >
+                  {!isPro && (
+                    <span className="absolute top-2 right-2 font-mono text-[9px] uppercase tracking-wider border border-metatron-accent/40 text-metatron-accent px-1.5 py-0.5 rounded">
+                      Pro
+                    </span>
+                  )}
+                  <div className="text-lg">🔒</div>
+                  <div className="mt-1 text-sm font-semibold text-[var(--text)]">
+                    Private IPFS storage
+                  </div>
+                  <div className="mt-1 text-xs text-[var(--text-muted)] leading-relaxed">
+                    Your deck is encrypted and stored privately on IPFS. Investors must send
+                    you an access request and you approve it before they can view your deck
+                    through their AI instance on the platform. Best for selective raises.
+                  </div>
+                  <div className="mt-2 font-mono text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
+                    Private IPFS
+                  </div>
+                </button>
+              </div>
+
+              {(profile.deckStorageOption ?? "link") !== "link" && (
+                <div className="bg-metatron-accent/5 border border-metatron-accent/20 rounded-[12px] p-3 text-xs text-[var(--text-muted)]">
+                  <span className="font-semibold">ℹ️</span> Options 2 and 3 use a secure
+                  approval handshake. When an investor requests to view your deck, you will
+                  receive a notification and must approve access before they can see it
+                  through the platform.
+                </div>
+              )}
+
+              {!isPro &&
+                deckUpgradePrompt &&
+                (profile.deckStorageOption === "public_ipfs" ||
+                  profile.deckStorageOption === "private_ipfs") && (
+                  <div className="rounded-[12px] border border-metatron-accent/20 bg-metatron-accent/5 p-3 text-xs text-[var(--text-muted)]">
+                    Upgrade to Pro to use IPFS storage.{" "}
+                    <a
+                      href="/pricing"
+                      className="text-metatron-accent hover:underline font-semibold"
+                    >
+                      View pricing →
+                    </a>
+                  </div>
+                )}
+
+              {(profile.deckStorageOption ?? "link") === "link" ? (
+                <label className="block space-y-1">
+                  <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
+                    Pitch Deck Link
+                  </span>
+                  <input
+                    className="input-metatron w-full"
+                    type="url"
+                    placeholder="https://drive.google.com/..."
+                    value={profile.pitch_deck_url ?? ""}
+                    onChange={(e) =>
+                      setProfile((p) => ({ ...p, pitch_deck_url: e.target.value }))
+                    }
+                  />
+                </label>
+              ) : (
                 <>
-                  <p className="text-[11px] text-[var(--text-muted)]">
-                    PDF, PPTX, or Key. Upload replaces the stored deck URL on your
-                    profile.
-                  </p>
                   <input
                     ref={fileInputRef}
                     type="file"
@@ -419,79 +755,28 @@ export default function StartupProfilePage() {
                   />
                   <button
                     type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    className="rounded-lg bg-metatron-accent px-5 py-2.5 text-sm font-semibold text-white hover:bg-metatron-accent-hover hover:shadow-[0_4px_20px_rgba(108,92,231,0.3)] transition-all"
-                  >
-                    Upload deck
-                  </button>
-                  <div className="mt-2 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg)] p-3 space-y-2">
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-xs font-semibold text-[var(--text)]">
-                        Pitch Deck Visibility
-                      </span>
-                      <div className="inline-flex rounded-full border border-[var(--border)] p-1">
-                        <button
-                          type="button"
-                          disabled={savingVisibility}
-                          onClick={() => onVisibilityChange("private")}
-                          className={`rounded-full px-3 py-1 text-xs transition-colors ${
-                            (profile.ipfs_visibility ?? "private") === "private"
-                              ? "bg-metatron-accent text-white"
-                              : "text-[var(--text-muted)] hover:text-[var(--text)]"
-                          }`}
-                        >
-                          Private
-                        </button>
-                        <button
-                          type="button"
-                          disabled={savingVisibility}
-                          onClick={() => onVisibilityChange("public")}
-                          className={`rounded-full px-3 py-1 text-xs transition-colors ${
-                            (profile.ipfs_visibility ?? "private") === "public"
-                              ? "bg-metatron-accent text-white"
-                              : "text-[var(--text-muted)] hover:text-[var(--text)]"
-                          }`}
-                        >
-                          Public IPFS
-                        </button>
-                      </div>
-                    </div>
-                    {(profile.ipfs_visibility ?? "private") === "private" ? (
-                      <p className="text-xs text-[var(--text-muted)]">
-                        Your deck is stored privately. Only accessible via a secure link. Can
-                        be deleted at any time.
-                      </p>
-                    ) : (
-                      <p className="text-xs text-[var(--text-muted)]">
-                        Your deck will be published to the public IPFS network. It becomes
-                        permanently accessible and cannot be fully erased. Only choose this if
-                        you want maximum decentralisation.
-                      </p>
-                    )}
-                  </div>
-                </>
-              ) : (
-                <>
-                  <label className="block space-y-1">
-                    <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
-                      Pitch Deck Link
-                    </span>
-                    <input
-                      className="input-metatron"
-                      type="url"
-                      placeholder="https://drive.google.com/..."
-                      value={profile.pitch_deck_url ?? ""}
-                      onChange={(e) =>
-                        setProfile((p) => ({ ...p, pitch_deck_url: e.target.value }))
+                    onClick={() => {
+                      if (!isPro) {
+                        setDeckUpgradePrompt(true);
+                        return;
                       }
-                    />
-                  </label>
-                  <p className="text-xs text-[var(--text-muted)]">
-                    Paste a link to your deck on Google Drive, Dropbox, or any cloud
-                    storage. Make sure sharing is set to &apos;Anyone with the link&apos;.
-                  </p>
+                      fileInputRef.current?.click();
+                    }}
+                    disabled={savingVisibility}
+                    className="rounded-lg bg-metatron-accent px-5 py-2.5 text-sm font-semibold text-white hover:bg-metatron-accent-hover hover:shadow-[0_4px_20px_rgba(108,92,231,0.3)] transition-all disabled:opacity-60"
+                  >
+                    {savingVisibility ? "Preparing…" : "Upload deck"}
+                  </button>
                 </>
               )}
+
+              {(profile.deckStorageOption ?? "link") === "link" && (
+                <p className="text-xs text-[var(--text-muted)]">
+                  Store your deck on Google Drive, Dropbox, Notion, or any cloud storage. Make
+                  sure sharing is set appropriately for investors.
+                </p>
+              )}
+
               {profile.pitch_deck_url && (
                 <a
                   href={profile.pitch_deck_url}

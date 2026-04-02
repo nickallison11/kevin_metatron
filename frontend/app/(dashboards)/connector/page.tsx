@@ -1,4 +1,12 @@
+"use client";
+
+import { useAuth } from "@/lib/auth";
+
 export default function ConnectorDashboardPage() {
+  const { loading } = useAuth();
+
+  if (loading) return null;
+
   return (
     <main className="min-h-[calc(100vh-72px)] text-[var(--text)]">
       <header className="border-b border-[var(--border)] px-6 py-4 md:px-10">

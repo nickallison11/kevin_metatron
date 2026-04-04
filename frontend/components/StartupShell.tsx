@@ -91,7 +91,8 @@ export default function StartupShell({ children }: { children: ReactNode }) {
           </Link>
         )}
 
-        <div className="mt-2 border-t border-[var(--border)] pt-2">
+        <div className="mt-2 border-t border-[var(--border)] pt-2 space-y-1">
+          <NavLink href="/startup/settings/subscription" label="Subscription" />
           <NavLink href="/startup/settings" label="Settings" />
         </div>
       </aside>
@@ -115,6 +116,12 @@ export default function StartupShell({ children }: { children: ReactNode }) {
             </Link>
           )}
 
+          <Link
+            href="/startup/settings/subscription"
+            className="shrink-0 rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--text-muted)]"
+          >
+            Subscription
+          </Link>
           <Link
             href="/startup/settings"
             className="shrink-0 rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--text-muted)]"

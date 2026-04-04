@@ -15,6 +15,8 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use sha2::Sha512;
 use uuid::Uuid;
+use rust_decimal::Decimal;
+use std::str::FromStr;
 
 use crate::identity::require_user;
 use crate::routes::subscriptions::finalize_pro_subscription;
@@ -231,12 +233,36 @@ async fn webhook(
         _ => "$9.99 USD",
     };
 
-    let _ = finalize_pro_subscription(&state, user_id, tier_lower.as_str(), amount_paid)
-        .await
-        .map_err(|(status, _)| {
-            tracing::warn!("paystack webhook: finalize failed with status {:?}", status);
-            status
+    let invoice_amount = match (pay_currency, tier_lower.as_str()) {
+        ("ZAR", "annual") => Decimal::from_str("1699.99").unwrap(),
+        ("ZAR", _) => Decimal::from_str("169.99").unwrap(),
+        (_, "annual") => Decimal::from_str("99.99").unwrap(),
+        _ => Decimal::from_str("9.99").unwrap(),
+    };
+
+    let paystack_ref = data
+        .get("reference")
+        .and_then(|r| r.as_str())
+        .ok_or_else(|| {
+            tracing::warn!("paystack webhook: missing reference");
+            StatusCode::BAD_REQUEST
         })?;
+
+    let _ = finalize_pro_subscription(
+        &state,
+        user_id,
+        tier_lower.as_str(),
+        amount_paid,
+        "card",
+        Some(paystack_ref),
+        pay_currency,
+        invoice_amount,
+    )
+    .await
+    .map_err(|(status, _)| {
+        tracing::warn!("paystack webhook: finalize failed with status {:?}", status);
+        status
+    })?;
 
     Ok(StatusCode::OK)
 }

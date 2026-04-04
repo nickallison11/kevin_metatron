@@ -77,7 +77,8 @@ export default function InvestorShell({ children }: { children: ReactNode }) {
           </Link>
         )}
 
-        <div className="mt-2 border-t border-[var(--border)] pt-2">
+        <div className="mt-2 border-t border-[var(--border)] pt-2 space-y-1">
+          <NavLink href="/investor/settings/subscription" label="Subscription" />
           <NavLink href="/investor/settings" label="Settings" />
         </div>
       </aside>
@@ -100,6 +101,12 @@ export default function InvestorShell({ children }: { children: ReactNode }) {
               Upgrade →
             </Link>
           )}
+          <Link
+            href="/investor/settings/subscription"
+            className="shrink-0 rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--text-muted)]"
+          >
+            Subscription
+          </Link>
           <Link
             href="/investor/settings"
             className="shrink-0 rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--text-muted)]"

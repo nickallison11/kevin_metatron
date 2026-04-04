@@ -136,6 +136,24 @@ pub fn pro_activated_email_html(period_end: &str, amount_paid: &str) -> String {
     )
 }
 
+pub fn subscription_cancelled_email_html(period_end: &str) -> String {
+    shell_html(
+        "Your Pro subscription has been cancelled",
+        &format!(
+            r#"
+<p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">Your metatron Pro subscription has been set to cancel at the end of your current billing period.</p>
+<p style="margin:0 0 12px 0;font-size:13px;color:#e8e8ed;">You will retain full Pro access until: <strong>{period_end}</strong></p>
+<p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">After that date your account will revert to the free tier.</p>
+<p style="margin:0 0 0 0;font-size:14px;">
+  <a href="https://platform.metatron.id/pricing" style="color:#6c5ce7;text-decoration:none;">Resubscribe</a> ·
+  <a href="mailto:support@metatron.id" style="color:#6c5ce7;text-decoration:none;">Support</a>
+</p>
+"#,
+            period_end = period_end
+        ),
+    )
+}
+
 pub fn renewal_reminder_email_html(expiry_date: &str) -> String {
     shell_html(
         "Your Pro subscription is expiring soon",

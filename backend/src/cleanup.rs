@@ -25,6 +25,29 @@ pub fn start_cleanup_task(state: Arc<AppState>) {
                 }
             }
 
+            match sqlx::query(
+                r#"
+                UPDATE users
+                SET subscription_status = 'inactive', is_pro = FALSE
+                WHERE cancel_at_period_end = TRUE
+                AND subscription_period_end < NOW()
+                AND subscription_status = 'active'
+                "#,
+            )
+            .execute(&state.db)
+            .await
+            {
+                Ok(result) => {
+                    tracing::info!(
+                        "cleanup: expired {} cancelled-at-period-end subscriptions",
+                        result.rows_affected()
+                    );
+                }
+                Err(e) => {
+                    tracing::error!("cleanup: failed expiring cancelled subscriptions: {e}");
+                }
+            }
+
             match sqlx::query_as::<_, (sqlx::types::Uuid, String, Option<String>)>(
                 r#"
                 SELECT id, email, subscription_period_end::text FROM users

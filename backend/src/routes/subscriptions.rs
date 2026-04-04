@@ -10,6 +10,7 @@ use axum_extra::{
     headers::{authorization::Bearer, Authorization},
     TypedHeader,
 };
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use uuid::Uuid;
@@ -23,6 +24,11 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/nonce", get(get_nonce))
         .route("/confirm", post(confirm_subscription))
         .route("/status", get(get_status))
+        .route("/invoices", get(get_invoices))
+        .route(
+            "/cancel",
+            post(cancel_subscription).delete(undo_cancel_subscription),
+        )
 }
 
 #[derive(Serialize)]
@@ -215,12 +221,49 @@ async fn confirm_subscription(
         ));
     }
 
+    let payment_method = instructions
+        .iter()
+        .find_map(|ix| {
+            let parsed = ix.get("parsed")?;
+            let info = parsed.get("info")?;
+            let ix_type = parsed.get("type").and_then(|v| v.as_str())?;
+            let mint = info.get("mint").and_then(|v| v.as_str())?;
+            let amount = info
+                .get("tokenAmount")
+                .and_then(|ta| ta.get("amount"))
+                .and_then(|v| v.as_str())?;
+            let mint_ok = mint == state.usdc_mint.as_str() || mint == state.usdt_mint.as_str();
+            if ix_type == "transferChecked" && mint_ok && amount == required_amount {
+                if mint == state.usdt_mint.as_str() {
+                    return Some("usdt");
+                }
+                return Some("usdc");
+            }
+            None
+        })
+        .unwrap_or("usdc");
+
     let amount_paid = if tier == "monthly" {
         "$9.99 USDC/USDT"
     } else {
         "$99.00 USDC/USDT"
     };
-    let period_end = finalize_pro_subscription(&state, authed.id, &tier, amount_paid).await?;
+    let invoice_amount = if tier == "monthly" {
+        Decimal::new(999, 2)
+    } else {
+        Decimal::new(9900, 2)
+    };
+    let period_end = finalize_pro_subscription(
+        &state,
+        authed.id,
+        &tier,
+        amount_paid,
+        payment_method,
+        Some(body.signature.as_str()),
+        "USD",
+        invoice_amount,
+    )
+    .await?;
 
     Ok(Json(ConfirmResponse {
         status: "active".to_string(),
@@ -235,6 +278,10 @@ pub async fn finalize_pro_subscription(
     user_id: Uuid,
     tier: &str,
     amount_paid_display: &str,
+    payment_method: &str,
+    reference: Option<&str>,
+    invoice_currency: &str,
+    invoice_amount: Decimal,
 ) -> Result<String, (StatusCode, Json<Value>)> {
     let tier = tier.to_ascii_lowercase();
     if tier != "monthly" && tier != "annual" {
@@ -255,16 +302,19 @@ pub async fn finalize_pro_subscription(
             )
         })?;
 
-    let period_end: String = if tier == "monthly" {
-        sqlx::query_scalar(
+    let (period_end, period_start): (String, String) = if tier == "monthly" {
+        sqlx::query_as(
             r#"
             UPDATE users
             SET pending_payment_nonce = NULL,
                 subscription_tier = 'monthly',
                 subscription_status = 'active',
-                subscription_period_end = NOW() + INTERVAL '30 days'
+                cancel_at_period_end = FALSE,
+                subscription_period_end = GREATEST(NOW(), COALESCE(subscription_period_end, NOW())) + INTERVAL '30 days'
             WHERE id = $1
-            RETURNING subscription_period_end::text
+            RETURNING
+                subscription_period_end::text,
+                (subscription_period_end - INTERVAL '30 days')::text
             "#,
         )
         .bind(user_id)
@@ -277,15 +327,18 @@ pub async fn finalize_pro_subscription(
             )
         })?
     } else {
-        sqlx::query_scalar(
+        sqlx::query_as(
             r#"
             UPDATE users
             SET pending_payment_nonce = NULL,
                 subscription_tier = 'annual',
                 subscription_status = 'active',
-                subscription_period_end = NOW() + INTERVAL '365 days'
+                cancel_at_period_end = FALSE,
+                subscription_period_end = GREATEST(NOW(), COALESCE(subscription_period_end, NOW())) + INTERVAL '365 days'
             WHERE id = $1
-            RETURNING subscription_period_end::text
+            RETURNING
+                subscription_period_end::text,
+                (subscription_period_end - INTERVAL '365 days')::text
             "#,
         )
         .bind(user_id)
@@ -298,6 +351,29 @@ pub async fn finalize_pro_subscription(
             )
         })?
     };
+
+    sqlx::query(
+        r#"
+        INSERT INTO subscription_invoices (user_id, amount, currency, payment_method, tier, period_start, period_end, reference)
+        VALUES ($1, $2, $3, $4, $5, $6::timestamptz, $7::timestamptz, $8)
+        "#,
+    )
+    .bind(user_id)
+    .bind(invoice_amount)
+    .bind(invoice_currency)
+    .bind(payment_method)
+    .bind(tier.as_str())
+    .bind(&period_start)
+    .bind(&period_end)
+    .bind(reference)
+    .execute(&state.db)
+    .await
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": "internal error" })),
+        )
+    })?;
 
     email::send_email(
         &state.http_client,
@@ -326,6 +402,7 @@ struct StatusResponse {
     subscription_tier: String,
     subscription_status: String,
     subscription_period_end: Option<String>,
+    cancel_at_period_end: bool,
 }
 
 async fn get_status(
@@ -334,16 +411,18 @@ async fn get_status(
 ) -> Result<Json<StatusResponse>, (StatusCode, String)> {
     let authed = require_user(&state, bearer.token()).await?;
 
-    let (subscription_tier, subscription_status, subscription_period_end): (
+    let (subscription_tier, subscription_status, subscription_period_end, cancel_at_period_end): (
         String,
         String,
         Option<String>,
+        bool,
     ) = sqlx::query_as(
         r#"
         SELECT
             subscription_tier,
             subscription_status,
-            subscription_period_end::text
+            subscription_period_end::text,
+            cancel_at_period_end
         FROM users
         WHERE id = $1
         "#,
@@ -357,5 +436,154 @@ async fn get_status(
         subscription_tier,
         subscription_status,
         subscription_period_end,
+        cancel_at_period_end,
     }))
+}
+
+#[derive(Serialize)]
+struct InvoiceRow {
+    id: String,
+    amount: f64,
+    currency: String,
+    payment_method: String,
+    tier: String,
+    period_start: String,
+    period_end: String,
+    reference: Option<String>,
+    created_at: String,
+}
+
+async fn get_invoices(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+) -> Result<Json<Vec<InvoiceRow>>, (StatusCode, String)> {
+    let authed = require_user(&state, bearer.token()).await?;
+
+    let rows: Vec<(
+        String,
+        f64,
+        String,
+        String,
+        String,
+        String,
+        String,
+        Option<String>,
+        String,
+    )> = sqlx::query_as(
+        r#"
+        SELECT
+            id::text,
+            COALESCE(amount::float8, 0),
+            currency,
+            payment_method,
+            tier,
+            period_start::text,
+            period_end::text,
+            reference,
+            created_at::text
+        FROM subscription_invoices
+        WHERE user_id = $1
+        ORDER BY created_at DESC
+        "#,
+    )
+    .bind(authed.id)
+    .fetch_all(&state.db)
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string()))?;
+
+    Ok(Json(
+        rows.into_iter()
+            .map(
+                |(
+                    id,
+                    amount,
+                    currency,
+                    payment_method,
+                    tier,
+                    period_start,
+                    period_end,
+                    reference,
+                    created_at,
+                )| InvoiceRow {
+                    id,
+                    amount,
+                    currency,
+                    payment_method,
+                    tier,
+                    period_start,
+                    period_end,
+                    reference,
+                    created_at,
+                },
+            )
+            .collect(),
+    ))
+}
+
+async fn cancel_subscription(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let authed = require_user(&state, bearer.token()).await?;
+
+    let period_end: Option<String> = sqlx::query_scalar(
+        r#"
+        UPDATE users
+        SET cancel_at_period_end = TRUE
+        WHERE id = $1 AND subscription_status = 'active'
+        RETURNING subscription_period_end::text
+        "#,
+    )
+    .bind(authed.id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string()))?;
+
+    let Some(period_end) = period_end else {
+        return Err((StatusCode::BAD_REQUEST, "no active subscription".to_string()));
+    };
+
+    let user_email: String = sqlx::query_scalar("SELECT email FROM users WHERE id = $1")
+        .bind(authed.id)
+        .fetch_one(&state.db)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string()))?;
+
+    email::send_email(
+        &state.http_client,
+        state.resend_api_key.as_deref(),
+        &state.email_from,
+        &user_email,
+        "Your metatron Pro cancellation is confirmed",
+        &email::subscription_cancelled_email_html(&period_end),
+    )
+    .await;
+
+    Ok(StatusCode::OK)
+}
+
+async fn undo_cancel_subscription(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let authed = require_user(&state, bearer.token()).await?;
+
+    let n = sqlx::query(
+        r#"
+        UPDATE users
+        SET cancel_at_period_end = FALSE
+        WHERE id = $1 AND subscription_status = 'active'
+        "#,
+    )
+    .bind(authed.id)
+    .execute(&state.db)
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string()))?
+    .rows_affected();
+
+    if n == 0 {
+        return Err((StatusCode::BAD_REQUEST, "no active subscription".to_string()));
+    }
+
+    Ok(StatusCode::OK)
 }

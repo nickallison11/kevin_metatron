@@ -30,6 +30,35 @@ const proFeatures = [
   "Auto-renews monthly — cancel any time",
 ];
 
+type SubscriptionStatusLite = {
+  subscription_status: string;
+  subscription_period_end: string | null;
+};
+
+function formatLongDate(iso: string | null | undefined) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString(undefined, {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+}
+
+function computeExtendedEnd(periodEndIso: string | null, tier: "monthly" | "annual") {
+  if (!periodEndIso) return "—";
+  const d = new Date(periodEndIso);
+  if (Number.isNaN(d.getTime())) return "—";
+  const out = new Date(d);
+  out.setUTCDate(out.getUTCDate() + (tier === "monthly" ? 30 : 365));
+  return out.toLocaleDateString(undefined, {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+}
+
 function FeatureCheck({ children }: { children: React.ReactNode }) {
   return (
     <li className="flex gap-2.5">
@@ -59,13 +88,17 @@ function PricingPageInner() {
   const { connection } = useConnection();
   const { connected, publicKey, sendTransaction } = useWallet();
   const [token, setToken] = useState<"USDC" | "USDT">("USDC");
-  const [currency, setCurrency] = useState<"USD" | "ZAR">("USD");
+  const [currency, setCurrency] = useState<"USD" | "ZAR">("ZAR");
   const [loading, setLoading] = useState(false);
   const [activeTier, setActiveTier] = useState<"monthly" | "annual" | null>(
     null,
   );
   const [insufficientBalance, setInsufficientBalance] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [subStatus, setSubStatus] = useState<SubscriptionStatusLite | null>(null);
+  const [extendModalTier, setExtendModalTier] = useState<"monthly" | "annual" | null>(
+    null,
+  );
   const walletAddress = publicKey?.toString() ?? "";
   const shortAddress =
     walletAddress.length > 8
@@ -138,8 +171,50 @@ function PricingPageInner() {
     return () => clearInterval(interval);
   }, [searchParams, router]);
 
+  useEffect(() => {
+    const t = window.localStorage.getItem("metatron_token");
+    if (!t) return;
+    fetch(`${API_BASE}/subscriptions/status`, {
+      headers: authJsonHeaders(t),
+    })
+      .then((r) => r.json())
+      .then((data) => setSubStatus(data as SubscriptionStatusLite))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const ext = searchParams.get("extend");
+    if (ext !== "monthly" && ext !== "annual") return;
+    if (!subStatus || subStatus.subscription_status !== "active") return;
+    setExtendModalTier(ext === "annual" ? "annual" : "monthly");
+  }, [searchParams, subStatus]);
+
+  const closeExtendModal = useCallback(() => {
+    setExtendModalTier(null);
+    router.replace("/pricing");
+  }, [router]);
+
   const handleSubscribe = useCallback(
-    async (tier: "monthly" | "annual") => {
+    async (tier: "monthly" | "annual", skipExtendCheck = false) => {
+      if (!skipExtendCheck) {
+        const authToken = window.localStorage.getItem("metatron_token");
+        if (authToken) {
+          try {
+            const res = await fetch(`${API_BASE}/subscriptions/status`, {
+              headers: authJsonHeaders(authToken),
+            });
+            const data = (await res.json()) as SubscriptionStatusLite;
+            if (data?.subscription_status === "active") {
+              setSubStatus(data);
+              setExtendModalTier(tier);
+              return;
+            }
+          } catch {
+            /* continue to checkout */
+          }
+        }
+      }
+
       if (!connected || !publicKey) return;
       setError(null);
       setLoading(true);
@@ -218,11 +293,26 @@ function PricingPageInner() {
   );
 
   const handleCardPayment = useCallback(
-    async (tier: "monthly" | "annual") => {
+    async (tier: "monthly" | "annual", skipExtendCheck = false) => {
       const authToken = window.localStorage.getItem("metatron_token");
       if (!authToken) {
         router.push("/login");
         return;
+      }
+      if (!skipExtendCheck) {
+        try {
+          const res = await fetch(`${API_BASE}/subscriptions/status`, {
+            headers: authJsonHeaders(authToken),
+          });
+          const data = (await res.json()) as SubscriptionStatusLite;
+          if (data?.subscription_status === "active") {
+            setSubStatus(data);
+            setExtendModalTier(tier);
+            return;
+          }
+        } catch {
+          /* continue */
+        }
       }
       setLoading(true);
       setActiveTier(tier);
@@ -299,7 +389,7 @@ function PricingPageInner() {
     <main className="min-h-[calc(100vh-72px)] px-5 py-10">
       <div className="mx-auto w-full max-w-5xl">
         <div className="mb-8 flex justify-center gap-2">
-          {(["USD", "ZAR"] as const).map((c) => (
+          {(["ZAR", "USD"] as const).map((c) => (
             <button
               key={c}
               type="button"
@@ -512,6 +602,81 @@ function PricingPageInner() {
           </p>
         )}
       </div>
+
+      {extendModalTier && subStatus?.subscription_status === "active" && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="extend-modal-title"
+        >
+          <div className="w-full max-w-md rounded-[12px] border border-[var(--border)] bg-[var(--bg-card)] p-6 shadow-xl">
+            <h2
+              id="extend-modal-title"
+              className="text-lg font-semibold text-[var(--text)]"
+            >
+              Extend your subscription
+            </h2>
+            <p className="mt-2 text-sm text-[var(--text-muted)]">
+              Current plan active until:{" "}
+              <span className="text-[var(--text)]">
+                {formatLongDate(subStatus.subscription_period_end)}
+              </span>
+            </p>
+            <div className="mt-4 rounded-[12px] border border-[var(--border)] bg-[#0a0a0f]/50 p-4">
+              <p className="font-mono text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
+                {extendModalTier === "monthly" ? "Monthly extension" : "Annual extension"}
+              </p>
+              <p className="mt-2 text-sm text-[var(--text)]">
+                New end date:{" "}
+                <strong>
+                  {computeExtendedEnd(subStatus.subscription_period_end, extendModalTier)}
+                </strong>
+              </p>
+              <p className="mt-2 text-xs text-[var(--text-muted)]">
+                {extendModalTier === "monthly" ? (
+                  <>
+                    ZAR 169.99 · USD 9.99
+                  </>
+                ) : (
+                  <>
+                    ZAR 1,699.99 · USD 99.99
+                  </>
+                )}
+              </p>
+            </div>
+            <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+              <button
+                type="button"
+                onClick={() => {
+                  void handleCardPayment(extendModalTier, true);
+                }}
+                disabled={loading}
+                className="inline-flex flex-1 items-center justify-center rounded-[12px] border border-[var(--border)] px-4 py-2.5 text-sm font-semibold text-[var(--text)] transition-colors hover:border-metatron-accent/30 disabled:opacity-60"
+              >
+                Pay with card
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  void handleSubscribe(extendModalTier, true);
+                }}
+                disabled={loading || !connected}
+                className="inline-flex flex-1 items-center justify-center rounded-[12px] bg-metatron-accent px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-metatron-accent-hover disabled:opacity-60"
+              >
+                Pay with USDC/USDT
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={closeExtendModal}
+              className="mt-4 w-full rounded-[12px] border border-[var(--border)] px-4 py-2 text-sm font-semibold text-[var(--text-muted)] transition-colors hover:border-metatron-accent/30"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

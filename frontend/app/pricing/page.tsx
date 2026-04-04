@@ -252,29 +252,15 @@ function PricingPageInner() {
   return (
     <main className="min-h-[calc(100vh-72px)] px-5 py-10">
       <div className="mx-auto w-full max-w-5xl">
-        <div className="mb-8 flex flex-col items-stretch justify-between gap-3 rounded-[12px] border border-[var(--border)] bg-[var(--bg-card)] px-4 py-3 text-sm md:flex-row md:items-center">
-          {connected ? (
-            <p className="text-sm text-[var(--text-muted)]">
-              <span className="mr-2 inline-block h-2 w-2 rounded-full bg-green-400" />
-              Wallet connected: {shortAddress}
-            </p>
-          ) : (
-            <p className="text-sm text-[var(--text-muted)]">
-              Connect your wallet to subscribe. We accept USDC and USDT on
-              Solana.
-            </p>
-          )}
-          <div className="flex justify-center md:justify-end">
-            <WalletMultiButton />
-          </div>
-        </div>
-
-        <div className="mb-6 flex justify-center gap-2">
+        <div className="mb-8 flex justify-center gap-2">
           {(["USD", "ZAR"] as const).map((c) => (
             <button
               key={c}
               type="button"
-              onClick={() => setCurrency(c)}
+              onClick={() => {
+                setCurrency(c);
+                if (c === "ZAR") setInsufficientBalance(false);
+              }}
               className={`rounded-lg border px-4 py-1.5 text-sm font-semibold transition-colors ${
                 currency === c
                   ? "border-metatron-accent bg-metatron-accent/10 text-metatron-accent"
@@ -286,13 +272,36 @@ function PricingPageInner() {
           ))}
         </div>
 
-        <div className="mb-6 flex flex-wrap items-center justify-center gap-3">
-          <span className="text-xs text-[var(--text-muted)]">Solana pay with:</span>
-          <div className="inline-flex rounded-lg border border-[var(--border)] p-0.5">
-            {tokenToggleBtn("USDC")}
-            {tokenToggleBtn("USDT")}
+        {currency === "USD" && (
+          <div className="mb-8 flex flex-col items-stretch justify-between gap-3 rounded-[12px] border border-[var(--border)] bg-[var(--bg-card)] px-4 py-3 text-sm md:flex-row md:items-center">
+            {connected ? (
+              <p className="text-sm text-[var(--text-muted)]">
+                <span className="mr-2 inline-block h-2 w-2 rounded-full bg-green-400" />
+                Wallet connected: {shortAddress}
+              </p>
+            ) : (
+              <p className="text-sm text-[var(--text-muted)]">
+                Connect your wallet to subscribe. We accept USDC and USDT on
+                Solana.
+              </p>
+            )}
+            <div className="flex justify-center md:justify-end">
+              <WalletMultiButton />
+            </div>
           </div>
-        </div>
+        )}
+
+        {currency === "USD" && (
+          <div className="mb-6 flex flex-wrap items-center justify-center gap-3">
+            <span className="text-xs text-[var(--text-muted)]">
+              Solana pay with:
+            </span>
+            <div className="inline-flex rounded-lg border border-[var(--border)] p-0.5">
+              {tokenToggleBtn("USDC")}
+              {tokenToggleBtn("USDT")}
+            </div>
+          </div>
+        )}
 
         <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
           {/* Free */}
@@ -339,30 +348,36 @@ function PricingPageInner() {
                 {currency} / mo
               </span>
             </p>
-            <button
-              id="btn-subscribe-monthly"
-              type="button"
-              onClick={() => handleSubscribe("monthly")}
-              disabled={!connected || loading}
-              className="mt-6 inline-flex w-full items-center justify-center rounded-[12px] bg-metatron-accent px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-metatron-accent-hover disabled:opacity-60"
-            >
-              {loading && activeTier === "monthly"
-                ? "Processing..."
-                : "Subscribe monthly"}
-            </button>
-            <button
-              type="button"
-              onClick={() => handleCardPayment("monthly")}
-              disabled={loading}
-              className="mt-2 inline-flex w-full items-center justify-center rounded-[12px] border border-[var(--border)] px-4 py-2.5 text-sm font-semibold text-[var(--text)] transition-colors hover:border-metatron-accent/30 disabled:opacity-60"
-            >
-              {loading && activeTier === "monthly"
-                ? "Redirecting..."
-                : "Pay with card"}
-            </button>
-            <p className="mt-1.5 text-center text-[10px] text-[var(--text-muted)]">
-              Visa & Mastercard · Powered by Paystack
-            </p>
+            {currency === "USD" && (
+              <button
+                id="btn-subscribe-monthly"
+                type="button"
+                onClick={() => handleSubscribe("monthly")}
+                disabled={!connected || loading}
+                className="mt-6 inline-flex w-full items-center justify-center rounded-[12px] bg-metatron-accent px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-metatron-accent-hover disabled:opacity-60"
+              >
+                {loading && activeTier === "monthly"
+                  ? "Processing..."
+                  : "Subscribe monthly"}
+              </button>
+            )}
+            {currency === "ZAR" && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => handleCardPayment("monthly")}
+                  disabled={loading}
+                  className="mt-6 inline-flex w-full items-center justify-center rounded-[12px] border border-[var(--border)] px-4 py-2.5 text-sm font-semibold text-[var(--text)] transition-colors hover:border-metatron-accent/30 disabled:opacity-60"
+                >
+                  {loading && activeTier === "monthly"
+                    ? "Redirecting..."
+                    : "Pay with card"}
+                </button>
+                <p className="mt-1.5 text-center text-[10px] text-[var(--text-muted)]">
+                  Visa & Mastercard · Powered by Paystack
+                </p>
+              </>
+            )}
             <div className="my-6 border-t border-[var(--border)]" />
             <ul className="flex flex-col gap-3">
               <FeatureCheck>Everything in Free</FeatureCheck>
@@ -386,30 +401,36 @@ function PricingPageInner() {
                 {currency} / yr
               </span>
             </p>
-            <button
-              id="btn-subscribe-annual"
-              type="button"
-              onClick={() => handleSubscribe("annual")}
-              disabled={!connected || loading}
-              className="mt-6 inline-flex w-full items-center justify-center rounded-[12px] border border-[var(--border)] px-4 py-2.5 text-sm font-semibold text-[var(--text)] transition-colors hover:border-metatron-accent/30 disabled:opacity-60"
-            >
-              {loading && activeTier === "annual"
-                ? "Processing..."
-                : "Subscribe annually"}
-            </button>
-            <button
-              type="button"
-              onClick={() => handleCardPayment("annual")}
-              disabled={loading}
-              className="mt-2 inline-flex w-full items-center justify-center rounded-[12px] border border-[var(--border)] px-4 py-2.5 text-sm font-semibold text-[var(--text)] transition-colors hover:border-metatron-accent/30 disabled:opacity-60"
-            >
-              {loading && activeTier === "annual"
-                ? "Redirecting..."
-                : "Pay with card"}
-            </button>
-            <p className="mt-1.5 text-center text-[10px] text-[var(--text-muted)]">
-              Visa & Mastercard · Powered by Paystack
-            </p>
+            {currency === "USD" && (
+              <button
+                id="btn-subscribe-annual"
+                type="button"
+                onClick={() => handleSubscribe("annual")}
+                disabled={!connected || loading}
+                className="mt-6 inline-flex w-full items-center justify-center rounded-[12px] border border-[var(--border)] px-4 py-2.5 text-sm font-semibold text-[var(--text)] transition-colors hover:border-metatron-accent/30 disabled:opacity-60"
+              >
+                {loading && activeTier === "annual"
+                  ? "Processing..."
+                  : "Subscribe annually"}
+              </button>
+            )}
+            {currency === "ZAR" && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => handleCardPayment("annual")}
+                  disabled={loading}
+                  className="mt-6 inline-flex w-full items-center justify-center rounded-[12px] border border-[var(--border)] px-4 py-2.5 text-sm font-semibold text-[var(--text)] transition-colors hover:border-metatron-accent/30 disabled:opacity-60"
+                >
+                  {loading && activeTier === "annual"
+                    ? "Redirecting..."
+                    : "Pay with card"}
+                </button>
+                <p className="mt-1.5 text-center text-[10px] text-[var(--text-muted)]">
+                  Visa & Mastercard · Powered by Paystack
+                </p>
+              </>
+            )}
             <div className="my-6 border-t border-[var(--border)]" />
             <ul className="flex flex-col gap-3">
               <FeatureCheck>Everything in Free</FeatureCheck>
@@ -421,7 +442,7 @@ function PricingPageInner() {
           </section>
         </div>
 
-        {insufficientBalance && (
+        {currency === "USD" && insufficientBalance && (
           <div className="mb-6 mt-8 rounded-[12px] border border-[var(--border)] bg-[var(--bg-card)] p-4 text-center">
             <p className="mb-3 text-sm text-[var(--text-muted)]">
               You don&apos;t have enough {token} in your wallet. You can
@@ -435,8 +456,9 @@ function PricingPageInner() {
         )}
 
         <p className="mt-8 text-center text-sm text-[var(--text-muted)]">
-          Pay with crypto (USDC/USDT via Solana) or card (Visa/Mastercard via
-          Paystack). Prices shown in USD and ZAR.
+          {currency === "USD"
+            ? "Pay with USDC or USDT via your Solana wallet."
+            : "Pay with Visa or Mastercard via Paystack. Billed in ZAR."}
         </p>
         {error && (
           <p className="mt-3 text-center text-sm text-[var(--text-muted)]">

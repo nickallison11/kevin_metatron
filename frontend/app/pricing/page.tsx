@@ -151,24 +151,58 @@ function PricingPageInner() {
     const token = window.localStorage.getItem("metatron_token");
     if (!token) return;
 
-    let attempts = 0;
-    const interval = setInterval(async () => {
-      attempts++;
-      try {
-        const res = await fetch(`${API_BASE}/subscriptions/status`, {
-          headers: authJsonHeaders(token),
-        });
-        const data = await res.json();
-        if (data?.subscription_status === "active") {
-          clearInterval(interval);
-          const role = decodeRoleFromJwt(token);
-          router.replace(dashboardPathForRole(role));
-        }
-      } catch {}
-      if (attempts >= 10) clearInterval(interval);
-    }, 2000);
+    let cancelled = false;
+    const intervalRef: {
+      current: ReturnType<typeof setInterval> | undefined;
+    } = { current: undefined };
 
-    return () => clearInterval(interval);
+    const run = async () => {
+      const reference = searchParams.get("reference");
+      if (reference && token) {
+        try {
+          await fetch(`${API_BASE}/commerce/verify`, {
+            method: "POST",
+            headers: authJsonHeaders(token),
+            body: JSON.stringify({ reference }),
+          });
+        } catch {
+          /* continue to poll */
+        }
+      }
+      if (cancelled) return;
+
+      let attempts = 0;
+      intervalRef.current = setInterval(async () => {
+        attempts++;
+        try {
+          const res = await fetch(`${API_BASE}/subscriptions/status`, {
+            headers: authJsonHeaders(token),
+          });
+          const data = await res.json();
+          if (data?.subscription_status === "active") {
+            if (intervalRef.current !== undefined) {
+              clearInterval(intervalRef.current);
+            }
+            const role = decodeRoleFromJwt(token);
+            router.replace(dashboardPathForRole(role));
+          }
+        } catch {
+          /* ignore */
+        }
+        if (attempts >= 10 && intervalRef.current !== undefined) {
+          clearInterval(intervalRef.current);
+        }
+      }, 2000);
+    };
+
+    void run();
+
+    return () => {
+      cancelled = true;
+      if (intervalRef.current !== undefined) {
+        clearInterval(intervalRef.current);
+      }
+    };
   }, [searchParams, router]);
 
   useEffect(() => {

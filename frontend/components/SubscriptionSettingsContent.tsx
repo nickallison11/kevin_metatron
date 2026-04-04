@@ -242,8 +242,6 @@ export default function SubscriptionSettingsContent({
                   <td className="py-2">
                     <Link
                       href={`${basePath}/invoice/${inv.id}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
                       className="text-xs text-metatron-accent hover:underline"
                     >
                       View

@@ -1,11 +1,6 @@
 import type { ReactNode } from "react";
-import KevinChat from "@/components/KevinChat";
+import ConnectorShell from "@/components/ConnectorShell";
 
 export default function ConnectorLayout({ children }: { children: ReactNode }) {
-  return (
-    <>
-      {children}
-      <KevinChat />
-    </>
-  );
+  return <ConnectorShell>{children}</ConnectorShell>;
 }

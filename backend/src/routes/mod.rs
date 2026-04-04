@@ -1,8 +1,12 @@
 pub mod auth;
 pub mod calls;
+pub mod commerce;
 pub mod compliance;
+pub mod connector_profile;
+pub mod connections;
 pub mod deals;
 pub mod investments;
+pub mod investor_profile;
 pub mod kevin;
 pub mod oauth;
 pub mod pitches;

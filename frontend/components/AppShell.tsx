@@ -8,6 +8,9 @@ import { useEffect, useState } from "react";
 const LOGO_URL =
   "https://metatron.id/wp-content/uploads/2026/03/metatron-_Logo.png";
 
+const navLinkClass =
+  "text-sm text-[var(--text-muted)] transition-colors hover:text-[var(--text)]";
+
 function decodeRoleFromJwt(token: string): string | null {
   try {
     const parts = token.split(".");
@@ -74,6 +77,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
   const role = token ? decodeRoleFromJwt(token) : null;
   const dashboardHref = dashboardPathForRole(role);
+  const loggedIn = Boolean(token);
 
   return (
     <div className="relative min-h-screen overflow-hidden">
@@ -81,31 +85,75 @@ export default function AppShell({ children }: { children: ReactNode }) {
       <div className="orb" aria-hidden />
 
       <nav className="nav-metatron">
-        <Link href="/" className="flex items-center gap-2.5 shrink-0">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={LOGO_URL}
-            alt="metatron"
-            height={42}
-            width={160}
-            className="h-[42px] w-auto"
-          />
-        </Link>
-        <div className="flex-1 flex items-center justify-center">
-          <Link
-            href="/pricing"
-            className="text-sm text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"
-          >
-            Pricing
+        <div className="flex min-w-0 items-center gap-4 md:gap-6">
+          <Link href="/" className="flex shrink-0 items-center gap-2.5">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={LOGO_URL}
+              alt="metatron"
+              height={42}
+              width={160}
+              className="h-[42px] w-auto"
+            />
           </Link>
+          <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 md:gap-x-6">
+            {loggedIn ? (
+              <Link href="/founders" className={navLinkClass}>
+                Founder
+              </Link>
+            ) : (
+              <Link
+                href="/auth/signup"
+                className={navLinkClass}
+                onClick={() =>
+                  sessionStorage.setItem("metatron_role", "founder")
+                }
+              >
+                Founder
+              </Link>
+            )}
+            {loggedIn ? (
+              <Link href="/connectors" className={navLinkClass}>
+                Connector
+              </Link>
+            ) : (
+              <Link
+                href="/auth/signup"
+                className={navLinkClass}
+                onClick={() =>
+                  sessionStorage.setItem("metatron_role", "connector")
+                }
+              >
+                Connector
+              </Link>
+            )}
+            {loggedIn ? (
+              <Link href="/investors" className={navLinkClass}>
+                Investor
+              </Link>
+            ) : (
+              <Link
+                href="/auth/signup"
+                className={navLinkClass}
+                onClick={() =>
+                  sessionStorage.setItem("metatron_role", "investor")
+                }
+              >
+                Investor
+              </Link>
+            )}
+            <Link href="/pricing" className={navLinkClass}>
+              Pricing
+            </Link>
+          </div>
         </div>
-        <div className="flex items-center gap-3 flex-wrap justify-end">
+
+        <div className="flex-1" aria-hidden />
+
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-3">
           {token ? (
             <>
-              <Link
-                href={dashboardHref}
-                className="text-sm text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"
-              >
+              <Link href={dashboardHref} className={navLinkClass}>
                 Dashboard
               </Link>
               <button
@@ -115,22 +163,19 @@ export default function AppShell({ children }: { children: ReactNode }) {
                   setToken(null);
                   router.push("/");
                 }}
-                className="rounded-lg bg-metatron-accent/10 px-3 py-2 text-sm font-semibold text-metatron-accent hover:bg-metatron-accent/15 transition-colors"
+                className="rounded-lg bg-metatron-accent/10 px-3 py-2 text-sm font-semibold text-metatron-accent transition-colors hover:bg-metatron-accent/15"
               >
                 Log out
               </button>
             </>
           ) : (
             <>
-              <Link
-                href="/login"
-                className="text-sm text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"
-              >
+              <Link href="/login" className={navLinkClass}>
                 Sign in
               </Link>
               <Link
                 href="/auth/signup"
-                className="rounded-lg bg-metatron-accent px-4 py-2 text-sm font-semibold text-white hover:bg-metatron-accent-hover hover:shadow-[0_4px_20px_rgba(108,92,231,0.3)] transition-all"
+                className="rounded-lg bg-metatron-accent px-4 py-2 text-sm font-semibold text-white transition-all hover:bg-metatron-accent-hover hover:shadow-[0_4px_20px_rgba(108,92,231,0.3)]"
               >
                 Get started
               </Link>
@@ -139,7 +184,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
           <button
             type="button"
             onClick={toggleTheme}
-            className="rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-sm text-[var(--text-muted)] hover:border-metatron-accent/25 transition-colors"
+            className="rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-sm text-[var(--text-muted)] transition-colors hover:border-metatron-accent/25"
             aria-label="Toggle theme"
           >
             {theme === "dark" ? "☀️" : "🌙"}
@@ -147,7 +192,9 @@ export default function AppShell({ children }: { children: ReactNode }) {
         </div>
       </nav>
 
-      <div className="relative z-[1] min-h-[calc(100vh-72px)]">{children}</div>
+      <div className="relative z-[1] min-h-[calc(100vh-72px)]">
+        {children}
+      </div>
     </div>
   );
 }

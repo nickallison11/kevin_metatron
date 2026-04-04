@@ -35,3 +35,6 @@ rand = "0.8"
 anyhow = "1"
 dotenvy = "0.15"
 totp-rs = { version = "5", features = ["gen_secret", "otpauth"] }
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"

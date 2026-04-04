@@ -1,5 +1,7 @@
 "use client";
 
+import { AnimatedGridPattern } from "@/components/ui/animated-grid-pattern";
+import { CardHoverEffect } from "@/components/ui/card-hover-effect";
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 
@@ -72,10 +74,15 @@ export default function SignupPage() {
   }
 
   return (
-    <div className="flex items-center justify-center min-h-[calc(100vh-72px)] px-5 py-10">
+    <div className="relative flex min-h-[calc(100vh-88px)] items-center justify-center px-5 py-10">
+      <AnimatedGridPattern />
+      <CardHoverEffect
+        layoutId="metatron-signup-card-hover"
+        className="relative z-[1] w-full max-w-sm"
+      >
       <form
         onSubmit={onSubmit}
-        className="w-full max-w-sm space-y-4 rounded-metatron border border-[var(--border)] bg-[var(--bg-card)] p-6"
+        className="w-full space-y-4 rounded-metatron border border-[var(--border)] bg-[var(--bg-card)] p-6"
       >
         <h1 className="text-xl font-semibold text-[var(--text)]">
           Create account
@@ -141,6 +148,7 @@ export default function SignupPage() {
           <p className="text-xs text-[var(--text-muted)]">{result}</p>
         )}
       </form>
+      </CardHoverEffect>
     </div>
   );
 }

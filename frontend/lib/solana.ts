@@ -11,31 +11,37 @@ import {
 } from "@solana/spl-token";
 import type { WalletContextState } from "@solana/wallet-adapter-react";
 
-export async function sendUsdcPayment({
+const SPL_DECIMALS_DEFAULT = 6;
+
+export async function sendSplPayment({
   connection,
   senderPublicKey,
   amountUsdc,
   memo,
   sendTransaction,
+  mintAddress,
+  decimals = SPL_DECIMALS_DEFAULT,
 }: {
   connection: Connection;
   senderPublicKey: PublicKey;
   amountUsdc: number;
   memo: string;
   sendTransaction: WalletContextState["sendTransaction"];
+  mintAddress: string;
+  decimals?: number;
 }): Promise<string> {
-  const mintStr = process.env.NEXT_PUBLIC_USDC_MINT;
   const treasuryStr = process.env.NEXT_PUBLIC_SOLANA_TREASURY;
-  if (!mintStr || !treasuryStr) {
-    throw new Error("Missing NEXT_PUBLIC_USDC_MINT or NEXT_PUBLIC_SOLANA_TREASURY");
+  if (!treasuryStr) {
+    throw new Error("Missing NEXT_PUBLIC_SOLANA_TREASURY");
   }
 
-  const usdcMint = new PublicKey(mintStr);
+  const mint = new PublicKey(mintAddress);
   const treasury = new PublicKey(treasuryStr);
-  const senderAta = await getAssociatedTokenAddress(usdcMint, senderPublicKey);
-  const treasuryAta = await getAssociatedTokenAddress(usdcMint, treasury);
+  const senderAta = await getAssociatedTokenAddress(mint, senderPublicKey);
+  const treasuryAta = await getAssociatedTokenAddress(mint, treasury);
 
-  const smallestUnitAmount = Math.round(amountUsdc * 1_000_000);
+  const factor = 10 ** decimals;
+  const smallestUnitAmount = Math.round(amountUsdc * factor);
   const tx = new Transaction();
   const treasuryAtaInfo = await connection.getAccountInfo(treasuryAta);
   if (!treasuryAtaInfo) {
@@ -44,18 +50,18 @@ export async function sendUsdcPayment({
         senderPublicKey,
         treasuryAta,
         treasury,
-        usdcMint,
+        mint,
       ),
     );
   }
   tx.add(
     createTransferCheckedInstruction(
       senderAta,
-      usdcMint,
+      mint,
       treasuryAta,
       senderPublicKey,
       smallestUnitAmount,
-      6,
+      decimals,
     ),
     new TransactionInstruction({
       keys: [],

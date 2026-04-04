@@ -1,11 +1,6 @@
 import type { ReactNode } from "react";
-import KevinChat from "@/components/KevinChat";
+import InvestorShell from "@/components/InvestorShell";
 
 export default function InvestorLayout({ children }: { children: ReactNode }) {
-  return (
-    <>
-      {children}
-      <KevinChat />
-    </>
-  );
+  return <InvestorShell>{children}</InvestorShell>;
 }

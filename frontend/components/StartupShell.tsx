@@ -41,15 +41,17 @@ export default function StartupShell({ children }: { children: ReactNode }) {
 
   function NavLink({ href, label }: { href: string; label: string }) {
     const active =
-      href === "/startup" ? pathname === "/startup" : pathname.startsWith(href);
+      href === "/startup"
+        ? pathname === "/startup"
+        : pathname.startsWith(href);
     return (
       <Link
         href={href}
         className={[
-          "rounded-[var(--radius)] px-3 py-2.5 text-sm font-medium transition-colors",
+          "block w-full rounded-[var(--radius)] px-3 py-2.5 text-left text-sm font-medium transition-colors",
           active
-            ? "bg-metatron-accent/15 text-metatron-accent border border-metatron-accent/25"
-            : "text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--border)]",
+            ? "border border-metatron-accent/25 bg-metatron-accent/15 text-metatron-accent"
+            : "text-[var(--text-muted)] hover:bg-[var(--border)] hover:text-[var(--text)]",
         ].join(" ")}
       >
         {label}
@@ -83,13 +85,13 @@ export default function StartupShell({ children }: { children: ReactNode }) {
         {!isPro && (
           <Link
             href="/pricing"
-            className="mt-4 mx-1 rounded-[var(--radius)] px-3 py-2 text-xs font-semibold text-center bg-metatron-accent/10 text-metatron-accent border border-metatron-accent/20 hover:bg-metatron-accent/20 transition-colors"
+            className="mx-1 mt-4 rounded-[var(--radius)] border border-metatron-accent/20 bg-metatron-accent/10 px-3 py-2 text-center text-xs font-semibold text-metatron-accent transition-colors hover:bg-metatron-accent/20"
           >
             Upgrade to Pro →
           </Link>
         )}
 
-        <div className="border-t border-[var(--border)] mt-2 pt-2">
+        <div className="mt-2 border-t border-[var(--border)] pt-2">
           <NavLink href="/startup/settings" label="Settings" />
         </div>
       </aside>

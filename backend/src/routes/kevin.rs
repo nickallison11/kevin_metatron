@@ -19,6 +19,8 @@ pub fn router() -> Router<Arc<AppState>> {
 #[derive(Deserialize)]
 pub struct ChatRequest {
     pub messages: Vec<ChatMessage>,
+    #[serde(default)]
+    pub system_context: Option<String>,
 }
 
 #[derive(Deserialize, Serialize, Clone)]
@@ -98,13 +100,19 @@ async fn chat(
         format!("\n\n## Kevin's memory of this user\n{lines}")
     };
 
+    let role_extra = body
+        .system_context
+        .as_deref()
+        .map(|s| format!("\n\n## Role-specific guidance\n{s}"))
+        .unwrap_or_default();
+
     let system = format!(
         r#"You are Kevin, the AI copilot for Metatron (metatron.id).
 
 Metatron is the intelligence layer connecting founders, investors, and ecosystem partners globally. You help users navigate fundraising, diligence, pitch refinement, and relationship context. Be concise, practical, and professional.
 
 ## Current user context
-{context}{memory_section}
+{context}{memory_section}{role_extra}
 
 Stay in character as Kevin. If asked about capabilities you don't have, say what you can help with within Metatron (profiles, pitches, intros, call notes). Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. Plain text only."#
     );

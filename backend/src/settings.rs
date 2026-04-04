@@ -26,9 +26,12 @@ pub struct Settings {
     pub solana_rpc_url: String,
     pub solana_treasury: String,
     pub usdc_mint: String,
+    pub usdt_mint: String,
     pub whisper_url: String,
     pub resend_api_key: Option<String>,
     pub email_from: String,
+    pub paystack_secret_key: Option<String>,
+    pub paystack_currency: String,
 }
 
 impl Settings {
@@ -89,6 +92,8 @@ impl Settings {
             .map_err(|_| "SOLANA_TREASURY must be set".to_string())?;
         let usdc_mint =
             env::var("USDC_MINT").map_err(|_| "USDC_MINT must be set".to_string())?;
+        let usdt_mint =
+            env::var("USDT_MINT").map_err(|_| "USDT_MINT must be set".to_string())?;
         let whisper_url =
             env::var("WHISPER_URL").unwrap_or_else(|_| "http://localhost:9000".to_string());
         let resend_api_key = env::var("RESEND_API_KEY")
@@ -99,6 +104,15 @@ impl Settings {
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| "Kevin <kevin@metatron.id>".to_string());
+
+        let paystack_secret_key = env::var("PAYSTACK_SECRET_KEY")
+            .ok()
+            .and_then(|s| (!s.trim().is_empty()).then_some(s.trim().to_string()));
+        let paystack_currency = env::var("PAYSTACK_CURRENCY")
+            .ok()
+            .map(|s| s.trim().to_uppercase())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "USD".to_string());
 
         Ok(Self {
             database_url,
@@ -128,9 +142,12 @@ impl Settings {
             solana_rpc_url,
             solana_treasury,
             usdc_mint,
+            usdt_mint,
             whisper_url,
             resend_api_key,
             email_from,
+            paystack_secret_key,
+            paystack_currency,
         })
     }
 }

@@ -28,9 +28,12 @@ pub struct AppState {
     pub solana_rpc_url: String,
     pub solana_treasury: String,
     pub usdc_mint: String,
+    pub usdt_mint: String,
     pub whisper_url: String,
     pub resend_api_key: Option<String>,
     pub email_from: String,
+    pub paystack_secret_key: Option<String>,
+    pub paystack_currency: String,
     pub http_client: Client,
 }
 
@@ -73,9 +76,12 @@ impl AppState {
             solana_rpc_url: settings.solana_rpc_url.clone(),
             solana_treasury: settings.solana_treasury.clone(),
             usdc_mint: settings.usdc_mint.clone(),
+            usdt_mint: settings.usdt_mint.clone(),
             whisper_url: settings.whisper_url.clone(),
             resend_api_key: settings.resend_api_key.clone(),
             email_from: settings.email_from.clone(),
+            paystack_secret_key: settings.paystack_secret_key.clone(),
+            paystack_currency: settings.paystack_currency.clone(),
             http_client,
         }))
     }

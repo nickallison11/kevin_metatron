@@ -68,16 +68,6 @@ async fn confirm_subscription(
     let authed = require_user(&state, bearer.token())
         .await
         .map_err(|(_, msg)| (StatusCode::UNAUTHORIZED, Json(json!({ "error": msg }))))?;
-    let user_email: String = sqlx::query_scalar("SELECT email FROM users WHERE id = $1")
-        .bind(authed.id)
-        .fetch_one(&state.db)
-        .await
-        .map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": "internal error" })),
-            )
-        })?;
 
     let tier = body.tier.to_ascii_lowercase();
     if tier != "monthly" && tier != "annual" {
@@ -183,12 +173,13 @@ async fn confirm_subscription(
             .and_then(|ta| ta.get("amount"))
             .and_then(|v| v.as_str())
             .unwrap_or("");
-        ix_type == "transferChecked" && mint == state.usdc_mint && amount == required_amount
+        let mint_ok = mint == state.usdc_mint.as_str() || mint == state.usdt_mint.as_str();
+        ix_type == "transferChecked" && mint_ok && amount == required_amount
     });
     if !has_matching_transfer {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(json!({ "error": "required USDC transfer not found" })),
+            Json(json!({ "error": "required USDC or USDT transfer not found" })),
         ));
     }
 
@@ -201,7 +192,8 @@ async fn confirm_subscription(
     let treasury_received = post_balances.iter().any(|bal| {
         let owner = bal.get("owner").and_then(|v| v.as_str()).unwrap_or("");
         let mint = bal.get("mint").and_then(|v| v.as_str()).unwrap_or("");
-        owner == state.solana_treasury && mint == state.usdc_mint
+        let mint_ok = mint == state.usdc_mint.as_str() || mint == state.usdt_mint.as_str();
+        owner == state.solana_treasury && mint_ok
     });
     if !treasury_received {
         return Err((
@@ -223,6 +215,46 @@ async fn confirm_subscription(
         ));
     }
 
+    let amount_paid = if tier == "monthly" {
+        "$9.99 USDC/USDT"
+    } else {
+        "$99.00 USDC/USDT"
+    };
+    let period_end = finalize_pro_subscription(&state, authed.id, &tier, amount_paid).await?;
+
+    Ok(Json(ConfirmResponse {
+        status: "active".to_string(),
+        tier,
+        period_end,
+    }))
+}
+
+/// Activates Pro subscription and sends the welcome email (on-chain and Coinbase Commerce).
+pub async fn finalize_pro_subscription(
+    state: &AppState,
+    user_id: Uuid,
+    tier: &str,
+    amount_paid_display: &str,
+) -> Result<String, (StatusCode, Json<Value>)> {
+    let tier = tier.to_ascii_lowercase();
+    if tier != "monthly" && tier != "annual" {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "tier must be monthly or annual" })),
+        ));
+    }
+
+    let user_email: String = sqlx::query_scalar("SELECT email FROM users WHERE id = $1")
+        .bind(user_id)
+        .fetch_one(&state.db)
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "internal error" })),
+            )
+        })?;
+
     let period_end: String = if tier == "monthly" {
         sqlx::query_scalar(
             r#"
@@ -235,7 +267,7 @@ async fn confirm_subscription(
             RETURNING subscription_period_end::text
             "#,
         )
-        .bind(authed.id)
+        .bind(user_id)
         .fetch_one(&state.db)
         .await
         .map_err(|_| {
@@ -256,7 +288,7 @@ async fn confirm_subscription(
             RETURNING subscription_period_end::text
             "#,
         )
-        .bind(authed.id)
+        .bind(user_id)
         .fetch_one(&state.db)
         .await
         .map_err(|_| {
@@ -267,22 +299,17 @@ async fn confirm_subscription(
         })?
     };
 
-    let amount_paid = if tier == "monthly" { "$9.99 USDC" } else { "$99.00 USDC" };
     email::send_email(
         &state.http_client,
         state.resend_api_key.as_deref(),
         &state.email_from,
         &user_email,
         "You're now on metatron Pro 🚀",
-        &email::pro_activated_email_html(&period_end, amount_paid),
+        &email::pro_activated_email_html(&period_end, amount_paid_display),
     )
     .await;
 
-    Ok(Json(ConfirmResponse {
-        status: "active".to_string(),
-        tier,
-        period_end,
-    }))
+    Ok(period_end)
 }
 
 fn value_contains_text(v: &Value, needle: &str) -> bool {

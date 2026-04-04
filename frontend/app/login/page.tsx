@@ -1,5 +1,7 @@
 "use client";
 
+import { AnimatedGridPattern } from "@/components/ui/animated-grid-pattern";
+import { CardHoverEffect } from "@/components/ui/card-hover-effect";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useMemo, useState } from "react";
@@ -186,8 +188,10 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex items-center justify-center min-h-[calc(100vh-72px)] px-5 py-10">
-      <div className="w-full max-w-sm space-y-4">
+    <div className="relative flex min-h-[calc(100vh-88px)] items-center justify-center px-5 py-10">
+      <AnimatedGridPattern />
+      <div className="relative z-[1] w-full max-w-sm space-y-4">
+        <CardHoverEffect layoutId="metatron-login-card-hover">
         <div className="w-full rounded-metatron border border-[var(--border)] bg-[var(--bg-card)] p-6">
           {!twoFaStep ? (
             <>
@@ -373,6 +377,7 @@ export default function LoginPage() {
             </form>
           )}
         </div>
+        </CardHoverEffect>
       </div>
     </div>
   );

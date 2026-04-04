@@ -11,12 +11,14 @@ use axum_extra::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::identity::{require_role, AuthedUser};
+use crate::identity::{require_role, require_user, AuthedUser};
 use crate::state::AppState;
+use uuid::Uuid;
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/", get(get_profile).put(put_profile))
+        .route("/founders/all", get(list_founders))
 }
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
@@ -137,6 +139,45 @@ async fn put_profile(
     .map_err(internal)?;
 
     fetch_profile(&state, id).await
+}
+
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct FounderPublicDto {
+    pub user_id: Uuid,
+    pub company_name: Option<String>,
+    pub one_liner: Option<String>,
+    pub stage: Option<String>,
+    pub sector: Option<String>,
+    pub country: Option<String>,
+    pub pitch_deck_url: Option<String>,
+}
+
+async fn list_founders(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+) -> Result<Json<Vec<FounderPublicDto>>, (axum::http::StatusCode, String)> {
+    let _u = require_user(&state, bearer.token()).await?;
+    let sql = r#"
+        SELECT
+            p.user_id,
+            p.company_name,
+            p.one_liner,
+            p.stage,
+            p.sector,
+            p.country::text AS country,
+            p.pitch_deck_url
+        FROM profiles p
+        INNER JOIN users u ON u.id = p.user_id
+        WHERE u.role = 'STARTUP'
+        ORDER BY p.updated_at DESC NULLS LAST, p.created_at DESC
+        "#;
+
+    let rows = sqlx::query_as::<_, FounderPublicDto>(sql)
+        .fetch_all(&state.db)
+        .await
+        .map_err(internal)?;
+
+    Ok(Json(rows))
 }
 
 fn internal<E: std::fmt::Debug>(_e: E) -> (axum::http::StatusCode, String) {

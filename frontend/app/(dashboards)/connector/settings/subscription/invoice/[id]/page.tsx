@@ -1,10 +1,13 @@
 "use client";
 
-import SubscriptionSettingsContent from "@/components/SubscriptionSettingsContent";
+import SubscriptionInvoiceView from "@/components/SubscriptionInvoiceView";
 import { useAuth } from "@/lib/auth";
+import { useParams } from "next/navigation";
 
-export default function ConnectorSubscriptionPage() {
+export default function ConnectorInvoicePage() {
   const { token, loading } = useAuth("INTERMEDIARY");
+  const params = useParams();
+  const id = typeof params?.id === "string" ? params.id : "";
 
   if (loading) {
     return (
@@ -17,10 +20,10 @@ export default function ConnectorSubscriptionPage() {
   if (!token) return null;
 
   return (
-    <SubscriptionSettingsContent
+    <SubscriptionInvoiceView
       token={token}
-      pricingPath="/pricing"
-      basePath="/connector/settings/subscription"
+      invoiceId={id}
+      settingsHref="/connector/settings/subscription"
     />
   );
 }

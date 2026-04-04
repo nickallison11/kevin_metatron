@@ -38,9 +38,11 @@ function formatDate(iso: string | null | undefined): string {
 export default function SubscriptionSettingsContent({
   token,
   pricingPath = "/pricing",
+  basePath = "/startup/settings/subscription",
 }: {
   token: string;
   pricingPath?: string;
+  basePath?: string;
 }) {
   const router = useRouter();
   const [status, setStatus] = useState<SubStatus | null>(null);
@@ -221,6 +223,7 @@ export default function SubscriptionSettingsContent({
                 <th className="py-2 text-left">Amount</th>
                 <th className="py-2 text-left">Method</th>
                 <th className="py-2 text-left">Period</th>
+                <th className="py-2 text-left">Invoice</th>
               </tr>
             </thead>
             <tbody>
@@ -235,6 +238,16 @@ export default function SubscriptionSettingsContent({
                   </td>
                   <td className="py-2 text-[var(--text-muted)]">
                     {formatDate(inv.period_start)} → {formatDate(inv.period_end)}
+                  </td>
+                  <td className="py-2">
+                    <Link
+                      href={`${basePath}/invoice/${inv.id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-metatron-accent hover:underline"
+                    >
+                      View
+                    </Link>
                   </td>
                 </tr>
               ))}

@@ -43,7 +43,7 @@ export default function StartupShell({ children }: { children: ReactNode }) {
     const active =
       href === "/startup"
         ? pathname === "/startup"
-        : pathname.startsWith(href);
+        : pathname === href;
     return (
       <Link
         href={href}

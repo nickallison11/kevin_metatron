@@ -1,10 +1,13 @@
 "use client";
 
-import SubscriptionSettingsContent from "@/components/SubscriptionSettingsContent";
+import SubscriptionInvoiceView from "@/components/SubscriptionInvoiceView";
 import { useAuth } from "@/lib/auth";
+import { useParams } from "next/navigation";
 
-export default function StartupSubscriptionPage() {
+export default function StartupInvoicePage() {
   const { token, loading } = useAuth();
+  const params = useParams();
+  const id = typeof params?.id === "string" ? params.id : "";
 
   if (loading) {
     return (
@@ -17,10 +20,10 @@ export default function StartupSubscriptionPage() {
   if (!token) return null;
 
   return (
-    <SubscriptionSettingsContent
+    <SubscriptionInvoiceView
       token={token}
-      pricingPath="/pricing"
-      basePath="/startup/settings/subscription"
+      invoiceId={id}
+      settingsHref="/startup/settings/subscription"
     />
   );
 }

@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use axum::{
-    extract::State,
+    extract::{Path, State},
     http::StatusCode,
     routing::{get, post},
     Json, Router,
@@ -24,6 +24,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/nonce", get(get_nonce))
         .route("/confirm", post(confirm_subscription))
         .route("/status", get(get_status))
+        .route("/invoices/:id", get(get_invoice))
         .route("/invoices", get(get_invoices))
         .route(
             "/cancel",
@@ -451,6 +452,87 @@ struct InvoiceRow {
     period_end: String,
     reference: Option<String>,
     created_at: String,
+}
+
+#[derive(Serialize)]
+struct InvoiceDetailResponse {
+    #[serde(flatten)]
+    invoice: InvoiceRow,
+    email: String,
+}
+
+async fn get_invoice(
+    State(state): State<Arc<AppState>>,
+    Path(invoice_id): Path<Uuid>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+) -> Result<Json<InvoiceDetailResponse>, (StatusCode, String)> {
+    let authed = require_user(&state, bearer.token()).await?;
+
+    let row: Option<(
+        String,
+        f64,
+        String,
+        String,
+        String,
+        String,
+        String,
+        Option<String>,
+        String,
+        String,
+    )> = sqlx::query_as(
+        r#"
+        SELECT
+            subscription_invoices.id::text,
+            COALESCE(subscription_invoices.amount::float8, 0),
+            subscription_invoices.currency,
+            subscription_invoices.payment_method,
+            subscription_invoices.tier,
+            subscription_invoices.period_start::text,
+            subscription_invoices.period_end::text,
+            subscription_invoices.reference,
+            subscription_invoices.created_at::text,
+            users.email
+        FROM subscription_invoices
+        INNER JOIN users ON users.id = subscription_invoices.user_id
+        WHERE subscription_invoices.id = $1 AND subscription_invoices.user_id = $2
+        "#,
+    )
+    .bind(invoice_id)
+    .bind(authed.id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string()))?;
+
+    let Some((
+        id,
+        amount,
+        currency,
+        payment_method,
+        tier,
+        period_start,
+        period_end,
+        reference,
+        created_at,
+        email,
+    )) = row
+    else {
+        return Err((StatusCode::NOT_FOUND, "invoice not found".to_string()));
+    };
+
+    Ok(Json(InvoiceDetailResponse {
+        invoice: InvoiceRow {
+            id,
+            amount,
+            currency,
+            payment_method,
+            tier,
+            period_start,
+            period_end,
+            reference,
+            created_at,
+        },
+        email,
+    }))
 }
 
 async fn get_invoices(

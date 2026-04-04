@@ -2,8 +2,8 @@
 
 import ClientWalletProvider from "@/components/ClientWalletProvider";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useCallback, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
 import { API_BASE, authJsonHeaders } from "@/lib/api";
@@ -46,13 +46,16 @@ function FeatureCheck({ children }: { children: React.ReactNode }) {
 export default function PricingPage() {
   return (
     <ClientWalletProvider>
-      <PricingPageInner />
+      <Suspense fallback={null}>
+        <PricingPageInner />
+      </Suspense>
     </ClientWalletProvider>
   );
 }
 
 function PricingPageInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { connection } = useConnection();
   const { connected, publicKey, sendTransaction } = useWallet();
   const [token, setToken] = useState<"USDC" | "USDT">("USDC");
@@ -109,6 +112,31 @@ function PricingPageInner() {
     },
     [],
   );
+
+  useEffect(() => {
+    if (searchParams.get("success") !== "1") return;
+    const token = window.localStorage.getItem("metatron_token");
+    if (!token) return;
+
+    let attempts = 0;
+    const interval = setInterval(async () => {
+      attempts++;
+      try {
+        const res = await fetch(`${API_BASE}/subscriptions/status`, {
+          headers: authJsonHeaders(token),
+        });
+        const data = await res.json();
+        if (data?.subscription_status === "active") {
+          clearInterval(interval);
+          const role = decodeRoleFromJwt(token);
+          router.replace(dashboardPathForRole(role));
+        }
+      } catch {}
+      if (attempts >= 10) clearInterval(interval);
+    }, 2000);
+
+    return () => clearInterval(interval);
+  }, [searchParams, router]);
 
   const handleSubscribe = useCallback(
     async (tier: "monthly" | "annual") => {
@@ -226,6 +254,24 @@ function PricingPageInner() {
     },
     [router, currency],
   );
+
+  if (
+    searchParams.get("success") === "1" &&
+    window.localStorage.getItem("metatron_token")
+  ) {
+    return (
+      <main className="flex min-h-[calc(100vh-72px)] items-center justify-center">
+        <div className="text-center">
+          <p className="text-lg font-semibold text-[var(--text)]">
+            Activating your subscription…
+          </p>
+          <p className="mt-2 text-sm text-[var(--text-muted)]">
+            You&apos;ll be redirected to your dashboard shortly.
+          </p>
+        </div>
+      </main>
+    );
+  }
 
   const tokenToggleBtn = (t: "USDC" | "USDT") => (
     <button

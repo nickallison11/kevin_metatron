@@ -96,8 +96,9 @@ async fn create_charge(
         "currency": currency,
         "reference": reference,
         "callback_url": format!(
-            "https://platform.metatron.id/pricing?success=1&reference={}",
-            reference
+            "https://platform.metatron.id/pricing?success=1&reference={}&redirect={}",
+            reference,
+            urlencoding::encode("/startup/settings/subscription")
         ),
         "metadata": {
             "user_id": user_id.to_string(),

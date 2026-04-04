@@ -46,6 +46,14 @@ function formatLongDate(iso: string | null | undefined) {
   });
 }
 
+/** Only allow same-origin paths (prevents open redirects via ?redirect=). */
+function safeInternalPath(path: string | null): string | null {
+  if (path == null || path === "") return null;
+  if (!path.startsWith("/")) return null;
+  if (path.startsWith("//")) return null;
+  return path;
+}
+
 function computeExtendedEnd(periodEndIso: string | null, tier: "monthly" | "annual") {
   if (!periodEndIso) return "—";
   const d = new Date(periodEndIso);
@@ -171,23 +179,36 @@ function PricingPageInner() {
       }
       if (cancelled) return;
 
-      let attempts = 0;
-      intervalRef.current = setInterval(async () => {
-        attempts++;
+      const tryRedirectIfActive = async (): Promise<boolean> => {
         try {
           const res = await fetch(`${API_BASE}/subscriptions/status`, {
             headers: authJsonHeaders(token),
           });
           const data = await res.json();
           if (data?.subscription_status === "active") {
-            if (intervalRef.current !== undefined) {
-              clearInterval(intervalRef.current);
-            }
             const role = decodeRoleFromJwt(token);
-            router.replace(dashboardPathForRole(role));
+            const redirectRaw = searchParams.get("redirect");
+            const target =
+              safeInternalPath(redirectRaw) ?? dashboardPathForRole(role);
+            router.replace(target);
+            return true;
           }
         } catch {
-          /* ignore */
+          /* fall through to polling */
+        }
+        return false;
+      };
+
+      if (await tryRedirectIfActive()) return;
+
+      let attempts = 0;
+      intervalRef.current = setInterval(async () => {
+        attempts++;
+        if (await tryRedirectIfActive()) {
+          if (intervalRef.current !== undefined) {
+            clearInterval(intervalRef.current);
+          }
+          return;
         }
         if (attempts >= 10 && intervalRef.current !== undefined) {
           clearInterval(intervalRef.current);
@@ -203,7 +224,7 @@ function PricingPageInner() {
         clearInterval(intervalRef.current);
       }
     };
-  }, [searchParams, router]);
+  }, [searchParams, router, decodeRoleFromJwt, dashboardPathForRole]);
 
   useEffect(() => {
     const t = window.localStorage.getItem("metatron_token");
@@ -390,7 +411,7 @@ function PricingPageInner() {
             Activating your subscription…
           </p>
           <p className="mt-2 text-sm text-[var(--text-muted)]">
-            You&apos;ll be redirected to your dashboard shortly.
+            You&apos;ll be redirected shortly.
           </p>
         </div>
       </main>

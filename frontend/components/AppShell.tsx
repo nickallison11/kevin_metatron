@@ -5,8 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 
-const LOGO_URL =
-  "https://metatron.id/wp-content/uploads/2026/03/metatron-_Logo.png";
+const LOGO_URL = "/metatron-logo.png";
 
 const navLinkClass =
   "text-sm text-[var(--text-muted)] transition-colors hover:text-[var(--text)]";

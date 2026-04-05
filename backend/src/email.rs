@@ -189,3 +189,42 @@ pub fn email_changed_notice_html(new_email: &str) -> String {
     )
 }
 
+fn password_reset_email_html(token_hex: &str) -> String {
+    let reset_url = format!(
+        "https://platform.metatron.id/auth/reset-password?token={}",
+        token_hex
+    );
+    shell_html(
+        "Reset your metatron password",
+        &format!(
+            r#"
+<p style="margin:0 0 16px 0;font-size:14px;color:#e8e8ed;">We received a request to reset your metatron password. Use the button below to choose a new password.</p>
+<p style="margin:0 0 20px 0;">
+  <a href="{reset_url}" style="display:inline-block;background:#6c5ce7;color:#ffffff;text-decoration:none;font-size:14px;font-weight:600;padding:12px 20px;border-radius:12px;">Reset password</a>
+</p>
+<p style="margin:0 0 0 0;font-size:13px;color:#8888a0;">This link expires in 1 hour. If you didn't request this, ignore this email.</p>
+"#,
+            reset_url = reset_url,
+        ),
+    )
+}
+
+pub async fn send_password_reset_email(
+    http_client: &Client,
+    api_key: Option<&str>,
+    from: &str,
+    to_email: &str,
+    token_hex: &str,
+) {
+    let html = password_reset_email_html(token_hex);
+    send_email(
+        http_client,
+        api_key,
+        from,
+        to_email,
+        "Reset your metatron password",
+        &html,
+    )
+    .await;
+}
+

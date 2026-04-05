@@ -294,6 +294,14 @@ export default function LoginPage() {
                     disabled={loading}
                   />
                 </label>
+                <div className="text-right mt-1">
+                  <Link
+                    href="/auth/forgot-password"
+                    className="text-xs text-[var(--text-muted)] hover:text-metatron-accent transition-colors"
+                  >
+                    Forgot password?
+                  </Link>
+                </div>
 
                 <button
                   type="submit"

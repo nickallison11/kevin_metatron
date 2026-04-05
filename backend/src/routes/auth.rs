@@ -19,7 +19,9 @@ use serde::{Deserialize, Serialize};
 use totp_rs::{Algorithm as TotpAlgorithm, Secret as TotpSecret, TOTP};
 
 use jsonwebtoken::{decode, encode, Algorithm as JwtAlgorithm, Header, Validation};
+use rand::RngCore;
 use rand_core::OsRng;
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::auth;
@@ -32,6 +34,8 @@ pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/register", post(signup))
         .route("/login", post(login))
+        .route("/forgot-password", post(forgot_password))
+        .route("/reset-password", post(reset_password))
         .route("/telegram", post(telegram_auth))
         .route("/change-email", put(change_email))
         .route("/change-password", put(change_password))
@@ -45,6 +49,17 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/me/export", get(export_data))
         .route("/role", put(set_role))
         .route("/ai-settings", put(set_ai_settings))
+}
+
+#[derive(Deserialize)]
+pub struct ForgotPasswordRequest {
+    pub email: String,
+}
+
+#[derive(Deserialize)]
+pub struct ResetPasswordRequest {
+    pub token: String,
+    pub new_password: String,
 }
 
 #[derive(Deserialize)]
@@ -167,6 +182,143 @@ async fn signup(
     .await;
 
     Ok(Json(AuthResponse { token }))
+}
+
+fn sha256_hex_token(token_hex: &str) -> String {
+    let digest = Sha256::digest(token_hex.as_bytes());
+    hex::encode(digest)
+}
+
+async fn forgot_password(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<ForgotPasswordRequest>,
+) -> StatusCode {
+    let email = body.email.trim();
+    if email.is_empty() {
+        return StatusCode::OK;
+    }
+
+    let user: Option<(Uuid, String)> = sqlx::query_as::<_, (Uuid, String)>(
+        "SELECT id, email FROM users WHERE email = $1",
+    )
+    .bind(email)
+    .fetch_optional(&state.db)
+    .await
+    .unwrap_or(None);
+
+    if let Some((user_id, user_email)) = user {
+        let mut raw = [0u8; 32];
+        rand::thread_rng().fill_bytes(&mut raw);
+        let token_hex = hex::encode(raw);
+        let token_hash = sha256_hex_token(&token_hex);
+
+        let insert = sqlx::query(
+            r#"
+            INSERT INTO password_reset_tokens (user_id, token_hash, expires_at)
+            VALUES ($1, $2, NOW() + INTERVAL '1 hour')
+            "#,
+        )
+        .bind(user_id)
+        .bind(&token_hash)
+        .execute(&state.db)
+        .await;
+
+        if insert.is_ok() {
+            email::send_password_reset_email(
+                &state.http_client,
+                state.resend_api_key.as_deref(),
+                &state.email_from,
+                &user_email,
+                &token_hex,
+            )
+            .await;
+        }
+    }
+
+    StatusCode::OK
+}
+
+async fn reset_password(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<ResetPasswordRequest>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let token_hex = body.token.trim();
+    if token_hex.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Invalid or expired reset link".to_string(),
+        ));
+    }
+
+    let token_hash = sha256_hex_token(token_hex);
+
+    let row: Option<(Uuid, Uuid)> = sqlx::query_as::<_, (Uuid, Uuid)>(
+        r#"
+        SELECT id, user_id
+        FROM password_reset_tokens
+        WHERE token_hash = $1
+          AND used_at IS NULL
+          AND expires_at > NOW()
+        "#,
+    )
+    .bind(&token_hash)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "internal error".to_string(),
+        )
+    })?;
+
+    let Some((token_id, user_id)) = row else {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Invalid or expired reset link".to_string(),
+        ));
+    };
+
+    let new_hash =
+        hash_password(&body.new_password).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+    let mut tx = state.db.begin().await.map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "internal error".to_string(),
+        )
+    })?;
+
+    sqlx::query("UPDATE users SET password_hash = $1 WHERE id = $2")
+        .bind(&new_hash)
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "internal error".to_string(),
+            )
+        })?;
+
+    sqlx::query("UPDATE password_reset_tokens SET used_at = NOW() WHERE id = $1")
+        .bind(token_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "internal error".to_string(),
+            )
+        })?;
+
+    tx.commit().await.map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "internal error".to_string(),
+        )
+    })?;
+
+    Ok(StatusCode::OK)
 }
 
 async fn login(

@@ -26,23 +26,24 @@ type HmacSha512 = Hmac<Sha512>;
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
-        .route("/create-charge", post(create_charge))
+        .route("/subscribe", post(create_subscription))
         .route("/verify", post(verify_payment))
         .route("/webhook", post(webhook))
 }
 
 #[derive(Deserialize)]
-struct CreateChargeBody {
+struct SubscribeBody {
     tier: String,
-    currency: Option<String>,
+    billing: String,
+    currency: String,
 }
 
-async fn create_charge(
+async fn create_subscription(
     State(state): State<Arc<AppState>>,
     TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
-    Json(body): Json<CreateChargeBody>,
+    Json(body): Json<SubscribeBody>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let secret = state.paystack_secret_key.as_deref().ok_or_else(|| {
+    let secret = state.paystack_secret_key.as_deref().filter(|s| !s.is_empty()).ok_or_else(|| {
         (
             StatusCode::SERVICE_UNAVAILABLE,
             Json(json!({ "error": "Paystack not configured" })),
@@ -52,6 +53,41 @@ async fn create_charge(
     let authed = require_user(&state, bearer.token())
         .await
         .map_err(|(_, msg)| (StatusCode::UNAUTHORIZED, Json(json!({ "error": msg }))))?;
+
+    let tier = body.tier.to_ascii_lowercase();
+    if tier != "founder_basic" {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "tier must be founder_basic" })),
+        ));
+    }
+
+    let billing = body.billing.to_ascii_lowercase();
+    if billing != "monthly" && billing != "annual" {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "billing must be monthly or annual" })),
+        ));
+    }
+
+    if body.currency.to_uppercase() != "ZAR" {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "currency must be ZAR" })),
+        ));
+    }
+
+    let plan_code = match billing.as_str() {
+        "annual" => state.paystack_plan_basic_annual.as_str(),
+        _ => state.paystack_plan_basic_monthly.as_str(),
+    };
+
+    if plan_code.is_empty() {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({ "error": "Paystack plan codes not configured" })),
+        ));
+    }
 
     let (user_id, user_email): (Uuid, String) = sqlx::query_as(
         "SELECT id, email FROM users WHERE id = $1",
@@ -66,34 +102,18 @@ async fn create_charge(
         )
     })?;
 
-    let tier = body.tier.to_ascii_lowercase();
-    if tier != "monthly" && tier != "annual" {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(json!({ "error": "tier must be monthly or annual" })),
-        ));
-    }
-
-    let currency = match body.currency.as_deref() {
-        Some("ZAR") => "ZAR",
-        None if state.paystack_currency == "ZAR" => "ZAR",
-        _ => "USD",
-    };
-
-    let amount: i64 = match (currency, tier.as_str()) {
-        ("ZAR", "monthly") => 16999,
-        ("ZAR", "annual") => 169999,
-        (_, "monthly") => 999,
-        (_, "annual") => 9999,
-        _ => unreachable!(),
+    let amount_kobo: i64 = match billing.as_str() {
+        "annual" => 169999,
+        _ => 16999,
     };
 
     let reference = Uuid::new_v4().to_string();
 
     let payload = json!({
         "email": user_email,
-        "amount": amount,
-        "currency": currency,
+        "amount": amount_kobo,
+        "currency": "ZAR",
+        "plan": plan_code,
         "reference": reference,
         "callback_url": format!(
             "https://platform.metatron.id/pricing?success=1&reference={}&redirect={}",
@@ -102,8 +122,9 @@ async fn create_charge(
         ),
         "metadata": {
             "user_id": user_id.to_string(),
-            "tier": tier,
-            "currency": currency
+            "tier": "founder_basic",
+            "billing": billing,
+            "currency": "ZAR"
         }
     });
 
@@ -134,7 +155,7 @@ async fn create_charge(
             .get("message")
             .and_then(|m| m.as_str())
             .unwrap_or("paystack error");
-        tracing::warn!("paystack initialize: {}", msg);
+        tracing::warn!("paystack subscribe initialize: {}", msg);
         return Err((
             StatusCode::BAD_GATEWAY,
             Json(json!({ "error": msg })),
@@ -163,6 +184,75 @@ struct VerifyBody {
 #[derive(Serialize)]
 struct VerifyResponse {
     status: &'static str,
+}
+
+fn plan_code_to_billing(state: &AppState, plan_code: &str) -> Option<&'static str> {
+    if !state.paystack_plan_basic_monthly.is_empty()
+        && plan_code == state.paystack_plan_basic_monthly
+    {
+        return Some("monthly");
+    }
+    if !state.paystack_plan_basic_annual.is_empty() && plan_code == state.paystack_plan_basic_annual
+    {
+        return Some("annual");
+    }
+    None
+}
+
+/// Resolves finalize tier (`monthly` | `annual`) from Paystack `plan` or metadata.
+fn resolve_finalize_tier(
+    state: &AppState,
+    data: &Value,
+    metadata: &Value,
+) -> Result<String, (StatusCode, Json<Value>)> {
+    if let Some(plan) = data.get("plan") {
+        if let Some(code) = plan.get("plan_code").and_then(|c| c.as_str()) {
+            if let Some(b) = plan_code_to_billing(state, code) {
+                return Ok(b.to_string());
+            }
+        }
+    }
+
+    let tier_str = metadata
+        .get("tier")
+        .and_then(|t| t.as_str())
+        .unwrap_or("monthly");
+
+    if tier_str.eq_ignore_ascii_case("founder_basic") {
+        let billing = metadata
+            .get("billing")
+            .and_then(|b| b.as_str())
+            .unwrap_or("monthly")
+            .to_ascii_lowercase();
+        if billing == "annual" {
+            return Ok("annual".to_string());
+        }
+        return Ok("monthly".to_string());
+    }
+
+    let tier_lower = tier_str.to_ascii_lowercase();
+    if tier_lower == "monthly" || tier_lower == "annual" {
+        return Ok(tier_lower);
+    }
+
+    Err((
+        StatusCode::BAD_REQUEST,
+        Json(json!({ "error": "invalid tier metadata" })),
+    ))
+}
+
+fn zar_amounts_for_billing(billing: &str) -> (&'static str, Decimal) {
+    match billing {
+        "annual" => ("R1,699.99 ZAR", Decimal::from_str("1699.99").unwrap()),
+        _ => ("R169.99 ZAR", Decimal::from_str("169.99").unwrap()),
+    }
+}
+
+fn usd_amounts_for_billing(billing: &str) -> (&'static str, Decimal) {
+    match billing {
+        "annual" => ("$99.99 USD", Decimal::from_str("99.99").unwrap()),
+        _ => ("$9.99 USD", Decimal::from_str("9.99").unwrap()),
+    }
 }
 
 async fn verify_payment(
@@ -241,11 +331,6 @@ async fn verify_payment(
         )
     })?;
 
-    let tier_str = metadata
-        .get("tier")
-        .and_then(|t| t.as_str())
-        .unwrap_or("monthly");
-
     let pay_currency = metadata
         .get("currency")
         .and_then(|c| c.as_str())
@@ -282,26 +367,12 @@ async fn verify_payment(
         return Ok(Json(VerifyResponse { status: "active" }));
     }
 
-    let tier_lower = tier_str.to_ascii_lowercase();
-    if tier_lower != "monthly" && tier_lower != "annual" {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(json!({ "error": "invalid tier" })),
-        ));
-    }
+    let tier_lower = resolve_finalize_tier(&state, &data, &metadata)?;
 
-    let amount_paid = match (pay_currency, tier_lower.as_str()) {
-        ("ZAR", "annual") => "R1,699.99 ZAR",
-        ("ZAR", _) => "R169.99 ZAR",
-        (_, "annual") => "$99.99 USD",
-        _ => "$9.99 USD",
-    };
-
-    let invoice_amount = match (pay_currency, tier_lower.as_str()) {
-        ("ZAR", "annual") => Decimal::from_str("1699.99").unwrap(),
-        ("ZAR", _) => Decimal::from_str("169.99").unwrap(),
-        (_, "annual") => Decimal::from_str("99.99").unwrap(),
-        _ => Decimal::from_str("9.99").unwrap(),
+    let (amount_paid, invoice_amount) = if pay_currency == "ZAR" {
+        zar_amounts_for_billing(tier_lower.as_str())
+    } else {
+        usd_amounts_for_billing(tier_lower.as_str())
     };
 
     finalize_pro_subscription(
@@ -317,6 +388,186 @@ async fn verify_payment(
     .await?;
 
     Ok(Json(VerifyResponse { status: "active" }))
+}
+
+async fn store_paystack_subscription_if_present(
+    state: &AppState,
+    user_id: Uuid,
+    data: &Value,
+) {
+    let sub = match data.get("subscription") {
+        Some(s) if !s.is_null() => s,
+        _ => return,
+    };
+
+    let code = sub
+        .get("subscription_code")
+        .or_else(|| sub.get("code"))
+        .and_then(|v| v.as_str());
+
+    let token = sub
+        .get("email_token")
+        .and_then(|v| v.as_str())
+        .or_else(|| {
+            data.get("customer")
+                .and_then(|c| c.get("email_token"))
+                .and_then(|v| v.as_str())
+        });
+
+    let (Some(code), Some(token)) = (code, token) else {
+        return;
+    };
+
+    let _ = sqlx::query(
+        r#"
+        UPDATE users
+        SET paystack_subscription_code = $1,
+            paystack_email_token = $2
+        WHERE id = $3
+        "#,
+    )
+    .bind(code)
+    .bind(token)
+    .bind(user_id)
+    .execute(&state.db)
+    .await;
+}
+
+async fn finalize_from_paystack_data(
+    state: &AppState,
+    user_id: Uuid,
+    data: &Value,
+    metadata: &Value,
+    paystack_ref: &str,
+) -> Result<(), StatusCode> {
+    let existing: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*)::bigint FROM subscription_invoices WHERE reference = $1",
+    )
+    .bind(paystack_ref)
+    .fetch_one(&state.db)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    if existing > 0 {
+        return Ok(());
+    }
+
+    let tier_lower = resolve_finalize_tier(state, data, metadata).map_err(|(s, _)| s)?;
+
+    let pay_currency = metadata
+        .get("currency")
+        .and_then(|c| c.as_str())
+        .unwrap_or("USD");
+
+    let (amount_paid, invoice_amount) = if pay_currency == "ZAR" {
+        zar_amounts_for_billing(tier_lower.as_str())
+    } else {
+        usd_amounts_for_billing(tier_lower.as_str())
+    };
+
+    finalize_pro_subscription(
+        state,
+        user_id,
+        tier_lower.as_str(),
+        amount_paid,
+        "card",
+        Some(paystack_ref),
+        pay_currency,
+        invoice_amount,
+    )
+    .await
+    .map_err(|(s, _)| s)?;
+
+    store_paystack_subscription_if_present(state, user_id, data).await;
+
+    Ok(())
+}
+
+async fn handle_invoice_payment_success(
+    state: &AppState,
+    data: &Value,
+) -> Result<(), StatusCode> {
+    let plan_code = data
+        .get("subscription")
+        .and_then(|s| s.get("plan"))
+        .and_then(|p| p.get("plan_code"))
+        .or_else(|| data.get("plan").and_then(|p| p.get("plan_code")))
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| {
+            tracing::warn!("invoice.payment_success: missing plan_code");
+            StatusCode::BAD_REQUEST
+        })?;
+
+    let billing = plan_code_to_billing(state, plan_code).ok_or_else(|| {
+        tracing::warn!("invoice.payment_success: unknown plan_code {}", plan_code);
+        StatusCode::BAD_REQUEST
+    })?;
+
+    let email = data
+        .get("customer")
+        .and_then(|c| c.get("email"))
+        .and_then(|v| v.as_str())
+        .or_else(|| {
+            data.get("authorization")
+                .and_then(|a| a.get("customer"))
+                .and_then(|c| c.get("email"))
+                .and_then(|v| v.as_str())
+        })
+        .ok_or_else(|| {
+            tracing::warn!("invoice.payment_success: missing customer email");
+            StatusCode::BAD_REQUEST
+        })?;
+
+    let user_id: Uuid = sqlx::query_scalar(
+        r#"SELECT id FROM users WHERE lower(trim(email)) = lower(trim($1))"#,
+    )
+    .bind(email)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    .ok_or_else(|| {
+        tracing::warn!("invoice.payment_success: no user for email");
+        StatusCode::BAD_REQUEST
+    })?;
+
+    let paystack_ref = data
+        .get("reference")
+        .and_then(|r| r.as_str())
+        .ok_or_else(|| {
+            tracing::warn!("invoice.payment_success: missing reference");
+            StatusCode::BAD_REQUEST
+        })?;
+
+    let existing: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*)::bigint FROM subscription_invoices WHERE reference = $1",
+    )
+    .bind(paystack_ref)
+    .fetch_one(&state.db)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    if existing > 0 {
+        return Ok(());
+    }
+
+    let (amount_paid, invoice_amount) = zar_amounts_for_billing(billing);
+
+    finalize_pro_subscription(
+        state,
+        user_id,
+        billing,
+        amount_paid,
+        "card",
+        Some(paystack_ref),
+        "ZAR",
+        invoice_amount,
+    )
+    .await
+    .map_err(|(s, _)| s)?;
+
+    store_paystack_subscription_if_present(state, user_id, data).await;
+
+    Ok(())
 }
 
 async fn webhook(
@@ -359,11 +610,18 @@ async fn webhook(
     })?;
 
     let event = v.get("event").and_then(|e| e.as_str()).unwrap_or("");
+    let data = v.get("data").cloned().unwrap_or(Value::Null);
+
+    if event == "invoice.payment_success" {
+        return handle_invoice_payment_success(&state, &data)
+            .await
+            .map(|_| StatusCode::OK);
+    }
+
     if event != "charge.success" {
         return Ok(StatusCode::OK);
     }
 
-    let data = v.get("data").cloned().unwrap_or(Value::Null);
     let metadata = data.get("metadata").cloned().unwrap_or(Value::Null);
 
     let user_id_str = metadata
@@ -374,40 +632,10 @@ async fn webhook(
             StatusCode::BAD_REQUEST
         })?;
 
-    let tier_str = metadata
-        .get("tier")
-        .and_then(|t| t.as_str())
-        .unwrap_or("monthly");
-
-    let pay_currency = metadata
-        .get("currency")
-        .and_then(|c| c.as_str())
-        .unwrap_or("USD");
-
     let user_id = Uuid::parse_str(user_id_str).map_err(|_| {
         tracing::warn!("paystack webhook: invalid user_id");
         StatusCode::BAD_REQUEST
     })?;
-
-    let tier_lower = tier_str.to_ascii_lowercase();
-    if tier_lower != "monthly" && tier_lower != "annual" {
-        tracing::warn!("paystack webhook: invalid tier {}", tier_str);
-        return Err(StatusCode::BAD_REQUEST);
-    }
-
-    let amount_paid = match (pay_currency, tier_lower.as_str()) {
-        ("ZAR", "annual") => "R1,699.99 ZAR",
-        ("ZAR", _) => "R169.99 ZAR",
-        (_, "annual") => "$99.99 USD",
-        _ => "$9.99 USD",
-    };
-
-    let invoice_amount = match (pay_currency, tier_lower.as_str()) {
-        ("ZAR", "annual") => Decimal::from_str("1699.99").unwrap(),
-        ("ZAR", _) => Decimal::from_str("169.99").unwrap(),
-        (_, "annual") => Decimal::from_str("99.99").unwrap(),
-        _ => Decimal::from_str("9.99").unwrap(),
-    };
 
     let paystack_ref = data
         .get("reference")
@@ -417,21 +645,12 @@ async fn webhook(
             StatusCode::BAD_REQUEST
         })?;
 
-    let _ = finalize_pro_subscription(
-        &state,
-        user_id,
-        tier_lower.as_str(),
-        amount_paid,
-        "card",
-        Some(paystack_ref),
-        pay_currency,
-        invoice_amount,
-    )
-    .await
-    .map_err(|(status, _)| {
-        tracing::warn!("paystack webhook: finalize failed with status {:?}", status);
-        status
-    })?;
+    finalize_from_paystack_data(&state, user_id, &data, &metadata, paystack_ref)
+        .await
+        .map_err(|s| {
+            tracing::warn!("paystack webhook: finalize failed");
+            s
+        })?;
 
     Ok(StatusCode::OK)
 }

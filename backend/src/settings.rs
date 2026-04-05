@@ -32,6 +32,8 @@ pub struct Settings {
     pub email_from: String,
     pub paystack_secret_key: Option<String>,
     pub paystack_currency: String,
+    pub paystack_plan_basic_monthly: String,
+    pub paystack_plan_basic_annual: String,
 }
 
 impl Settings {
@@ -114,6 +116,15 @@ impl Settings {
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| "USD".to_string());
 
+        let paystack_plan_basic_monthly = env::var("PAYSTACK_PLAN_BASIC_MONTHLY")
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        let paystack_plan_basic_annual = env::var("PAYSTACK_PLAN_BASIC_ANNUAL")
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+
         Ok(Self {
             database_url,
             port,
@@ -148,6 +159,8 @@ impl Settings {
             email_from,
             paystack_secret_key,
             paystack_currency,
+            paystack_plan_basic_monthly,
+            paystack_plan_basic_annual,
         })
     }
 }

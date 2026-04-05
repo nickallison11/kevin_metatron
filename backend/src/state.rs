@@ -34,6 +34,8 @@ pub struct AppState {
     pub email_from: String,
     pub paystack_secret_key: Option<String>,
     pub paystack_currency: String,
+    pub paystack_plan_basic_monthly: String,
+    pub paystack_plan_basic_annual: String,
     pub http_client: Client,
 }
 
@@ -82,6 +84,8 @@ impl AppState {
             email_from: settings.email_from.clone(),
             paystack_secret_key: settings.paystack_secret_key.clone(),
             paystack_currency: settings.paystack_currency.clone(),
+            paystack_plan_basic_monthly: settings.paystack_plan_basic_monthly.clone(),
+            paystack_plan_basic_annual: settings.paystack_plan_basic_annual.clone(),
             http_client,
         }))
     }

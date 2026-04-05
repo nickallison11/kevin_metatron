@@ -90,6 +90,32 @@ export default function PricingPage() {
   );
 }
 
+function formatBasicDisplay(
+  currency: "USD" | "ZAR",
+  billing: "monthly" | "annual",
+) {
+  if (currency === "USD") {
+    if (billing === "monthly")
+      return { price: "$9.99", unit: "USD / mo" };
+    return { price: "$99.99", unit: "USD / yr" };
+  }
+  if (billing === "monthly") return { price: "R169.99", unit: "ZAR / mo" };
+  return { price: "R1,699.99", unit: "ZAR / yr" };
+}
+
+function formatProComingSoonDisplay(
+  currency: "USD" | "ZAR",
+  billing: "monthly" | "annual",
+) {
+  if (currency === "USD") {
+    if (billing === "monthly")
+      return { price: "$19.99", unit: "USD / mo" };
+    return { price: "$199.99", unit: "USD / yr" };
+  }
+  if (billing === "monthly") return { price: "R339.99", unit: "ZAR / mo" };
+  return { price: "R3,399.99", unit: "ZAR / yr" };
+}
+
 function PricingPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -97,10 +123,11 @@ function PricingPageInner() {
   const { connected, publicKey, sendTransaction } = useWallet();
   const [token, setToken] = useState<"USDC" | "USDT">("USDC");
   const [currency, setCurrency] = useState<"USD" | "ZAR">("ZAR");
+  const [billing, setBilling] = useState<"monthly" | "annual">("monthly");
   const [loading, setLoading] = useState(false);
-  const [activeTier, setActiveTier] = useState<"monthly" | "annual" | null>(
-    null,
-  );
+  const [loadingBilling, setLoadingBilling] = useState<
+    "monthly" | "annual" | null
+  >(null);
   const [insufficientBalance, setInsufficientBalance] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [subStatus, setSubStatus] = useState<SubscriptionStatusLite | null>(null);
@@ -249,8 +276,12 @@ function PricingPageInner() {
     router.replace("/pricing");
   }, [router]);
 
-  const handleSubscribe = useCallback(
-    async (tier: "monthly" | "annual", skipExtendCheck = false) => {
+  const handleUsdSubscribe = useCallback(
+    async (
+      overrideTier?: "monthly" | "annual",
+      skipExtendCheck = false,
+    ) => {
+      const tier = overrideTier ?? billing;
       if (!skipExtendCheck) {
         const authToken = window.localStorage.getItem("metatron_token");
         if (authToken) {
@@ -273,7 +304,7 @@ function PricingPageInner() {
       if (!connected || !publicKey) return;
       setError(null);
       setLoading(true);
-      setActiveTier(tier);
+      setLoadingBilling(tier);
 
       try {
         const requiredAmount = tier === "monthly" ? 9.99 : 99;
@@ -332,10 +363,11 @@ function PricingPageInner() {
         );
       } finally {
         setLoading(false);
-        setActiveTier(null);
+        setLoadingBilling(null);
       }
     },
     [
+      billing,
       connected,
       publicKey,
       connection,
@@ -347,8 +379,12 @@ function PricingPageInner() {
     ],
   );
 
-  const handleCardPayment = useCallback(
-    async (tier: "monthly" | "annual", skipExtendCheck = false) => {
+  const handleZarSubscribe = useCallback(
+    async (
+      overrideTier?: "monthly" | "annual",
+      skipExtendCheck = false,
+    ) => {
+      const tier = overrideTier ?? billing;
       const authToken = window.localStorage.getItem("metatron_token");
       if (!authToken) {
         router.push("/login");
@@ -370,15 +406,22 @@ function PricingPageInner() {
         }
       }
       setLoading(true);
-      setActiveTier(tier);
+      setLoadingBilling(tier);
       setError(null);
       try {
-        const res = await fetch(`${API_BASE}/commerce/create-charge`, {
+        const res = await fetch(`${API_BASE}/commerce/subscribe`, {
           method: "POST",
           headers: authJsonHeaders(authToken),
-          body: JSON.stringify({ tier, currency }),
+          body: JSON.stringify({
+            tier: "founder_basic",
+            billing: tier,
+            currency: "ZAR",
+          }),
         });
-        const data = (await res.json()) as { hosted_url?: string; error?: string };
+        const data = (await res.json()) as {
+          hosted_url?: string;
+          error?: string;
+        };
         if (!res.ok) {
           throw new Error(data?.error || "Payment failed");
         }
@@ -394,10 +437,10 @@ function PricingPageInner() {
         );
       } finally {
         setLoading(false);
-        setActiveTier(null);
+        setLoadingBilling(null);
       }
     },
-    [router, currency],
+    [router, billing],
   );
 
   if (
@@ -440,10 +483,13 @@ function PricingPageInner() {
   const cardBase =
     "flex flex-col rounded-[12px] border bg-[var(--bg-card)] p-6 text-left";
 
+  const basicDisplay = formatBasicDisplay(currency, billing);
+  const proComingSoonDisplay = formatProComingSoonDisplay(currency, billing);
+
   return (
     <main className="min-h-[calc(100vh-72px)] px-5 py-10">
       <div className="mx-auto w-full max-w-5xl">
-        <div className="mb-8 flex justify-center gap-2">
+        <div className="mb-4 flex justify-center gap-2">
           {(["ZAR", "USD"] as const).map((c) => (
             <button
               key={c}
@@ -459,6 +505,23 @@ function PricingPageInner() {
               }`}
             >
               {c === "USD" ? "USD ($)" : "ZAR (R)"}
+            </button>
+          ))}
+        </div>
+
+        <div className="mb-8 flex flex-wrap justify-center gap-2">
+          {(["monthly", "annual"] as const).map((b) => (
+            <button
+              key={b}
+              type="button"
+              onClick={() => setBilling(b)}
+              className={`rounded-lg border px-4 py-1.5 text-sm font-semibold transition-colors ${
+                billing === b
+                  ? "border-metatron-accent bg-metatron-accent/10 text-metatron-accent"
+                  : "border-[var(--border)] text-[var(--text-muted)] hover:border-metatron-accent/30"
+              }`}
+            >
+              {b === "monthly" ? "Monthly" : "Annual · save 17%"}
             </button>
           ))}
         </div>
@@ -518,49 +581,51 @@ function PricingPageInner() {
             </ul>
           </section>
 
-          {/* Pro Monthly — highlighted */}
+          {/* Founder Basic */}
           <section
             className={`${cardBase} border-metatron-accent/40 shadow-[0_0_40px_rgba(108,92,231,0.12)]`}
           >
             <div className="flex items-start justify-between gap-2">
               <p className="font-mono text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
-                Pro
+                Founder Basic
               </p>
               <span className="rounded-full bg-metatron-accent/15 px-2.5 py-1 text-[10px] font-semibold text-metatron-accent">
                 Most popular
               </span>
             </div>
             <p className="mt-1 text-sm text-[var(--text-muted)]">
-              Billed monthly
+              {billing === "monthly"
+                ? "Billed monthly"
+                : "Billed annually · save vs monthly"}
             </p>
             <p className="mt-4 text-4xl font-bold tracking-tight text-[var(--text)]">
-              {currency === "USD" ? "$9.99" : "R169.99"}{" "}
+              {basicDisplay.price}{" "}
               <span className="text-lg font-semibold text-[var(--text-muted)]">
-                {currency} / mo
+                {basicDisplay.unit}
               </span>
             </p>
             {currency === "USD" && (
               <button
-                id="btn-subscribe-monthly"
+                id="btn-subscribe-founder-basic"
                 type="button"
-                onClick={() => handleSubscribe("monthly")}
+                onClick={() => void handleUsdSubscribe()}
                 disabled={!connected || loading}
                 className="mt-6 inline-flex w-full items-center justify-center rounded-[12px] bg-metatron-accent px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-metatron-accent-hover disabled:opacity-60"
               >
-                {loading && activeTier === "monthly"
+                {loading && loadingBilling === billing
                   ? "Processing..."
-                  : "Subscribe monthly"}
+                  : "Subscribe"}
               </button>
             )}
             {currency === "ZAR" && (
               <>
                 <button
                   type="button"
-                  onClick={() => handleCardPayment("monthly")}
+                  onClick={() => void handleZarSubscribe()}
                   disabled={loading}
                   className="mt-6 inline-flex w-full items-center justify-center rounded-[12px] border border-[var(--border)] px-4 py-2.5 text-sm font-semibold text-[var(--text)] transition-colors hover:border-metatron-accent/30 disabled:opacity-60"
                 >
-                  {loading && activeTier === "monthly"
+                  {loading && loadingBilling === billing
                     ? "Redirecting..."
                     : "Pay with card"}
                 </button>
@@ -578,57 +643,34 @@ function PricingPageInner() {
             </ul>
           </section>
 
-          {/* Pro Annual */}
-          <section className={`${cardBase} border-[var(--border)]`}>
-            <p className="font-mono text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
-              Pro Annual
-            </p>
+          {/* Founder Pro — coming soon */}
+          <section
+            className={`${cardBase} border-[var(--border)] opacity-50 cursor-not-allowed`}
+          >
+            <div className="flex items-start justify-between gap-2">
+              <p className="font-mono text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
+                Founder Pro
+              </p>
+              <span className="rounded-full bg-[var(--border)] px-2.5 py-1 text-[10px] font-semibold text-[var(--text-muted)]">
+                Coming Soon
+              </span>
+            </div>
             <p className="mt-1 text-sm text-[var(--text-muted)]">
-              Billed annually · save vs monthly
+              {billing === "monthly"
+                ? "Billed monthly"
+                : "Billed annually · save vs monthly"}
             </p>
             <p className="mt-4 text-4xl font-bold tracking-tight text-[var(--text)]">
-              {currency === "USD" ? "$99.99" : "R1,699.99"}{" "}
+              {proComingSoonDisplay.price}{" "}
               <span className="text-lg font-semibold text-[var(--text-muted)]">
-                {currency} / yr
+                {proComingSoonDisplay.unit}
               </span>
             </p>
-            {currency === "USD" && (
-              <button
-                id="btn-subscribe-annual"
-                type="button"
-                onClick={() => handleSubscribe("annual")}
-                disabled={!connected || loading}
-                className="mt-6 inline-flex w-full items-center justify-center rounded-[12px] border border-[var(--border)] px-4 py-2.5 text-sm font-semibold text-[var(--text)] transition-colors hover:border-metatron-accent/30 disabled:opacity-60"
-              >
-                {loading && activeTier === "annual"
-                  ? "Processing..."
-                  : "Subscribe annually"}
-              </button>
-            )}
-            {currency === "ZAR" && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => handleCardPayment("annual")}
-                  disabled={loading}
-                  className="mt-6 inline-flex w-full items-center justify-center rounded-[12px] border border-[var(--border)] px-4 py-2.5 text-sm font-semibold text-[var(--text)] transition-colors hover:border-metatron-accent/30 disabled:opacity-60"
-                >
-                  {loading && activeTier === "annual"
-                    ? "Redirecting..."
-                    : "Pay with card"}
-                </button>
-                <p className="mt-1.5 text-center text-[10px] text-[var(--text-muted)]">
-                  Visa & Mastercard · Powered by Paystack
-                </p>
-              </>
-            )}
             <div className="my-6 border-t border-[var(--border)]" />
             <ul className="flex flex-col gap-3">
-              <FeatureCheck>Everything in Free</FeatureCheck>
-              {proFeatures.map((f) => (
-                <FeatureCheck key={`a-${f}`}>{f}</FeatureCheck>
-              ))}
-              <FeatureCheck>Pay once, covered for 12 months</FeatureCheck>
+              <FeatureCheck>Everything in Founder Basic</FeatureCheck>
+              <FeatureCheck>Higher limits and priority support</FeatureCheck>
+              <FeatureCheck>Custom subdomain and embeddable widget</FeatureCheck>
             </ul>
           </section>
         </div>
@@ -704,22 +746,26 @@ function PricingPageInner() {
               <button
                 type="button"
                 onClick={() => {
-                  void handleCardPayment(extendModalTier, true);
+                  void handleZarSubscribe(extendModalTier, true);
                 }}
                 disabled={loading}
                 className="inline-flex flex-1 items-center justify-center rounded-[12px] border border-[var(--border)] px-4 py-2.5 text-sm font-semibold text-[var(--text)] transition-colors hover:border-metatron-accent/30 disabled:opacity-60"
               >
-                Pay with card
+                {loading && loadingBilling === extendModalTier
+                  ? "Redirecting..."
+                  : "Pay with card"}
               </button>
               <button
                 type="button"
                 onClick={() => {
-                  void handleSubscribe(extendModalTier, true);
+                  void handleUsdSubscribe(extendModalTier, true);
                 }}
                 disabled={loading || !connected}
                 className="inline-flex flex-1 items-center justify-center rounded-[12px] bg-metatron-accent px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-metatron-accent-hover disabled:opacity-60"
               >
-                Pay with USDC/USDT
+                {loading && loadingBilling === extendModalTier
+                  ? "Processing..."
+                  : "Pay with USDC/USDT"}
               </button>
             </div>
             <button

@@ -608,6 +608,30 @@ async fn cancel_subscription(
 ) -> Result<StatusCode, (StatusCode, String)> {
     let authed = require_user(&state, bearer.token()).await?;
 
+    if let Some(secret) = state.paystack_secret_key.as_deref().filter(|s| !s.is_empty()) {
+        let row: Option<(Option<String>, Option<String>)> = sqlx::query_as(
+            "SELECT paystack_subscription_code, paystack_email_token FROM users WHERE id = $1",
+        )
+        .bind(authed.id)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten();
+
+        if let Some((Some(code), Some(token))) = row {
+            if !code.is_empty() && !token.is_empty() {
+                let _ = state
+                    .http_client
+                    .post("https://api.paystack.co/subscription/disable")
+                    .header("Authorization", format!("Bearer {}", secret))
+                    .header("Content-Type", "application/json")
+                    .json(&json!({ "code": code, "token": token }))
+                    .send()
+                    .await;
+            }
+        }
+    }
+
     let period_end: Option<String> = sqlx::query_scalar(
         r#"
         UPDATE users

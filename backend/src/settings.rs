@@ -23,6 +23,8 @@ pub struct Settings {
     pub oauth_linkedin: Option<OAuthProviderConfig>,
     pub oauth_github: Option<OAuthProviderConfig>,
     pub telegram_bot_secret: Option<String>,
+    /// Shared secret for platform services (e.g. Kevin Telegram bridge). Empty disables the check (all requests rejected).
+    pub platform_bot_secret: String,
     pub pinata_jwt: Option<String>,
     pub pinata_gateway: Option<String>,
     pub solana_rpc_url: String,
@@ -86,6 +88,7 @@ impl Settings {
         let telegram_bot_secret = env::var("TELEGRAM_BOT_SECRET")
             .ok()
             .and_then(|s| (!s.trim().is_empty()).then_some(s));
+        let platform_bot_secret = env::var("PLATFORM_BOT_SECRET").unwrap_or_default();
         let pinata_jwt = env::var("PINATA_JWT")
             .ok()
             .and_then(|s| (!s.trim().is_empty()).then_some(s));
@@ -154,6 +157,7 @@ impl Settings {
                 "OAUTH_GITHUB_CLIENT_SECRET",
             ),
             telegram_bot_secret,
+            platform_bot_secret,
             pinata_jwt,
             pinata_gateway,
             solana_rpc_url,

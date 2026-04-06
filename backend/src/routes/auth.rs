@@ -1042,6 +1042,22 @@ async fn telegram_confirm(
         ));
     };
 
+    // Clear telegram_id from any ghost accounts auto-created by the old bot (tg_XXX@telegram.local)
+    // so we can link it to the real platform account.
+    sqlx::query(
+        r#"
+        UPDATE users SET telegram_id = NULL
+        WHERE telegram_id = $1 AND email LIKE 'tg_%@telegram.local'
+        "#,
+    )
+    .bind(&telegram_id_str)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| {
+        tracing::error!("telegram_confirm: clear ghost telegram_id: {e}");
+        (StatusCode::INTERNAL_SERVER_ERROR, "database error".to_string())
+    })?;
+
     let update_user = sqlx::query(
         r#"
         UPDATE users SET telegram_id = $1 WHERE id = $2

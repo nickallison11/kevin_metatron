@@ -13,6 +13,7 @@ type MeResponse = {
   totp_enabled: boolean;
   first_name: string | null;
   last_name: string | null;
+  telegram_id: string | null;
 };
 
 export default function ConnectorSettingsPage() {
@@ -493,37 +494,84 @@ export default function ConnectorSettingsPage() {
 
         <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-6 space-y-5">
           <h2 className="text-sm font-semibold">Telegram</h2>
-          <p className="text-xs text-[var(--text-muted)]">
-            Link your Telegram account for Kevin on Telegram. The code expires in 15
-            minutes.
-          </p>
-          <button
-            type="button"
-            onClick={onLinkTelegram}
-            disabled={telegramLoading}
-            className="rounded-lg bg-metatron-accent px-4 py-2 text-xs font-semibold text-white hover:bg-metatron-accent-hover disabled:opacity-60"
-          >
-            {telegramLoading ? "Getting code…" : "Link Telegram"}
-          </button>
-          {telegramLinkCode ? (
-            <div className="space-y-3 text-sm">
-              <p className="text-[var(--text)]">
-                Send this code to{" "}
-                <span className="font-semibold">@Kevinmetatron_bot</span> on Telegram:{" "}
-                <span className="font-mono text-metatron-accent">
-                  {telegramLinkCode}
-                </span>
-              </p>
+
+          {me.telegram_id ? (
+            <div className="flex items-center gap-2">
+              <span
+                className="inline-flex items-center rounded-full border px-3 py-1 text-xs"
+                style={{
+                  borderColor: "rgba(34,197,94,0.35)",
+                  backgroundColor: "rgba(34,197,94,0.12)",
+                  color: "rgb(134,239,172)",
+                }}
+              >
+                Telegram linked
+              </span>
               <a
-                href={`https://t.me/Kevinmetatron_bot?start=${telegramLinkCode}`}
+                href="https://t.me/Kevinmetatron_bot"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex rounded-lg bg-metatron-accent px-4 py-2 text-xs font-semibold text-white hover:bg-metatron-accent-hover"
+                className="text-xs text-metatron-accent hover:underline"
               >
-                Open Kevin in Telegram
+                Open @Kevinmetatron_bot
               </a>
             </div>
-          ) : null}
+          ) : (
+            <>
+              <p className="text-xs text-[var(--text-muted)]">
+                Link your Telegram account to chat with Kevin on Telegram.
+              </p>
+
+              {!telegramLinkCode ? (
+                <button
+                  type="button"
+                  onClick={onLinkTelegram}
+                  disabled={telegramLoading}
+                  className="rounded-lg bg-metatron-accent px-4 py-2 text-xs font-semibold text-white hover:bg-metatron-accent-hover disabled:opacity-60"
+                >
+                  {telegramLoading ? "Getting code…" : "Link Telegram"}
+                </button>
+              ) : (
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <p className="text-xs text-[var(--text-muted)]">
+                      1. Tap the button below to open Telegram — it will link automatically.
+                    </p>
+                    <a
+                      href={`https://t.me/Kevinmetatron_bot?start=${telegramLinkCode}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-2 rounded-lg bg-metatron-accent px-5 py-2.5 text-sm font-semibold text-white hover:bg-metatron-accent-hover"
+                    >
+                      Open Telegram &rarr;
+                    </a>
+                  </div>
+
+                  <div className="space-y-1">
+                    <p className="text-xs text-[var(--text-muted)]">
+                      2. Or open Telegram manually and send this message to{" "}
+                      <span className="font-semibold text-[var(--text)]">@Kevinmetatron_bot</span>:
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <code className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-2 font-mono text-sm text-metatron-accent select-all">
+                        /start {telegramLinkCode}
+                      </code>
+                      <button
+                        type="button"
+                        onClick={() => navigator.clipboard.writeText(`/start ${telegramLinkCode}`)}
+                        className="rounded-lg border border-[var(--border)] px-3 py-2 text-xs text-[var(--text-muted)] hover:text-[var(--text)]"
+                      >
+                        Copy
+                      </button>
+                    </div>
+                  </div>
+
+                  <p className="text-[11px] text-[var(--text-muted)]">Code expires in 15 minutes.</p>
+                </div>
+              )}
+            </>
+          )}
+
           {telegramMsg ? (
             <p className="text-xs text-[var(--text-muted)]">{telegramMsg}</p>
           ) : null}

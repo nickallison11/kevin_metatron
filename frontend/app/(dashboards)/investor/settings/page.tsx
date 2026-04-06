@@ -48,6 +48,10 @@ export default function InvestorSettingsPage() {
   const [disableCode, setDisableCode] = useState("");
   const [disableLoading, setDisableLoading] = useState(false);
 
+  const [telegramLinkCode, setTelegramLinkCode] = useState<string | null>(null);
+  const [telegramLoading, setTelegramLoading] = useState(false);
+  const [telegramMsg, setTelegramMsg] = useState<string | null>(null);
+
   const qrDataUrl = useMemo(() => {
     if (!otpauthUri) return null;
     return `https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(
@@ -270,6 +274,32 @@ export default function InvestorSettingsPage() {
     }
   }
 
+  async function onLinkTelegram() {
+    if (!token) return;
+    setTelegramLoading(true);
+    setTelegramMsg(null);
+    setTelegramLinkCode(null);
+    try {
+      const res = await fetch(`${API_BASE}/auth/telegram/link-token`, {
+        method: "POST",
+        headers: authHeaders(token),
+      });
+      const txt = await res.text();
+      if (!res.ok) {
+        throw new Error(txt.trim() || "Could not create link code");
+      }
+      const data = JSON.parse(txt) as { code?: string };
+      if (!data.code) throw new Error("Invalid response");
+      setTelegramLinkCode(data.code);
+    } catch (err) {
+      setTelegramMsg(
+        err instanceof Error ? err.message : "Could not get link code"
+      );
+    } finally {
+      setTelegramLoading(false);
+    }
+  }
+
   if (authLoading || !me) {
     return (
       <main className="flex-1">
@@ -459,6 +489,44 @@ export default function InvestorSettingsPage() {
               <p className="text-xs text-[var(--text-muted)]">{changePasswordMsg}</p>
             )}
           </form>
+        </div>
+
+        <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-6 space-y-5">
+          <h2 className="text-sm font-semibold">Telegram</h2>
+          <p className="text-xs text-[var(--text-muted)]">
+            Link your Telegram account for Kevin on Telegram. The code expires in 15
+            minutes.
+          </p>
+          <button
+            type="button"
+            onClick={onLinkTelegram}
+            disabled={telegramLoading}
+            className="rounded-lg bg-metatron-accent px-4 py-2 text-xs font-semibold text-white hover:bg-metatron-accent-hover disabled:opacity-60"
+          >
+            {telegramLoading ? "Getting code…" : "Link Telegram"}
+          </button>
+          {telegramLinkCode ? (
+            <div className="space-y-3 text-sm">
+              <p className="text-[var(--text)]">
+                Send this code to{" "}
+                <span className="font-semibold">@Kevinmetatron_bot</span> on Telegram:{" "}
+                <span className="font-mono text-metatron-accent">
+                  {telegramLinkCode}
+                </span>
+              </p>
+              <a
+                href={`https://t.me/Kevinmetatron_bot?start=${telegramLinkCode}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex rounded-lg bg-metatron-accent px-4 py-2 text-xs font-semibold text-white hover:bg-metatron-accent-hover"
+              >
+                Open Kevin in Telegram
+              </a>
+            </div>
+          ) : null}
+          {telegramMsg ? (
+            <p className="text-xs text-[var(--text-muted)]">{telegramMsg}</p>
+          ) : null}
         </div>
 
         <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-6 space-y-5">

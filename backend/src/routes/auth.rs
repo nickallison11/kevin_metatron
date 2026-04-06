@@ -19,6 +19,7 @@ use serde::{Deserialize, Serialize};
 use totp_rs::{Algorithm as TotpAlgorithm, Secret as TotpSecret, TOTP};
 
 use jsonwebtoken::{decode, encode, Algorithm as JwtAlgorithm, Header, Validation};
+use rand::Rng;
 use rand::RngCore;
 use rand_core::OsRng;
 use sha2::{Digest, Sha256};
@@ -37,6 +38,8 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/forgot-password", post(forgot_password))
         .route("/reset-password", post(reset_password))
         .route("/telegram", post(telegram_auth))
+        .route("/telegram/link-token", post(telegram_link_token))
+        .route("/telegram/confirm", post(telegram_confirm))
         .route("/change-email", put(change_email))
         .route("/change-password", put(change_password))
         .route("/profile", put(update_profile))
@@ -928,6 +931,166 @@ async fn telegram_auth(
     })?;
 
     Ok(Json(AuthResponse { token }))
+}
+
+#[derive(Serialize)]
+pub struct TelegramLinkTokenResponse {
+    pub code: String,
+}
+
+#[derive(Deserialize)]
+pub struct TelegramConfirmRequest {
+    pub telegram_id: i64,
+    pub code: String,
+}
+
+#[derive(Serialize)]
+pub struct TelegramConfirmResponse {
+    pub ok: bool,
+}
+
+fn is_pg_unique_violation(e: &sqlx::Error) -> bool {
+    match e {
+        sqlx::Error::Database(db) => db.code().map(|c| c == "23505").unwrap_or(false),
+        _ => false,
+    }
+}
+
+async fn telegram_link_token(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+) -> Result<Json<TelegramLinkTokenResponse>, (StatusCode, String)> {
+    let authed = require_user(&state, bearer.token()).await?;
+
+    for _ in 0..64 {
+        let code = format!("{:06}", rand::thread_rng().gen_range(0..1_000_000));
+        let res = sqlx::query(
+            r#"
+            INSERT INTO telegram_link_tokens (user_id, code, expires_at)
+            VALUES ($1, $2, NOW() + INTERVAL '15 minutes')
+            "#,
+        )
+        .bind(authed.id)
+        .bind(&code)
+        .execute(&state.db)
+        .await;
+
+        match res {
+            Ok(_) => return Ok(Json(TelegramLinkTokenResponse { code })),
+            Err(e) if is_pg_unique_violation(&e) => continue,
+            Err(e) => {
+                tracing::error!("telegram_link_token: insert failed: {e}");
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "database error".to_string(),
+                ));
+            }
+        }
+    }
+
+    Err((
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "could not generate unique code".to_string(),
+    ))
+}
+
+async fn telegram_confirm(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<TelegramConfirmRequest>,
+) -> Result<Json<TelegramConfirmResponse>, (StatusCode, String)> {
+    let code = body.code.trim();
+    if code.len() != 6 || !code.chars().all(|c| c.is_ascii_digit()) {
+        return Err((StatusCode::BAD_REQUEST, "invalid code".to_string()));
+    }
+
+    let telegram_id_str = body.telegram_id.to_string();
+
+    let mut tx = state
+        .db
+        .begin()
+        .await
+        .map_err(|e| {
+            tracing::error!("telegram_confirm: begin tx: {e}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "database error".to_string(),
+            )
+        })?;
+
+    let row: Option<(Uuid, Uuid)> = sqlx::query_as(
+        r#"
+        SELECT id, user_id FROM telegram_link_tokens
+        WHERE code = $1 AND used_at IS NULL AND expires_at > NOW()
+        FOR UPDATE
+        "#,
+    )
+    .bind(code)
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(|e| {
+        tracing::error!("telegram_confirm: lookup token: {e}");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "database error".to_string(),
+        )
+    })?;
+
+    let Some((token_id, user_id)) = row else {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "invalid or expired code".to_string(),
+        ));
+    };
+
+    let update_user = sqlx::query(
+        r#"
+        UPDATE users SET telegram_id = $1 WHERE id = $2
+        "#,
+    )
+    .bind(&telegram_id_str)
+    .bind(user_id)
+    .execute(&mut *tx)
+    .await;
+
+    if let Err(e) = update_user {
+        if is_pg_unique_violation(&e) {
+            return Err((
+                StatusCode::CONFLICT,
+                "telegram already linked to another account".to_string(),
+            ));
+        }
+        tracing::error!("telegram_confirm: update user: {e}");
+        return Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "database error".to_string(),
+        ));
+    }
+
+    sqlx::query(
+        r#"
+        UPDATE telegram_link_tokens SET used_at = NOW() WHERE id = $1
+        "#,
+    )
+    .bind(token_id)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| {
+        tracing::error!("telegram_confirm: mark token used: {e}");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "database error".to_string(),
+        )
+    })?;
+
+    tx.commit().await.map_err(|e| {
+        tracing::error!("telegram_confirm: commit: {e}");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "database error".to_string(),
+        )
+    })?;
+
+    Ok(Json(TelegramConfirmResponse { ok: true }))
 }
 
 #[derive(Deserialize)]

@@ -202,7 +202,7 @@ async fn embed_text(
     };
 
     let url =
-        "https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent";
+        "https://generativelanguage.googleapis.com/v1/models/text-embedding-004:embedContent";
     let res = http
         .post(url)
         .query(&[("key", ai_api_key)])

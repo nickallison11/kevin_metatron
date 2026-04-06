@@ -7,9 +7,9 @@ import os
 import requests
 import time
 
-BOT_TOKEN = os.getenv(
-    "TELEGRAM_BOT_TOKEN", "8367805252:AAGJxfGbJa55D79nh7fSTommKTNmAxTDFAA"
-)
+BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+if not BOT_TOKEN:
+    raise RuntimeError("TELEGRAM_BOT_TOKEN not set in environment")
 PLATFORM_URL = os.getenv("PLATFORM_URL", "https://platform.metatron.id")
 BOT_SECRET = os.getenv("PLATFORM_BOT_SECRET", "")
 ELEVENLABS_KEY = os.getenv("ELEVENLABS_API_KEY", "")

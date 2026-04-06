@@ -579,6 +579,7 @@ pub struct MeResponse {
     pub totp_enabled: bool,
     pub first_name: Option<String>,
     pub last_name: Option<String>,
+    pub telegram_id: Option<String>,
 }
 
 async fn update_profile(
@@ -626,7 +627,8 @@ async fn get_me(
             is_pro,
             totp_enabled,
             first_name,
-            last_name
+            last_name,
+            telegram_id
         FROM users
         WHERE id = $1
         "#,

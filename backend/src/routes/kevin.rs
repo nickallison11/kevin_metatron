@@ -114,17 +114,17 @@ struct UserForEmail {
 async fn inbound_email(
     State(state): State<Arc<AppState>>,
     Json(body): Json<InboundEmailRequest>,
-) -> Result<StatusCode, (StatusCode, String)> {
+) -> StatusCode {
     let _ = &body.to;
     let from_addr = parse_email_address(&body.from);
     let resend_key = state.resend_api_key.as_deref().unwrap_or("");
 
     let plain = extract_plain_text_from_raw_email(&body.raw);
     if plain.trim().is_empty() {
-        return Ok(StatusCode::OK);
+        return StatusCode::OK;
     }
 
-    let user_row: Option<UserForEmail> = sqlx::query_as(
+    let user_row: Option<UserForEmail> = match sqlx::query_as(
         r#"
         SELECT id, is_pro, subscription_tier, role::text,
                custom_ai_provider, custom_ai_api_key, custom_ai_model
@@ -135,7 +135,13 @@ async fn inbound_email(
     .bind(&from_addr)
     .fetch_optional(&state.db)
     .await
-    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "db error".into()))?;
+    {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::error!("inbound-email: user lookup failed: {e}");
+            return StatusCode::OK;
+        }
+    };
 
     let reply_subject = if body.subject.trim().is_empty() {
         "Re: (no subject)".to_string()
@@ -155,7 +161,7 @@ async fn inbound_email(
             "Hi! You need a free metatron account to chat with Kevin. Sign up at platform.metatron.id",
         )
         .await;
-        return Ok(StatusCode::OK);
+        return StatusCode::OK;
     };
 
     let custom_ai_api_key = match user.custom_ai_api_key {
@@ -172,7 +178,7 @@ async fn inbound_email(
     let daily_limit = kevin_daily_limit(user.is_pro, &user.subscription_tier);
 
     if daily_limit < i32::MAX {
-        let count: i32 = sqlx::query_scalar(
+        let count: i32 = match sqlx::query_scalar(
             r#"
             INSERT INTO kevin_daily_usage (user_id, usage_date, message_count)
             VALUES ($1, CURRENT_DATE, 1)
@@ -184,7 +190,13 @@ async fn inbound_email(
         .bind(user.id)
         .fetch_one(&state.db)
         .await
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "db error".into()))?;
+        {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::error!("inbound-email: usage upsert failed: {e}");
+                return StatusCode::OK;
+            }
+        };
 
         if count > daily_limit {
             let _ = sqlx::query(
@@ -203,7 +215,7 @@ async fn inbound_email(
                 "You've reached your daily Kevin limit. It resets at midnight UTC. Upgrade at platform.metatron.id/pricing for higher limits.",
             )
             .await;
-            return Ok(StatusCode::OK);
+            return StatusCode::OK;
         }
     }
 
@@ -288,10 +300,10 @@ Stay in character as Kevin. If asked about capabilities you don't have, say what
             "kevin@metatron.id",
             &from_addr,
             &reply_subject,
-            "Kevin is temporarily unavailable (AI not configured). Please try the platform later.",
+            "Kevin is temporarily unavailable.",
         )
         .await;
-        return Ok(StatusCode::OK);
+        return StatusCode::OK;
     };
 
     let msgs = vec![("user".to_string(), plain)];
@@ -315,10 +327,10 @@ Stay in character as Kevin. If asked about capabilities you don't have, say what
                 "kevin@metatron.id",
                 &from_addr,
                 &reply_subject,
-                "Kevin could not complete a reply right now. Please try again from platform.metatron.id.",
+                "Kevin is temporarily unavailable.",
             )
             .await;
-            return Ok(StatusCode::OK);
+            return StatusCode::OK;
         }
     };
 
@@ -352,7 +364,7 @@ Stay in character as Kevin. If asked about capabilities you don't have, say what
         });
     }
 
-    Ok(StatusCode::OK)
+    StatusCode::OK
 }
 
 #[derive(Deserialize)]

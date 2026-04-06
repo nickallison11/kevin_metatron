@@ -63,7 +63,7 @@ def load_env() -> tuple[str, str]:
 def fetch_embedding(api_key: str, summary_text: str) -> list[float]:
     url = (
         "https://generativelanguage.googleapis.com/v1beta/models/"
-        f"embedding-001:embedContent?key={api_key}"
+        f"text-embedding-004:embedContent?key={api_key}"
     )
     body = {
         "content": {"parts": [{"text": summary_text}]},

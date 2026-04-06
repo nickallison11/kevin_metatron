@@ -193,7 +193,7 @@ async fn embed_text(
     text: &str,
 ) -> Result<Vec<f32>, String> {
     let req = EmbedContentRequest {
-        model: "models/embedding-001".to_string(),
+        model: "models/text-embedding-004".to_string(),
         content: EmbedInputContent {
             parts: vec![TextPart {
                 text: text.to_string(),
@@ -202,7 +202,7 @@ async fn embed_text(
     };
 
     let url =
-        "https://generativelanguage.googleapis.com/v1beta/models/embedding-001:embedContent";
+        "https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent";
     let res = http
         .post(url)
         .query(&[("key", ai_api_key)])

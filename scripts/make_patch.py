@@ -49,7 +49,7 @@ def ask_kevin(chat_id, user_message, user_name=''):
         if not jwt:
             return "Sorry, I'm having trouble responding right now. Please try again. 🌍"
         r = requests.post(
-            f'{PLATFORM_URL}/api/kevin/chat',
+            f'{PLATFORM_URL}/kevin/chat',
             json={'messages': history},
             headers={'Authorization': f'Bearer {jwt}', 'Content-Type': 'application/json'},
             timeout=60
@@ -60,7 +60,7 @@ def ask_kevin(chat_id, user_message, user_name=''):
             if not jwt:
                 return "Sorry, I'm having trouble responding right now. Please try again. 🌍"
             r = requests.post(
-                f'{PLATFORM_URL}/api/kevin/chat',
+                f'{PLATFORM_URL}/kevin/chat',
                 json={'messages': history},
                 headers={'Authorization': f'Bearer {jwt}', 'Content-Type': 'application/json'},
                 timeout=60

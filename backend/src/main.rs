@@ -9,7 +9,7 @@ mod crypto;
 mod email;
 mod identity;
 mod memory;
-mod routes;
+mod routes; // Routers composed in `app::build_app` (e.g. `.nest("/kevin", routes::kevin::router())`).
 mod settings;
 mod state;
 

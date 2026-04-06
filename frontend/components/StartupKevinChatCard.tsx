@@ -37,7 +37,7 @@ export function StartupKevinChatCard({
     setLoading(true);
 
     try {
-      const res = await fetch(`${API_BASE}/api/kevin/chat`, {
+      const res = await fetch(`${API_BASE}/kevin/chat`, {
         method: "POST",
         headers: authJsonHeaders(token),
         body: JSON.stringify({

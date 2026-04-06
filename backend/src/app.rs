@@ -15,7 +15,6 @@ pub fn build_app(_settings: &Settings, state: Arc<AppState>) -> Router {
         .allow_headers(Any);
 
     let auth_router = routes::auth::router().merge(routes::oauth::router());
-    let api = Router::new().nest("/kevin", routes::kevin::router());
 
     Router::new()
         .route("/health", get(health))
@@ -34,7 +33,7 @@ pub fn build_app(_settings: &Settings, state: Arc<AppState>) -> Router {
         .nest("/commerce", routes::commerce::router())
         .nest("/uploads", routes::uploads::router())
         .route("/files/:name", get(routes::uploads::serve_file))
-        .nest("/api", api)
+        .nest("/kevin", routes::kevin::router())
         .nest("/calls", routes::calls::router())
         .nest("/deals", routes::deals::router())
         .layer(cors)

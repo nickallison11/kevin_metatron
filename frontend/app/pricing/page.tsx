@@ -19,11 +19,12 @@ const freeFeatures = [
   "Founder profile",
   "External pitch deck link",
   "Pitch management",
-  "Call recording + AI analysis",
-  "Investor deal flow",
+  "1 investor match per week",
 ];
 
 const proFeatures = [
+  "Call recording + AI analysis",
+  "10 investor matches per week",
   "Pitch deck on IPFS via Pinata",
   "Private or public IPFS storage toggle",
   "Custom AI provider (bring your own API key)",

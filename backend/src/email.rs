@@ -209,6 +209,64 @@ fn password_reset_email_html(token_hex: &str) -> String {
     )
 }
 
+/// Plain-text outbound email (e.g. Kevin replies via Resend).
+pub async fn send_kevin_email_reply(
+    http_client: &Client,
+    api_key: &str,
+    from_email: &str,
+    to_email: &str,
+    subject: &str,
+    body: &str,
+) {
+    let api_key = api_key.trim();
+    if api_key.is_empty() {
+        tracing::warn!("send_kevin_email_reply: RESEND_API_KEY missing; skipping to {}", to_email);
+        return;
+    }
+    if to_email.trim().is_empty() {
+        tracing::warn!("send_kevin_email_reply: empty recipient");
+        return;
+    }
+
+    let payload = json!({
+        "from": from_email,
+        "to": [to_email],
+        "subject": subject,
+        "text": body
+    });
+
+    match http_client
+        .post("https://api.resend.com/emails")
+        .header("Authorization", format!("Bearer {}", api_key))
+        .header("Content-Type", "application/json")
+        .json(&payload)
+        .send()
+        .await
+    {
+        Ok(resp) => {
+            if !resp.status().is_success() {
+                let status = resp.status();
+                let body = resp.text().await.unwrap_or_default();
+                tracing::warn!(
+                    "send_kevin_email_reply: resend failed status={} to={} subject='{}' body={}",
+                    status,
+                    to_email,
+                    subject,
+                    body.chars().take(300).collect::<String>()
+                );
+            }
+        }
+        Err(e) => {
+            tracing::warn!(
+                "send_kevin_email_reply: request error to={} subject='{}': {}",
+                to_email,
+                subject,
+                e
+            );
+        }
+    }
+}
+
 pub async fn send_password_reset_email(
     http_client: &Client,
     api_key: Option<&str>,

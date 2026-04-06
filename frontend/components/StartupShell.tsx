@@ -8,19 +8,18 @@ import { useAuth } from "@/lib/auth";
 const FREE_NAV = [
   { href: "/startup", label: "Dashboard" },
   { href: "/startup/profile", label: "Profile" },
+  { href: "/startup/pitches", label: "Pitches" },
 ];
 
 const PRO_NAV = [
   { href: "/startup", label: "Dashboard" },
   { href: "/startup/profile", label: "Profile" },
   { href: "/startup/pitches", label: "Pitches" },
+  { href: "/startup/matches", label: "Matches" },
   { href: "/startup/calls", label: "Calls" },
 ];
 
-const LOCKED_NAV = [
-  { label: "Pitches" },
-  { label: "Calls" },
-];
+const LOCKED_NAV = [{ label: "Matches" }, { label: "Calls" }];
 
 export default function StartupShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();

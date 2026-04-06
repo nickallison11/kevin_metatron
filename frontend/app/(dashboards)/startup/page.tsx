@@ -37,42 +37,19 @@ export default function StartupDashboardPage() {
           </Link>
         </ThreeDCard>
 
-        {isPro ? (
-          <ThreeDCard>
-            <Link
-              href="/startup/pitches"
-              className="block rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-5 transition-colors hover:border-metatron-accent/30"
-            >
-              <h2 className="mb-1 text-sm font-semibold text-metatron-accent">
-                Pitches
-              </h2>
-              <p className="text-xs leading-relaxed text-[var(--text-muted)]">
-                Create and manage fundraising narratives.
-              </p>
-            </Link>
-          </ThreeDCard>
-        ) : (
-          <ThreeDCard>
-            <div
-              onClick={() => router.push("/pricing")}
-              className="flex cursor-pointer flex-col justify-between rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-5 opacity-60"
-            >
-              <div>
-                <div className="mb-1 flex items-center gap-2">
-                  <h2 className="text-sm font-semibold text-[var(--text-muted)]">
-                    Pitches
-                  </h2>
-                  <span className="rounded border border-metatron-accent/40 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider text-metatron-accent">
-                    Pro
-                  </span>
-                </div>
-                <p className="text-xs leading-relaxed text-[var(--text-muted)]">
-                  Create and manage fundraising narratives.
-                </p>
-              </div>
-            </div>
-          </ThreeDCard>
-        )}
+        <ThreeDCard>
+          <Link
+            href="/startup/pitches"
+            className="block rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-5 transition-colors hover:border-metatron-accent/30"
+          >
+            <h2 className="mb-1 text-sm font-semibold text-metatron-accent">
+              Pitches
+            </h2>
+            <p className="text-xs leading-relaxed text-[var(--text-muted)]">
+              Create and manage fundraising narratives.
+            </p>
+          </Link>
+        </ThreeDCard>
 
         {isPro ? (
           <ThreeDCard className="sm:col-span-2">
@@ -104,6 +81,41 @@ export default function StartupDashboardPage() {
               </div>
               <p className="text-xs leading-relaxed text-[var(--text-muted)]">
                 Upload recordings for transcription and AI analysis.
+              </p>
+            </div>
+          </ThreeDCard>
+        )}
+
+        {isPro ? (
+          <ThreeDCard className="sm:col-span-2">
+            <Link
+              href="/startup/matches"
+              className="block rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-5 transition-colors hover:border-metatron-accent/30"
+            >
+              <h2 className="mb-1 text-sm font-semibold text-metatron-accent">
+                Investor matches
+              </h2>
+              <p className="text-xs leading-relaxed text-[var(--text-muted)]">
+                Weekly investor matches based on your sector and stage.
+              </p>
+            </Link>
+          </ThreeDCard>
+        ) : (
+          <ThreeDCard className="sm:col-span-2">
+            <div
+              onClick={() => router.push("/pricing")}
+              className="cursor-pointer rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-5 opacity-60"
+            >
+              <div className="mb-1 flex items-center gap-2">
+                <h2 className="text-sm font-semibold text-[var(--text-muted)]">
+                  Investor matches
+                </h2>
+                <span className="rounded border border-metatron-accent/40 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider text-metatron-accent">
+                  Pro
+                </span>
+              </div>
+              <p className="text-xs leading-relaxed text-[var(--text-muted)]">
+                Weekly investor matches based on your sector and stage.
               </p>
             </div>
           </ThreeDCard>

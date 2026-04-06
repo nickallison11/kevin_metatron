@@ -57,6 +57,20 @@ export default function KevinChat() {
         return;
       }
 
+      if (res.status === 429) {
+        const limitText = await res.text();
+        setMessages((m) => [
+          ...m,
+          {
+            role: "assistant",
+            content:
+              limitText.trim() ||
+              "You've reached your 20 message daily limit. Upgrade to Founder Basic for 200/day.",
+          },
+        ]);
+        return;
+      }
+
       const raw = await res.text();
       if (!res.ok) throw new Error(raw || "Chat failed");
 

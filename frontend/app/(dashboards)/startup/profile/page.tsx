@@ -562,6 +562,25 @@ export default function StartupProfilePage() {
                 </label>
               ) : (
                 <>
+                  <label className="block space-y-1">
+                    <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
+                      Pitch Deck Link
+                    </span>
+                    <input
+                      className="input-metatron w-full"
+                      type="url"
+                      placeholder="https://drive.google.com/..."
+                      value={profile.pitch_deck_url ?? ""}
+                      onChange={(e) =>
+                        setProfile((p) => ({ ...p, pitch_deck_url: e.target.value }))
+                      }
+                    />
+                  </label>
+                  <div className="flex items-center gap-3">
+                    <div className="h-px flex-1 bg-[var(--border)]" />
+                    <span className="text-xs text-[var(--text-muted)]">or upload a PDF to IPFS</span>
+                    <div className="h-px flex-1 bg-[var(--border)]" />
+                  </div>
                   <input
                     ref={fileInputRef}
                     type="file"
@@ -581,23 +600,23 @@ export default function StartupProfilePage() {
                     disabled={savingVisibility}
                     className="rounded-lg bg-metatron-accent px-5 py-2.5 text-sm font-semibold text-white hover:bg-metatron-accent-hover hover:shadow-[0_4px_20px_rgba(108,92,231,0.3)] transition-all disabled:opacity-60"
                   >
-                    {savingVisibility ? "Preparing…" : "Upload deck"}
+                    {savingVisibility ? "Preparing…" : "Upload to IPFS"}
                   </button>
                 </>
               )}
 
-              {(profile.deckStorageOption ?? "link") === "link" && (
-                <p className="text-xs text-[var(--text-muted)]">
-                  Store your deck on Google Drive, Dropbox, Notion, or any cloud storage. Make
-                  sure sharing is set appropriately for investors.
-                </p>
-              )}
+              <p className="text-xs text-[var(--text-muted)]">
+                {(profile.deckStorageOption ?? "link") === "link"
+                  ? "Store your deck on Google Drive, Dropbox, Notion, or any cloud storage. Make sure sharing is set appropriately for investors."
+                  : "Paste a cloud link or upload a PDF directly to IPFS. Uploaded files are stored on your chosen visibility setting."}
+              </p>
 
               {profile.pitch_deck_url && (
                 <a
                   href={profile.pitch_deck_url}
                   target="_blank"
                   rel="noreferrer"
+                  onClick={(e) => e.stopPropagation()}
                   className="inline-block text-xs text-metatron-accent hover:underline"
                 >
                   Open current deck

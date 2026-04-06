@@ -10,6 +10,7 @@ pub struct AuthedUser {
     pub id: Uuid,
     pub role: String,
     pub is_pro: bool,
+    pub subscription_tier: String,
     pub custom_ai_provider: Option<String>,
     pub custom_ai_api_key: Option<String>,
     pub custom_ai_model: Option<String>,
@@ -33,12 +34,14 @@ pub async fn require_user(
     let (
         role,
         is_pro,
+        subscription_tier,
         custom_ai_provider,
         custom_ai_api_key,
         custom_ai_model,
     ): (
         String,
         bool,
+        String,
         Option<String>,
         Option<String>,
         Option<String>,
@@ -47,6 +50,7 @@ pub async fn require_user(
         SELECT
             role::text,
             is_pro,
+            subscription_tier,
             custom_ai_provider,
             custom_ai_api_key,
             custom_ai_model
@@ -74,6 +78,7 @@ pub async fn require_user(
         id: uid,
         role,
         is_pro,
+        subscription_tier,
         custom_ai_provider,
         custom_ai_api_key,
         custom_ai_model,

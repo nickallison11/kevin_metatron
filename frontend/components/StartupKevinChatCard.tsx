@@ -65,7 +65,7 @@ export function StartupKevinChatCard({
             role: "assistant",
             content:
               limitText.trim() ||
-              "You've reached your 20 message daily limit. Upgrade to Founder Basic for 200/day.",
+              "You've used your 20 daily Kevin messages across all channels. Upgrade to Founder Basic at platform.metatron.id/pricing for 200 messages/day.",
           },
         ]);
         return;

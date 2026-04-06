@@ -223,13 +223,19 @@ async fn inbound_email_process(state: Arc<AppState>, body: InboundEmailRequest) 
             .execute(&state.db)
             .await;
 
+            let limit_body = if !user.is_pro {
+                "You've used your 20 daily Kevin messages across all channels. Upgrade to Founder Basic at platform.metatron.id/pricing for 200 messages/day."
+            } else {
+                "You've reached your daily Kevin limit. It resets at midnight UTC. Upgrade at platform.metatron.id/pricing for higher limits."
+            };
+
             email::send_kevin_email_reply(
                 &state.http_client,
                 resend_key,
                 "kevin@metatron.id",
                 &from_addr,
                 &reply_subject,
-                "You've reached your daily Kevin limit. It resets at midnight UTC. Upgrade at platform.metatron.id/pricing for higher limits.",
+                limit_body,
             )
             .await;
             return;
@@ -529,10 +535,14 @@ Stay in character as Kevin. If asked about capabilities you don't have, say what
             .execute(&state.db)
             .await;
 
-            return Err((
-                StatusCode::TOO_MANY_REQUESTS,
-                format!("Daily message limit reached ({daily_limit}/day). Resets at midnight."),
-            ));
+            let msg = if !user.is_pro {
+                "You've used your 20 daily Kevin messages across all channels. Upgrade to Founder Basic at platform.metatron.id/pricing for 200 messages/day.".to_string()
+            } else {
+                format!(
+                    "Daily message limit reached ({daily_limit}/day). Resets at midnight UTC."
+                )
+            };
+            return Err((StatusCode::TOO_MANY_REQUESTS, msg));
         }
     }
 

@@ -566,7 +566,17 @@ export default function ConnectorSettingsPage() {
                     </div>
                   </div>
 
-                  <p className="text-[11px] text-[var(--text-muted)]">Code expires in 15 minutes.</p>
+                  <div className="flex items-center justify-between">
+                    <p className="text-[11px] text-[var(--text-muted)]">Code expires in 15 minutes.</p>
+                    <button
+                      type="button"
+                      onClick={onLinkTelegram}
+                      disabled={telegramLoading}
+                      className="text-[11px] text-metatron-accent hover:underline disabled:opacity-60"
+                    >
+                      {telegramLoading ? "Refreshing…" : "Get new code"}
+                    </button>
+                  </div>
                 </div>
               )}
             </>

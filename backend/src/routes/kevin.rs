@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use axum::extract::rejection::JsonRejection;
 use axum::http::StatusCode;
 use axum::{extract::State, routing::post, Json, Router};
 use axum_extra::{
@@ -113,15 +114,31 @@ struct UserForEmail {
 
 async fn inbound_email(
     State(state): State<Arc<AppState>>,
-    Json(body): Json<InboundEmailRequest>,
+    body: Result<Json<InboundEmailRequest>, JsonRejection>,
 ) -> StatusCode {
+    let body = match body {
+        Ok(Json(b)) => b,
+        Err(e) => {
+            tracing::error!("inbound-email: invalid JSON: {e}");
+            return StatusCode::OK;
+        }
+    };
+
+    let state = Arc::clone(&state);
+    tokio::spawn(async move {
+        inbound_email_process(state, body).await;
+    });
+    StatusCode::OK
+}
+
+async fn inbound_email_process(state: Arc<AppState>, body: InboundEmailRequest) {
     let _ = &body.to;
     let from_addr = parse_email_address(&body.from);
     let resend_key = state.resend_api_key.as_deref().unwrap_or("");
 
     let plain = extract_plain_text_from_raw_email(&body.raw);
     if plain.trim().is_empty() {
-        return StatusCode::OK;
+        return;
     }
 
     let user_row: Option<UserForEmail> = match sqlx::query_as(
@@ -139,7 +156,7 @@ async fn inbound_email(
         Ok(r) => r,
         Err(e) => {
             tracing::error!("inbound-email: user lookup failed: {e}");
-            return StatusCode::OK;
+            return;
         }
     };
 
@@ -161,7 +178,7 @@ async fn inbound_email(
             "Hi! You need a free metatron account to chat with Kevin. Sign up at platform.metatron.id",
         )
         .await;
-        return StatusCode::OK;
+        return;
     };
 
     let custom_ai_api_key = match user.custom_ai_api_key {
@@ -194,7 +211,7 @@ async fn inbound_email(
             Ok(c) => c,
             Err(e) => {
                 tracing::error!("inbound-email: usage upsert failed: {e}");
-                return StatusCode::OK;
+                return;
             }
         };
 
@@ -215,34 +232,31 @@ async fn inbound_email(
                 "You've reached your daily Kevin limit. It resets at midnight UTC. Upgrade at platform.metatron.id/pricing for higher limits.",
             )
             .await;
-            return StatusCode::OK;
+            return;
         }
     }
 
     let last_user_message = plain.clone();
 
-    let recalled = if let Some(gemini_key) = state.ai_api_key.as_deref() {
-        if last_user_message.trim().is_empty() {
-            Vec::new()
-        } else {
-            match memory::recall_memories(
-                &state.db,
-                &state.http_client,
-                gemini_key,
-                user.id,
-                &last_user_message,
-            )
-            .await
-            {
-                Ok(v) => v,
-                Err(e) => {
-                    tracing::warn!("kevin inbound-email memory recall failed: {e}");
-                    Vec::new()
-                }
+    let recalled = if last_user_message.trim().is_empty() {
+        Vec::new()
+    } else {
+        match memory::recall_memories(
+            &state.db,
+            &state.http_client,
+            state.gemini_embedding_key.as_deref(),
+            user.is_pro,
+            user.id,
+            &last_user_message,
+        )
+        .await
+        {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::warn!("kevin inbound-email memory recall failed: {e}");
+                Vec::new()
             }
         }
-    } else {
-        Vec::new()
     };
 
     let context = build_context(&state, user.id, &user.role).await;
@@ -303,7 +317,7 @@ Stay in character as Kevin. If asked about capabilities you don't have, say what
             "Kevin is temporarily unavailable.",
         )
         .await;
-        return StatusCode::OK;
+        return;
     };
 
     let msgs = vec![("user".to_string(), plain)];
@@ -330,7 +344,7 @@ Stay in character as Kevin. If asked about capabilities you don't have, say what
                 "Kevin is temporarily unavailable.",
             )
             .await;
-            return StatusCode::OK;
+            return;
         }
     };
 
@@ -348,12 +362,16 @@ Stay in character as Kevin. If asked about capabilities you don't have, say what
         let db = state.db.clone();
         let http = state.http_client.clone();
         let uid = user.id;
+        let is_pro = user.is_pro;
+        let embedding_key = state.gemini_embedding_key.clone();
         let conversation = format!("User: {last_user_message}\nKevin: {reply}");
         tokio::spawn(async move {
             if let Err(e) = memory::store_memory(
                 &db,
                 &http,
                 &gemini_key,
+                embedding_key.as_deref(),
+                is_pro,
                 uid,
                 &conversation,
             )
@@ -363,8 +381,6 @@ Stay in character as Kevin. If asked about capabilities you don't have, say what
             }
         });
     }
-
-    StatusCode::OK
 }
 
 #[derive(Deserialize)]
@@ -412,28 +428,25 @@ async fn chat(
         .find_map(|(role, content)| (role == "user").then_some(content.clone()))
         .unwrap_or_default();
 
-    let recalled = if let Some(gemini_key) = state.ai_api_key.as_deref() {
-        if last_user_message.trim().is_empty() {
-            Vec::new()
-        } else {
-            match memory::recall_memories(
-                &state.db,
-                &state.http_client,
-                gemini_key,
-                user.id,
-                &last_user_message,
-            )
-            .await
-            {
-                Ok(v) => v,
-                Err(e) => {
-                    tracing::warn!("kevin memory recall failed: {e}");
-                    Vec::new()
-                }
+    let recalled = if last_user_message.trim().is_empty() {
+        Vec::new()
+    } else {
+        match memory::recall_memories(
+            &state.db,
+            &state.http_client,
+            state.gemini_embedding_key.as_deref(),
+            user.is_pro,
+            user.id,
+            &last_user_message,
+        )
+        .await
+        {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::warn!("kevin memory recall failed: {e}");
+                Vec::new()
             }
         }
-    } else {
-        Vec::new()
     };
 
     let context = build_context(&state, user.id, &user.role).await;
@@ -539,12 +552,16 @@ Stay in character as Kevin. If asked about capabilities you don't have, say what
         let db = state.db.clone();
         let http = state.http_client.clone();
         let uid = user.id;
+        let is_pro = user.is_pro;
+        let embedding_key = state.gemini_embedding_key.clone();
         let conversation = format!("User: {last_user_message}\nKevin: {reply}");
         tokio::spawn(async move {
             if let Err(e) = memory::store_memory(
                 &db,
                 &http,
                 &gemini_key,
+                embedding_key.as_deref(),
+                is_pro,
                 uid,
                 &conversation,
             )

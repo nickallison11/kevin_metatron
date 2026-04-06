@@ -26,6 +26,23 @@ pub fn start_cleanup_task(state: Arc<AppState>) {
             }
 
             match sqlx::query(
+                "DELETE FROM kevin_text_memories WHERE created_at < NOW() - INTERVAL '12 months'",
+            )
+            .execute(&state.db)
+            .await
+            {
+                Ok(result) => {
+                    tracing::info!(
+                        "cleanup: removed {} old kevin_text_memories rows",
+                        result.rows_affected()
+                    );
+                }
+                Err(e) => {
+                    tracing::error!("cleanup: failed deleting old kevin_text_memories rows: {e}");
+                }
+            }
+
+            match sqlx::query(
                 r#"
                 UPDATE users
                 SET subscription_status = 'inactive', is_pro = FALSE

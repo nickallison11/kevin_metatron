@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { API_BASE, authHeaders, authJsonHeaders } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
@@ -34,13 +34,6 @@ export default function AdminProspectsPage() {
   const { token, loading: authLoading } = useAuth();
   const [rows, setRows] = useState<ProspectRow[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
-
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [linkedinUrl, setLinkedinUrl] = useState("");
-  const [role, setRole] = useState("");
-  const [notes, setNotes] = useState("");
-  const [creating, setCreating] = useState(false);
 
   async function load() {
     if (!token) return;
@@ -86,41 +79,6 @@ export default function AdminProspectsPage() {
     }
     return m;
   }, [rows]);
-
-  async function onCreate(e: FormEvent) {
-    e.preventDefault();
-    if (!token) return;
-    setCreating(true);
-    setErr(null);
-    try {
-      const res = await fetch(`${API_BASE}/api/admin/prospects`, {
-        method: "POST",
-        headers: authJsonHeaders(token),
-        body: JSON.stringify({
-          name: name.trim(),
-          email: email.trim(),
-          linkedin_url: linkedinUrl.trim() || null,
-          role: role.trim() || null,
-          notes: notes.trim() || null,
-          status: "contacted",
-        }),
-      });
-      if (!res.ok) {
-        const t = await res.text();
-        throw new Error(t.trim() || "Could not create prospect");
-      }
-      setName("");
-      setEmail("");
-      setLinkedinUrl("");
-      setRole("");
-      setNotes("");
-      await load();
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : "Could not create prospect");
-    } finally {
-      setCreating(false);
-    }
-  }
 
   async function updateStatus(id: string, status: ProspectStatus) {
     if (!token) return;
@@ -201,75 +159,6 @@ export default function AdminProspectsPage() {
         {err ? (
           <p className="text-sm text-[rgb(254,202,202)]">{err}</p>
         ) : null}
-
-        <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-6 space-y-4 max-w-xl">
-          <h2 className="text-sm font-semibold">Add prospect</h2>
-          <form onSubmit={onCreate} className="space-y-3 text-sm">
-            <label className="block space-y-1">
-              <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
-                Name
-              </span>
-              <input
-                className="input-metatron w-full"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                required
-              />
-            </label>
-            <label className="block space-y-1">
-              <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
-                Email
-              </span>
-              <input
-                className="input-metatron w-full"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-              />
-            </label>
-            <label className="block space-y-1">
-              <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
-                LinkedIn URL
-              </span>
-              <input
-                className="input-metatron w-full"
-                type="url"
-                value={linkedinUrl}
-                onChange={(e) => setLinkedinUrl(e.target.value)}
-                placeholder="https://"
-              />
-            </label>
-            <label className="block space-y-1">
-              <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
-                Role
-              </span>
-              <input
-                className="input-metatron w-full"
-                value={role}
-                onChange={(e) => setRole(e.target.value)}
-                placeholder="Founder, investor, …"
-              />
-            </label>
-            <label className="block space-y-1">
-              <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
-                Notes
-              </span>
-              <textarea
-                className="input-metatron w-full min-h-[80px]"
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-              />
-            </label>
-            <button
-              type="submit"
-              disabled={creating}
-              className="rounded-lg bg-metatron-accent px-4 py-2 text-xs font-semibold text-white hover:bg-metatron-accent-hover disabled:opacity-60"
-            >
-              {creating ? "Adding…" : "Add prospect"}
-            </button>
-          </form>
-        </div>
 
         {rows === null ? (
           <p className="text-sm text-[var(--text-muted)]">Loading…</p>

@@ -11,6 +11,7 @@ pub struct AuthedUser {
     pub role: String,
     pub is_pro: bool,
     pub is_admin: bool,
+    pub is_super_admin: bool,
     pub subscription_tier: String,
     pub custom_ai_provider: Option<String>,
     pub custom_ai_api_key: Option<String>,
@@ -36,6 +37,7 @@ pub async fn require_user(
         role,
         is_pro,
         is_admin,
+        is_super_admin,
         subscription_tier,
         custom_ai_provider,
         custom_ai_api_key,
@@ -43,6 +45,7 @@ pub async fn require_user(
         is_suspended,
     ): (
         String,
+        bool,
         bool,
         bool,
         String,
@@ -56,6 +59,7 @@ pub async fn require_user(
             role::text,
             is_pro,
             is_admin,
+            is_super_admin,
             subscription_tier,
             custom_ai_provider,
             custom_ai_api_key,
@@ -90,6 +94,7 @@ pub async fn require_user(
         role,
         is_pro,
         is_admin,
+        is_super_admin,
         subscription_tier,
         custom_ai_provider,
         custom_ai_api_key,
@@ -104,6 +109,17 @@ pub async fn require_admin(
     let u = require_user(state, token).await?;
     if !u.is_admin {
         return Err((StatusCode::FORBIDDEN, "admin only".to_string()));
+    }
+    Ok(u)
+}
+
+pub async fn require_super_admin(
+    state: &AppState,
+    token: &str,
+) -> Result<AuthedUser, (StatusCode, String)> {
+    let u = require_user(state, token).await?;
+    if !u.is_super_admin {
+        return Err((StatusCode::FORBIDDEN, "Forbidden".to_string()));
     }
     Ok(u)
 }

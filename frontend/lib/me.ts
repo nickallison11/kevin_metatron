@@ -5,6 +5,7 @@ export type MeResponse = {
   role: string;
   is_pro: boolean;
   is_admin: boolean;
+  is_super_admin: boolean;
   totp_enabled: boolean;
   first_name: string | null;
   last_name: string | null;

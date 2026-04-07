@@ -12,7 +12,7 @@ use axum_extra::{
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::identity::require_admin;
+use crate::identity::{require_admin, require_super_admin};
 use crate::state::AppState;
 
 pub fn router() -> Router<Arc<AppState>> {
@@ -234,7 +234,7 @@ async fn toggle_user_suspend(
     TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<SuspendToggleResponse>, (StatusCode, String)> {
-    let admin = require_admin(&state, bearer.token()).await?;
+    let admin = require_super_admin(&state, bearer.token()).await?;
     if admin.id == id {
         return Err((
             StatusCode::BAD_REQUEST,
@@ -273,7 +273,7 @@ async fn delete_user(
     TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, (StatusCode, String)> {
-    let admin = require_admin(&state, bearer.token()).await?;
+    let admin = require_super_admin(&state, bearer.token()).await?;
     if admin.id == id {
         return Err((
             StatusCode::BAD_REQUEST,

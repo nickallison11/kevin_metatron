@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { API_BASE, authHeaders, authJsonHeaders } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import type { MeResponse } from "@/lib/me";
 
 type AdminUserCore = {
   id: string;
@@ -73,6 +74,7 @@ export default function AdminUserDetailPage() {
   const [suspendSaving, setSuspendSaving] = useState(false);
   const [deleteSaving, setDeleteSaving] = useState(false);
   const [myUserId, setMyUserId] = useState<string | null>(null);
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
 
   useEffect(() => {
     if (!token || authLoading) return;
@@ -83,10 +85,16 @@ export default function AdminUserDetailPage() {
           headers: authHeaders(token),
         });
         if (!res.ok) return;
-        const me = (await res.json()) as { id?: string };
-        if (!cancelled) setMyUserId(me.id ?? null);
+        const me = (await res.json()) as MeResponse;
+        if (!cancelled) {
+          setMyUserId(me.id ?? null);
+          setIsSuperAdmin(Boolean(me.is_super_admin));
+        }
       } catch {
-        if (!cancelled) setMyUserId(null);
+        if (!cancelled) {
+          setMyUserId(null);
+          setIsSuperAdmin(false);
+        }
       }
     })();
     return () => {
@@ -337,7 +345,7 @@ export default function AdminUserDetailPage() {
             <p className="text-xs text-[var(--text-muted)] pt-2 border-t border-[var(--border)]">
               You cannot suspend or delete your own account from the admin panel.
             </p>
-          ) : (
+          ) : isSuperAdmin ? (
             <div className="flex flex-wrap gap-3 pt-4 border-t border-[var(--border)]">
               <button
                 type="button"
@@ -360,7 +368,7 @@ export default function AdminUserDetailPage() {
                 {deleteSaving ? "Deleting…" : "Delete user"}
               </button>
             </div>
-          )}
+          ) : null}
         </div>
 
         <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-6 space-y-3">

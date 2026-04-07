@@ -234,6 +234,15 @@ async fn signup(
                 &html,
             )
             .await;
+            email::send_email(
+                &state.http_client,
+                state.resend_api_key.as_deref(),
+                "deals@metatron.id",
+                "rianna@metatrondao.io",
+                &subject,
+                &html,
+            )
+            .await;
         }
     }
 

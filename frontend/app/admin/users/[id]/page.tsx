@@ -62,6 +62,20 @@ function roleLabel(role: string) {
   }
 }
 
+function formatJoined(iso: string) {
+  try {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return iso;
+    return d.toLocaleDateString(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    });
+  } catch {
+    return iso;
+  }
+}
+
 export default function AdminUserDetailPage() {
   const params = useParams();
   const id = typeof params.id === "string" ? params.id : "";
@@ -263,7 +277,7 @@ export default function AdminUserDetailPage() {
         </p>
         <h1 className="text-lg font-semibold break-all">{u.email}</h1>
         <p className="text-xs text-[var(--text-muted)] mt-1">
-          {roleLabel(u.role)} · joined {u.created_at}
+          {roleLabel(u.role)} · joined {formatJoined(u.created_at)}
         </p>
       </header>
 

@@ -16,6 +16,7 @@ type ProspectRow = {
   name: string;
   email: string;
   linkedin_url: string | null;
+  pitch_deck_url: string | null;
   role: string | null;
   status: ProspectStatus;
   notes: string | null;
@@ -218,6 +219,16 @@ function ProspectCard({
           className="text-xs text-metatron-accent hover:underline break-all"
         >
           LinkedIn
+        </a>
+      ) : null}
+      {prospect.pitch_deck_url ? (
+        <a
+          href={prospect.pitch_deck_url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-xs text-metatron-accent hover:underline"
+        >
+          View deck →
         </a>
       ) : null}
       {prospect.role ? (

@@ -316,6 +316,7 @@ pub struct ProspectRow {
     pub name: String,
     pub email: String,
     pub linkedin_url: Option<String>,
+    pub pitch_deck_url: Option<String>,
     pub role: Option<String>,
     pub status: String,
     pub notes: Option<String>,
@@ -330,7 +331,7 @@ async fn list_prospects(
 
     let rows = sqlx::query_as::<_, ProspectRow>(
         r#"
-        SELECT id, name, email, linkedin_url, role, status, notes, created_at::text AS created_at
+        SELECT id, name, email, linkedin_url, pitch_deck_url, role, status, notes, created_at::text AS created_at
         FROM prospects
         ORDER BY created_at DESC
         "#,
@@ -348,6 +349,8 @@ pub struct CreateProspectBody {
     pub email: String,
     #[serde(default)]
     pub linkedin_url: Option<String>,
+    #[serde(default)]
+    pub pitch_deck_url: Option<String>,
     #[serde(default)]
     pub role: Option<String>,
     #[serde(default)]
@@ -375,14 +378,20 @@ async fn create_prospect(
 
     let row = sqlx::query_as::<_, ProspectRow>(
         r#"
-        INSERT INTO prospects (name, email, linkedin_url, role, status, notes)
-        VALUES ($1, $2, $3, $4, $5, $6)
-        RETURNING id, name, email, linkedin_url, role, status, notes, created_at::text AS created_at
+        INSERT INTO prospects (name, email, linkedin_url, pitch_deck_url, role, status, notes)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        RETURNING id, name, email, linkedin_url, pitch_deck_url, role, status, notes, created_at::text AS created_at
         "#,
     )
     .bind(body.name.trim())
     .bind(body.email.trim())
     .bind(body.linkedin_url.as_ref().map(|s| s.trim().to_string()))
+    .bind(
+        body.pitch_deck_url
+            .as_ref()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty()),
+    )
     .bind(body.role.as_ref().map(|s| s.trim().to_string()))
     .bind(&status)
     .bind(body.notes.as_ref().map(|s| s.trim().to_string()))
@@ -402,6 +411,8 @@ pub struct UpdateProspectBody {
     pub status: Option<String>,
     #[serde(default)]
     pub notes: Option<String>,
+    #[serde(default)]
+    pub pitch_deck_url: Option<String>,
 }
 
 async fn update_prospect(
@@ -425,13 +436,20 @@ async fn update_prospect(
         r#"
         UPDATE prospects SET
             status = COALESCE($2, status),
-            notes = COALESCE($3, notes)
+            notes = COALESCE($3, notes),
+            pitch_deck_url = COALESCE($4, pitch_deck_url)
         WHERE id = $1
         "#,
     )
     .bind(id)
     .bind(body.status.as_ref())
     .bind(body.notes.as_ref())
+    .bind(
+        body.pitch_deck_url
+            .as_ref()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty()),
+    )
     .execute(&state.db)
     .await
     .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "database error".to_string()))?;

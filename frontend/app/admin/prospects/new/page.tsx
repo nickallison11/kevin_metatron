@@ -13,6 +13,7 @@ export default function AdminAddProspectPage() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [linkedinUrl, setLinkedinUrl] = useState("");
+  const [pitchDeckUrl, setPitchDeckUrl] = useState("");
   const [role, setRole] = useState("");
   const [notes, setNotes] = useState("");
   const [creating, setCreating] = useState(false);
@@ -31,6 +32,7 @@ export default function AdminAddProspectPage() {
           name: name.trim(),
           email: email.trim(),
           linkedin_url: linkedinUrl.trim() || null,
+          pitch_deck_url: pitchDeckUrl.trim() || null,
           role: role.trim() || null,
           notes: notes.trim() || null,
           status: "contacted",
@@ -110,6 +112,18 @@ export default function AdminAddProspectPage() {
                 type="url"
                 value={linkedinUrl}
                 onChange={(e) => setLinkedinUrl(e.target.value)}
+                placeholder="https://"
+              />
+            </label>
+            <label className="block space-y-1">
+              <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
+                PITCH DECK URL
+              </span>
+              <input
+                className="input-metatron w-full"
+                type="url"
+                value={pitchDeckUrl}
+                onChange={(e) => setPitchDeckUrl(e.target.value)}
                 placeholder="https://"
               />
             </label>

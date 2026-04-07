@@ -11,6 +11,7 @@ type AdminUserRow = {
   role: string;
   is_pro: boolean;
   is_admin: boolean;
+  is_super_admin: boolean;
   telegram_id: string | null;
   created_at: string;
   kevin_message_count: number;
@@ -150,7 +151,11 @@ export default function AdminUsersPage() {
                       >
                         {u.is_pro ? "Pro" : "Free"}
                       </span>
-                      {u.is_admin ? (
+                      {u.is_super_admin ? (
+                        <span className="ml-2 font-mono text-[10px] uppercase tracking-wider text-metatron-accent">
+                          super admin
+                        </span>
+                      ) : u.is_admin ? (
                         <span className="ml-2 font-mono text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
                           admin
                         </span>

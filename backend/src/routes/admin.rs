@@ -35,6 +35,7 @@ pub struct AdminUserRow {
     pub role: String,
     pub is_pro: bool,
     pub is_admin: bool,
+    pub is_super_admin: bool,
     pub telegram_id: Option<String>,
     pub created_at: String,
     pub kevin_message_count: i32,
@@ -54,6 +55,7 @@ async fn list_users(
             u.role::text AS role,
             u.is_pro,
             u.is_admin,
+            u.is_super_admin,
             u.telegram_id,
             u.created_at::text AS created_at,
             COALESCE(k.message_count, 0)::int AS kevin_message_count

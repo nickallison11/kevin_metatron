@@ -227,8 +227,8 @@ async fn signup(
             email::send_email(
                 &state.http_client,
                 state.resend_api_key.as_deref(),
-                &state.email_from,
                 "deals@metatron.id",
+                "nick.allison@metatrondao.io",
                 &subject,
                 &html,
             )

@@ -73,6 +73,9 @@ pub struct SignupRequest {
     /// Optional: `founder`, `investor`, or `connector` (maps to DB roles).
     #[serde(default)]
     pub role: Option<String>,
+    /// Set when signing up via e.g. `?invite=founder` (stored client-side, sent with register).
+    #[serde(default)]
+    pub invite_code: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -184,6 +187,54 @@ async fn signup(
         &email::welcome_email_html(),
     )
     .await;
+
+    if let Some(ref code) = body.invite_code {
+        let trimmed = code.trim();
+        if !trimmed.is_empty() {
+            let email_trim = body.email.trim();
+            if let Err(e) = sqlx::query(
+                r#"
+                INSERT INTO prospects (name, email, linkedin_url, role, status, notes)
+                VALUES ($1, $2, NULL, $3, 'signed_up', $4)
+                "#,
+            )
+            .bind("")
+            .bind(email_trim)
+            .bind("Founder")
+            .bind("Signed up via invite link")
+            .execute(&state.db)
+            .await
+            {
+                tracing::error!(
+                    "signup: insert prospect for invite signup email={}: {e}",
+                    email_trim
+                );
+            }
+
+            let ts = chrono::Utc::now().to_rfc3339();
+            let role_label = match db_role {
+                "INVESTOR" => "Investor",
+                "INTERMEDIARY" => "Connector",
+                _ => "Founder",
+            };
+            let subject = format!("New founder signed up via invite — {email_trim}");
+            let html = email::founder_invite_signup_notification_html(
+                email_trim,
+                role_label,
+                trimmed,
+                &ts,
+            );
+            email::send_email(
+                &state.http_client,
+                state.resend_api_key.as_deref(),
+                &state.email_from,
+                "deals@metatron.id",
+                &subject,
+                &html,
+            )
+            .await;
+        }
+    }
 
     Ok(Json(AuthResponse { token }))
 }

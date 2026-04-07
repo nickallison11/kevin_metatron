@@ -2,8 +2,8 @@
 
 import { AnimatedGridPattern } from "@/components/ui/animated-grid-pattern";
 import { CardHoverEffect } from "@/components/ui/card-hover-effect";
-import { FormEvent, useState } from "react";
-import { useRouter } from "next/navigation";
+import { FormEvent, Suspense, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 
 function dashboardPathForRole(role: string | null): string {
   switch (role) {
@@ -16,13 +16,23 @@ function dashboardPathForRole(role: string | null): string {
   }
 }
 
-export default function SignupPage() {
+const INVITE_STORAGE_KEY = "metatron_invite_code";
+
+function SignupForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [result, setResult] = useState<string | null>(null);
   const [consentGiven, setConsentGiven] = useState(false);
   const [consentError, setConsentError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const inv = searchParams.get("invite");
+    if (inv && typeof window !== "undefined") {
+      window.sessionStorage.setItem(INVITE_STORAGE_KEY, inv);
+    }
+  }, [searchParams]);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -38,6 +48,10 @@ export default function SignupPage() {
       typeof window !== "undefined"
         ? window.sessionStorage.getItem("metatron_role")
         : null;
+    const inviteCode =
+      typeof window !== "undefined"
+        ? window.sessionStorage.getItem(INVITE_STORAGE_KEY)
+        : null;
     try {
       const res = await fetch(
         `${process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000"}/auth/register`,
@@ -47,8 +61,9 @@ export default function SignupPage() {
           body: JSON.stringify({
             email,
             password,
-            ...(selectedRole ? { role: selectedRole } : {})
-          })
+            ...(selectedRole ? { role: selectedRole } : {}),
+            ...(inviteCode ? { invite_code: inviteCode } : {}),
+          }),
         }
       );
       const text = await res.text();
@@ -150,5 +165,20 @@ export default function SignupPage() {
       </form>
       </CardHoverEffect>
     </div>
+  );
+}
+
+export default function SignupPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="relative flex min-h-[calc(100vh-88px)] items-center justify-center px-5 py-10">
+          <AnimatedGridPattern />
+          <p className="relative z-[1] text-sm text-[var(--text-muted)]">Loading…</p>
+        </div>
+      }
+    >
+      <SignupForm />
+    </Suspense>
   );
 }

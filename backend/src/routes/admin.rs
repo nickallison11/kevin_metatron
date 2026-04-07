@@ -366,7 +366,7 @@ async fn create_prospect(
         .unwrap_or_else(|| "contacted".to_string());
     if !matches!(
         status.as_str(),
-        "contacted" | "responded" | "onboarded" | "declined"
+        "contacted" | "responded" | "onboarded" | "declined" | "signed_up"
     ) {
         return Err((StatusCode::BAD_REQUEST, "invalid status".to_string()));
     }
@@ -411,7 +411,10 @@ async fn update_prospect(
     let _ = require_admin(&state, bearer.token()).await?;
 
     if let Some(ref s) = body.status {
-        if !matches!(s.as_str(), "contacted" | "responded" | "onboarded" | "declined") {
+        if !matches!(
+            s.as_str(),
+            "contacted" | "responded" | "onboarded" | "declined" | "signed_up"
+        ) {
             return Err((StatusCode::BAD_REQUEST, "invalid status".to_string()));
         }
     }

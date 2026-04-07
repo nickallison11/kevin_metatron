@@ -4,7 +4,12 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { API_BASE, authHeaders, authJsonHeaders } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
-type ProspectStatus = "contacted" | "responded" | "onboarded" | "declined";
+type ProspectStatus =
+  | "signed_up"
+  | "contacted"
+  | "responded"
+  | "onboarded"
+  | "declined";
 
 type ProspectRow = {
   id: string;
@@ -18,6 +23,7 @@ type ProspectRow = {
 };
 
 const COLUMNS: { status: ProspectStatus; title: string }[] = [
+  { status: "signed_up", title: "Signed up (invite)" },
   { status: "contacted", title: "Contacted" },
   { status: "responded", title: "Responded" },
   { status: "onboarded", title: "Onboarded" },
@@ -68,6 +74,7 @@ export default function AdminProspectsPage() {
 
   const byStatus = useMemo(() => {
     const m: Record<ProspectStatus, ProspectRow[]> = {
+      signed_up: [],
       contacted: [],
       responded: [],
       onboarded: [],
@@ -267,7 +274,7 @@ export default function AdminProspectsPage() {
         {rows === null ? (
           <p className="text-sm text-[var(--text-muted)]">Loading…</p>
         ) : (
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-5 lg:grid-cols-3 md:grid-cols-2">
             {COLUMNS.map((col) => (
               <div key={col.status} className="space-y-3 min-h-[120px]">
                 <h3 className="font-mono text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
@@ -338,6 +345,7 @@ function ProspectCard({
             onStatus(prospect.id, e.target.value as ProspectStatus)
           }
         >
+          <option value="signed_up">Signed up (invite)</option>
           <option value="contacted">Contacted</option>
           <option value="responded">Responded</option>
           <option value="onboarded">Onboarded</option>

@@ -80,6 +80,37 @@ fn shell_html(title: &str, body: &str) -> String {
     )
 }
 
+/// Internal notification when a user registers with `?invite=…` (e.g. deals inbox).
+pub fn founder_invite_signup_notification_html(
+    signup_email: &str,
+    role_display: &str,
+    invite_code: &str,
+    timestamp_iso: &str,
+) -> String {
+    let esc = |s: &str| {
+        s.replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;")
+            .replace('"', "&quot;")
+    };
+    shell_html(
+        "Invite signup",
+        &format!(
+            r#"<p style="margin:0 0 14px 0;font-size:14px;color:#e8e8ed;">Someone signed up using an invite link.</p>
+<table style="font-size:14px;color:#e8e8ed;line-height:1.7;border-collapse:collapse;">
+<tr><td style="padding:6px 14px 6px 0;font-family:ui-monospace,monospace;color:#8888a0;vertical-align:top;white-space:nowrap;">Email</td><td>{}</td></tr>
+<tr><td style="padding:6px 14px 6px 0;font-family:ui-monospace,monospace;color:#8888a0;vertical-align:top;">Role</td><td>{}</td></tr>
+<tr><td style="padding:6px 14px 6px 0;font-family:ui-monospace,monospace;color:#8888a0;vertical-align:top;">Invite</td><td>{}</td></tr>
+<tr><td style="padding:6px 14px 6px 0;font-family:ui-monospace,monospace;color:#8888a0;vertical-align:top;">Time (UTC)</td><td>{}</td></tr>
+</table>"#,
+            esc(signup_email),
+            esc(role_display),
+            esc(invite_code),
+            esc(timestamp_iso),
+        ),
+    )
+}
+
 pub fn welcome_email_html() -> String {
     shell_html(
         "Welcome to metatron",

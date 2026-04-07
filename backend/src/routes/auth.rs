@@ -220,6 +220,7 @@ async fn signup(
             let subject = format!("New founder signed up via invite — {email_trim}");
             let html = email::founder_invite_signup_notification_html(
                 email_trim,
+                &user_id.to_string(),
                 role_label,
                 trimmed,
                 &ts,

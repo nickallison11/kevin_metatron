@@ -83,6 +83,7 @@ fn shell_html(title: &str, body: &str) -> String {
 /// Internal notification when a user registers with `?invite=…` (e.g. deals inbox).
 pub fn founder_invite_signup_notification_html(
     signup_email: &str,
+    user_id: &str,
     role_display: &str,
     invite_code: &str,
     timestamp_iso: &str,
@@ -93,6 +94,7 @@ pub fn founder_invite_signup_notification_html(
             .replace('>', "&gt;")
             .replace('"', "&quot;")
     };
+    let admin_profile_url = format!("https://platform.metatron.id/admin/users/{user_id}");
     shell_html(
         "Invite signup",
         &format!(
@@ -102,11 +104,15 @@ pub fn founder_invite_signup_notification_html(
 <tr><td style="padding:6px 14px 6px 0;font-family:ui-monospace,monospace;color:#8888a0;vertical-align:top;">Role</td><td>{}</td></tr>
 <tr><td style="padding:6px 14px 6px 0;font-family:ui-monospace,monospace;color:#8888a0;vertical-align:top;">Invite</td><td>{}</td></tr>
 <tr><td style="padding:6px 14px 6px 0;font-family:ui-monospace,monospace;color:#8888a0;vertical-align:top;">Time (UTC)</td><td>{}</td></tr>
-</table>"#,
+</table>
+<p style="margin:18px 0 0 0;font-size:14px;">
+  <a href="{}" style="display:inline-block;background:#6c5ce7;color:#ffffff;text-decoration:none;padding:10px 18px;border-radius:12px;font-weight:600;">View profile in admin →</a>
+</p>"#,
             esc(signup_email),
             esc(role_display),
             esc(invite_code),
             esc(timestamp_iso),
+            esc(&admin_profile_url),
         ),
     )
 }

@@ -40,13 +40,25 @@ export default function AdminShell({ children }: { children: ReactNode }) {
             Admin
           </span>
         </Link>
-        <nav className="flex flex-row gap-1 md:flex-col md:gap-0.5">
+        <nav className="flex flex-row flex-wrap gap-1 md:flex-col md:gap-0.5">
           <Link href="/admin/users" className={navClass("/admin/users")}>
             Users
           </Link>
-          <Link href="/admin/prospects" className={navClass("/admin/prospects")}>
-            Prospects
-          </Link>
+          <div className="flex flex-col gap-0.5">
+            <Link href="/admin/prospects" className={navClass("/admin/prospects")}>
+              Prospects
+            </Link>
+            <Link
+              href="/admin/prospects/new"
+              className={`${linkBase} pl-6 text-xs ${
+                pathname === "/admin/prospects/new"
+                  ? linkActive
+                  : linkInactive
+              }`}
+            >
+              Add prospect
+            </Link>
+          </div>
           <Link href="/" className={`${linkBase} ${linkInactive} mt-2 md:mt-4`}>
             ← Platform home
           </Link>

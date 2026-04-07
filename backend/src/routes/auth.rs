@@ -44,6 +44,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/change-password", put(change_password))
         .route("/profile", put(update_profile))
         .route("/me", get(get_me))
+        .route("/whatsapp-number", put(set_whatsapp_number))
         .route("/2fa/setup", post(two_fa_setup))
         .route("/2fa/confirm", post(two_fa_confirm))
         .route("/2fa", delete(two_fa_disable))
@@ -576,10 +577,12 @@ pub struct MeResponse {
     pub email: String,
     pub role: String,
     pub is_pro: bool,
+    pub is_admin: bool,
     pub totp_enabled: bool,
     pub first_name: Option<String>,
     pub last_name: Option<String>,
     pub telegram_id: Option<String>,
+    pub whatsapp_number: Option<String>,
 }
 
 async fn update_profile(
@@ -625,10 +628,12 @@ async fn get_me(
             email,
             role::text AS role,
             is_pro,
+            is_admin,
             totp_enabled,
             first_name,
             last_name,
-            telegram_id
+            telegram_id,
+            whatsapp_number
         FROM users
         WHERE id = $1
         "#,
@@ -639,6 +644,46 @@ async fn get_me(
     .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string()))?;
 
     Ok(Json(me))
+}
+
+#[derive(Deserialize)]
+pub struct SetWhatsappNumberRequest {
+    pub whatsapp_number: Option<String>,
+}
+
+async fn set_whatsapp_number(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+    Json(body): Json<SetWhatsappNumberRequest>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let authed = require_user(&state, bearer.token()).await?;
+    let normalized: Option<String> = body.whatsapp_number.and_then(|s| {
+        let d: String = s.chars().filter(|c| c.is_ascii_digit()).collect();
+        if d.is_empty() {
+            None
+        } else {
+            Some(d)
+        }
+    });
+
+    sqlx::query(
+        r#"
+        UPDATE users SET whatsapp_number = $1, updated_at = now() WHERE id = $2
+        "#,
+    )
+    .bind(normalized)
+    .bind(authed.id)
+    .execute(&state.db)
+    .await
+    .map_err(|e| {
+        tracing::error!("set_whatsapp_number: {e}");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "database error".to_string(),
+        )
+    })?;
+
+    Ok(StatusCode::OK)
 }
 
 async fn two_fa_setup(

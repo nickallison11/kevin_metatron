@@ -1,3 +1,4 @@
+pub mod admin;
 pub mod auth;
 pub mod calls;
 pub mod commerce;
@@ -16,3 +17,4 @@ pub mod pools;
 pub mod profile;
 pub mod subscriptions;
 pub mod uploads;
+pub mod whatsapp;

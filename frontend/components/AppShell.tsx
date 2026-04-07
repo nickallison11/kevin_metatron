@@ -5,6 +5,8 @@ import { usePathname, useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 
+import { API_BASE } from "@/lib/api";
+
 const LOGO_URL = "/metatron-logo.png";
 
 const navLinkClass =
@@ -40,6 +42,7 @@ function dashboardPathForRole(role: string | null | undefined): string {
 export default function AppShell({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [token, setToken] = useState<string | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
 
@@ -69,6 +72,28 @@ export default function AppShell({ children }: { children: ReactNode }) {
   useEffect(() => {
     setToken(window.localStorage.getItem("metatron_token"));
   }, [pathname]);
+
+  useEffect(() => {
+    if (!token) {
+      setIsAdmin(false);
+      return;
+    }
+    let cancelled = false;
+    fetch(`${API_BASE}/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { is_admin?: boolean } | null) => {
+        if (!cancelled && data?.is_admin) setIsAdmin(true);
+        else if (!cancelled) setIsAdmin(false);
+      })
+      .catch(() => {
+        if (!cancelled) setIsAdmin(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
 
   function toggleTheme() {
     setTheme((t) => (t === "dark" ? "light" : "dark"));
@@ -144,6 +169,11 @@ export default function AppShell({ children }: { children: ReactNode }) {
             <Link href="/pricing" className={navLinkClass}>
               Pricing
             </Link>
+            {isAdmin ? (
+              <Link href="/admin/users" className={navLinkClass}>
+                Admin
+              </Link>
+            ) : null}
           </div>
         </div>
 

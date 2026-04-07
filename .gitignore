@@ -5,3 +5,4 @@ frontend/.next/
 frontend/node_modules/
 frontend/tsconfig.tsbuildinfo
 target/
+solana/metatron_core/target/

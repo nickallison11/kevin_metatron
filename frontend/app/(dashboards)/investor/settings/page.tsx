@@ -4,17 +4,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { API_BASE, authHeaders, authJsonHeaders } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-
-type MeResponse = {
-  id: string;
-  email: string;
-  role: string;
-  is_pro: boolean;
-  totp_enabled: boolean;
-  first_name: string | null;
-  last_name: string | null;
-  telegram_id: string | null;
-};
+import type { MeResponse } from "@/lib/me";
 
 export default function InvestorSettingsPage() {
   const router = useRouter();
@@ -53,6 +43,10 @@ export default function InvestorSettingsPage() {
   const [telegramLoading, setTelegramLoading] = useState(false);
   const [telegramMsg, setTelegramMsg] = useState<string | null>(null);
 
+  const [whatsappInput, setWhatsappInput] = useState("");
+  const [whatsappSaving, setWhatsappSaving] = useState(false);
+  const [whatsappMsg, setWhatsappMsg] = useState<string | null>(null);
+
   const qrDataUrl = useMemo(() => {
     if (!otpauthUri) return null;
     return `https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(
@@ -84,6 +78,7 @@ export default function InvestorSettingsPage() {
         setFirstName(data.first_name ?? "");
         setLastName(data.last_name ?? "");
         setTwoFactorEnabled(Boolean(data.totp_enabled));
+        setWhatsappInput(data.whatsapp_number ?? "");
       } catch {
         // Keep UI usable even if `/auth/me` fails.
       }
@@ -298,6 +293,35 @@ export default function InvestorSettingsPage() {
       );
     } finally {
       setTelegramLoading(false);
+    }
+  }
+
+  async function onSaveWhatsapp(e: FormEvent) {
+    e.preventDefault();
+    if (!token) return;
+    setWhatsappSaving(true);
+    setWhatsappMsg(null);
+    try {
+      const res = await fetch(`${API_BASE}/auth/whatsapp-number`, {
+        method: "PUT",
+        headers: authJsonHeaders(token),
+        body: JSON.stringify({
+          whatsapp_number: whatsappInput.trim() || null,
+        }),
+      });
+      const txt = await res.text();
+      if (!res.ok) throw new Error(txt.trim() || "Could not save WhatsApp number");
+      const digits = whatsappInput.replace(/\D/g, "");
+      setMe((prev) =>
+        prev ? { ...prev, whatsapp_number: digits || null } : prev
+      );
+      setWhatsappMsg("Saved.");
+    } catch (err) {
+      setWhatsappMsg(
+        err instanceof Error ? err.message : "Could not save WhatsApp number"
+      );
+    } finally {
+      setWhatsappSaving(false);
     }
   }
 
@@ -585,6 +609,57 @@ export default function InvestorSettingsPage() {
           {telegramMsg ? (
             <p className="text-xs text-[var(--text-muted)]">{telegramMsg}</p>
           ) : null}
+        </div>
+
+        <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-6 space-y-5">
+          <h2 className="text-sm font-semibold">WhatsApp</h2>
+          <p className="text-xs text-[var(--text-muted)]">
+            Add the phone number you use on WhatsApp (with country code). When you message Kevin from that number, we match it to your account.
+          </p>
+          <form onSubmit={onSaveWhatsapp} className="space-y-3 text-sm">
+            <label className="block space-y-1">
+              <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
+                WhatsApp number
+              </span>
+              <input
+                className="input-metatron w-full"
+                type="tel"
+                inputMode="tel"
+                autoComplete="tel"
+                placeholder="e.g. 2348012345678"
+                value={whatsappInput}
+                onChange={(e) => setWhatsappInput(e.target.value)}
+              />
+            </label>
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="submit"
+                disabled={whatsappSaving}
+                className="rounded-lg bg-metatron-accent px-4 py-2 text-xs font-semibold text-white hover:bg-metatron-accent-hover disabled:opacity-60"
+              >
+                {whatsappSaving ? "Saving…" : "Save number"}
+              </button>
+              {me.whatsapp_number ? (
+                <span
+                  className="inline-flex items-center rounded-full border px-3 py-1 text-xs"
+                  style={{
+                    borderColor: "rgba(34,197,94,0.35)",
+                    backgroundColor: "rgba(34,197,94,0.12)",
+                    color: "rgb(134,239,172)",
+                  }}
+                >
+                  Number on file
+                </span>
+              ) : (
+                <span className="text-xs text-[var(--text-muted)]">
+                  Not saved yet
+                </span>
+              )}
+            </div>
+            {whatsappMsg ? (
+              <p className="text-xs text-[var(--text-muted)]">{whatsappMsg}</p>
+            ) : null}
+          </form>
         </div>
 
         <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-6 space-y-5">

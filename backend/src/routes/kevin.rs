@@ -434,81 +434,37 @@ struct TelegramJsonError {
 }
 
 #[derive(sqlx::FromRow)]
-struct UserForTelegram {
-    id: Uuid,
-    is_pro: bool,
-    subscription_tier: String,
-    role: String,
-    custom_ai_provider: Option<String>,
-    custom_ai_api_key: Option<String>,
-    custom_ai_model: Option<String>,
+pub(crate) struct UserForTelegram {
+    pub id: Uuid,
+    pub is_pro: bool,
+    pub subscription_tier: String,
+    pub role: String,
+    pub custom_ai_provider: Option<String>,
+    pub custom_ai_api_key: Option<String>,
+    pub custom_ai_model: Option<String>,
 }
 
-async fn telegram_kevin(
-    State(state): State<Arc<AppState>>,
-    headers: HeaderMap,
-    Json(body): Json<TelegramInboundRequest>,
-) -> impl IntoResponse {
-    if !telegram_bot_secret_header_ok(&headers, &state.platform_bot_secret) {
-        return StatusCode::UNAUTHORIZED.into_response();
-    }
+pub(crate) enum KevinReplyError {
+    Limit(String),
+    ServiceUnavailable,
+    BadGateway(String),
+    Internal,
+}
 
-    if body.message.trim().is_empty() {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(TelegramJsonError {
-                error: "bad_request".into(),
-                message: "message required".into(),
-            }),
-        )
-            .into_response();
-    }
-
-    let tg_id = body.telegram_id.to_string();
-    let last_user_message = body.message.clone();
-    let msgs = vec![("user".to_string(), body.message)];
-
-    let user_row: Option<UserForTelegram> = match sqlx::query_as(
-        r#"
-        SELECT id, is_pro, subscription_tier, role::text,
-               custom_ai_provider, custom_ai_api_key, custom_ai_model
-        FROM users WHERE telegram_id = $1
-        "#,
-    )
-    .bind(&tg_id)
-    .fetch_optional(&state.db)
-    .await
-    {
-        Ok(r) => r,
-        Err(e) => {
-            tracing::error!("telegram kevin: user lookup failed: {e}");
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(TelegramJsonError {
-                    error: "internal_error".into(),
-                    message: "database error".into(),
-                }),
-            )
-                .into_response();
-        }
-    };
-
-    let Some(user) = user_row else {
-        return (
-            StatusCode::NOT_FOUND,
-            Json(TelegramJsonError {
-                error: "not_registered".into(),
-                message: "You need a metatron account. Sign up free at platform.metatron.id".into(),
-            }),
-        )
-            .into_response();
-    };
+/// Shared Kevin single-turn reply for Telegram, WhatsApp, etc.
+pub(crate) async fn kevin_reply_for_linked_user(
+    state: &Arc<AppState>,
+    user: UserForTelegram,
+    message: String,
+) -> Result<String, KevinReplyError> {
+    let last_user_message = message.clone();
+    let msgs = vec![("user".to_string(), message)];
 
     let custom_ai_api_key = match user.custom_ai_api_key {
         Some(ref encrypted) => match crypto::decrypt(&state.encryption_key, encrypted) {
             Ok(value) => Some(value),
             Err(e) => {
-                tracing::warn!("telegram kevin: custom_ai_api_key decrypt failed: {e}");
+                tracing::warn!("kevin linked user: custom_ai_api_key decrypt failed: {e}");
                 None
             }
         },
@@ -530,13 +486,13 @@ async fn telegram_kevin(
         {
             Ok(v) => v,
             Err(e) => {
-                tracing::warn!("telegram kevin: memory recall failed: {e}");
+                tracing::warn!("kevin linked user: memory recall failed: {e}");
                 Vec::new()
             }
         }
     };
 
-    let context = build_context(&state, user.id, &user.role).await;
+    let context = build_context(state, user.id, &user.role).await;
     let memory_section = if recalled.is_empty() {
         String::new()
     } else {
@@ -576,26 +532,12 @@ Stay in character as Kevin. If asked about capabilities you don't have, say what
         } else if let Some(key) = state.ai_api_key.as_deref() {
             ("gemini", key, "gemini-2.5-flash-lite")
         } else {
-            return (
-                StatusCode::SERVICE_UNAVAILABLE,
-                Json(TelegramJsonError {
-                    error: "service_unavailable".into(),
-                    message: "AI not configured".into(),
-                }),
-            )
-                .into_response();
+            return Err(KevinReplyError::ServiceUnavailable);
         }
     } else if let Some(key) = state.ai_api_key.as_deref() {
         ("gemini", key, "gemini-2.5-flash-lite")
     } else {
-        return (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(TelegramJsonError {
-                error: "service_unavailable".into(),
-                message: "AI not configured".into(),
-            }),
-        )
-            .into_response();
+        return Err(KevinReplyError::ServiceUnavailable);
     };
 
     let daily_limit = kevin_daily_limit(user.is_pro, &user.subscription_tier);
@@ -616,15 +558,8 @@ Stay in character as Kevin. If asked about capabilities you don't have, say what
         {
             Ok(c) => c,
             Err(e) => {
-                tracing::error!("telegram kevin: usage upsert failed: {e}");
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(TelegramJsonError {
-                        error: "internal_error".into(),
-                        message: "database error".into(),
-                    }),
-                )
-                    .into_response();
+                tracing::error!("kevin linked user: usage upsert failed: {e}");
+                return Err(KevinReplyError::Internal);
             }
         };
 
@@ -643,14 +578,7 @@ Stay in character as Kevin. If asked about capabilities you don't have, say what
                     "Daily message limit reached ({daily_limit}/day). Resets at midnight UTC."
                 )
             };
-            return (
-                StatusCode::TOO_MANY_REQUESTS,
-                Json(TelegramJsonError {
-                    error: "limit_reached".into(),
-                    message: limit_msg,
-                }),
-            )
-                .into_response();
+            return Err(KevinReplyError::Limit(limit_msg));
         }
     }
 
@@ -666,15 +594,8 @@ Stay in character as Kevin. If asked about capabilities you don't have, say what
     {
         Ok(r) => r,
         Err(e) => {
-            tracing::error!("telegram kevin: complete_chat failed: {e}");
-            return (
-                StatusCode::BAD_GATEWAY,
-                Json(TelegramJsonError {
-                    error: "bad_gateway".into(),
-                    message: e,
-                }),
-            )
-                .into_response();
+            tracing::error!("kevin linked user: complete_chat failed: {e}");
+            return Err(KevinReplyError::BadGateway(e));
         }
     };
     let reply = strip_markdown(&reply);
@@ -698,12 +619,108 @@ Stay in character as Kevin. If asked about capabilities you don't have, say what
             )
             .await
             {
-                tracing::warn!("telegram kevin: memory store failed: {e}");
+                tracing::warn!("kevin linked user: memory store failed: {e}");
             }
         });
     }
 
-    Json(ChatResponse { reply }).into_response()
+    Ok(reply)
+}
+
+async fn telegram_kevin(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(body): Json<TelegramInboundRequest>,
+) -> impl IntoResponse {
+    if !telegram_bot_secret_header_ok(&headers, &state.platform_bot_secret) {
+        return StatusCode::UNAUTHORIZED.into_response();
+    }
+
+    if body.message.trim().is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(TelegramJsonError {
+                error: "bad_request".into(),
+                message: "message required".into(),
+            }),
+        )
+            .into_response();
+    }
+
+    let tg_id = body.telegram_id.to_string();
+    let message = body.message;
+
+    let user_row: Option<UserForTelegram> = match sqlx::query_as(
+        r#"
+        SELECT id, is_pro, subscription_tier, role::text,
+               custom_ai_provider, custom_ai_api_key, custom_ai_model
+        FROM users WHERE telegram_id = $1
+        "#,
+    )
+    .bind(&tg_id)
+    .fetch_optional(&state.db)
+    .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::error!("telegram kevin: user lookup failed: {e}");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(TelegramJsonError {
+                    error: "internal_error".into(),
+                    message: "database error".into(),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    let Some(user) = user_row else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(TelegramJsonError {
+                error: "not_registered".into(),
+                message: "You need a metatron account. Sign up free at platform.metatron.id".into(),
+            }),
+        )
+            .into_response();
+    };
+
+    match kevin_reply_for_linked_user(&state, user, message).await {
+        Ok(reply) => Json(ChatResponse { reply }).into_response(),
+        Err(KevinReplyError::Limit(msg)) => (
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(TelegramJsonError {
+                error: "limit_reached".into(),
+                message: msg,
+            }),
+        )
+            .into_response(),
+        Err(KevinReplyError::ServiceUnavailable) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(TelegramJsonError {
+                error: "service_unavailable".into(),
+                message: "AI not configured".into(),
+            }),
+        )
+            .into_response(),
+        Err(KevinReplyError::BadGateway(e)) => (
+            StatusCode::BAD_GATEWAY,
+            Json(TelegramJsonError {
+                error: "bad_gateway".into(),
+                message: e,
+            }),
+        )
+            .into_response(),
+        Err(KevinReplyError::Internal) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(TelegramJsonError {
+                error: "internal_error".into(),
+                message: "database error".into(),
+            }),
+        )
+            .into_response(),
+    }
 }
 
 async fn chat(

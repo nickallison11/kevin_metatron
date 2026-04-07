@@ -10,6 +10,7 @@ pub struct AuthedUser {
     pub id: Uuid,
     pub role: String,
     pub is_pro: bool,
+    pub is_admin: bool,
     pub subscription_tier: String,
     pub custom_ai_provider: Option<String>,
     pub custom_ai_api_key: Option<String>,
@@ -34,12 +35,14 @@ pub async fn require_user(
     let (
         role,
         is_pro,
+        is_admin,
         subscription_tier,
         custom_ai_provider,
         custom_ai_api_key,
         custom_ai_model,
     ): (
         String,
+        bool,
         bool,
         String,
         Option<String>,
@@ -50,6 +53,7 @@ pub async fn require_user(
         SELECT
             role::text,
             is_pro,
+            is_admin,
             subscription_tier,
             custom_ai_provider,
             custom_ai_api_key,
@@ -78,11 +82,23 @@ pub async fn require_user(
         id: uid,
         role,
         is_pro,
+        is_admin,
         subscription_tier,
         custom_ai_provider,
         custom_ai_api_key,
         custom_ai_model,
     })
+}
+
+pub async fn require_admin(
+    state: &AppState,
+    token: &str,
+) -> Result<AuthedUser, (StatusCode, String)> {
+    let u = require_user(state, token).await?;
+    if !u.is_admin {
+        return Err((StatusCode::FORBIDDEN, "admin only".to_string()));
+    }
+    Ok(u)
 }
 
 pub async fn require_role(

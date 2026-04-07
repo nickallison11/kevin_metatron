@@ -38,6 +38,9 @@ pub struct Settings {
     pub paystack_currency: String,
     pub paystack_plan_basic_monthly: String,
     pub paystack_plan_basic_annual: String,
+    pub whatsapp_verify_token: Option<String>,
+    pub whatsapp_access_token: Option<String>,
+    pub whatsapp_phone_number_id: Option<String>,
 }
 
 impl Settings {
@@ -133,6 +136,16 @@ impl Settings {
             .trim()
             .to_string();
 
+        let whatsapp_verify_token = env::var("WHATSAPP_VERIFY_TOKEN")
+            .ok()
+            .and_then(|s| (!s.trim().is_empty()).then_some(s));
+        let whatsapp_access_token = env::var("WHATSAPP_ACCESS_TOKEN")
+            .ok()
+            .and_then(|s| (!s.trim().is_empty()).then_some(s));
+        let whatsapp_phone_number_id = env::var("WHATSAPP_PHONE_NUMBER_ID")
+            .ok()
+            .and_then(|s| (!s.trim().is_empty()).then_some(s));
+
         Ok(Self {
             database_url,
             port,
@@ -171,6 +184,9 @@ impl Settings {
             paystack_currency,
             paystack_plan_basic_monthly,
             paystack_plan_basic_annual,
+            whatsapp_verify_token,
+            whatsapp_access_token,
+            whatsapp_phone_number_id,
         })
     }
 }

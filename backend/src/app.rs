@@ -34,6 +34,8 @@ pub fn build_app(_settings: &Settings, state: Arc<AppState>) -> Router {
         .nest("/uploads", routes::uploads::router())
         .route("/files/:name", get(routes::uploads::serve_file))
         .nest("/kevin", routes::kevin::router())
+        .nest("/admin", routes::admin::router())
+        .nest("/whatsapp", routes::whatsapp::router())
         .nest("/calls", routes::calls::router())
         .nest("/deals", routes::deals::router())
         .layer(cors)

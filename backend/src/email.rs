@@ -68,7 +68,7 @@ fn shell_html(title: &str, body: &str) -> String {
   <div style="max-width:620px;margin:0 auto;padding:28px 20px;">
     <div style="background:#16161f;border:1px solid rgba(255,255,255,0.06);border-radius:12px;padding:24px;">
       <div style="margin-bottom:18px;">
-        <img src="https://metatron.id/wp-content/uploads/2026/03/metatron-_Logo.png" alt="metatron" style="height:42px;display:block;" />
+        <img src="https://metatron.id/metatron-logo.png" alt="metatron" style="max-width:160px;width:100%;height:auto;display:block;" />
       </div>
       <h1 style="margin:0 0 12px 0;font-size:22px;line-height:1.2;color:#e8e8ed;">{title}</h1>
       {body}

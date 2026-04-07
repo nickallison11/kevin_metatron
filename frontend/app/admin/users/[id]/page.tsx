@@ -76,7 +76,7 @@ export default function AdminUserDetailPage() {
     (async () => {
       setErr(null);
       try {
-        const res = await fetch(`${API_BASE}/admin/users/${id}`, {
+        const res = await fetch(`${API_BASE}/api/admin/users/${id}`, {
           headers: authHeaders(token),
         });
         if (res.status === 404) {
@@ -104,7 +104,7 @@ export default function AdminUserDetailPage() {
     setProSaving(true);
     setErr(null);
     try {
-      const res = await fetch(`${API_BASE}/admin/users/${id}/pro`, {
+      const res = await fetch(`${API_BASE}/api/admin/users/${id}/pro`, {
         method: "PUT",
         headers: authJsonHeaders(token),
         body: JSON.stringify({ is_pro: next }),

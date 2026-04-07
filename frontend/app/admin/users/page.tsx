@@ -54,7 +54,7 @@ export default function AdminUsersPage() {
     (async () => {
       setErr(null);
       try {
-        const res = await fetch(`${API_BASE}/admin/users`, {
+        const res = await fetch(`${API_BASE}/api/admin/users`, {
           headers: authHeaders(token),
         });
         if (!res.ok) {

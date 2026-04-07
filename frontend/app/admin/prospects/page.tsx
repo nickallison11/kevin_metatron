@@ -39,7 +39,7 @@ export default function AdminProspectsPage() {
   async function load() {
     if (!token) return;
     setErr(null);
-    const res = await fetch(`${API_BASE}/admin/prospects`, {
+    const res = await fetch(`${API_BASE}/api/admin/prospects`, {
       headers: authHeaders(token),
     });
     if (!res.ok) {
@@ -86,7 +86,7 @@ export default function AdminProspectsPage() {
     setCreating(true);
     setErr(null);
     try {
-      const res = await fetch(`${API_BASE}/admin/prospects`, {
+      const res = await fetch(`${API_BASE}/api/admin/prospects`, {
         method: "POST",
         headers: authJsonHeaders(token),
         body: JSON.stringify({
@@ -119,7 +119,7 @@ export default function AdminProspectsPage() {
     if (!token) return;
     setErr(null);
     try {
-      const res = await fetch(`${API_BASE}/admin/prospects/${id}`, {
+      const res = await fetch(`${API_BASE}/api/admin/prospects/${id}`, {
         method: "PUT",
         headers: authJsonHeaders(token),
         body: JSON.stringify({ status }),
@@ -138,7 +138,7 @@ export default function AdminProspectsPage() {
     if (!token) return;
     setErr(null);
     try {
-      const res = await fetch(`${API_BASE}/admin/prospects/${id}`, {
+      const res = await fetch(`${API_BASE}/api/admin/prospects/${id}`, {
         method: "PUT",
         headers: authJsonHeaders(token),
         body: JSON.stringify({ notes: nextNotes }),
@@ -159,7 +159,7 @@ export default function AdminProspectsPage() {
     if (!ok) return;
     setErr(null);
     try {
-      const res = await fetch(`${API_BASE}/admin/prospects/${id}`, {
+      const res = await fetch(`${API_BASE}/api/admin/prospects/${id}`, {
         method: "DELETE",
         headers: authHeaders(token),
       });

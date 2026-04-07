@@ -2,7 +2,7 @@
 
 import { AnimatedGridPattern } from "@/components/ui/animated-grid-pattern";
 import { CardHoverEffect } from "@/components/ui/card-hover-effect";
-import { FormEvent, Suspense, useEffect, useState } from "react";
+import { FormEvent, Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 function dashboardPathForRole(role: string | null): string {
@@ -16,8 +16,6 @@ function dashboardPathForRole(role: string | null): string {
   }
 }
 
-const INVITE_STORAGE_KEY = "metatron_invite_code";
-
 function SignupForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -26,13 +24,6 @@ function SignupForm() {
   const [result, setResult] = useState<string | null>(null);
   const [consentGiven, setConsentGiven] = useState(false);
   const [consentError, setConsentError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const inv = searchParams.get("invite");
-    if (inv && typeof window !== "undefined") {
-      window.sessionStorage.setItem(INVITE_STORAGE_KEY, inv);
-    }
-  }, [searchParams]);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -48,10 +39,8 @@ function SignupForm() {
       typeof window !== "undefined"
         ? window.sessionStorage.getItem("metatron_role")
         : null;
-    const inviteCode =
-      typeof window !== "undefined"
-        ? window.sessionStorage.getItem(INVITE_STORAGE_KEY)
-        : null;
+    const inviteRaw = searchParams.get("invite");
+    const inviteCode = inviteRaw?.trim() || null;
     try {
       const res = await fetch(
         `${process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000"}/auth/register`,

@@ -12,6 +12,7 @@ type AdminUserCore = {
   role: string;
   is_pro: boolean;
   is_admin: boolean;
+  is_suspended: boolean;
   telegram_id: string | null;
   whatsapp_number: string | null;
   subscription_tier: string;
@@ -69,6 +70,29 @@ export default function AdminUserDetailPage() {
   const [detail, setDetail] = useState<AdminUserDetail | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [proSaving, setProSaving] = useState(false);
+  const [suspendSaving, setSuspendSaving] = useState(false);
+  const [deleteSaving, setDeleteSaving] = useState(false);
+  const [myUserId, setMyUserId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!token || authLoading) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/auth/me`, {
+          headers: authHeaders(token),
+        });
+        if (!res.ok) return;
+        const me = (await res.json()) as { id?: string };
+        if (!cancelled) setMyUserId(me.id ?? null);
+      } catch {
+        if (!cancelled) setMyUserId(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [token, authLoading]);
 
   useEffect(() => {
     if (!token || authLoading || !id) return;
@@ -128,6 +152,61 @@ export default function AdminUserDetailPage() {
     }
   }
 
+  async function toggleSuspend() {
+    if (!token || !detail) return;
+    setSuspendSaving(true);
+    setErr(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/users/${id}/suspend`, {
+        method: "PUT",
+        headers: authHeaders(token),
+      });
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(txt.trim() || "Could not update suspension");
+      }
+      const data = (await res.json()) as { is_suspended: boolean };
+      setDetail((d) =>
+        d
+          ? {
+              ...d,
+              user: { ...d.user, is_suspended: data.is_suspended },
+            }
+          : d
+      );
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Could not update suspension");
+    } finally {
+      setSuspendSaving(false);
+    }
+  }
+
+  async function deleteUser() {
+    if (!token) return;
+    const ok = window.confirm(
+      "Permanently delete this user? This cannot be undone."
+    );
+    if (!ok) return;
+    setDeleteSaving(true);
+    setErr(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/users/${id}`, {
+        method: "DELETE",
+        headers: authHeaders(token),
+      });
+      if (res.status === 204) {
+        router.push("/admin/users");
+        return;
+      }
+      const t = await res.text();
+      throw new Error(t.trim() || "Could not delete user");
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Could not delete user");
+    } finally {
+      setDeleteSaving(false);
+    }
+  }
+
   if (authLoading || !token) {
     return (
       <div className="p-8 md:p-10">
@@ -160,6 +239,7 @@ export default function AdminUserDetailPage() {
 
   const u = detail.user;
   const p = detail.profile;
+  const isSelf = myUserId !== null && myUserId === id;
 
   return (
     <main className="min-w-0">
@@ -244,7 +324,43 @@ export default function AdminUserDetailPage() {
               </dt>
               <dd className="mt-1 text-[var(--text)]">{u.is_admin ? "Yes" : "No"}</dd>
             </div>
+            <div>
+              <dt className="font-mono text-[10px] uppercase text-[var(--text-muted)]">
+                Suspended
+              </dt>
+              <dd className="mt-1 text-[var(--text)]">
+                {u.is_suspended ? "Yes" : "No"}
+              </dd>
+            </div>
           </dl>
+          {isSelf ? (
+            <p className="text-xs text-[var(--text-muted)] pt-2 border-t border-[var(--border)]">
+              You cannot suspend or delete your own account from the admin panel.
+            </p>
+          ) : (
+            <div className="flex flex-wrap gap-3 pt-4 border-t border-[var(--border)]">
+              <button
+                type="button"
+                disabled={suspendSaving}
+                onClick={() => void toggleSuspend()}
+                className="rounded-lg border border-[rgba(239,68,68,0.45)] bg-transparent px-4 py-2 text-xs font-semibold text-[rgb(254,202,202)] hover:bg-[rgba(239,68,68,0.12)] disabled:opacity-50"
+              >
+                {suspendSaving
+                  ? "Updating…"
+                  : u.is_suspended
+                    ? "Unsuspend"
+                    : "Suspend"}
+              </button>
+              <button
+                type="button"
+                disabled={deleteSaving}
+                onClick={() => void deleteUser()}
+                className="rounded-lg border border-[rgba(239,68,68,0.45)] bg-transparent px-4 py-2 text-xs font-semibold text-[rgb(254,202,202)] hover:bg-[rgba(239,68,68,0.12)] disabled:opacity-50"
+              >
+                {deleteSaving ? "Deleting…" : "Delete user"}
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-6 space-y-3">

@@ -339,6 +339,23 @@ async fn login(
                 )
             })?;
 
+    let suspended: bool = sqlx::query_scalar("SELECT is_suspended FROM users WHERE id = $1")
+        .bind(user_id)
+        .fetch_one(&state.db)
+        .await
+        .map_err(|_| {
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "could not load account status".to_string(),
+            )
+        })?;
+    if suspended {
+        return Err((
+            axum::http::StatusCode::FORBIDDEN,
+            "account suspended".to_string(),
+        ));
+    }
+
     let role: String = sqlx::query_scalar("SELECT role::text FROM users WHERE id = $1")
         .bind(user_id)
         .fetch_one(&state.db)

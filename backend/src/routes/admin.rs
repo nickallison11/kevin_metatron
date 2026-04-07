@@ -3,6 +3,7 @@ use std::sync::Arc;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::routing::{get, put};
+use sqlx::Error as SqlxError;
 use axum::{Json, Router};
 use axum_extra::{
     headers::{authorization::Bearer, Authorization},
@@ -17,8 +18,12 @@ use crate::state::AppState;
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/users", get(list_users))
-        .route("/users/:id", get(get_user_detail))
         .route("/users/:id/pro", put(set_user_pro))
+        .route("/users/:id/suspend", put(toggle_user_suspend))
+        .route(
+            "/users/:id",
+            get(get_user_detail).delete(delete_user),
+        )
         .route("/prospects", get(list_prospects).post(create_prospect))
         .route("/prospects/:id", put(update_prospect).delete(delete_prospect))
 }
@@ -86,6 +91,7 @@ pub struct AdminUserCore {
     pub role: String,
     pub is_pro: bool,
     pub is_admin: bool,
+    pub is_suspended: bool,
     pub telegram_id: Option<String>,
     pub whatsapp_number: Option<String>,
     pub subscription_tier: String,
@@ -132,6 +138,7 @@ async fn get_user_detail(
             role::text AS role,
             is_pro,
             is_admin,
+            is_suspended,
             telegram_id,
             whatsapp_number,
             subscription_tier,
@@ -215,6 +222,90 @@ async fn set_user_pro(
     .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "database error".to_string()))?;
 
     Ok(StatusCode::OK)
+}
+
+#[derive(Serialize)]
+pub struct SuspendToggleResponse {
+    pub is_suspended: bool,
+}
+
+async fn toggle_user_suspend(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<SuspendToggleResponse>, (StatusCode, String)> {
+    let admin = require_admin(&state, bearer.token()).await?;
+    if admin.id == id {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "cannot change suspension on your own account".to_string(),
+        ));
+    }
+
+    let next = sqlx::query_scalar::<_, bool>(
+        r#"
+        UPDATE users
+        SET is_suspended = NOT is_suspended, updated_at = now()
+        WHERE id = $1
+        RETURNING is_suspended
+        "#,
+    )
+    .bind(id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| {
+        tracing::error!("toggle_user_suspend: {e}");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "database error".to_string(),
+        )
+    })?;
+
+    let next = next.ok_or((StatusCode::NOT_FOUND, "user not found".to_string()))?;
+
+    Ok(Json(SuspendToggleResponse {
+        is_suspended: next,
+    }))
+}
+
+async fn delete_user(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+    Path(id): Path<Uuid>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let admin = require_admin(&state, bearer.token()).await?;
+    if admin.id == id {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "cannot delete your own account".to_string(),
+        ));
+    }
+
+    let r = sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(id)
+        .execute(&state.db)
+        .await
+        .map_err(|e| {
+            if let SqlxError::Database(ref d) = e {
+                if d.code().as_deref() == Some("23503") {
+                    return (
+                        StatusCode::CONFLICT,
+                        "cannot delete user: referenced by other data".to_string(),
+                    );
+                }
+            }
+            tracing::error!("delete_user: {e}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "database error".to_string(),
+            )
+        })?;
+
+    if r.rows_affected() == 0 {
+        return Err((StatusCode::NOT_FOUND, "user not found".to_string()));
+    }
+
+    Ok(StatusCode::NO_CONTENT)
 }
 
 #[derive(Serialize, sqlx::FromRow)]

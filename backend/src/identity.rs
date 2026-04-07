@@ -40,6 +40,7 @@ pub async fn require_user(
         custom_ai_provider,
         custom_ai_api_key,
         custom_ai_model,
+        is_suspended,
     ): (
         String,
         bool,
@@ -48,6 +49,7 @@ pub async fn require_user(
         Option<String>,
         Option<String>,
         Option<String>,
+        bool,
     ) = sqlx::query_as(
         r#"
         SELECT
@@ -57,7 +59,8 @@ pub async fn require_user(
             subscription_tier,
             custom_ai_provider,
             custom_ai_api_key,
-            custom_ai_model
+            custom_ai_model,
+            is_suspended
         FROM users
         WHERE id = $1
         "#,
@@ -66,6 +69,10 @@ pub async fn require_user(
     .fetch_one(&state.db)
     .await
     .map_err(|_| (StatusCode::UNAUTHORIZED, "user not found".to_string()))?;
+
+    if is_suspended {
+        return Err((StatusCode::FORBIDDEN, "account suspended".to_string()));
+    }
 
     let custom_ai_api_key = match custom_ai_api_key {
         Some(encrypted) => match crypto::decrypt(&state.encryption_key, &encrypted) {

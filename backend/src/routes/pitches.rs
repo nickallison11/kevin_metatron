@@ -10,6 +10,7 @@ use axum_extra::{
     TypedHeader,
 };
 use serde::{Deserialize, Serialize};
+use serde_json::Value as JsonValue;
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
@@ -41,6 +42,12 @@ pub struct CreatePitchRequest {
     pub funding_ask: Option<String>,
     #[serde(default)]
     pub use_of_funds: Option<String>,
+    #[serde(default)]
+    pub team_size: Option<i32>,
+    #[serde(default)]
+    pub incorporation_country: Option<String>,
+    #[serde(default)]
+    pub team_members: Option<JsonValue>,
 }
 
 #[derive(Deserialize)]
@@ -63,6 +70,12 @@ pub struct UpdatePitchRequest {
     pub funding_ask: Option<String>,
     #[serde(default)]
     pub use_of_funds: Option<String>,
+    #[serde(default)]
+    pub team_size: Option<i32>,
+    #[serde(default)]
+    pub incorporation_country: Option<String>,
+    #[serde(default)]
+    pub team_members: Option<JsonValue>,
 }
 
 #[derive(Serialize)]
@@ -77,6 +90,9 @@ pub struct PitchResponse {
     pub traction: Option<String>,
     pub funding_ask: Option<String>,
     pub use_of_funds: Option<String>,
+    pub team_size: Option<i32>,
+    pub incorporation_country: Option<String>,
+    pub team_members: Option<JsonValue>,
     /// `profiles.stage` for the pitch author (joined on list).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stage: Option<String>,
@@ -110,6 +126,9 @@ fn row_to_pitch_response(r: &sqlx::postgres::PgRow, include_stage: bool) -> Resu
         traction: r.try_get("traction")?,
         funding_ask: r.try_get("funding_ask")?,
         use_of_funds: r.try_get("use_of_funds")?,
+        team_size: r.try_get("team_size")?,
+        incorporation_country: r.try_get("incorporation_country")?,
+        team_members: r.try_get("team_members")?,
         stage,
     })
 }
@@ -133,9 +152,10 @@ async fn create_pitch(
         r#"
         INSERT INTO pitches (
             id, organization_id, created_by, title, description,
-            problem, solution, market_size, business_model, traction, funding_ask, use_of_funds
+            problem, solution, market_size, business_model, traction, funding_ask, use_of_funds,
+            team_size, incorporation_country, team_members
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
         "#,
     )
     .bind(pitch_id)
@@ -150,6 +170,9 @@ async fn create_pitch(
     .bind(opt_trim(body.traction))
     .bind(opt_trim(body.funding_ask))
     .bind(opt_trim(body.use_of_funds))
+    .bind(body.team_size)
+    .bind(opt_trim(body.incorporation_country))
+    .bind(body.team_members)
     .execute(&state.db)
     .await
     .map_err(internal)?;
@@ -159,6 +182,7 @@ async fn create_pitch(
         SELECT
             id, title, description, problem, solution, market_size,
             business_model, traction, funding_ask, use_of_funds,
+            team_size, incorporation_country, team_members,
             NULL::text AS profile_stage
         FROM pitches WHERE id = $1
         "#,
@@ -197,6 +221,9 @@ async fn list_pitches(
             p.traction,
             p.funding_ask,
             p.use_of_funds,
+            p.team_size,
+            p.incorporation_country,
+            p.team_members,
             pr.stage AS profile_stage
         FROM pitches p
         LEFT JOIN profiles pr ON pr.user_id = p.created_by
@@ -244,8 +271,11 @@ async fn update_pitch(
             traction = COALESCE($8, traction),
             funding_ask = COALESCE($9, funding_ask),
             use_of_funds = COALESCE($10, use_of_funds),
+            team_size = COALESCE($11, team_size),
+            incorporation_country = COALESCE($12, incorporation_country),
+            team_members = COALESCE($13, team_members),
             updated_at = now()
-        WHERE id = $1 AND organization_id = $11
+        WHERE id = $1 AND organization_id = $14
         "#,
     )
     .bind(pitch_id)
@@ -258,6 +288,9 @@ async fn update_pitch(
     .bind(opt_trim(body.traction))
     .bind(opt_trim(body.funding_ask))
     .bind(opt_trim(body.use_of_funds))
+    .bind(body.team_size)
+    .bind(opt_trim(body.incorporation_country))
+    .bind(body.team_members.as_ref())
     .bind(org_id)
     .execute(&state.db)
     .await
@@ -280,6 +313,9 @@ async fn update_pitch(
             p.traction,
             p.funding_ask,
             p.use_of_funds,
+            p.team_size,
+            p.incorporation_country,
+            p.team_members,
             pr.stage AS profile_stage
         FROM pitches p
         LEFT JOIN profiles pr ON pr.user_id = p.created_by

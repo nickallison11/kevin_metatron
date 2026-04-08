@@ -15,16 +15,26 @@ type Pitch = {
   traction?: string | null;
   funding_ask?: string | null;
   use_of_funds?: string | null;
+  team_size?: number | null;
+  incorporation_country?: string | null;
+  team_members?: unknown;
   stage?: string | null;
 };
 
-type FormTab = "overview" | "problem" | "market" | "traction";
+type FormTab = "overview" | "problem" | "market" | "traction" | "team";
+
+type TeamMemberRow = {
+  name: string;
+  role: string;
+  linkedin: string;
+};
 
 const TABS: { id: FormTab; label: string }[] = [
   { id: "overview", label: "Basics" },
   { id: "problem", label: "Problem & solution" },
   { id: "market", label: "Market & model" },
-  { id: "traction", label: "Traction & raise" }
+  { id: "traction", label: "Traction & raise" },
+  { id: "team", label: "Team" },
 ];
 
 function tractionHeadline(traction: string | null | undefined): string | null {
@@ -60,6 +70,11 @@ export default function StartupPitchesPage() {
   const [traction, setTraction] = useState("");
   const [fundingAsk, setFundingAsk] = useState("");
   const [useOfFunds, setUseOfFunds] = useState("");
+  const [teamSize, setTeamSize] = useState("");
+  const [incorporationCountry, setIncorporationCountry] = useState("");
+  const [teamMembers, setTeamMembers] = useState<TeamMemberRow[]>([
+    { name: "", role: "", linkedin: "" },
+  ]);
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -91,6 +106,9 @@ export default function StartupPitchesPage() {
     setTraction("");
     setFundingAsk("");
     setUseOfFunds("");
+    setTeamSize("");
+    setIncorporationCountry("");
+    setTeamMembers([{ name: "", role: "", linkedin: "" }]);
     setTab("overview");
   }
 
@@ -109,16 +127,39 @@ export default function StartupPitchesPage() {
       business_model: businessModel,
       traction,
       funding_ask: fundingAsk,
-      use_of_funds: useOfFunds
+      use_of_funds: useOfFunds,
     });
+
+    const membersPayload = teamMembers
+      .map((m) => ({
+        name: m.name.trim(),
+        role: m.role.trim(),
+        linkedin: m.linkedin.trim(),
+      }))
+      .filter((m) => m.name || m.role || m.linkedin);
+
+    const teamSizeParsed = teamSize.trim()
+      ? parseInt(teamSize.trim(), 10)
+      : NaN;
+    const payload: Record<string, unknown> = {
+      title: title.trim(),
+      ...opt,
+    };
+    if (Number.isFinite(teamSizeParsed) && teamSizeParsed >= 0) {
+      payload.team_size = teamSizeParsed;
+    }
+    if (incorporationCountry.trim()) {
+      payload.incorporation_country = incorporationCountry.trim();
+    }
+    if (membersPayload.length > 0) {
+      payload.team_members = membersPayload;
+    }
+
     try {
       const res = await fetch(`${API_BASE}/pitches`, {
         method: "POST",
         headers: authJsonHeaders(token),
-        body: JSON.stringify({
-          title: title.trim(),
-          ...opt
-        })
+        body: JSON.stringify(payload),
       });
       if (!res.ok) throw new Error("failed");
       resetForm();
@@ -321,6 +362,129 @@ export default function StartupPitchesPage() {
                     value={useOfFunds}
                     onChange={(e) => setUseOfFunds(e.target.value)}
                   />
+                </div>
+              </div>
+            )}
+
+            {tab === "team" && (
+              <div className="space-y-4">
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-medium text-[var(--text)]">
+                    Number of full-time employees
+                  </label>
+                  <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">
+                    Headcount today (founders included if full-time).
+                  </p>
+                  <input
+                    className="input-metatron"
+                    type="number"
+                    min={0}
+                    step={1}
+                    inputMode="numeric"
+                    placeholder="e.g. 5"
+                    value={teamSize}
+                    onChange={(e) => setTeamSize(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-medium text-[var(--text)]">
+                    Incorporation country
+                  </label>
+                  <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">
+                    Where the company is incorporated (ISO country name or code
+                    is fine).
+                  </p>
+                  <input
+                    className="input-metatron"
+                    type="text"
+                    placeholder="e.g. United Kingdom"
+                    value={incorporationCountry}
+                    onChange={(e) => setIncorporationCountry(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <label className="block text-xs font-medium text-[var(--text)]">
+                      Team members
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setTeamMembers((rows) => [
+                          ...rows,
+                          { name: "", role: "", linkedin: "" },
+                        ])
+                      }
+                      className="rounded-lg border border-[var(--border)] px-2.5 py-1 text-[11px] font-medium text-[var(--text-muted)] hover:text-[var(--text)]"
+                    >
+                      Add team member
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">
+                    Key people investors should know — name, role, and LinkedIn.
+                  </p>
+                  <div className="space-y-3">
+                    {teamMembers.map((row, i) => (
+                      <div
+                        key={i}
+                        className="rounded-lg border border-[var(--border)] bg-[rgba(255,255,255,0.02)] p-3 space-y-2"
+                      >
+                        <div className="flex justify-end">
+                          <button
+                            type="button"
+                            disabled={teamMembers.length <= 1}
+                            onClick={() =>
+                              setTeamMembers((rows) =>
+                                rows.length <= 1
+                                  ? rows
+                                  : rows.filter((_, j) => j !== i)
+                              )
+                            }
+                            className="text-[11px] text-[var(--text-muted)] hover:text-[rgb(254,202,202)] disabled:opacity-40"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                        <input
+                          className="input-metatron"
+                          placeholder="Name"
+                          value={row.name}
+                          onChange={(e) =>
+                            setTeamMembers((rows) =>
+                              rows.map((r, j) =>
+                                j === i ? { ...r, name: e.target.value } : r
+                              )
+                            )
+                          }
+                        />
+                        <input
+                          className="input-metatron"
+                          placeholder="Role"
+                          value={row.role}
+                          onChange={(e) =>
+                            setTeamMembers((rows) =>
+                              rows.map((r, j) =>
+                                j === i ? { ...r, role: e.target.value } : r
+                              )
+                            )
+                          }
+                        />
+                        <input
+                          className="input-metatron"
+                          type="url"
+                          placeholder="LinkedIn URL"
+                          value={row.linkedin}
+                          onChange={(e) =>
+                            setTeamMembers((rows) =>
+                              rows.map((r, j) =>
+                                j === i ? { ...r, linkedin: e.target.value } : r
+                              )
+                            )
+                          }
+                        />
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
             )}

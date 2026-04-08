@@ -316,17 +316,9 @@ export default function LoginPage() {
                 )}
               </form>
 
-              <div className="mt-4 text-center">
-                <span className="text-xs text-[var(--text-muted)]">
-                  No account?{" "}
-                </span>
-                <Link
-                  href="/auth/signup"
-                  className="text-xs text-metatron-accent hover:text-metatron-accent-hover transition-colors"
-                >
-                  Sign up →
-                </Link>
-              </div>
+              <p className="mt-4 text-center text-xs text-[var(--text-muted)]">
+                New accounts require an invitation link.
+              </p>
             </>
           ) : (
             <form onSubmit={onConfirm2fa} className="space-y-4">

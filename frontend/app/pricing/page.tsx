@@ -569,10 +569,10 @@ function PricingPageInner() {
               $0
             </p>
             <Link
-              href="/auth/signup"
+              href="/login"
               className="mt-6 inline-flex w-full items-center justify-center rounded-[12px] border border-[var(--border)] px-4 py-2.5 text-sm font-semibold text-[var(--text)] transition-colors hover:border-metatron-accent/30"
             >
-              Get started
+              Sign in
             </Link>
             <div className="my-6 border-t border-[var(--border)]" />
             <ul className="flex flex-col gap-3">

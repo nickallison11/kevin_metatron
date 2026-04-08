@@ -128,24 +128,13 @@ function HomePageContent() {
             >
               {loading ? "Saving…" : "Continue"}
             </ShimmerButton>
-          ) : (
-            <ShimmerButton
-              href="/auth/signup"
-              onClick={() => {
-                if (selected) {
-                  sessionStorage.setItem("metatron_role", selected);
-                }
-              }}
-            >
-              Continue
-            </ShimmerButton>
-          )}
+          ) : null}
         </div>
 
         <p className="text-[13px] text-[var(--text-muted)] opacity-60">
           {selectRoleMode
             ? "One last step — select your role on the platform."
-            : "Select your role to continue"}
+            : "Sign up is invite-only. Use your invitation link to create an account, or sign in if you already have one."}
         </p>
       </div>
     </div>

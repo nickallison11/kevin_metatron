@@ -2,6 +2,7 @@
 
 import { AnimatedGridPattern } from "@/components/ui/animated-grid-pattern";
 import { CardHoverEffect } from "@/components/ui/card-hover-effect";
+import Link from "next/link";
 import { FormEvent, Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
@@ -14,6 +15,35 @@ function dashboardPathForRole(role: string | null): string {
     default:
       return "/startup";
   }
+}
+
+function InviteOnlyMessage() {
+  return (
+    <div className="relative flex min-h-[calc(100vh-88px)] items-center justify-center px-5 py-10">
+      <AnimatedGridPattern />
+      <CardHoverEffect
+        layoutId="metatron-signup-card-hover"
+        className="relative z-[1] w-full max-w-sm"
+      >
+        <div className="w-full space-y-4 rounded-metatron border border-[var(--border)] bg-[var(--bg-card)] p-6 text-center">
+          <h1 className="text-xl font-semibold text-[var(--text)]">
+            This platform is currently invite-only
+          </h1>
+          <p className="text-sm leading-relaxed text-[var(--text-muted)]">
+            New accounts are created through invitation links only. If you were
+            invited, open the link you received — it includes the access code
+            needed to register.
+          </p>
+          <Link
+            href="/login"
+            className="inline-flex w-full items-center justify-center rounded-lg border border-[var(--border)] py-2.5 text-sm font-semibold text-[var(--text)] transition-colors hover:border-metatron-accent/30"
+          >
+            Sign in
+          </Link>
+        </div>
+      </CardHoverEffect>
+    </div>
+  );
 }
 
 function SignupForm() {
@@ -157,6 +187,15 @@ function SignupForm() {
   );
 }
 
+function SignupGate() {
+  const searchParams = useSearchParams();
+  const hasInvite = Boolean(searchParams.get("invite")?.trim());
+  if (!hasInvite) {
+    return <InviteOnlyMessage />;
+  }
+  return <SignupForm />;
+}
+
 export default function SignupPage() {
   return (
     <Suspense
@@ -167,7 +206,7 @@ export default function SignupPage() {
         </div>
       }
     >
-      <SignupForm />
+      <SignupGate />
     </Suspense>
   );
 }

@@ -156,6 +156,18 @@ async fn signup(
     State(state): State<Arc<AppState>>,
     Json(body): Json<SignupRequest>,
 ) -> Result<Json<AuthResponse>, (axum::http::StatusCode, String)> {
+    let invite_ok = body
+        .invite_code
+        .as_ref()
+        .map(|s| !s.trim().is_empty())
+        .unwrap_or(false);
+    if !invite_ok {
+        return Err((
+            axum::http::StatusCode::FORBIDDEN,
+            "Signup is currently invite-only".to_string(),
+        ));
+    }
+
     let db_role = auth::signup_role_from_frontend(body.role.as_deref());
     let user_id =
         auth::create_user_with_password(&state.db, &body.email, &body.password, db_role).await

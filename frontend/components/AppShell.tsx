@@ -126,13 +126,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
                 Founder
               </Link>
             ) : (
-              <Link
-                href="/auth/signup"
-                className={navLinkClass}
-                onClick={() =>
-                  sessionStorage.setItem("metatron_role", "founder")
-                }
-              >
+              <Link href="/founders" className={navLinkClass}>
                 Founder
               </Link>
             )}
@@ -141,13 +135,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
                 Connector
               </Link>
             ) : (
-              <Link
-                href="/auth/signup"
-                className={navLinkClass}
-                onClick={() =>
-                  sessionStorage.setItem("metatron_role", "connector")
-                }
-              >
+              <Link href="/connectors" className={navLinkClass}>
                 Connector
               </Link>
             )}
@@ -156,13 +144,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
                 Investor
               </Link>
             ) : (
-              <Link
-                href="/auth/signup"
-                className={navLinkClass}
-                onClick={() =>
-                  sessionStorage.setItem("metatron_role", "investor")
-                }
-              >
+              <Link href="/investors" className={navLinkClass}>
                 Investor
               </Link>
             )}
@@ -198,17 +180,9 @@ export default function AppShell({ children }: { children: ReactNode }) {
               </button>
             </>
           ) : (
-            <>
-              <Link href="/login" className={navLinkClass}>
-                Sign in
-              </Link>
-              <Link
-                href="/auth/signup"
-                className="rounded-lg bg-metatron-accent px-4 py-2 text-sm font-semibold text-white transition-all hover:bg-metatron-accent-hover hover:shadow-[0_4px_20px_rgba(108,92,231,0.3)]"
-              >
-                Get started
-              </Link>
-            </>
+            <Link href="/login" className={navLinkClass}>
+              Sign in
+            </Link>
           )}
           <button
             type="button"

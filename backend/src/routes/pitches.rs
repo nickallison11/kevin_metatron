@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use axum::{
-    extract::State,
-    routing::post,
+    extract::{Path, State},
+    routing::{post, put},
     Json, Router,
 };
 use axum_extra::{
@@ -19,12 +19,50 @@ use crate::state::AppState;
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/", post(create_pitch).get(list_pitches))
+        .route("/:id", put(update_pitch))
 }
 
 #[derive(Deserialize)]
 pub struct CreatePitchRequest {
     pub title: String,
+    #[serde(default)]
     pub description: Option<String>,
+    #[serde(default)]
+    pub problem: Option<String>,
+    #[serde(default)]
+    pub solution: Option<String>,
+    #[serde(default)]
+    pub market_size: Option<String>,
+    #[serde(default)]
+    pub business_model: Option<String>,
+    #[serde(default)]
+    pub traction: Option<String>,
+    #[serde(default)]
+    pub funding_ask: Option<String>,
+    #[serde(default)]
+    pub use_of_funds: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct UpdatePitchRequest {
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub problem: Option<String>,
+    #[serde(default)]
+    pub solution: Option<String>,
+    #[serde(default)]
+    pub market_size: Option<String>,
+    #[serde(default)]
+    pub business_model: Option<String>,
+    #[serde(default)]
+    pub traction: Option<String>,
+    #[serde(default)]
+    pub funding_ask: Option<String>,
+    #[serde(default)]
+    pub use_of_funds: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -32,6 +70,48 @@ pub struct PitchResponse {
     pub id: Uuid,
     pub title: String,
     pub description: Option<String>,
+    pub problem: Option<String>,
+    pub solution: Option<String>,
+    pub market_size: Option<String>,
+    pub business_model: Option<String>,
+    pub traction: Option<String>,
+    pub funding_ask: Option<String>,
+    pub use_of_funds: Option<String>,
+    /// `profiles.stage` for the pitch author (joined on list).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stage: Option<String>,
+}
+
+fn opt_trim(s: Option<String>) -> Option<String> {
+    s.and_then(|t| {
+        let t = t.trim();
+        if t.is_empty() {
+            None
+        } else {
+            Some(t.to_string())
+        }
+    })
+}
+
+fn row_to_pitch_response(r: &sqlx::postgres::PgRow, include_stage: bool) -> Result<PitchResponse, sqlx::Error> {
+    let stage = if include_stage {
+        r.try_get::<Option<String>, _>("profile_stage").ok().flatten()
+    } else {
+        None
+    };
+    Ok(PitchResponse {
+        id: r.try_get("id")?,
+        title: r.try_get("title")?,
+        description: r.try_get("description")?,
+        problem: r.try_get("problem")?,
+        solution: r.try_get("solution")?,
+        market_size: r.try_get("market_size")?,
+        business_model: r.try_get("business_model")?,
+        traction: r.try_get("traction")?,
+        funding_ask: r.try_get("funding_ask")?,
+        use_of_funds: r.try_get("use_of_funds")?,
+        stage,
+    })
 }
 
 async fn create_pitch(
@@ -51,24 +131,45 @@ async fn create_pitch(
 
     sqlx::query(
         r#"
-        INSERT INTO pitches (id, organization_id, created_by, title, description)
-        VALUES ($1, $2, $3, $4, $5)
+        INSERT INTO pitches (
+            id, organization_id, created_by, title, description,
+            problem, solution, market_size, business_model, traction, funding_ask, use_of_funds
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
         "#,
     )
     .bind(pitch_id)
     .bind(org_id)
     .bind(user_id)
-    .bind(&body.title)
-    .bind(&body.description)
+    .bind(body.title.trim())
+    .bind(opt_trim(body.description))
+    .bind(opt_trim(body.problem))
+    .bind(opt_trim(body.solution))
+    .bind(opt_trim(body.market_size))
+    .bind(opt_trim(body.business_model))
+    .bind(opt_trim(body.traction))
+    .bind(opt_trim(body.funding_ask))
+    .bind(opt_trim(body.use_of_funds))
     .execute(&state.db)
     .await
     .map_err(internal)?;
 
-    Ok(Json(PitchResponse {
-        id: pitch_id,
-        title: body.title,
-        description: body.description,
-    }))
+    let row = sqlx::query(
+        r#"
+        SELECT
+            id, title, description, problem, solution, market_size,
+            business_model, traction, funding_ask, use_of_funds,
+            NULL::text AS profile_stage
+        FROM pitches WHERE id = $1
+        "#,
+    )
+    .bind(pitch_id)
+    .fetch_one(&state.db)
+    .await
+    .map_err(internal)?;
+
+    let p = row_to_pitch_response(&row, true).map_err(internal)?;
+    Ok(Json(PitchResponse { stage: None, ..p }))
 }
 
 async fn list_pitches(
@@ -85,10 +186,22 @@ async fn list_pitches(
 
     let rows = sqlx::query(
         r#"
-        SELECT id, title, description
-        FROM pitches
-        WHERE organization_id = $1
-        ORDER BY created_at DESC
+        SELECT
+            p.id,
+            p.title,
+            p.description,
+            p.problem,
+            p.solution,
+            p.market_size,
+            p.business_model,
+            p.traction,
+            p.funding_ask,
+            p.use_of_funds,
+            pr.stage AS profile_stage
+        FROM pitches p
+        LEFT JOIN profiles pr ON pr.user_id = p.created_by
+        WHERE p.organization_id = $1
+        ORDER BY p.created_at DESC
         "#,
     )
     .bind(org_id)
@@ -97,19 +210,90 @@ async fn list_pitches(
     .map_err(internal)?;
 
     let items = rows
-        .into_iter()
-        .map(|r| {
-            Ok(PitchResponse {
-                id: r.try_get::<Uuid, _>("id").map_err(internal)?,
-                title: r.try_get::<String, _>("title").map_err(internal)?,
-                description: r
-                    .try_get::<Option<String>, _>("description")
-                    .map_err(internal)?,
-            })
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+        .iter()
+        .map(|r| row_to_pitch_response(r, true))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(internal)?;
 
     Ok(Json(items))
+}
+
+async fn update_pitch(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+    Path(pitch_id): Path<Uuid>,
+    Json(body): Json<UpdatePitchRequest>,
+) -> Result<Json<PitchResponse>, (axum::http::StatusCode, String)> {
+    let claims = decode_claims(&state, bearer.token())?;
+    let user_id = Uuid::parse_str(&claims.sub)
+        .map_err(|_| (axum::http::StatusCode::UNAUTHORIZED, "invalid token".to_string()))?;
+
+    let org_id = ensure_user_org(&state.db, user_id)
+        .await
+        .map_err(internal)?;
+
+    let n = sqlx::query(
+        r#"
+        UPDATE pitches SET
+            title = COALESCE($2, title),
+            description = COALESCE($3, description),
+            problem = COALESCE($4, problem),
+            solution = COALESCE($5, solution),
+            market_size = COALESCE($6, market_size),
+            business_model = COALESCE($7, business_model),
+            traction = COALESCE($8, traction),
+            funding_ask = COALESCE($9, funding_ask),
+            use_of_funds = COALESCE($10, use_of_funds),
+            updated_at = now()
+        WHERE id = $1 AND organization_id = $11
+        "#,
+    )
+    .bind(pitch_id)
+    .bind(body.title.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()))
+    .bind(opt_trim(body.description))
+    .bind(opt_trim(body.problem))
+    .bind(opt_trim(body.solution))
+    .bind(opt_trim(body.market_size))
+    .bind(opt_trim(body.business_model))
+    .bind(opt_trim(body.traction))
+    .bind(opt_trim(body.funding_ask))
+    .bind(opt_trim(body.use_of_funds))
+    .bind(org_id)
+    .execute(&state.db)
+    .await
+    .map_err(internal)?;
+
+    if n.rows_affected() == 0 {
+        return Err((axum::http::StatusCode::NOT_FOUND, "pitch not found".to_string()));
+    }
+
+    let row = sqlx::query(
+        r#"
+        SELECT
+            p.id,
+            p.title,
+            p.description,
+            p.problem,
+            p.solution,
+            p.market_size,
+            p.business_model,
+            p.traction,
+            p.funding_ask,
+            p.use_of_funds,
+            pr.stage AS profile_stage
+        FROM pitches p
+        LEFT JOIN profiles pr ON pr.user_id = p.created_by
+        WHERE p.id = $1 AND p.organization_id = $2
+        "#,
+    )
+    .bind(pitch_id)
+    .bind(org_id)
+    .fetch_one(&state.db)
+    .await
+    .map_err(internal)?;
+
+    let p = row_to_pitch_response(&row, true).map_err(internal)?;
+    Ok(Json(p))
 }
 
 fn decode_claims(
@@ -184,4 +368,3 @@ fn internal<E>(_err: E) -> (axum::http::StatusCode, String) {
         "internal error".to_string(),
     )
 }
-

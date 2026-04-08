@@ -148,9 +148,11 @@ export default function AppShell({ children }: { children: ReactNode }) {
                 Investor
               </Link>
             )}
-            <Link href="/pricing" className={navLinkClass}>
-              Pricing
-            </Link>
+            {loggedIn ? (
+              <Link href="/pricing" className={navLinkClass}>
+                Pricing
+              </Link>
+            ) : null}
             {isAdmin ? (
               <Link href="/admin/users" className={navLinkClass}>
                 Admin

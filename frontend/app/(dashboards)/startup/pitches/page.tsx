@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { API_BASE, authHeaders, authJsonHeaders } from "@/lib/api";
+import { uploadPitchDeckViaPinata } from "@/lib/pinata-deck-upload";
 import { useAuth } from "@/lib/auth";
 
 type Pitch = {
@@ -206,35 +207,20 @@ export default function StartupPitchesPage() {
     setMsg(null);
     setUploadBusy(true);
     try {
-      const fd = new FormData();
-      fd.append("file", file);
-      const res = await fetch(`${API_BASE}/uploads/pitch-deck`, {
-        method: "POST",
-        headers: authHeaders(token),
-        body: fd,
-      });
-      const data = (await res.json().catch(() => ({}))) as Record<
-        string,
-        unknown
-      >;
-
-      if (res.status === 403) {
-        const err =
-          typeof data.error === "string"
-            ? data.error
-            : "You cannot upload another deck on the free plan.";
-        setMsg(err);
-        return;
-      }
-      if (!res.ok) {
-        setMsg(
-          typeof data.error === "string"
-            ? data.error
-            : "Deck upload failed.",
-        );
+      const result = await uploadPitchDeckViaPinata(token, file);
+      if (!result.ok) {
+        if (result.status === 403) {
+          setMsg(
+            result.error ||
+              "You cannot upload another deck on the free plan.",
+          );
+        } else {
+          setMsg(result.error || "Deck upload failed.");
+        }
         return;
       }
 
+      const data = result.data as Record<string, unknown>;
       await loadProfile();
 
       const extractionErr = data.extraction_error;

@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { API_BASE, authHeaders, authJsonHeaders } from "@/lib/api";
+import { uploadPitchDeckViaPinata } from "@/lib/pinata-deck-upload";
 import { useAuth } from "@/lib/auth";
 import { COUNTRIES } from "@/lib/countries";
 import { STAGES } from "@/lib/stages";
@@ -158,8 +159,6 @@ export default function StartupProfilePage() {
       return;
     }
     setMsg(null);
-    const fd = new FormData();
-    fd.append("file", file);
     try {
       const desiredVisibility =
         (profile.deckStorageOption ?? "link") === "private_ipfs"
@@ -178,24 +177,13 @@ export default function StartupProfilePage() {
       }
       setProfile((p) => ({ ...p, ipfs_visibility: desiredVisibility as "public" | "private" }));
 
-      const res = await fetch(`${API_BASE}/uploads/pitch-deck`, {
-        method: "POST",
-        headers: authHeaders(token),
-        body: fd
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(JSON.stringify(data));
-      const url =
-        typeof data === "object" && data && "url" in data
-          ? String((data as { url: string }).url)
-          : "";
-      const visibility =
-        typeof data === "object" &&
-        data &&
-        "visibility" in data &&
-        (data as { visibility?: string }).visibility === "public"
-          ? "public"
-          : "private";
+      const result = await uploadPitchDeckViaPinata(token, file);
+      if (!result.ok) {
+        throw new Error(result.error || "Upload failed");
+      }
+      const data = result.data;
+      const url = data.url ?? "";
+      const visibility = data.visibility === "public" ? "public" : "private";
       setProfile((p) => ({ ...p, pitch_deck_url: url, ipfs_visibility: visibility }));
       setMsg("Pitch deck uploaded.");
     } catch {

@@ -1,6 +1,7 @@
 import "./globals.css";
 import AppShell from "@/components/AppShell";
 import { DM_Sans, JetBrains_Mono } from "next/font/google";
+import type { Metadata } from "next";
 import type { ReactNode } from "react";
 
 const dmSans = DM_Sans({
@@ -15,10 +16,13 @@ const jetbrainsMono = JetBrains_Mono({
   display: "swap"
 });
 
-export const metadata = {
+export const metadata: Metadata = {
   title: "metatron",
   description:
-    "The intelligence layer connecting founders, investors, and ecosystem partners globally."
+    "The intelligence layer connecting founders, investors, and ecosystem partners globally.",
+  icons: {
+    icon: [{ url: "/favicon-icon.png", type: "image/png" }],
+  },
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

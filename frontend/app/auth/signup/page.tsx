@@ -30,9 +30,9 @@ function InviteOnlyMessage() {
             This platform is currently invite-only
           </h1>
           <p className="text-sm leading-relaxed text-[var(--text-muted)]">
-            New accounts are created through invitation links only. If you were
-            invited, open the link you received — it includes the access code
-            needed to register.
+            New accounts are created through invitation links only. Your link
+            must include both the invite token and the secret code query
+            parameters.
           </p>
           <Link
             href="/login"
@@ -69,8 +69,12 @@ function SignupForm() {
       typeof window !== "undefined"
         ? window.sessionStorage.getItem("metatron_role")
         : null;
-    const inviteRaw = searchParams.get("invite");
-    const inviteCode = inviteRaw?.trim() || null;
+    const inviteCode = searchParams.get("invite")?.trim() ?? "";
+    const inviteSecret = searchParams.get("code")?.trim() ?? "";
+    if (!inviteCode || !inviteSecret) {
+      setResult("Missing invitation link. Use the full URL you were sent.");
+      return;
+    }
     try {
       const res = await fetch(
         `${process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000"}/auth/register`,
@@ -80,8 +84,9 @@ function SignupForm() {
           body: JSON.stringify({
             email,
             password,
+            invite_code: inviteCode,
+            invite_secret: inviteSecret,
             ...(selectedRole ? { role: selectedRole } : {}),
-            ...(inviteCode ? { invite_code: inviteCode } : {}),
           }),
         }
       );
@@ -190,7 +195,8 @@ function SignupForm() {
 function SignupGate() {
   const searchParams = useSearchParams();
   const hasInvite = Boolean(searchParams.get("invite")?.trim());
-  if (!hasInvite) {
+  const hasCode = Boolean(searchParams.get("code")?.trim());
+  if (!hasInvite || !hasCode) {
     return <InviteOnlyMessage />;
   }
   return <SignupForm />;

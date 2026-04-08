@@ -41,6 +41,7 @@ pub struct AppState {
     pub whatsapp_verify_token: Option<String>,
     pub whatsapp_access_token: Option<String>,
     pub whatsapp_phone_number_id: Option<String>,
+    pub invite_secret: Option<String>,
     pub http_client: Client,
 }
 
@@ -96,6 +97,7 @@ impl AppState {
             whatsapp_verify_token: settings.whatsapp_verify_token.clone(),
             whatsapp_access_token: settings.whatsapp_access_token.clone(),
             whatsapp_phone_number_id: settings.whatsapp_phone_number_id.clone(),
+            invite_secret: settings.invite_secret.clone(),
             http_client,
         }))
     }

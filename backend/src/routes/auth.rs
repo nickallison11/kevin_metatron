@@ -76,6 +76,9 @@ pub struct SignupRequest {
     /// Set when signing up via e.g. `?invite=founder` (stored client-side, sent with register).
     #[serde(default)]
     pub invite_code: Option<String>,
+    /// Shared secret from e.g. `?code=` — must match `INVITE_SECRET` when that env is set.
+    #[serde(default)]
+    pub invite_secret: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -152,6 +155,17 @@ pub struct TelegramAuthRequest {
     pub bot_secret: String,
 }
 
+fn invite_secret_constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
 async fn signup(
     State(state): State<Arc<AppState>>,
     Json(body): Json<SignupRequest>,
@@ -166,6 +180,26 @@ async fn signup(
             axum::http::StatusCode::FORBIDDEN,
             "Signup is currently invite-only".to_string(),
         ));
+    }
+
+    if let Some(ref expected) = state.invite_secret {
+        if !expected.is_empty() {
+            let got = body
+                .invite_secret
+                .as_ref()
+                .map(|s| s.trim())
+                .unwrap_or("");
+            if !invite_secret_constant_time_eq(got.as_bytes(), expected.as_bytes()) {
+                return Err((
+                    axum::http::StatusCode::FORBIDDEN,
+                    "Invalid invitation".to_string(),
+                ));
+            }
+        }
+    } else {
+        tracing::warn!(
+            "INVITE_SECRET is not set; invite secret validation is disabled (suitable for local dev only)"
+        );
     }
 
     let db_role = auth::signup_role_from_frontend(body.role.as_deref());

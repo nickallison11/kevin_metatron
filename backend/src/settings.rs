@@ -41,6 +41,8 @@ pub struct Settings {
     pub whatsapp_verify_token: Option<String>,
     pub whatsapp_access_token: Option<String>,
     pub whatsapp_phone_number_id: Option<String>,
+    /// When set, signup must include a matching `invite_secret` (shared invite link code).
+    pub invite_secret: Option<String>,
 }
 
 impl Settings {
@@ -146,6 +148,11 @@ impl Settings {
             .ok()
             .and_then(|s| (!s.trim().is_empty()).then_some(s));
 
+        let invite_secret = env::var("INVITE_SECRET")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+
         Ok(Self {
             database_url,
             port,
@@ -187,6 +194,7 @@ impl Settings {
             whatsapp_verify_token,
             whatsapp_access_token,
             whatsapp_phone_number_id,
+            invite_secret,
         })
     }
 }

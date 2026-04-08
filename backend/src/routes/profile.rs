@@ -31,6 +31,12 @@ pub struct ProfileDto {
     pub website: Option<String>,
     pub pitch_deck_url: Option<String>,
     pub ipfs_visibility: Option<String>,
+    /// RFC3339 timestamp when the uploaded deck link expires (deck hosting window).
+    #[serde(default)]
+    pub deck_expires_at: Option<String>,
+    /// Number of times the founder has uploaded a deck (free tier limited to one).
+    #[serde(default)]
+    pub deck_upload_count: i32,
 }
 
 async fn get_profile(
@@ -49,7 +55,9 @@ async fn fetch_profile(
     let row = sqlx::query_as::<_, ProfileRow>(
         r#"
         SELECT company_name, one_liner, stage, sector, country::text as country,
-               website, pitch_deck_url, ipfs_visibility
+               website, pitch_deck_url, ipfs_visibility,
+               deck_expires_at::text as deck_expires_at,
+               COALESCE(deck_upload_count, 0)::int as deck_upload_count
         FROM profiles WHERE user_id = $1
         "#,
     )
@@ -71,6 +79,8 @@ struct ProfileRow {
     website: Option<String>,
     pitch_deck_url: Option<String>,
     ipfs_visibility: Option<String>,
+    deck_expires_at: Option<String>,
+    deck_upload_count: i32,
 }
 
 impl From<ProfileRow> for ProfileDto {
@@ -84,6 +94,8 @@ impl From<ProfileRow> for ProfileDto {
             website: r.website,
             pitch_deck_url: r.pitch_deck_url,
             ipfs_visibility: r.ipfs_visibility,
+            deck_expires_at: r.deck_expires_at,
+            deck_upload_count: r.deck_upload_count,
         }
     }
 }

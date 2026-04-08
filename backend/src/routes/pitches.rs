@@ -332,6 +332,41 @@ async fn update_pitch(
     Ok(Json(p))
 }
 
+/// Load a pitch card for API responses (e.g. after deck extraction).
+pub async fn pitch_response_for_org_pitch(
+    pool: &PgPool,
+    org_id: Uuid,
+    pitch_id: Uuid,
+) -> Result<PitchResponse, sqlx::Error> {
+    let row = sqlx::query(
+        r#"
+        SELECT
+            p.id,
+            p.title,
+            p.description,
+            p.problem,
+            p.solution,
+            p.market_size,
+            p.business_model,
+            p.traction,
+            p.funding_ask,
+            p.use_of_funds,
+            p.team_size,
+            p.incorporation_country,
+            p.team_members,
+            pr.stage AS profile_stage
+        FROM pitches p
+        LEFT JOIN profiles pr ON pr.user_id = p.created_by
+        WHERE p.id = $1 AND p.organization_id = $2
+        "#,
+    )
+    .bind(pitch_id)
+    .bind(org_id)
+    .fetch_one(pool)
+    .await?;
+    row_to_pitch_response(&row, true)
+}
+
 fn decode_claims(
     state: &AppState,
     token: &str,
@@ -350,7 +385,7 @@ fn decode_claims(
     })
 }
 
-async fn ensure_user_org(db: &PgPool, user_id: Uuid) -> Result<Uuid, sqlx::Error> {
+pub async fn ensure_user_org(db: &PgPool, user_id: Uuid) -> Result<Uuid, sqlx::Error> {
     let row = sqlx::query(
         r#"
         SELECT organization_id, email

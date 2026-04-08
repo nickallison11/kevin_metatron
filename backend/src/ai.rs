@@ -373,6 +373,73 @@ pub async fn complete_json_object(
     serde_json::from_str(cleaned).map_err(|e| format!("json parse: {e}: {cleaned}"))
 }
 
+/// Extract structured pitch fields from a PDF deck using Gemini (multimodal).
+pub async fn extract_pitch_from_deck_pdf(
+    client: &reqwest::Client,
+    api_key: &str,
+    pdf_bytes: &[u8],
+) -> Result<serde_json::Value, String> {
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
+    let b64 = STANDARD.encode(pdf_bytes);
+
+    let prompt = "Extract the following fields from this pitch deck: company name, one-liner, problem, solution, market size, business model, traction, funding ask, use of funds, team members (name + role). Return as JSON.";
+
+    let body = json!({
+        "contents": [{
+            "role": "user",
+            "parts": [
+                {"text": prompt},
+                {"inline_data": {"mime_type": "application/pdf", "data": b64}}
+            ]
+        }],
+        "generationConfig": {
+            "responseMimeType": "application/json"
+        }
+    });
+
+    let url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent";
+
+    let res = client
+        .post(url)
+        .query(&[("key", api_key)])
+        .header(CONTENT_TYPE, HeaderValue::from_static("application/json"))
+        .timeout(Duration::from_secs(120))
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("gemini pdf request: {e}"))?;
+
+    if !res.status().is_success() {
+        let t = res.text().await.unwrap_or_default();
+        return Err(format!("gemini pdf error: {t}"));
+    }
+
+    let parsed: GeminiResponse = res
+        .json()
+        .await
+        .map_err(|e| format!("gemini pdf json: {e}"))?;
+
+    let text = parsed
+        .candidates
+        .as_ref()
+        .and_then(|c| c.first())
+        .and_then(|c| c.content.as_ref())
+        .and_then(|c| c.parts.as_ref())
+        .and_then(|p| p.first())
+        .and_then(|p| p.text.as_ref())
+        .cloned()
+        .unwrap_or_default();
+
+    let cleaned = text
+        .trim()
+        .trim_start_matches("```json")
+        .trim_start_matches("```")
+        .trim_end_matches("```")
+        .trim();
+
+    serde_json::from_str(cleaned).map_err(|e| format!("deck json parse: {e}: {cleaned}"))
+}
+
 pub fn mock_call_analysis_json(transcript: &str) -> serde_json::Value {
     json!({
         "summary": format!("Overview of the conversation (mock): {}", transcript.chars().take(120).collect::<String>()),

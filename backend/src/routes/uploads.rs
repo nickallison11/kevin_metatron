@@ -13,10 +13,14 @@ use axum_extra::{
     headers::{authorization::Bearer, Authorization},
     TypedHeader,
 };
+use chrono::{Duration as ChronoDuration, Utc};
 use serde::Deserialize;
+use serde_json::{json, Value as JsonValue};
 use uuid::Uuid;
 
+use crate::ai;
 use crate::identity::require_user;
+use crate::routes::pitches::{ensure_user_org, pitch_response_for_org_pitch, PitchResponse};
 use crate::state::AppState;
 
 const MAX_UPLOAD_BYTES: usize = 52 * 1024 * 1024;
@@ -33,24 +37,38 @@ async fn upload_pitch_deck(
     mut multipart: Multipart,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     let authed_user = require_user(&state, bearer.token()).await?;
-    if !authed_user.is_pro {
-        return Ok((
-            StatusCode::FORBIDDEN,
-            axum::Json(serde_json::json!({
-                "error": "pitch deck upload requires a pro subscription"
-            })),
-        ));
-    }
     if !authed_user.role.eq_ignore_ascii_case("STARTUP") {
         return Err((StatusCode::FORBIDDEN, "wrong role for this resource".into()));
     }
     let id = authed_user.id;
+
+    let deck_count: i32 = sqlx::query_scalar(
+        r#"
+        SELECT COALESCE(deck_upload_count, 0)::int
+        FROM profiles WHERE user_id = $1
+        "#,
+    )
+    .bind(id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "db error".into()))?
+    .unwrap_or(0);
+
+    if !authed_user.is_pro && deck_count >= 1 {
+        return Ok((
+            StatusCode::FORBIDDEN,
+            Json(json!({
+                "error": "Free accounts can upload one deck"
+            })),
+        ));
+    }
+
     let pinata_jwt = match state.pinata_jwt.as_deref() {
         Some(v) if !v.trim().is_empty() => v.to_string(),
         _ => {
             return Ok((
                 StatusCode::SERVICE_UNAVAILABLE,
-                Json(serde_json::json!({ "error": "file storage not configured" })),
+                Json(json!({ "error": "file storage not configured" })),
             ));
         }
     };
@@ -99,6 +117,8 @@ async fn upload_pitch_deck(
         .to_lowercase();
     let allowed = matches!(ext.as_str(), "pdf" | "ppt" | "pptx" | "key" | "zip");
     let ext = if allowed { ext.as_str() } else { "bin" };
+    let is_pdf = ext == "pdf";
+
     let visibility: String = sqlx::query_scalar(
         "SELECT COALESCE(ipfs_visibility, 'private') FROM profiles WHERE user_id = $1",
     )
@@ -106,6 +126,7 @@ async fn upload_pitch_deck(
     .fetch_optional(&state.db)
     .await
     .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "db error".into()))?
+    .flatten()
     .unwrap_or_else(|| "private".to_string());
     let visibility = if visibility.eq_ignore_ascii_case("public") {
         "public".to_string()
@@ -115,7 +136,7 @@ async fn upload_pitch_deck(
 
     let filename = format!("{}.{}", Uuid::new_v4(), ext);
     let mut form =
-        reqwest::multipart::Form::new().part("file", reqwest::multipart::Part::bytes(raw).file_name(filename));
+        reqwest::multipart::Form::new().part("file", reqwest::multipart::Part::bytes(raw.clone()).file_name(filename));
     form = form.text("network", visibility.clone());
 
     let pinata_res = state
@@ -158,7 +179,7 @@ async fn upload_pitch_deck(
             .http_client
             .post("https://api.pinata.cloud/v3/files/sign")
             .bearer_auth(&pinata_jwt)
-            .json(&serde_json::json!({
+            .json(&json!({
                 "id": file_id,
                 "expires": 3600
             }))
@@ -192,28 +213,203 @@ async fn upload_pitch_deck(
         }
     };
 
+    let deck_expires_at = Utc::now() + ChronoDuration::days(14);
+
     sqlx::query(
         r#"
-        INSERT INTO profiles (user_id, pitch_deck_url)
-        VALUES ($1, $2)
+        INSERT INTO profiles (user_id, pitch_deck_url, deck_expires_at, deck_upload_count)
+        VALUES ($1, $2, $3, 1)
         ON CONFLICT (user_id) DO UPDATE SET
             pitch_deck_url = EXCLUDED.pitch_deck_url,
+            deck_expires_at = EXCLUDED.deck_expires_at,
+            deck_upload_count = COALESCE(profiles.deck_upload_count, 0) + 1,
             updated_at = now()
         "#,
     )
     .bind(id)
     .bind(&url)
+    .bind(deck_expires_at)
     .execute(&state.db)
     .await
     .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "db error".into()))?;
 
-    Ok((
-        StatusCode::CREATED,
-        Json(serde_json::json!({
-            "url": url,
-            "visibility": visibility
-        })),
-    ))
+    let cid_out: Option<String> = if visibility == "public" {
+        pinata_json
+            .get("data")
+            .and_then(|d| d.get("cid"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+    } else {
+        pinata_json
+            .get("data")
+            .and_then(|d| d.get("id"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+    };
+
+    let mut extracted: Option<JsonValue> = None;
+    let mut extraction_error: Option<String> = None;
+    let mut pitch: Option<PitchResponse> = None;
+
+    if is_pdf {
+        if let Some(api_key) = state.ai_api_key.as_deref().filter(|k| !k.trim().is_empty()) {
+            match ai::extract_pitch_from_deck_pdf(&state.http_client, api_key, &raw).await {
+                Ok(v) => {
+                    extracted = Some(v.clone());
+                    match insert_pitch_from_extracted(&state.db, id, &v).await {
+                        Ok(pid) => {
+                            let org_id = ensure_user_org(&state.db, id)
+                                .await
+                                .map_err(|_| {
+                                    (StatusCode::INTERNAL_SERVER_ERROR, "db error".into())
+                                })?;
+                            match pitch_response_for_org_pitch(&state.db, org_id, pid).await {
+                                Ok(p) => pitch = Some(p),
+                                Err(e) => {
+                                    tracing::error!("pitch_response after deck insert: {e}");
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            tracing::error!("insert_pitch_from_extracted: {e}");
+                        }
+                    }
+                }
+                Err(e) => {
+                    extraction_error = Some(e);
+                }
+            }
+        } else {
+            extraction_error = Some("GEMINI_API_KEY not configured".into());
+        }
+    }
+
+    let mut body = json!({
+        "url": url,
+        "visibility": visibility,
+        "cid": cid_out,
+        "deck_expires_at": deck_expires_at.to_rfc3339(),
+        "extracted": extracted,
+        "pitch": pitch,
+    });
+    if let Some(ref err) = extraction_error {
+        body.as_object_mut()
+            .expect("object")
+            .insert("extraction_error".into(), json!(err));
+    }
+
+    Ok((StatusCode::CREATED, Json(body)))
+}
+
+fn ev_str(obj: &JsonValue, key: &str) -> Option<String> {
+    obj.get(key).and_then(|v| match v {
+        JsonValue::String(s) => {
+            let t = s.trim();
+            if t.is_empty() {
+                None
+            } else {
+                Some(t.to_string())
+            }
+        }
+        JsonValue::Number(n) => Some(n.to_string()),
+        JsonValue::Bool(b) => Some(b.to_string()),
+        _ => None,
+    })
+}
+
+fn normalize_team_members(v: &JsonValue) -> Option<JsonValue> {
+    let arr = v.get("team_members")?.as_array()?;
+    let mut out = Vec::new();
+    for item in arr {
+        let Some(o) = item.as_object() else {
+            continue;
+        };
+        let name = o
+            .get("name")
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        let role = o
+            .get("role")
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        let linkedin = o
+            .get("linkedin")
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        if name.is_empty() && role.is_empty() && linkedin.is_empty() {
+            continue;
+        }
+        out.push(json!({
+            "name": name,
+            "role": role,
+            "linkedin": linkedin,
+        }));
+    }
+    if out.is_empty() {
+        None
+    } else {
+        Some(JsonValue::Array(out))
+    }
+}
+
+async fn insert_pitch_from_extracted(
+    db: &sqlx::PgPool,
+    user_id: Uuid,
+    extracted: &JsonValue,
+) -> Result<Uuid, sqlx::Error> {
+    let org_id = ensure_user_org(db, user_id).await?;
+    let pitch_id = Uuid::new_v4();
+
+    let title = ev_str(extracted, "company_name")
+        .or_else(|| ev_str(extracted, "company"))
+        .unwrap_or_else(|| "Untitled pitch".to_string());
+
+    let description = ev_str(extracted, "one_liner");
+    let problem = ev_str(extracted, "problem");
+    let solution = ev_str(extracted, "solution");
+    let market_size = ev_str(extracted, "market_size").or_else(|| ev_str(extracted, "market size"));
+    let business_model = ev_str(extracted, "business_model");
+    let traction = ev_str(extracted, "traction");
+    let funding_ask = ev_str(extracted, "funding_ask").or_else(|| ev_str(extracted, "funding ask"));
+    let use_of_funds = ev_str(extracted, "use_of_funds").or_else(|| ev_str(extracted, "use of funds"));
+    let incorporation_country = ev_str(extracted, "incorporation_country");
+    let team_members = normalize_team_members(extracted);
+
+    sqlx::query(
+        r#"
+        INSERT INTO pitches (
+            id, organization_id, created_by, title, description,
+            problem, solution, market_size, business_model, traction, funding_ask, use_of_funds,
+            team_size, incorporation_country, team_members
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+        "#,
+    )
+    .bind(pitch_id)
+    .bind(org_id)
+    .bind(user_id)
+    .bind(&title)
+    .bind(&description)
+    .bind(&problem)
+    .bind(&solution)
+    .bind(&market_size)
+    .bind(&business_model)
+    .bind(&traction)
+    .bind(&funding_ask)
+    .bind(&use_of_funds)
+    .bind(Option::<i32>::None)
+    .bind(&incorporation_country)
+    .bind(team_members)
+    .execute(db)
+    .await?;
+
+    Ok(pitch_id)
 }
 
 #[derive(Deserialize)]

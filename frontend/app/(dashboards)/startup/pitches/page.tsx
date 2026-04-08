@@ -1,6 +1,7 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import Link from "next/link";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { API_BASE, authHeaders, authJsonHeaders } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
@@ -19,6 +20,12 @@ type Pitch = {
   incorporation_country?: string | null;
   team_members?: unknown;
   stage?: string | null;
+};
+
+type FounderProfile = {
+  pitch_deck_url?: string | null;
+  deck_expires_at?: string | null;
+  deck_upload_count?: number;
 };
 
 type FormTab = "overview" | "problem" | "market" | "traction" | "team";
@@ -55,11 +62,48 @@ function optionalBody(
   return out;
 }
 
+function deckExpiryLabel(iso: string): string {
+  const end = new Date(iso).getTime();
+  const now = Date.now();
+  const ms = end - now;
+  if (ms <= 0) return "Deck storage expired";
+  const days = Math.ceil(ms / 86400000);
+  if (days <= 0) return "Deck expires today";
+  if (days === 1) return "Deck expires in 1 day";
+  return `Deck expires in ${days} days`;
+}
+
+function teamRowsFromPitch(raw: unknown): TeamMemberRow[] {
+  if (!Array.isArray(raw)) return [{ name: "", role: "", linkedin: "" }];
+  const rows = raw
+    .map((item) => {
+      if (item && typeof item === "object" && !Array.isArray(item)) {
+        const o = item as Record<string, unknown>;
+        return {
+          name: String(o.name ?? ""),
+          role: String(o.role ?? ""),
+          linkedin: String(o.linkedin ?? ""),
+        };
+      }
+      return { name: "", role: "", linkedin: "" };
+    })
+    .filter((m) => m.name || m.role || m.linkedin);
+  return rows.length ? rows : [{ name: "", role: "", linkedin: "" }];
+}
+
 export default function StartupPitchesPage() {
-  const { token, loading } = useAuth();
+  const { token, loading, isPro } = useAuth();
+  const fileRef = useRef<HTMLInputElement>(null);
+
   const [pitches, setPitches] = useState<Pitch[]>([]);
+  const [profile, setProfile] = useState<FounderProfile | null>(null);
+  const [profileLoaded, setProfileLoaded] = useState(false);
   const [tab, setTab] = useState<FormTab>("overview");
   const [msg, setMsg] = useState<string | null>(null);
+
+  const [uploadBusy, setUploadBusy] = useState(false);
+  const [showManualForm, setShowManualForm] = useState(false);
+  const [reviewPitchId, setReviewPitchId] = useState<string | null>(null);
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -76,11 +120,11 @@ export default function StartupPitchesPage() {
     { name: "", role: "", linkedin: "" },
   ]);
 
-  const load = useCallback(async () => {
+  const loadPitches = useCallback(async () => {
     if (!token) return;
     try {
       const res = await fetch(`${API_BASE}/pitches`, {
-        headers: authHeaders(token)
+        headers: authHeaders(token),
       });
       if (res.ok) setPitches(await res.json());
       else setMsg("Failed to load pitches.");
@@ -89,12 +133,35 @@ export default function StartupPitchesPage() {
     }
   }, [token]);
 
+  const loadProfile = useCallback(async () => {
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_BASE}/profile`, {
+        headers: authHeaders(token),
+      });
+      if (res.ok) setProfile(await res.json());
+      else setProfile(null);
+    } catch {
+      setProfile(null);
+    } finally {
+      setProfileLoaded(true);
+    }
+  }, [token]);
+
   useEffect(() => {
-    if (!loading && token) load();
-  }, [loading, token, load]);
+    if (!loading && token) {
+      loadPitches();
+      loadProfile();
+    }
+  }, [loading, token, loadPitches, loadProfile]);
 
   if (loading) return null;
   if (!token) return null;
+
+  const deckCount = profile?.deck_upload_count ?? 0;
+  const freeDeckUsed =
+    profileLoaded && !isPro && deckCount >= 1;
+  const showForm = showManualForm || reviewPitchId !== null;
 
   function resetForm() {
     setTitle("");
@@ -110,9 +177,91 @@ export default function StartupPitchesPage() {
     setIncorporationCountry("");
     setTeamMembers([{ name: "", role: "", linkedin: "" }]);
     setTab("overview");
+    setReviewPitchId(null);
   }
 
-  async function onCreate(e: FormEvent) {
+  function prefillFromPitch(p: Pitch) {
+    setTitle(p.title ?? "");
+    setDescription(p.description ?? "");
+    setProblem(p.problem ?? "");
+    setSolution(p.solution ?? "");
+    setMarketSize(p.market_size ?? "");
+    setBusinessModel(p.business_model ?? "");
+    setTraction(p.traction ?? "");
+    setFundingAsk(p.funding_ask ?? "");
+    setUseOfFunds(p.use_of_funds ?? "");
+    setTeamSize(
+      p.team_size != null && Number.isFinite(p.team_size)
+        ? String(p.team_size)
+        : "",
+    );
+    setIncorporationCountry(p.incorporation_country ?? "");
+    setTeamMembers(teamRowsFromPitch(p.team_members));
+    setTab("overview");
+  }
+
+  async function onDeckSelected(files: FileList | null) {
+    const file = files?.[0];
+    if (!file || !token) return;
+    setMsg(null);
+    setUploadBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch(`${API_BASE}/uploads/pitch-deck`, {
+        method: "POST",
+        headers: authHeaders(token),
+        body: fd,
+      });
+      const data = (await res.json().catch(() => ({}))) as Record<
+        string,
+        unknown
+      >;
+
+      if (res.status === 403) {
+        const err =
+          typeof data.error === "string"
+            ? data.error
+            : "You cannot upload another deck on the free plan.";
+        setMsg(err);
+        return;
+      }
+      if (!res.ok) {
+        setMsg(
+          typeof data.error === "string"
+            ? data.error
+            : "Deck upload failed.",
+        );
+        return;
+      }
+
+      await loadProfile();
+
+      const extractionErr = data.extraction_error;
+      if (typeof extractionErr === "string" && extractionErr.trim()) {
+        setMsg(
+          `Deck uploaded. Kevin could not auto-fill all fields (${extractionErr}). You can edit below or fill in manually.`,
+        );
+      } else {
+        setMsg("Deck uploaded. Review the fields below, then save to confirm.");
+      }
+
+      const pitchRaw = data.pitch;
+      if (pitchRaw && typeof pitchRaw === "object" && "id" in pitchRaw) {
+        prefillFromPitch(pitchRaw as Pitch);
+        setReviewPitchId(String((pitchRaw as Pitch).id));
+      }
+      setShowManualForm(true);
+      loadPitches();
+    } catch {
+      setMsg("Deck upload failed.");
+    } finally {
+      setUploadBusy(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  }
+
+  async function onSavePitch(e: FormEvent) {
     e.preventDefault();
     if (!token) {
       setMsg("No token — sign up as founder first.");
@@ -141,32 +290,46 @@ export default function StartupPitchesPage() {
     const teamSizeParsed = teamSize.trim()
       ? parseInt(teamSize.trim(), 10)
       : NaN;
-    const payload: Record<string, unknown> = {
+
+    const basePayload: Record<string, unknown> = {
       title: title.trim(),
       ...opt,
     };
     if (Number.isFinite(teamSizeParsed) && teamSizeParsed >= 0) {
-      payload.team_size = teamSizeParsed;
+      basePayload.team_size = teamSizeParsed;
     }
     if (incorporationCountry.trim()) {
-      payload.incorporation_country = incorporationCountry.trim();
+      basePayload.incorporation_country = incorporationCountry.trim();
     }
     if (membersPayload.length > 0) {
-      payload.team_members = membersPayload;
+      basePayload.team_members = membersPayload;
     }
 
     try {
-      const res = await fetch(`${API_BASE}/pitches`, {
-        method: "POST",
-        headers: authJsonHeaders(token),
-        body: JSON.stringify(payload),
-      });
-      if (!res.ok) throw new Error("failed");
-      resetForm();
-      setMsg("Pitch saved.");
-      load();
+      if (reviewPitchId) {
+        const res = await fetch(`${API_BASE}/pitches/${reviewPitchId}`, {
+          method: "PUT",
+          headers: authJsonHeaders(token),
+          body: JSON.stringify(basePayload),
+        });
+        if (!res.ok) throw new Error("failed");
+        setMsg("Pitch saved.");
+        resetForm();
+        setShowManualForm(false);
+      } else {
+        const res = await fetch(`${API_BASE}/pitches`, {
+          method: "POST",
+          headers: authJsonHeaders(token),
+          body: JSON.stringify(basePayload),
+        });
+        if (!res.ok) throw new Error("failed");
+        resetForm();
+        setShowManualForm(false);
+        setMsg("Pitch saved.");
+      }
+      loadPitches();
     } catch {
-      setMsg("Failed to create pitch.");
+      setMsg("Failed to save pitch.");
     }
   }
 
@@ -180,323 +343,359 @@ export default function StartupPitchesPage() {
       </header>
       <section className="p-6 md:p-10 max-w-3xl space-y-6">
         <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-5 space-y-4">
-          <h2 className="text-sm font-semibold">Create a pitch</h2>
-          <p className="text-xs text-[var(--text-muted)] leading-relaxed">
-            Work through each section. Only the title is required; add detail
-            where it helps investors understand your story.
-          </p>
-
-          <div
-            className="flex flex-wrap gap-1.5 border-b border-[var(--border)] pb-3"
-            role="tablist"
-            aria-label="Pitch sections"
-          >
-            {TABS.map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                role="tab"
-                aria-selected={tab === t.id}
-                onClick={() => setTab(t.id)}
-                className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-                  tab === t.id
-                    ? "bg-metatron-accent text-white"
-                    : "bg-[rgba(255,255,255,0.04)] text-[var(--text-muted)] hover:text-[var(--text)]"
-                }`}
-              >
-                {t.label}
-              </button>
-            ))}
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold">Create a pitch</h2>
+              <p className="text-xs text-[var(--text-muted)] leading-relaxed mt-1 max-w-xl">
+                Upload a PDF deck and Kevin will extract key fields. You can
+                edit everything before saving. PDF only for auto-fill; other
+                formats are stored but not parsed.
+              </p>
+            </div>
+            {profile?.deck_expires_at ? (
+              <span className="shrink-0 rounded-lg border border-[var(--border)] bg-[rgba(108,92,231,0.12)] px-2.5 py-1 font-mono text-[10px] text-[var(--text)]">
+                {deckExpiryLabel(profile.deck_expires_at)}
+              </span>
+            ) : null}
           </div>
 
-          <form onSubmit={onCreate} className="space-y-4 text-sm">
-            {tab === "overview" && (
-              <div className="space-y-4">
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-medium text-[var(--text)]">
-                    Title
-                  </label>
-                  <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">
-                    A clear, memorable name for this pitch (e.g. company or
-                    product).
-                  </p>
-                  <input
-                    className="input-metatron"
-                    placeholder="e.g. Acme — B2B payments for Africa"
-                    value={title}
-                    onChange={(e) => setTitle(e.target.value)}
-                    required
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-medium text-[var(--text)]">
-                    Short description
-                  </label>
-                  <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">
-                    One or two sentences: what you do and who it is for. This
-                    appears in lists and intros.
-                  </p>
-                  <textarea
-                    className="input-metatron min-h-[96px] resize-y"
-                    placeholder="What is this pitch about?"
-                    value={description}
-                    onChange={(e) => setDescription(e.target.value)}
-                  />
-                </div>
-              </div>
-            )}
+          {!profileLoaded ? (
+            <p className="text-xs text-[var(--text-muted)]">Loading profile…</p>
+          ) : freeDeckUsed ? (
+            <div className="rounded-lg border border-[var(--border)] bg-[rgba(255,255,255,0.02)] px-4 py-3 text-sm text-[var(--text-muted)]">
+              <p>
+                Free accounts include one deck upload. To replace your deck,
+                upgrade to Pro.
+              </p>
+              <Link
+                href="/pricing"
+                className="mt-2 inline-block text-xs font-semibold text-metatron-accent hover:underline"
+              >
+                View plans — upgrade to re-upload
+              </Link>
+            </div>
+          ) : (
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+              <input
+                ref={fileRef}
+                type="file"
+                accept="application/pdf,.pdf"
+                className="hidden"
+                onChange={(e) => onDeckSelected(e.target.files)}
+              />
+              <button
+                type="button"
+                disabled={uploadBusy}
+                onClick={() => fileRef.current?.click()}
+                className="rounded-lg bg-metatron-accent px-4 py-2.5 text-sm font-semibold text-white hover:bg-metatron-accent-hover disabled:opacity-50"
+              >
+                {uploadBusy ? "Uploading…" : "Upload your deck to create a pitch"}
+              </button>
+              <p className="text-[11px] text-[var(--text-muted)]">
+                PDF · max ~52MB
+              </p>
+            </div>
+          )}
 
-            {tab === "problem" && (
-              <div className="space-y-4">
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-medium text-[var(--text)]">
-                    Problem
-                  </label>
-                  <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">
-                    The pain or gap in the market. Be specific about who suffers
-                    and why existing options fall short.
-                  </p>
-                  <textarea
-                    className="input-metatron min-h-[120px] resize-y"
-                    placeholder="What problem are you solving?"
-                    value={problem}
-                    onChange={(e) => setProblem(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-medium text-[var(--text)]">
-                    Solution
-                  </label>
-                  <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">
-                    How your product or approach fixes it. Focus on outcomes,
-                    not feature lists.
-                  </p>
-                  <textarea
-                    className="input-metatron min-h-[120px] resize-y"
-                    placeholder="How do you solve it?"
-                    value={solution}
-                    onChange={(e) => setSolution(e.target.value)}
-                  />
-                </div>
-              </div>
-            )}
+          <button
+            type="button"
+            onClick={() => {
+              resetForm();
+              setShowManualForm(true);
+            }}
+            className="text-xs text-[var(--text-muted)] hover:text-[var(--text)] underline-offset-2 hover:underline"
+          >
+            Fill in manually instead
+          </button>
+        </div>
 
-            {tab === "market" && (
-              <div className="space-y-4">
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-medium text-[var(--text)]">
-                    Market size
-                  </label>
-                  <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">
-                    TAM / SAM / SOM or a reasoned estimate of reachable revenue.
-                    Cite sources if you have them.
-                  </p>
-                  <textarea
-                    className="input-metatron min-h-[120px] resize-y"
-                    placeholder="How big is the opportunity?"
-                    value={marketSize}
-                    onChange={(e) => setMarketSize(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-medium text-[var(--text)]">
-                    Business model
-                  </label>
-                  <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">
-                    How you make money: pricing motion, who pays, unit economics
-                    at a high level.
-                  </p>
-                  <textarea
-                    className="input-metatron min-h-[120px] resize-y"
-                    placeholder="How will you monetize?"
-                    value={businessModel}
-                    onChange={(e) => setBusinessModel(e.target.value)}
-                  />
-                </div>
-              </div>
-            )}
+        {showForm ? (
+          <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-5 space-y-4">
+            <h2 className="text-sm font-semibold">
+              {reviewPitchId
+                ? "Review and confirm"
+                : "Create a pitch (manual)"}
+            </h2>
+            <p className="text-xs text-[var(--text-muted)] leading-relaxed">
+              {reviewPitchId
+                ? "We pre-filled this from your deck. Edit anything that looks off, then save."
+                : "Work through each section. Only the title is required."}
+            </p>
 
-            {tab === "traction" && (
-              <div className="space-y-4">
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-medium text-[var(--text)]">
-                    Traction
-                  </label>
-                  <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">
-                    Proof points: revenue, users, pilots, logos, growth rates,
-                    retention — whatever shows momentum.
-                  </p>
-                  <textarea
-                    className="input-metatron min-h-[120px] resize-y"
-                    placeholder="What have you achieved so far?"
-                    value={traction}
-                    onChange={(e) => setTraction(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-medium text-[var(--text)]">
-                    Funding ask
-                  </label>
-                  <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">
-                    Round size, instrument (SAFE, equity), and valuation or cap
-                    if relevant.
-                  </p>
-                  <textarea
-                    className="input-metatron min-h-[88px] resize-y"
-                    placeholder="e.g. $500k seed on a $4M cap SAFE"
-                    value={fundingAsk}
-                    onChange={(e) => setFundingAsk(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-medium text-[var(--text)]">
-                    Use of funds
-                  </label>
-                  <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">
-                    How you will deploy capital: hiring, product, GTM, runway
-                    months — keep it credible and tied to milestones.
-                  </p>
-                  <textarea
-                    className="input-metatron min-h-[120px] resize-y"
-                    placeholder="Where will the money go?"
-                    value={useOfFunds}
-                    onChange={(e) => setUseOfFunds(e.target.value)}
-                  />
-                </div>
-              </div>
-            )}
+            <div
+              className="flex flex-wrap gap-1.5 border-b border-[var(--border)] pb-3"
+              role="tablist"
+              aria-label="Pitch sections"
+            >
+              {TABS.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={tab === t.id}
+                  onClick={() => setTab(t.id)}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                    tab === t.id
+                      ? "bg-metatron-accent text-white"
+                      : "bg-[rgba(255,255,255,0.04)] text-[var(--text-muted)] hover:text-[var(--text)]"
+                  }`}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
 
-            {tab === "team" && (
-              <div className="space-y-4">
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-medium text-[var(--text)]">
-                    Number of full-time employees
-                  </label>
-                  <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">
-                    Headcount today (founders included if full-time).
-                  </p>
-                  <input
-                    className="input-metatron"
-                    type="number"
-                    min={0}
-                    step={1}
-                    inputMode="numeric"
-                    placeholder="e.g. 5"
-                    value={teamSize}
-                    onChange={(e) => setTeamSize(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-medium text-[var(--text)]">
-                    Incorporation country
-                  </label>
-                  <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">
-                    Where the company is incorporated (ISO country name or code
-                    is fine).
-                  </p>
-                  <input
-                    className="input-metatron"
-                    type="text"
-                    placeholder="e.g. United Kingdom"
-                    value={incorporationCountry}
-                    onChange={(e) => setIncorporationCountry(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
+            <form onSubmit={onSavePitch} className="space-y-4 text-sm">
+              {tab === "overview" && (
+                <div className="space-y-4">
+                  <div className="space-y-1.5">
                     <label className="block text-xs font-medium text-[var(--text)]">
-                      Team members
+                      Title
                     </label>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setTeamMembers((rows) => [
-                          ...rows,
-                          { name: "", role: "", linkedin: "" },
-                        ])
-                      }
-                      className="rounded-lg border border-[var(--border)] px-2.5 py-1 text-[11px] font-medium text-[var(--text-muted)] hover:text-[var(--text)]"
-                    >
-                      Add team member
-                    </button>
+                    <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">
+                      Company or product name for this pitch.
+                    </p>
+                    <input
+                      className="input-metatron"
+                      placeholder="e.g. Acme — B2B payments for Africa"
+                      value={title}
+                      onChange={(e) => setTitle(e.target.value)}
+                      required
+                    />
                   </div>
-                  <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">
-                    Key people investors should know — name, role, and LinkedIn.
-                  </p>
-                  <div className="space-y-3">
-                    {teamMembers.map((row, i) => (
-                      <div
-                        key={i}
-                        className="rounded-lg border border-[var(--border)] bg-[rgba(255,255,255,0.02)] p-3 space-y-2"
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-medium text-[var(--text)]">
+                      Short description
+                    </label>
+                    <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">
+                      One-liner: what you do and who it is for.
+                    </p>
+                    <textarea
+                      className="input-metatron min-h-[96px] resize-y"
+                      placeholder="What is this pitch about?"
+                      value={description}
+                      onChange={(e) => setDescription(e.target.value)}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {tab === "problem" && (
+                <div className="space-y-4">
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-medium text-[var(--text)]">
+                      Problem
+                    </label>
+                    <textarea
+                      className="input-metatron min-h-[120px] resize-y"
+                      placeholder="What problem are you solving?"
+                      value={problem}
+                      onChange={(e) => setProblem(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-medium text-[var(--text)]">
+                      Solution
+                    </label>
+                    <textarea
+                      className="input-metatron min-h-[120px] resize-y"
+                      placeholder="How do you solve it?"
+                      value={solution}
+                      onChange={(e) => setSolution(e.target.value)}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {tab === "market" && (
+                <div className="space-y-4">
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-medium text-[var(--text)]">
+                      Market size
+                    </label>
+                    <textarea
+                      className="input-metatron min-h-[120px] resize-y"
+                      placeholder="How big is the opportunity?"
+                      value={marketSize}
+                      onChange={(e) => setMarketSize(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-medium text-[var(--text)]">
+                      Business model
+                    </label>
+                    <textarea
+                      className="input-metatron min-h-[120px] resize-y"
+                      placeholder="How will you monetize?"
+                      value={businessModel}
+                      onChange={(e) => setBusinessModel(e.target.value)}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {tab === "traction" && (
+                <div className="space-y-4">
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-medium text-[var(--text)]">
+                      Traction
+                    </label>
+                    <textarea
+                      className="input-metatron min-h-[120px] resize-y"
+                      placeholder="What have you achieved so far?"
+                      value={traction}
+                      onChange={(e) => setTraction(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-medium text-[var(--text)]">
+                      Funding ask
+                    </label>
+                    <textarea
+                      className="input-metatron min-h-[88px] resize-y"
+                      placeholder="e.g. $500k seed on a $4M cap SAFE"
+                      value={fundingAsk}
+                      onChange={(e) => setFundingAsk(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-medium text-[var(--text)]">
+                      Use of funds
+                    </label>
+                    <textarea
+                      className="input-metatron min-h-[120px] resize-y"
+                      placeholder="Where will the money go?"
+                      value={useOfFunds}
+                      onChange={(e) => setUseOfFunds(e.target.value)}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {tab === "team" && (
+                <div className="space-y-4">
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-medium text-[var(--text)]">
+                      Number of full-time employees
+                    </label>
+                    <input
+                      className="input-metatron"
+                      type="number"
+                      min={0}
+                      step={1}
+                      inputMode="numeric"
+                      placeholder="e.g. 5"
+                      value={teamSize}
+                      onChange={(e) => setTeamSize(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-medium text-[var(--text)]">
+                      Incorporation country
+                    </label>
+                    <input
+                      className="input-metatron"
+                      type="text"
+                      placeholder="e.g. United Kingdom"
+                      value={incorporationCountry}
+                      onChange={(e) => setIncorporationCountry(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <label className="block text-xs font-medium text-[var(--text)]">
+                        Team members
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setTeamMembers((rows) => [
+                            ...rows,
+                            { name: "", role: "", linkedin: "" },
+                          ])
+                        }
+                        className="rounded-lg border border-[var(--border)] px-2.5 py-1 text-[11px] font-medium text-[var(--text-muted)] hover:text-[var(--text)]"
                       >
-                        <div className="flex justify-end">
-                          <button
-                            type="button"
-                            disabled={teamMembers.length <= 1}
-                            onClick={() =>
+                        Add team member
+                      </button>
+                    </div>
+                    <div className="space-y-3">
+                      {teamMembers.map((row, i) => (
+                        <div
+                          key={i}
+                          className="rounded-lg border border-[var(--border)] bg-[rgba(255,255,255,0.02)] p-3 space-y-2"
+                        >
+                          <div className="flex justify-end">
+                            <button
+                              type="button"
+                              disabled={teamMembers.length <= 1}
+                              onClick={() =>
+                                setTeamMembers((rows) =>
+                                  rows.length <= 1
+                                    ? rows
+                                    : rows.filter((_, j) => j !== i)
+                                )
+                              }
+                              className="text-[11px] text-[var(--text-muted)] hover:text-[rgb(254,202,202)] disabled:opacity-40"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                          <input
+                            className="input-metatron"
+                            placeholder="Name"
+                            value={row.name}
+                            onChange={(e) =>
                               setTeamMembers((rows) =>
-                                rows.length <= 1
-                                  ? rows
-                                  : rows.filter((_, j) => j !== i)
+                                rows.map((r, j) =>
+                                  j === i ? { ...r, name: e.target.value } : r
+                                )
                               )
                             }
-                            className="text-[11px] text-[var(--text-muted)] hover:text-[rgb(254,202,202)] disabled:opacity-40"
-                          >
-                            Remove
-                          </button>
+                          />
+                          <input
+                            className="input-metatron"
+                            placeholder="Role"
+                            value={row.role}
+                            onChange={(e) =>
+                              setTeamMembers((rows) =>
+                                rows.map((r, j) =>
+                                  j === i ? { ...r, role: e.target.value } : r
+                                )
+                              )
+                            }
+                          />
+                          <input
+                            className="input-metatron"
+                            type="url"
+                            placeholder="LinkedIn URL"
+                            value={row.linkedin}
+                            onChange={(e) =>
+                              setTeamMembers((rows) =>
+                                rows.map((r, j) =>
+                                  j === i
+                                    ? { ...r, linkedin: e.target.value }
+                                    : r
+                                )
+                              )
+                            }
+                          />
                         </div>
-                        <input
-                          className="input-metatron"
-                          placeholder="Name"
-                          value={row.name}
-                          onChange={(e) =>
-                            setTeamMembers((rows) =>
-                              rows.map((r, j) =>
-                                j === i ? { ...r, name: e.target.value } : r
-                              )
-                            )
-                          }
-                        />
-                        <input
-                          className="input-metatron"
-                          placeholder="Role"
-                          value={row.role}
-                          onChange={(e) =>
-                            setTeamMembers((rows) =>
-                              rows.map((r, j) =>
-                                j === i ? { ...r, role: e.target.value } : r
-                              )
-                            )
-                          }
-                        />
-                        <input
-                          className="input-metatron"
-                          type="url"
-                          placeholder="LinkedIn URL"
-                          value={row.linkedin}
-                          onChange={(e) =>
-                            setTeamMembers((rows) =>
-                              rows.map((r, j) =>
-                                j === i ? { ...r, linkedin: e.target.value } : r
-                              )
-                            )
-                          }
-                        />
-                      </div>
-                    ))}
+                      ))}
+                    </div>
                   </div>
                 </div>
-              </div>
-            )}
+              )}
 
-            <button
-              type="submit"
-              className="rounded-lg bg-metatron-accent px-4 py-2 text-xs font-semibold text-white hover:bg-metatron-accent-hover"
-            >
-              Save pitch
-            </button>
-          </form>
-        </div>
+              <button
+                type="submit"
+                className="rounded-lg bg-metatron-accent px-4 py-2 text-xs font-semibold text-white hover:bg-metatron-accent-hover"
+              >
+                Save pitch
+              </button>
+            </form>
+          </div>
+        ) : null}
 
         <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-5">
           <h2 className="text-sm font-semibold mb-3">All pitches</h2>

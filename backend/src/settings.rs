@@ -110,7 +110,12 @@ impl Settings {
             .and_then(|s| (!s.trim().is_empty()).then_some(s));
         let pinata_gateway = env::var("PINATA_GATEWAY")
             .ok()
-            .map(|s| s.trim().trim_end_matches('/').to_string())
+            .map(|s| {
+                let s = s.trim().trim_end_matches('/');
+                let s = s.strip_prefix("https://").unwrap_or(s);
+                let s = s.strip_prefix("http://").unwrap_or(s);
+                s.to_string()
+            })
             .and_then(|s| (!s.is_empty()).then_some(s));
         let solana_rpc_url = env::var("SOLANA_RPC_URL")
             .map_err(|_| "SOLANA_RPC_URL must be set".to_string())?;

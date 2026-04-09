@@ -397,7 +397,7 @@ pub async fn extract_pitch_from_deck_pdf(
         }
     });
 
-    let url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent";
+    let url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
 
     let res = client
         .post(url)

@@ -12,6 +12,7 @@ use axum_extra::{
 use serde::{Deserialize, Serialize};
 
 use crate::identity::{require_role, require_user, AuthedUser};
+use crate::ipfs_snapshot::snapshot_user_context;
 use crate::state::AppState;
 use uuid::Uuid;
 
@@ -37,6 +38,9 @@ pub struct ProfileDto {
     /// Number of times the founder has uploaded a deck (free tier limited to one).
     #[serde(default)]
     pub deck_upload_count: i32,
+    /// IPFS gateway URL for the latest JSON context snapshot (profile + pitches + memory summary).
+    #[serde(default)]
+    pub context_ipfs_url: Option<String>,
 }
 
 async fn get_profile(
@@ -57,7 +61,8 @@ async fn fetch_profile(
         SELECT company_name, one_liner, stage, sector, country::text as country,
                website, pitch_deck_url, ipfs_visibility,
                deck_expires_at::text as deck_expires_at,
-               COALESCE(deck_upload_count, 0)::int as deck_upload_count
+               COALESCE(deck_upload_count, 0)::int as deck_upload_count,
+               context_ipfs_url
         FROM profiles WHERE user_id = $1
         "#,
     )
@@ -81,6 +86,7 @@ struct ProfileRow {
     ipfs_visibility: Option<String>,
     deck_expires_at: Option<String>,
     deck_upload_count: i32,
+    context_ipfs_url: Option<String>,
 }
 
 impl From<ProfileRow> for ProfileDto {
@@ -96,6 +102,7 @@ impl From<ProfileRow> for ProfileDto {
             ipfs_visibility: r.ipfs_visibility,
             deck_expires_at: r.deck_expires_at,
             deck_upload_count: r.deck_upload_count,
+            context_ipfs_url: r.context_ipfs_url,
         }
     }
 }
@@ -150,7 +157,12 @@ async fn put_profile(
     .await
     .map_err(internal)?;
 
-    fetch_profile(&state, id).await
+    let out = fetch_profile(&state, id).await?;
+    let snap_state = Arc::clone(&state);
+    tokio::spawn(async move {
+        snapshot_user_context(snap_state, id).await;
+    });
+    Ok(out)
 }
 
 #[derive(Debug, Serialize, sqlx::FromRow)]

@@ -15,6 +15,7 @@ use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
 use crate::auth::Claims;
+use crate::ipfs_snapshot::snapshot_user_context;
 use crate::state::AppState;
 
 pub fn router() -> Router<Arc<AppState>> {
@@ -193,6 +194,10 @@ async fn create_pitch(
     .map_err(internal)?;
 
     let p = row_to_pitch_response(&row, true).map_err(internal)?;
+    let snap_state = Arc::clone(&state);
+    tokio::spawn(async move {
+        snapshot_user_context(snap_state, user_id).await;
+    });
     Ok(Json(PitchResponse { stage: None, ..p }))
 }
 
@@ -329,6 +334,10 @@ async fn update_pitch(
     .map_err(internal)?;
 
     let p = row_to_pitch_response(&row, true).map_err(internal)?;
+    let snap_state = Arc::clone(&state);
+    tokio::spawn(async move {
+        snapshot_user_context(snap_state, user_id).await;
+    });
     Ok(Json(p))
 }
 

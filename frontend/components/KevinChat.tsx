@@ -5,13 +5,43 @@ import { API_BASE, authJsonHeaders } from "@/lib/api";
 
 type Msg = { role: "user" | "assistant"; content: string };
 
+const STORAGE_KEY = "metatron_kevin_widget_v1";
+
 const UPGRADE_MESSAGE =
   "Kevin is temporarily unavailable. Please try again later.";
+
+function normalizeHistory(data: unknown): Msg[] {
+  if (!Array.isArray(data)) return [];
+  const out: Msg[] = [];
+  for (const x of data) {
+    if (!x || typeof x !== "object") continue;
+    const o = x as Record<string, unknown>;
+    const role = o.role;
+    const content = o.content;
+    if (
+      (role === "user" || role === "assistant") &&
+      typeof content === "string"
+    ) {
+      out.push({ role, content });
+    }
+  }
+  return out.slice(-60);
+}
 
 export default function KevinChat() {
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
-  const [messages, setMessages] = useState<Msg[]>([]);
+  const [messages, setMessages] = useState<Msg[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (!saved) return [];
+      const parsed = JSON.parse(saved) as Msg[];
+      return Array.isArray(parsed) ? parsed.slice(-60) : [];
+    } catch {
+      return [];
+    }
+  });
   const [loading, setLoading] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -21,8 +51,35 @@ export default function KevinChat() {
   }, []);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(messages.slice(-60)));
+  }, [messages]);
+
+  useEffect(() => {
+    if (!token) return;
+    fetch(`${API_BASE}/kevin/chat/history`, {
+      headers: authJsonHeaders(token),
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: unknown) => {
+        const parsed = normalizeHistory(data);
+        if (parsed.length > 0) {
+          setMessages(parsed);
+        }
+      })
+      .catch(() => {});
+  }, [token]);
+
+  useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading, open]);
+
+  const clearHistory = useCallback(() => {
+    setMessages([]);
+    if (typeof window !== "undefined") {
+      localStorage.removeItem(STORAGE_KEY);
+    }
+  }, []);
 
   const send = useCallback(async () => {
     const t = input.trim();
@@ -40,9 +97,9 @@ export default function KevinChat() {
         body: JSON.stringify({
           messages: nextHistory.map((m) => ({
             role: m.role,
-            content: m.content
-          }))
-        })
+            content: m.content,
+          })),
+        }),
       });
 
       // Backend uses 503 when AI isn't configured (e.g. free tier).
@@ -51,8 +108,8 @@ export default function KevinChat() {
           ...m,
           {
             role: "assistant",
-            content: UPGRADE_MESSAGE
-          }
+            content: UPGRADE_MESSAGE,
+          },
         ]);
         return;
       }
@@ -85,8 +142,8 @@ export default function KevinChat() {
         ...m,
         {
           role: "assistant",
-          content: data.reply ?? "…"
-        }
+          content: data.reply ?? "…",
+        },
       ]);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Chat failed";
@@ -94,13 +151,13 @@ export default function KevinChat() {
         ...m,
         {
           role: "assistant",
-          content: `Sorry — I couldn't complete that. ${msg}`
-        }
+          content: `Sorry — I couldn't complete that. ${msg}`,
+        },
       ]);
     } finally {
       setLoading(false);
     }
-  }, [API_BASE, input, loading, messages, token]);
+  }, [input, loading, messages, token]);
 
   return (
     <>
@@ -123,7 +180,7 @@ export default function KevinChat() {
           alignItems: "center",
           justifyContent: "center",
           boxShadow: "0 8px 32px rgba(108,92,231,0.45)",
-          cursor: "pointer"
+          cursor: "pointer",
         }}
       >
         <svg
@@ -168,7 +225,7 @@ export default function KevinChat() {
             boxShadow: "0 24px 64px rgba(0,0,0,0.45)",
             overflow: "hidden",
             display: "flex",
-            flexDirection: "column"
+            flexDirection: "column",
           }}
         >
           <div
@@ -177,7 +234,7 @@ export default function KevinChat() {
               padding: "12px 16px",
               display: "flex",
               alignItems: "center",
-              justifyContent: "space-between"
+              justifyContent: "space-between",
             }}
           >
             <div>
@@ -186,7 +243,7 @@ export default function KevinChat() {
                   fontFamily: "var(--font-dm-sans), DM Sans, sans-serif",
                   fontSize: 14,
                   fontWeight: 600,
-                  color: "#e8e8ed"
+                  color: "#e8e8ed",
                 }}
               >
                 Kevin
@@ -196,7 +253,7 @@ export default function KevinChat() {
                   fontSize: 11,
                   color: "#8888a0",
                   fontFamily:
-                    "var(--font-jetbrains-mono), 'JetBrains Mono', monospace"
+                    "var(--font-jetbrains-mono), 'JetBrains Mono', monospace",
                 }}
               >
                 AI copilot
@@ -216,7 +273,7 @@ export default function KevinChat() {
                 color: "#8888a0",
                 fontSize: 20,
                 lineHeight: "28px",
-                cursor: "pointer"
+                cursor: "pointer",
               }}
             >
               ×
@@ -225,22 +282,43 @@ export default function KevinChat() {
 
           <div
             style={{
+              position: "relative",
               flex: 1,
               overflowY: "auto",
               padding: "10px 12px",
+              paddingTop: 36,
               display: "flex",
               flexDirection: "column",
               gap: 12,
-              color: "#e8e8ed"
+              color: "#e8e8ed",
             }}
           >
+            <button
+              type="button"
+              onClick={clearHistory}
+              style={{
+                position: "absolute",
+                top: 8,
+                right: 12,
+                zIndex: 1,
+                fontSize: 10,
+                fontWeight: 500,
+                color: "#8888a0",
+                background: "transparent",
+                border: "none",
+                cursor: "pointer",
+                padding: "4px 0",
+              }}
+            >
+              Clear history
+            </button>
             {messages.map((m, i) => (
               <div
                 key={i}
                 style={{
                   display: "flex",
                   justifyContent:
-                    m.role === "user" ? "flex-end" : "flex-start"
+                    m.role === "user" ? "flex-end" : "flex-start",
                 }}
               >
                 <div
@@ -251,7 +329,7 @@ export default function KevinChat() {
                     background: m.role === "user" ? "#6c5ce7" : "#1e1e2a",
                     color: m.role === "user" ? "#ffffff" : "#e8e8ed",
                     whiteSpace: "pre-wrap",
-                    lineHeight: 1.4
+                    lineHeight: 1.4,
                   }}
                 >
                   {m.content}
@@ -264,7 +342,7 @@ export default function KevinChat() {
                 style={{
                   display: "flex",
                   justifyContent: "flex-start",
-                  marginTop: 2
+                  marginTop: 2,
                 }}
               >
                 <div
@@ -276,13 +354,13 @@ export default function KevinChat() {
                     color: "#e8e8ed",
                     display: "flex",
                     alignItems: "center",
-                    gap: 10
+                    gap: 10,
                   }}
                 >
                   <span
                     style={{
                       fontSize: 12,
-                      color: "#8888a0"
+                      color: "#8888a0",
                     }}
                   >
                     Thinking
@@ -304,7 +382,7 @@ export default function KevinChat() {
               padding: 12,
               borderTop: "1px solid rgba(255,255,255,0.06)",
               display: "flex",
-              gap: 10
+              gap: 10,
             }}
           >
             <input
@@ -320,7 +398,7 @@ export default function KevinChat() {
               }}
               style={{
                 color: "#e8e8ed",
-                background: "#0a0a0f"
+                background: "#0a0a0f",
               }}
             />
             <button
@@ -336,7 +414,7 @@ export default function KevinChat() {
                 fontWeight: 600,
                 border: "none",
                 cursor: loading || !input.trim() ? "not-allowed" : "pointer",
-                opacity: loading || !input.trim() ? 0.4 : 1
+                opacity: loading || !input.trim() ? 0.4 : 1,
               }}
             >
               Send

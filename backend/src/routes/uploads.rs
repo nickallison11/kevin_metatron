@@ -20,6 +20,7 @@ use uuid::Uuid;
 
 use crate::ai;
 use crate::identity::require_user;
+use crate::ipfs_snapshot::snapshot_user_context;
 use crate::routes::pitches::{ensure_user_org, pitch_response_for_org_pitch, PitchResponse};
 use crate::state::AppState;
 
@@ -290,6 +291,12 @@ async fn upload_pitch_deck(
             .expect("object")
             .insert("extraction_error".into(), json!(err));
     }
+
+    let snap_state = Arc::clone(&state);
+    let snap_uid = id;
+    tokio::spawn(async move {
+        snapshot_user_context(snap_state, snap_uid).await;
+    });
 
     Ok((StatusCode::CREATED, Json(body)).into_response())
 }

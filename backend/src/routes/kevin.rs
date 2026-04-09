@@ -4,7 +4,7 @@ use axum::extract::rejection::JsonRejection;
 use axum::http::HeaderMap;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
-use axum::{extract::State, routing::post, Json, Router};
+use axum::{extract::State, routing::{get, post}, Json, Router};
 use axum_extra::{
     headers::{authorization::Bearer, Authorization},
     TypedHeader,
@@ -22,6 +22,7 @@ use crate::state::AppState;
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
+        .route("/chat/history", get(chat_history))
         .route("/chat", post(chat))
         .route("/inbound-email", post(inbound_email))
         .route("/telegram", post(telegram_kevin))
@@ -280,16 +281,7 @@ async fn inbound_email_process(state: Arc<AppState>, body: InboundEmailRequest) 
     };
 
     let context = build_context(&state, user.id, &user.role).await;
-    let memory_section = if recalled.is_empty() {
-        String::new()
-    } else {
-        let lines = recalled
-            .into_iter()
-            .map(|m| format!("- {m}"))
-            .collect::<Vec<_>>()
-            .join("\n");
-        format!("\n\n## Kevin's memory of this user\n{lines}")
-    };
+    let memory_section = memory_section_from_recalled(recalled);
 
     let system = format!(
         r#"You are Kevin, the AI copilot for Metatron (metatron.id).
@@ -401,6 +393,21 @@ Stay in character as Kevin. If asked about capabilities you don't have, say what
             }
         });
     }
+
+    let db2 = state.db.clone();
+    let uid2 = user.id;
+    let user_msg = last_user_message.clone();
+    let assistant_msg = reply.clone();
+    tokio::spawn(async move {
+        let _ = sqlx::query(
+            "INSERT INTO kevin_chat_turns (user_id, role, content) VALUES ($1, 'user', $2), ($1, 'assistant', $3)",
+        )
+        .bind(uid2)
+        .bind(&user_msg)
+        .bind(&assistant_msg)
+        .execute(&db2)
+        .await;
+    });
 }
 
 #[derive(Deserialize)]
@@ -493,16 +500,7 @@ pub(crate) async fn kevin_reply_for_linked_user(
     };
 
     let context = build_context(state, user.id, &user.role).await;
-    let memory_section = if recalled.is_empty() {
-        String::new()
-    } else {
-        let lines = recalled
-            .into_iter()
-            .map(|m| format!("- {m}"))
-            .collect::<Vec<_>>()
-            .join("\n");
-        format!("\n\n## Kevin's memory of this user\n{lines}")
-    };
+    let memory_section = memory_section_from_recalled(recalled);
 
     let system = format!(
         r#"You are Kevin, the AI copilot for Metatron (metatron.id).
@@ -623,6 +621,21 @@ Stay in character as Kevin. If asked about capabilities you don't have, say what
             }
         });
     }
+
+    let db2 = state.db.clone();
+    let uid2 = user.id;
+    let user_msg = last_user_message.clone();
+    let assistant_msg = reply.clone();
+    tokio::spawn(async move {
+        let _ = sqlx::query(
+            "INSERT INTO kevin_chat_turns (user_id, role, content) VALUES ($1, 'user', $2), ($1, 'assistant', $3)",
+        )
+        .bind(uid2)
+        .bind(&user_msg)
+        .bind(&assistant_msg)
+        .execute(&db2)
+        .await;
+    });
 
     Ok(reply)
 }
@@ -772,16 +785,7 @@ async fn chat(
     };
 
     let context = build_context(&state, user.id, &user.role).await;
-    let memory_section = if recalled.is_empty() {
-        String::new()
-    } else {
-        let lines = recalled
-            .into_iter()
-            .map(|m| format!("- {m}"))
-            .collect::<Vec<_>>()
-            .join("\n");
-        format!("\n\n## Kevin's memory of this user\n{lines}")
-    };
+    let memory_section = memory_section_from_recalled(recalled);
 
     let role_extra = body
         .system_context
@@ -898,7 +902,66 @@ Stay in character as Kevin. If asked about capabilities you don't have, say what
         });
     }
 
+    let db2 = state.db.clone();
+    let uid2 = user.id;
+    let user_msg = last_user_message.clone();
+    let assistant_msg = reply.clone();
+    tokio::spawn(async move {
+        let _ = sqlx::query(
+            "INSERT INTO kevin_chat_turns (user_id, role, content) VALUES ($1, 'user', $2), ($1, 'assistant', $3)",
+        )
+        .bind(uid2)
+        .bind(&user_msg)
+        .bind(&assistant_msg)
+        .execute(&db2)
+        .await;
+    });
+
     Ok(Json(ChatResponse { reply }))
+}
+
+async fn chat_history(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+) -> Result<Json<Vec<ChatMessage>>, (StatusCode, String)> {
+    let user = require_user(&state, bearer.token()).await?;
+
+    let rows: Vec<(String, String)> = sqlx::query_as(
+        r#"
+        SELECT role, content FROM (
+            SELECT role, content, created_at
+            FROM kevin_chat_turns
+            WHERE user_id = $1
+            ORDER BY created_at DESC
+            LIMIT 40
+        ) sub ORDER BY sub.created_at ASC
+        "#,
+    )
+    .bind(user.id)
+    .fetch_all(&state.db)
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "db error".into()))?;
+
+    Ok(Json(
+        rows
+            .into_iter()
+            .map(|(role, content)| ChatMessage { role, content })
+            .collect(),
+    ))
+}
+
+fn memory_section_from_recalled(recalled: Vec<String>) -> String {
+    if recalled.is_empty() {
+        return String::new();
+    }
+    let lines = recalled
+        .into_iter()
+        .map(|m| format!("- {m}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    format!(
+        "\n\n## Kevin's memory of this user\nYou have recalled the following facts about this user from previous conversations. Reference them naturally when relevant — especially at the start of a new conversation:\n{lines}"
+    )
 }
 
 async fn build_context(state: &AppState, user_id: uuid::Uuid, role: &str) -> String {
@@ -906,7 +969,8 @@ async fn build_context(state: &AppState, user_id: uuid::Uuid, role: &str) -> Str
 
     if let Ok(row) = sqlx::query_as::<_, ProfileCtx>(
         r#"
-        SELECT company_name, one_liner, stage, sector, country::text, website, pitch_deck_url
+        SELECT company_name, one_liner, stage, sector, country::text, website, pitch_deck_url,
+               context_ipfs_url
         FROM profiles WHERE user_id = $1
         "#,
     )
@@ -915,16 +979,45 @@ async fn build_context(state: &AppState, user_id: uuid::Uuid, role: &str) -> Str
     .await
     {
         if let Some(p) = row {
-            parts.push(format!(
-                "Founder profile: company={:?} one_liner={:?} stage={:?} sector={:?} country={:?} website={:?} deck={:?}",
-                p.company_name, p.one_liner, p.stage, p.sector, p.country, p.website, p.pitch_deck_url
-            ));
+            let mut profile_parts = Vec::new();
+            if let Some(v) = p.company_name {
+                profile_parts.push(format!("Company: {v}"));
+            }
+            if let Some(v) = p.one_liner {
+                profile_parts.push(format!("One-liner: {v}"));
+            }
+            if let Some(v) = p.stage {
+                profile_parts.push(format!("Stage: {v}"));
+            }
+            if let Some(v) = p.sector {
+                profile_parts.push(format!("Sector: {v}"));
+            }
+            if let Some(v) = p.country {
+                profile_parts.push(format!("Country: {v}"));
+            }
+            if let Some(v) = p.website {
+                profile_parts.push(format!("Website: {v}"));
+            }
+            if let Some(v) = p.pitch_deck_url {
+                profile_parts.push(format!("Deck URL: {v}"));
+            }
+            if let Some(v) = p.context_ipfs_url {
+                profile_parts.push(format!("Data profile (IPFS): {v}"));
+            }
+            if !profile_parts.is_empty() {
+                parts.push(format!(
+                    "Founder profile:\n{}",
+                    profile_parts.join("\n")
+                ));
+            }
         }
     }
 
     if let Ok(rows) = sqlx::query_as::<_, PitchCtx>(
         r#"
-        SELECT title, description FROM pitches WHERE created_by = $1 ORDER BY created_at DESC LIMIT 8
+        SELECT title, description, problem, solution, market_size, business_model,
+               traction, funding_ask, use_of_funds, incorporation_country
+        FROM pitches WHERE created_by = $1 ORDER BY created_at DESC LIMIT 3
         "#,
     )
     .bind(user_id)
@@ -935,14 +1028,38 @@ async fn build_context(state: &AppState, user_id: uuid::Uuid, role: &str) -> Str
             let lines: Vec<String> = rows
                 .into_iter()
                 .map(|p| {
-                    format!(
-                        "- {} ({})",
-                        p.title,
-                        p.description.unwrap_or_default()
-                    )
+                    let mut s = format!("Pitch: {}", p.title);
+                    if let Some(v) = p.description {
+                        s.push_str(&format!("\n  One-liner: {v}"));
+                    }
+                    if let Some(v) = p.problem {
+                        s.push_str(&format!("\n  Problem: {v}"));
+                    }
+                    if let Some(v) = p.solution {
+                        s.push_str(&format!("\n  Solution: {v}"));
+                    }
+                    if let Some(v) = p.market_size {
+                        s.push_str(&format!("\n  Market: {v}"));
+                    }
+                    if let Some(v) = p.business_model {
+                        s.push_str(&format!("\n  Business model: {v}"));
+                    }
+                    if let Some(v) = p.traction {
+                        s.push_str(&format!("\n  Traction: {v}"));
+                    }
+                    if let Some(v) = p.funding_ask {
+                        s.push_str(&format!("\n  Funding ask: {v}"));
+                    }
+                    if let Some(v) = p.use_of_funds {
+                        s.push_str(&format!("\n  Use of funds: {v}"));
+                    }
+                    if let Some(v) = p.incorporation_country {
+                        s.push_str(&format!("\n  Country: {v}"));
+                    }
+                    s
                 })
                 .collect();
-            parts.push(format!("Recent pitches:\n{}", lines.join("\n")));
+            parts.push(format!("Pitch data:\n{}", lines.join("\n\n")));
         }
     }
 
@@ -975,12 +1092,21 @@ struct ProfileCtx {
     country: Option<String>,
     website: Option<String>,
     pitch_deck_url: Option<String>,
+    context_ipfs_url: Option<String>,
 }
 
 #[derive(sqlx::FromRow)]
 struct PitchCtx {
     title: String,
     description: Option<String>,
+    problem: Option<String>,
+    solution: Option<String>,
+    market_size: Option<String>,
+    business_model: Option<String>,
+    traction: Option<String>,
+    funding_ask: Option<String>,
+    use_of_funds: Option<String>,
+    incorporation_country: Option<String>,
 }
 
 #[derive(sqlx::FromRow)]

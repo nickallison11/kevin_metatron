@@ -5,8 +5,28 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 type Msg = { role: "user" | "assistant"; content: string };
 
+const STORAGE_KEY = "metatron_kevin_chat_card_v1";
+
 const KEVIN_UNAVAILABLE =
   "Kevin is temporarily unavailable. Please try again later.";
+
+function normalizeHistory(data: unknown): Msg[] {
+  if (!Array.isArray(data)) return [];
+  const out: Msg[] = [];
+  for (const x of data) {
+    if (!x || typeof x !== "object") continue;
+    const o = x as Record<string, unknown>;
+    const role = o.role;
+    const content = o.content;
+    if (
+      (role === "user" || role === "assistant") &&
+      typeof content === "string"
+    ) {
+      out.push({ role, content });
+    }
+  }
+  return out.slice(-60);
+}
 
 export function StartupKevinChatCard({
   token,
@@ -19,13 +39,52 @@ export function StartupKevinChatCard({
   emptyHint?: string;
 }) {
   const [input, setInput] = useState("");
-  const [messages, setMessages] = useState<Msg[]>([]);
+  const [messages, setMessages] = useState<Msg[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (!saved) return [];
+      const parsed = JSON.parse(saved) as Msg[];
+      return Array.isArray(parsed) ? parsed.slice(-60) : [];
+    } catch {
+      return [];
+    }
+  });
   const [loading, setLoading] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(messages.slice(-60)));
+  }, [messages]);
+
+  useEffect(() => {
+    if (!token) return;
+    fetch(`${API_BASE}/kevin/chat/history`, {
+      headers: authJsonHeaders(token),
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: unknown) => {
+        const parsed = normalizeHistory(data);
+        if (parsed.length > 0) {
+          setMessages(parsed);
+        }
+      })
+      .catch(() => {
+        /* localStorage fallback already in initial state */
+      });
+  }, [token]);
+
+  useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
+
+  const clearHistory = useCallback(() => {
+    setMessages([]);
+    if (typeof window !== "undefined") {
+      localStorage.removeItem(STORAGE_KEY);
+    }
+  }, []);
 
   const send = useCallback(async () => {
     const t = input.trim();
@@ -110,9 +169,16 @@ export function StartupKevinChatCard({
         </p>
       </div>
 
-      <div className="flex h-[320px] min-h-0 flex-col gap-3 overflow-y-auto rounded-lg border border-[var(--border)] bg-[#0a0a0f] p-3">
+      <div className="relative flex h-[320px] min-h-0 flex-col gap-3 overflow-y-auto rounded-lg border border-[var(--border)] bg-[#0a0a0f] p-3">
+        <button
+          type="button"
+          onClick={clearHistory}
+          className="absolute right-2 top-2 z-10 text-[10px] font-medium text-[var(--text-muted)] hover:text-[var(--text)]"
+        >
+          Clear history
+        </button>
         {messages.length === 0 && !loading && (
-          <p className="text-center text-xs text-[var(--text-muted)]">
+          <p className="mt-6 text-center text-xs text-[var(--text-muted)]">
             {emptyHint ??
               "Ask Kevin anything about your pitch, investors, or fundraising."}
           </p>

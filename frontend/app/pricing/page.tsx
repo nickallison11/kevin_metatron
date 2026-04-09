@@ -15,20 +15,29 @@ const NEXT_PUBLIC_USDT_MINT_FALLBACK =
   "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB";
 
 const freeFeatures = [
-  "Kevin AI copilot (powered by Gemini)",
-  "Founder profile",
-  "External pitch deck link",
-  "Pitch management",
-  "1 investor match per week",
+  "Kevin AI chat (20 msg/day)",
+  "Kevin on Telegram & WhatsApp",
+  "Founder profile + cloud deck link",
+  "1 investor match/week",
 ];
 
-const proFeatures = [
+const basicFeatures = [
+  "Everything in Free",
+  "Kevin AI chat (200 msg/day)",
   "Call recording + AI analysis",
-  "10 investor matches per week",
-  "Pitch deck on IPFS via Pinata",
-  "Private or public IPFS storage toggle",
-  "Custom AI provider (bring your own API key)",
-  "Auto-renews monthly — cancel any time",
+  "10 investor matches/week",
+  "Permanent IPFS deck storage",
+  "Kevin extracts pitch data from deck",
+];
+
+const founderProFeatures = [
+  "Everything in Basic",
+  "Unlimited Kevin messages + matches",
+  "Private encrypted IPFS deck",
+  "Angel Score + VDR",
+  "Custom AI backend",
+  "Custom subdomain (startup.metatron.id)",
+  "Embeddable widget",
 ];
 
 type SubscriptionStatusLite = {
@@ -637,8 +646,7 @@ function PricingPageInner() {
             )}
             <div className="my-6 border-t border-[var(--border)]" />
             <ul className="flex flex-col gap-3">
-              <FeatureCheck>Everything in Free</FeatureCheck>
-              {proFeatures.map((f) => (
+              {basicFeatures.map((f) => (
                 <FeatureCheck key={f}>{f}</FeatureCheck>
               ))}
             </ul>
@@ -669,9 +677,9 @@ function PricingPageInner() {
             </p>
             <div className="my-6 border-t border-[var(--border)]" />
             <ul className="flex flex-col gap-3">
-              <FeatureCheck>Everything in Founder Basic</FeatureCheck>
-              <FeatureCheck>Higher limits and priority support</FeatureCheck>
-              <FeatureCheck>Custom subdomain and embeddable widget</FeatureCheck>
+              {founderProFeatures.map((f) => (
+                <FeatureCheck key={f}>{f}</FeatureCheck>
+              ))}
             </ul>
           </section>
         </div>

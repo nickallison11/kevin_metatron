@@ -175,6 +175,39 @@ async fn upload_pitch_deck(
 
     tracing::info!("pinata: uploaded CID {}", cid);
 
+    // Register the v2-uploaded CID into v3 storage with the correct group (best-effort).
+    let pinata_group = match authed_user.subscription_tier.to_ascii_lowercase().as_str() {
+        "pro" => state.pinata_group_pro.as_deref(),
+        "basic" | "monthly" | "annual" => state.pinata_group_basic.as_deref(),
+        _ => state.pinata_group_free.as_deref(),
+    };
+    if let Some(group_id) = pinata_group {
+        let body = json!({ "cid": cid, "name": display_name, "group_id": group_id });
+        match state
+            .http_client
+            .post("https://api.pinata.cloud/v3/files/public")
+            .bearer_auth(&pinata_jwt)
+            .json(&body)
+            .send()
+            .await
+        {
+            Ok(r) if r.status().is_success() => {
+                tracing::info!("pinata: registered CID {} in v3 group {}", cid, group_id);
+            }
+            Ok(r) => {
+                let status = r.status();
+                let body = r.text().await.unwrap_or_default();
+                tracing::warn!(
+                    "pinata: v3 group register returned {} for CID {}: {}",
+                    status, cid, body.chars().take(300).collect::<String>()
+                );
+            }
+            Err(e) => {
+                tracing::warn!("pinata: v3 group register request failed for CID {}: {}", cid, e);
+            }
+        }
+    }
+
     let url = format!("https://{pinata_gateway}/ipfs/{cid}");
     let visibility = "public";
     let cid_out: Option<String> = Some(cid.to_string());

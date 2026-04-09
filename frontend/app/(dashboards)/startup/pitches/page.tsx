@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useState } from "react";
 import { API_BASE, authHeaders, authJsonHeaders } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
@@ -27,6 +27,16 @@ type FounderProfile = {
   deck_expires_at?: string | null;
   deck_upload_count?: number;
 };
+
+function hasDeckOnProfile(
+  loaded: boolean,
+  p: FounderProfile | null,
+): boolean {
+  if (!loaded || !p) return false;
+  if ((p.deck_upload_count ?? 0) > 0) return true;
+  const url = p.pitch_deck_url?.trim();
+  return !!url;
+}
 
 type FormTab = "overview" | "problem" | "market" | "traction" | "team";
 
@@ -62,17 +72,6 @@ function optionalBody(
   return out;
 }
 
-function deckExpiryLabel(iso: string): string {
-  const end = new Date(iso).getTime();
-  const now = Date.now();
-  const ms = end - now;
-  if (ms <= 0) return "Deck storage expired";
-  const days = Math.ceil(ms / 86400000);
-  if (days <= 0) return "Deck expires today";
-  if (days === 1) return "Deck expires in 1 day";
-  return `Deck expires in ${days} days`;
-}
-
 function teamRowsFromPitch(raw: unknown): TeamMemberRow[] {
   if (!Array.isArray(raw)) return [{ name: "", role: "", linkedin: "" }];
   const rows = raw
@@ -92,8 +91,7 @@ function teamRowsFromPitch(raw: unknown): TeamMemberRow[] {
 }
 
 export default function StartupPitchesPage() {
-  const { token, loading, isPro } = useAuth();
-  const fileRef = useRef<HTMLInputElement>(null);
+  const { token, loading } = useAuth();
 
   const [pitches, setPitches] = useState<Pitch[]>([]);
   const [profile, setProfile] = useState<FounderProfile | null>(null);
@@ -101,11 +99,8 @@ export default function StartupPitchesPage() {
   const [tab, setTab] = useState<FormTab>("overview");
   const [msg, setMsg] = useState<string | null>(null);
 
-  const [uploadBusy, setUploadBusy] = useState(false);
   const [showManualForm, setShowManualForm] = useState(false);
   const [reviewPitchId, setReviewPitchId] = useState<string | null>(null);
-  /** True when editing an existing pitch from the list (not deck review). */
-  const [isEditFromList, setIsEditFromList] = useState(false);
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -160,10 +155,10 @@ export default function StartupPitchesPage() {
   if (loading) return null;
   if (!token) return null;
 
-  const deckCount = profile?.deck_upload_count ?? 0;
-  const freeDeckUsed =
-    profileLoaded && !isPro && deckCount >= 1;
   const showForm = showManualForm || reviewPitchId !== null;
+  const deckPresent = hasDeckOnProfile(profileLoaded, profile);
+  const showProfileEmptyHint =
+    profileLoaded && pitches.length === 0 && !deckPresent;
 
   function resetForm() {
     setTitle("");
@@ -180,7 +175,6 @@ export default function StartupPitchesPage() {
     setTeamMembers([{ name: "", role: "", linkedin: "" }]);
     setTab("overview");
     setReviewPitchId(null);
-    setIsEditFromList(false);
   }
 
   function prefillFromPitch(p: Pitch) {
@@ -201,67 +195,6 @@ export default function StartupPitchesPage() {
     setIncorporationCountry(p.incorporation_country ?? "");
     setTeamMembers(teamRowsFromPitch(p.team_members));
     setTab("overview");
-  }
-
-  async function onDeckSelected(files: FileList | null) {
-    const file = files?.[0];
-    if (!file || !token) return;
-    setMsg(null);
-    setUploadBusy(true);
-    try {
-      const fd = new FormData();
-      fd.append("file", file);
-      const res = await fetch(`${API_BASE}/uploads/pitch-deck`, {
-        method: "POST",
-        headers: authHeaders(token),
-        body: fd,
-      });
-      const data = (await res.json().catch(() => ({}))) as Record<
-        string,
-        unknown
-      >;
-
-      if (res.status === 403) {
-        const err =
-          typeof data.error === "string"
-            ? data.error
-            : "You cannot upload another deck on the free plan.";
-        setMsg(err);
-        return;
-      }
-      if (!res.ok) {
-        setMsg(
-          typeof data.error === "string"
-            ? data.error
-            : "Deck upload failed.",
-        );
-        return;
-      }
-      await loadProfile();
-
-      const extractionErr = data.extraction_error;
-      if (typeof extractionErr === "string" && extractionErr.trim()) {
-        setMsg(
-          `Deck uploaded. Kevin could not auto-fill all fields (${extractionErr}). You can edit below or fill in manually.`,
-        );
-      } else {
-        setMsg("Deck uploaded. Review the fields below, then save to confirm.");
-      }
-
-      const pitchRaw = data.pitch;
-      if (pitchRaw && typeof pitchRaw === "object" && "id" in pitchRaw) {
-        prefillFromPitch(pitchRaw as Pitch);
-        setReviewPitchId(String((pitchRaw as Pitch).id));
-        setIsEditFromList(false);
-      }
-      setShowManualForm(true);
-      loadPitches();
-    } catch {
-      setMsg("Deck upload failed.");
-    } finally {
-      setUploadBusy(false);
-      if (fileRef.current) fileRef.current.value = "";
-    }
   }
 
   async function onSavePitch(e: FormEvent) {
@@ -345,68 +278,46 @@ export default function StartupPitchesPage() {
         <h1 className="text-lg font-semibold">Your pitches</h1>
       </header>
       <section className="p-6 md:p-10 max-w-3xl space-y-6">
-        <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-5 space-y-4">
-          <div className="flex flex-wrap items-start justify-between gap-3">
+        {showProfileEmptyHint ? (
+          <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-5 space-y-3">
             <div>
-              <h2 className="text-sm font-semibold">Create a pitch</h2>
+              <h2 className="text-sm font-semibold">Get started</h2>
               <p className="text-xs text-[var(--text-muted)] leading-relaxed mt-1 max-w-xl">
-                Upload a PDF deck and Kevin will extract key fields. You can
-                edit everything before saving. PDF only for auto-fill; other
-                formats are stored but not parsed.
+                Upload your pitch deck on your Profile page to get started.
+                Kevin will extract fields and create a pitch automatically.
               </p>
             </div>
-            {profile?.deck_expires_at ? (
-              <span className="shrink-0 rounded-lg border border-[var(--border)] bg-[rgba(108,92,231,0.12)] px-2.5 py-1 font-mono text-[10px] text-[var(--text)]">
-                {deckExpiryLabel(profile.deck_expires_at)}
-              </span>
-            ) : null}
+            <Link
+              href="/startup/profile"
+              className="inline-flex items-center text-xs font-semibold text-metatron-accent hover:underline"
+            >
+              Go to Profile →
+            </Link>
           </div>
+        ) : null}
 
-          {!profileLoaded ? (
-            <p className="text-xs text-[var(--text-muted)]">Loading profile…</p>
-          ) : freeDeckUsed ? (
-            <div className="rounded-lg border border-[var(--border)] bg-[rgba(255,255,255,0.02)] px-4 py-3 text-sm text-[var(--text-muted)]">
-              <p>
-                Free accounts include one deck upload. To replace your deck,
-                upgrade to Pro.
-              </p>
+        <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-5 space-y-3">
+          <div>
+            <h2 className="text-sm font-semibold">Create a pitch</h2>
+            <p className="text-xs text-[var(--text-muted)] leading-relaxed mt-1 max-w-xl">
+              Add a pitch without a deck: fill in each section manually. You
+              can also upload a PDF on your{" "}
               <Link
-                href="/pricing"
-                className="mt-2 inline-block text-xs font-semibold text-metatron-accent hover:underline"
+                href="/startup/profile"
+                className="text-metatron-accent font-semibold hover:underline"
               >
-                View plans — upgrade to re-upload
-              </Link>
-            </div>
-          ) : (
-            <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-              <input
-                ref={fileRef}
-                type="file"
-                accept="application/pdf,.pdf"
-                className="hidden"
-                onChange={(e) => onDeckSelected(e.target.files)}
-              />
-              <button
-                type="button"
-                disabled={uploadBusy}
-                onClick={() => fileRef.current?.click()}
-                className="rounded-lg bg-metatron-accent px-4 py-2.5 text-sm font-semibold text-white hover:bg-metatron-accent-hover disabled:opacity-50"
-              >
-                {uploadBusy ? "Uploading…" : "Upload your deck to create a pitch"}
-              </button>
-              <p className="text-[11px] text-[var(--text-muted)]">
-                PDF · max ~52MB
-              </p>
-            </div>
-          )}
-
+                Profile
+              </Link>{" "}
+              to auto-create a pitch from your deck.
+            </p>
+          </div>
           <button
             type="button"
             onClick={() => {
               resetForm();
               setShowManualForm(true);
             }}
-            className="text-xs text-[var(--text-muted)] hover:text-[var(--text)] underline-offset-2 hover:underline"
+            className="text-xs font-semibold text-[var(--text-muted)] hover:text-[var(--text)] underline-offset-2 hover:underline"
           >
             Fill in manually instead
           </button>
@@ -415,17 +326,11 @@ export default function StartupPitchesPage() {
         {showForm ? (
           <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-5 space-y-4">
             <h2 className="text-sm font-semibold">
-              {reviewPitchId
-                ? isEditFromList
-                  ? "Edit pitch"
-                  : "Review and confirm"
-                : "Create a pitch (manual)"}
+              {reviewPitchId ? "Edit pitch" : "Create a pitch (manual)"}
             </h2>
             <p className="text-xs text-[var(--text-muted)] leading-relaxed">
               {reviewPitchId
-                ? isEditFromList
-                  ? "Update your pitch below. Changes are saved when you click Save pitch."
-                  : "We pre-filled this from your deck. Edit anything that looks off, then save."
+                ? "Update your pitch below. Changes are saved when you click Save pitch."
                 : "Work through each section. Only the title is required."}
             </p>
 
@@ -744,7 +649,6 @@ export default function StartupPitchesPage() {
                           prefillFromPitch(p);
                           setReviewPitchId(p.id);
                           setShowManualForm(true);
-                          setIsEditFromList(true);
                           setTab("overview");
                         }}
                         className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-medium text-[var(--text)] hover:bg-[rgba(255,255,255,0.04)]"

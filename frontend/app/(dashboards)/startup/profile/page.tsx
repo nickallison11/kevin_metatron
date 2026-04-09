@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { API_BASE, authHeaders, authJsonHeaders } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -15,6 +16,8 @@ type ApiProfile = {
   website?: string | null;
   pitch_deck_url?: string | null;
   ipfs_visibility?: string | null;
+  deck_expires_at?: string | null;
+  deck_upload_count?: number;
 };
 
 type Profile = {
@@ -28,6 +31,8 @@ type Profile = {
   pitch_deck_url?: string | null;
   ipfs_visibility?: "public" | "private";
   deckStorageOption?: "link" | "public_ipfs" | "private_ipfs";
+  deck_expires_at?: string | null;
+  deck_upload_count?: number;
 };
 
 function transformFromApi(api: ApiProfile): Profile {
@@ -61,6 +66,9 @@ function transformFromApi(api: ApiProfile): Profile {
     pitch_deck_url: pitchUrl,
     ipfs_visibility: ipfsVisibility,
     deckStorageOption,
+    deck_expires_at: api.deck_expires_at ?? null,
+    deck_upload_count:
+      typeof api.deck_upload_count === "number" ? api.deck_upload_count : 0,
   };
 }
 
@@ -83,6 +91,17 @@ function normalizeSectorTag(s: string): string {
   return s.trim();
 }
 
+function deckExpiryLabel(iso: string): string {
+  const end = new Date(iso).getTime();
+  const now = Date.now();
+  const ms = end - now;
+  if (ms <= 0) return "Deck storage expired";
+  const days = Math.ceil(ms / 86400000);
+  if (days <= 0) return "Deck expires today";
+  if (days === 1) return "Deck expires in 1 day";
+  return `Deck expires in ${days} days`;
+}
+
 export default function StartupProfilePage() {
   const { token, isPro, loading: authLoading } = useAuth();
   const [msg, setMsg] = useState<string | null>(null);
@@ -92,8 +111,12 @@ export default function StartupProfilePage() {
   const [deckUpgradePrompt, setDeckUpgradePrompt] = useState(false);
   const [profile, setProfile] = useState<Profile>({ sectors: [] });
   const [sectorDraft, setSectorDraft] = useState("");
+  const [primaryDeckUploadBusy, setPrimaryDeckUploadBusy] = useState(false);
+  const [deckUploadedShowPitchLink, setDeckUploadedShowPitchLink] =
+    useState(false);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const primaryDeckPdfRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (!token) {
@@ -119,6 +142,82 @@ export default function StartupProfilePage() {
   }, [token]);
 
   if (authLoading) return null;
+
+  const deckCount = profile.deck_upload_count ?? 0;
+  const freeDeckUsed = !isPro && deckCount >= 1;
+
+  async function reloadProfileFromApi() {
+    if (!token) return;
+    const res = await fetch(`${API_BASE}/profile`, {
+      headers: authJsonHeaders(token),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      setProfile(transformFromApi(data as ApiProfile));
+    }
+  }
+
+  async function onPrimaryPitchDeckPdf(
+    e: React.ChangeEvent<HTMLInputElement>,
+  ) {
+    const file = e.target.files?.[0];
+    if (!file || !token) {
+      e.target.value = "";
+      return;
+    }
+    setMsg(null);
+    setDeckUploadedShowPitchLink(false);
+    setPrimaryDeckUploadBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch(`${API_BASE}/uploads/pitch-deck`, {
+        method: "POST",
+        headers: authHeaders(token),
+        body: fd,
+      });
+      const data = (await res.json().catch(() => ({}))) as Record<
+        string,
+        unknown
+      >;
+
+      if (res.status === 403) {
+        const err =
+          typeof data.error === "string"
+            ? data.error
+            : "You cannot upload another deck on the free plan.";
+        setMsg(err);
+        return;
+      }
+      if (!res.ok) {
+        setMsg(
+          typeof data.error === "string"
+            ? data.error
+            : "Deck upload failed.",
+        );
+        return;
+      }
+
+      await reloadProfileFromApi();
+
+      const extractionErr = data.extraction_error;
+      if (typeof extractionErr === "string" && extractionErr.trim()) {
+        setMsg(
+          `Deck uploaded. Kevin could not auto-fill all fields (${extractionErr}). You can edit your pitch on the Pitches page.`,
+        );
+      } else {
+        setMsg(
+          "Deck uploaded. Kevin extracted fields and created a pitch — open Pitches to review.",
+        );
+      }
+      setDeckUploadedShowPitchLink(true);
+    } catch {
+      setMsg("Deck upload failed.");
+    } finally {
+      setPrimaryDeckUploadBusy(false);
+      e.target.value = "";
+    }
+  }
 
   async function onSave(e: FormEvent) {
     e.preventDefault();
@@ -412,6 +511,77 @@ export default function StartupProfilePage() {
             </div>
             <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-4 space-y-3">
               <p className="text-xs font-semibold text-[var(--text)]">Pitch deck</p>
+
+              <div className="rounded-lg border border-[var(--border)] bg-[rgba(255,255,255,0.02)] p-4 space-y-3">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-[var(--text)]">
+                      Upload PDF pitch deck
+                    </p>
+                    <p className="text-xs text-[var(--text-muted)] leading-relaxed mt-1 max-w-xl">
+                      We store your deck and run Kevin extraction to create a
+                      pitch automatically. PDF only for parsing; other formats
+                      are not auto-filled.
+                    </p>
+                  </div>
+                  {!isPro && profile.deck_expires_at ? (
+                    <span className="shrink-0 rounded-lg border border-[var(--border)] bg-[rgba(108,92,231,0.12)] px-2.5 py-1 font-mono text-[10px] text-[var(--text)]">
+                      {deckExpiryLabel(profile.deck_expires_at)}
+                    </span>
+                  ) : null}
+                </div>
+
+                {freeDeckUsed ? (
+                  <div className="rounded-lg border border-[var(--border)] bg-[rgba(255,255,255,0.02)] px-4 py-3 text-sm text-[var(--text-muted)]">
+                    <p>
+                      Free accounts include one deck upload. Upgrade to Basic to
+                      replace your deck or use private IPFS storage below.
+                    </p>
+                    <Link
+                      href="/pricing"
+                      className="mt-2 inline-block text-xs font-semibold text-metatron-accent hover:underline"
+                    >
+                      Upgrade to Basic — view plans
+                    </Link>
+                  </div>
+                ) : (
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                    <input
+                      ref={primaryDeckPdfRef}
+                      type="file"
+                      accept="application/pdf,.pdf"
+                      className="hidden"
+                      onChange={onPrimaryPitchDeckPdf}
+                    />
+                    <button
+                      type="button"
+                      disabled={primaryDeckUploadBusy}
+                      onClick={() => primaryDeckPdfRef.current?.click()}
+                      className="rounded-lg bg-metatron-accent px-4 py-2.5 text-sm font-semibold text-white hover:bg-metatron-accent-hover disabled:opacity-50"
+                    >
+                      {primaryDeckUploadBusy
+                        ? "Uploading…"
+                        : "Upload PDF deck"}
+                    </button>
+                    <p className="text-[11px] text-[var(--text-muted)]">
+                      PDF · max ~52MB
+                    </p>
+                  </div>
+                )}
+
+                {deckUploadedShowPitchLink ? (
+                  <Link
+                    href="/startup/pitches"
+                    className="inline-block text-xs font-semibold text-metatron-accent hover:underline"
+                  >
+                    Your deck has been uploaded — view your pitch →
+                  </Link>
+                ) : null}
+              </div>
+
+              <p className="text-[11px] text-[var(--text-muted)] font-mono uppercase tracking-wide">
+                Or choose how your deck link is stored
+              </p>
 
               <div className="grid gap-3 sm:grid-cols-3">
                 <button

@@ -129,11 +129,8 @@ export default function KevinChat() {
 
   const newChat = useCallback(() => {
     setMessages([]);
-    setSessionId(newSessionId());
+    setSessionId(crypto.randomUUID());
     setShowHistory(false);
-    if (typeof window !== "undefined") {
-      localStorage.removeItem(STORAGE_KEY);
-    }
   }, []);
 
   const loadSession = useCallback(
@@ -381,37 +378,6 @@ export default function KevinChat() {
                 >
                   <circle cx="12" cy="12" r="9" />
                   <path d="M12 7v5l3 2" strokeLinecap="round" />
-                </svg>
-              </button>
-              <button
-                type="button"
-                onClick={newChat}
-                aria-label="New chat"
-                title="New chat"
-                style={iconBtnBase}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "rgba(108,92,231,0.15)";
-                  e.currentTarget.style.color = "#6c5ce7";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = "transparent";
-                  e.currentTarget.style.color = "#8888a0";
-                }}
-              >
-                <svg
-                  width="18"
-                  height="18"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  aria-hidden
-                >
-                  <path
-                    d="M3 6h18M8 6V4h8v2M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"
-                    strokeLinecap="round"
-                  />
-                  <path d="M10 11v6M14 11v6" strokeLinecap="round" />
                 </svg>
               </button>
               <button

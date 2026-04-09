@@ -124,9 +124,9 @@ export default function StartupPitchesPage() {
         headers: authHeaders(token),
       });
       if (res.ok) setPitches(await res.json());
-      else setMsg("Failed to load pitches.");
+      else setMsg("Failed to load pitch data.");
     } catch {
-      setMsg("Failed to load pitches.");
+      setMsg("Failed to load pitch data.");
     }
   }, [token]);
 
@@ -273,9 +273,9 @@ export default function StartupPitchesPage() {
     <main className="flex-1">
       <header className="border-b border-[var(--border)] px-6 py-4 md:px-10">
         <p className="font-mono text-[11px] font-medium uppercase tracking-[2px] text-[var(--text-muted)] mb-1">
-          Pitches
+          Pitch data
         </p>
-        <h1 className="text-lg font-semibold">Your pitches</h1>
+        <h1 className="text-lg font-semibold">Your pitch data</h1>
       </header>
       <section className="p-6 md:p-10 max-w-3xl space-y-6">
         {showProfileEmptyHint ? (
@@ -623,7 +623,7 @@ export default function StartupPitchesPage() {
         ) : null}
 
         <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-5">
-          <h2 className="text-sm font-semibold mb-3">All pitches</h2>
+          <h2 className="text-sm font-semibold mb-3">All pitch data</h2>
           <ul className="space-y-3 text-sm">
             {pitches.map((p) => {
               const th = tractionHeadline(p.traction);
@@ -679,7 +679,7 @@ export default function StartupPitchesPage() {
             })}
             {pitches.length === 0 && (
               <li className="text-xs text-[var(--text-muted)]">
-                No pitches yet.
+                No pitch data yet.
               </li>
             )}
           </ul>

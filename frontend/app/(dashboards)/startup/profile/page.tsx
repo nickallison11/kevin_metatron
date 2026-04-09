@@ -248,11 +248,11 @@ export default function StartupProfilePage() {
       const extractionErr = data.extraction_error;
       if (typeof extractionErr === "string" && extractionErr.trim()) {
         setMsg(
-          `Deck uploaded. Kevin could not auto-fill all fields (${extractionErr}). You can edit your pitch on the Pitches page.`,
+          `Deck uploaded. Kevin could not auto-fill all fields (${extractionErr}). You can edit your pitch on the Pitch data page.`,
         );
       } else {
         setMsg(
-          "Deck uploaded. Kevin extracted fields and created a pitch — open Pitches to review.",
+          "Deck uploaded. Kevin extracted fields and created a pitch — open Pitch data to review.",
         );
       }
       setDeckUploadedShowPitchLink(true);
@@ -633,7 +633,7 @@ export default function StartupProfilePage() {
                     href="/startup/pitches"
                     className="inline-block text-xs font-semibold text-metatron-accent hover:underline"
                   >
-                    Your deck has been uploaded — view your pitch →
+                    Your deck has been uploaded — view your pitch data →
                   </Link>
                 ) : null}
               </div>
@@ -761,20 +761,30 @@ export default function StartupProfilePage() {
               )}
 
               {(profile.deckStorageOption ?? "link") === "link" ? (
-                <label className="block space-y-1">
-                  <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
-                    Pitch Deck Link
-                  </span>
-                  <input
-                    className="input-metatron w-full"
-                    type="url"
-                    placeholder="https://drive.google.com/..."
-                    value={profile.pitch_deck_url ?? ""}
-                    onChange={(e) =>
-                      setProfile((p) => ({ ...p, pitch_deck_url: e.target.value }))
-                    }
-                  />
-                </label>
+                <div className="space-y-2">
+                  <label className="block space-y-1">
+                    <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
+                      Pitch Deck Link
+                    </span>
+                    <input
+                      className="input-metatron w-full"
+                      type="url"
+                      placeholder="https://drive.google.com/..."
+                      value={profile.pitch_deck_url ?? ""}
+                      onChange={(e) =>
+                        setProfile((p) => ({
+                          ...p,
+                          pitch_deck_url: e.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+                  <p className="rounded-lg border border-amber-400/25 bg-amber-400/5 px-3 py-2.5 text-xs leading-relaxed text-amber-400/90">
+                    Your deck will not be shared with investors on metatron. To
+                    share your deck with investors and enable AI-powered
+                    matching, upload your PDF instead.
+                  </p>
+                </div>
               ) : (
                 <>
                   <label className="block space-y-1">

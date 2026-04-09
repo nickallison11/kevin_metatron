@@ -43,10 +43,10 @@ export default function StartupDashboardPage() {
             className="block rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-5 transition-colors hover:border-metatron-accent/30"
           >
             <h2 className="mb-1 text-sm font-semibold text-metatron-accent">
-              Pitches
+              Pitch data
             </h2>
             <p className="text-xs leading-relaxed text-[var(--text-muted)]">
-              Create and manage fundraising narratives.
+              Create and manage your fundraising pitch data.
             </p>
           </Link>
         </ThreeDCard>

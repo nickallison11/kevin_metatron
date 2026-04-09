@@ -202,7 +202,14 @@ async fn upload_pitch_deck(
 
     if is_pdf {
         if let Some(api_key) = state.ai_api_key.as_deref().filter(|k| !k.trim().is_empty()) {
-            match ai::extract_pitch_from_deck_pdf(&state.http_client, api_key, &raw).await {
+            match ai::extract_pitch_from_deck_pdf(
+                &state.http_client,
+                api_key,
+                &raw,
+                state.gemini_model.as_str(),
+            )
+            .await
+            {
                 Ok(v) => {
                     extracted = Some(v.clone());
                     match insert_pitch_from_extracted(&state.db, id, &v).await {

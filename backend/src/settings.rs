@@ -15,6 +15,8 @@ pub struct Settings {
     pub upload_dir: PathBuf,
     pub public_base_url: String,
     pub ai_api_key: Option<String>,
+    /// Gemini model id for API paths (e.g. `gemini-2.5-flash`). Env: `GEMINI_MODEL`.
+    pub gemini_model: String,
     /// Optional separate key for Gemini embeddings (semantic memory for paid tiers). If unset, only text memory is used.
     pub gemini_embedding_key: Option<String>,
     pub anthropic_api_key: Option<String>,
@@ -81,6 +83,11 @@ impl Settings {
         let ai_api_key = env::var("GEMINI_API_KEY")
             .ok()
             .and_then(|s| (!s.trim().is_empty()).then_some(s));
+        let gemini_model = env::var("GEMINI_MODEL")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "gemini-2.5-flash".to_string());
         let gemini_embedding_key = env::var("GEMINI_EMBEDDING_KEY")
             .ok()
             .and_then(|s| (!s.trim().is_empty()).then_some(s));
@@ -161,6 +168,7 @@ impl Settings {
             upload_dir: PathBuf::from(upload_dir),
             public_base_url: public_base_url.trim_end_matches('/').to_string(),
             ai_api_key,
+            gemini_model,
             gemini_embedding_key,
             anthropic_api_key,
             frontend_url: frontend_url.trim_end_matches('/').to_string(),

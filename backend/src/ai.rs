@@ -378,6 +378,7 @@ pub async fn extract_pitch_from_deck_pdf(
     client: &reqwest::Client,
     api_key: &str,
     pdf_bytes: &[u8],
+    gemini_model: &str,
 ) -> Result<serde_json::Value, String> {
     use base64::{engine::general_purpose::STANDARD, Engine as _};
     let b64 = STANDARD.encode(pdf_bytes);
@@ -397,10 +398,12 @@ pub async fn extract_pitch_from_deck_pdf(
         }
     });
 
-    let url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
+    let url = format!(
+        "https://generativelanguage.googleapis.com/v1beta/models/{gemini_model}:generateContent"
+    );
 
     let res = client
-        .post(url)
+        .post(url.as_str())
         .query(&[("key", api_key)])
         .header(CONTENT_TYPE, HeaderValue::from_static("application/json"))
         .timeout(Duration::from_secs(120))

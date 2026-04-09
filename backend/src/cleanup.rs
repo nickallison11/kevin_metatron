@@ -199,36 +199,63 @@ pub fn start_cleanup_task(state: Arc<AppState>) {
                                 });
 
                             if let Some(cid) = cid_opt {
-                                let unpin_url = format!("https://api.pinata.cloud/pinning/unpin/{cid}");
-                                match state
+                                // v3 delete: search for file ID by CID, then DELETE /v3/files/{id}.
+                                let search_url = format!(
+                                    "https://api.pinata.cloud/v3/files?cid={cid}&limit=1"
+                                );
+                                let file_id = match state
                                     .http_client
-                                    .delete(&unpin_url)
+                                    .get(&search_url)
                                     .bearer_auth(&pinata_jwt)
                                     .send()
                                     .await
                                 {
-                                    Ok(resp) => {
-                                        let status = resp.status();
-                                        if status.is_success() || status.as_u16() == 404 {
-                                            tracing::info!(
-                                                "cleanup: unpinned deck {} for user {}",
-                                                cid,
-                                                user_id
-                                            );
-                                        } else {
-                                            tracing::warn!(
-                                                "cleanup: pinata unpin returned {} for CID {} user {}",
-                                                status,
-                                                cid,
-                                                user_id
+                                    Ok(r) if r.status().is_success() => {
+                                        let j: serde_json::Value =
+                                            r.json().await.unwrap_or_default();
+                                        j.pointer("/data/files/0/id")
+                                            .and_then(|v| v.as_str())
+                                            .map(|s| s.to_string())
+                                    }
+                                    _ => None,
+                                };
+
+                                if let Some(file_id) = file_id {
+                                    let delete_url = format!(
+                                        "https://api.pinata.cloud/v3/files/{file_id}"
+                                    );
+                                    match state
+                                        .http_client
+                                        .delete(&delete_url)
+                                        .bearer_auth(&pinata_jwt)
+                                        .send()
+                                        .await
+                                    {
+                                        Ok(resp) => {
+                                            let status = resp.status();
+                                            if status.is_success() || status.as_u16() == 404 {
+                                                tracing::info!(
+                                                    "cleanup: deleted v3 file {} (CID {}) for user {}",
+                                                    file_id, cid, user_id
+                                                );
+                                            } else {
+                                                tracing::warn!(
+                                                    "cleanup: pinata v3 delete returned {} for file {} user {}",
+                                                    status, file_id, user_id
+                                                );
+                                            }
+                                        }
+                                        Err(e) => {
+                                            tracing::error!(
+                                                "cleanup: pinata v3 delete failed for file {file_id}: {e}"
                                             );
                                         }
                                     }
-                                    Err(e) => {
-                                        tracing::error!(
-                                            "cleanup: pinata unpin request failed for CID {cid}: {e}"
-                                        );
-                                    }
+                                } else {
+                                    tracing::warn!(
+                                        "cleanup: no v3 file found for CID {} user {} — skipping unpin",
+                                        cid, user_id
+                                    );
                                 }
                             }
 

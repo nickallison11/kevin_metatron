@@ -129,22 +129,29 @@ async fn upload_pitch_deck(
     let filename = format!("{}.{}", Uuid::new_v4(), ext);
     let display_name = sanitize_upload_filename(&original);
 
-    let meta = json!({ "name": display_name });
-    let mut form = reqwest::multipart::Form::new().text("pinataMetadata", meta.to_string());
-    let mime = if is_pdf {
-        "application/pdf"
-    } else {
-        "application/octet-stream"
+    // Determine Pinata group for this user's tier.
+    let pinata_group = match authed_user.subscription_tier.to_ascii_lowercase().as_str() {
+        "pro" => state.pinata_group_pro.clone(),
+        "basic" | "monthly" | "annual" => state.pinata_group_basic.clone(),
+        _ => state.pinata_group_free.clone(),
     };
-    let part = reqwest::multipart::Part::bytes(raw.clone())
+
+    // Upload via Pinata v3 API so we can assign a group_id in one request.
+    let mime = if is_pdf { "application/pdf" } else { "application/octet-stream" };
+    let file_part = reqwest::multipart::Part::bytes(raw.clone())
         .file_name(filename)
         .mime_str(mime)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    form = form.part("file", part);
+    let mut form = reqwest::multipart::Form::new()
+        .text("name", display_name)
+        .part("file", file_part);
+    if let Some(ref gid) = pinata_group {
+        form = form.text("group_id", gid.clone());
+    }
 
     let pinata_res = state
         .http_client
-        .post("https://api.pinata.cloud/pinning/pinFileToIPFS")
+        .post("https://api.pinata.cloud/v3/files")
         .bearer_auth(&pinata_jwt)
         .multipart(form)
         .send()
@@ -165,76 +172,27 @@ async fn upload_pitch_deck(
         .map_err(|_| (StatusCode::BAD_GATEWAY, "pinata upload parse failed".into()))?;
 
     let cid = pinata_json
-        .get("IpfsHash")
+        .pointer("/data/cid")
         .and_then(|v| v.as_str())
         .ok_or((
             StatusCode::BAD_GATEWAY,
-            "pinata response missing IpfsHash".into(),
+            "pinata response missing data.cid".into(),
         ))?;
+
+    let file_id = pinata_json
+        .pointer("/data/id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    tracing::info!(
+        "pinata: uploaded file {} (CID {}) group {:?}",
+        file_id,
+        cid,
+        pinata_group
+    );
 
     let url = format!("https://{pinata_gateway}/ipfs/{cid}");
     let visibility = "public";
     let cid_out: Option<String> = Some(cid.to_string());
-
-    // Assign to the appropriate Pinata group based on subscription tier (best-effort).
-    // Step 1: search for the file by CID to get its v3 file ID.
-    // Step 2: PATCH the file to set its group_id.
-    let group_id = match authed_user.subscription_tier.to_ascii_lowercase().as_str() {
-        "pro" => state.pinata_group_pro.as_deref(),
-        "basic" | "monthly" | "annual" => state.pinata_group_basic.as_deref(),
-        _ => state.pinata_group_free.as_deref(),
-    };
-    if let (Some(group_id), Some(jwt)) = (group_id, state.pinata_jwt.as_deref()) {
-        let search_url = format!("https://api.pinata.cloud/v3/files?cid={cid}&limit=1");
-        match state
-            .http_client
-            .get(&search_url)
-            .bearer_auth(jwt)
-            .send()
-            .await
-        {
-            Ok(resp) if resp.status().is_success() => {
-                let search_json: serde_json::Value = resp.json().await.unwrap_or_default();
-                let file_id = search_json
-                    .pointer("/data/files/0/id")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
-
-                if let Some(file_id) = file_id {
-                    let update_url = format!("https://api.pinata.cloud/v3/files/{file_id}");
-                    match state
-                        .http_client
-                        .put(&update_url)
-                        .bearer_auth(jwt)
-                        .json(&serde_json::json!({ "group_id": group_id }))
-                        .send()
-                        .await
-                    {
-                        Ok(r) if r.status().is_success() => {
-                            tracing::info!("pinata: assigned file {} (CID {}) to group {}", file_id, cid, group_id);
-                        }
-                        Ok(r) => {
-                            let status = r.status();
-                            let body = r.text().await.unwrap_or_default();
-                            tracing::warn!("pinata: group assign returned {} for file {}: {}", status, file_id, body.chars().take(200).collect::<String>());
-                        }
-                        Err(e) => {
-                            tracing::warn!("pinata: group assign request failed for file {}: {}", file_id, e);
-                        }
-                    }
-                } else {
-                    tracing::warn!("pinata: could not find file ID for CID {} in search response", cid);
-                }
-            }
-            Ok(resp) => {
-                let status = resp.status();
-                tracing::warn!("pinata: file search returned {} for CID {}", status, cid);
-            }
-            Err(e) => {
-                tracing::warn!("pinata: file search request failed for CID {}: {}", cid, e);
-            }
-        }
-    }
 
     let deck_expires_at = Utc::now() + ChronoDuration::days(14);
 

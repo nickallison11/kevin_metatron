@@ -163,11 +163,17 @@ async fn upload_pitch_deck(
         .await
         .map_err(|_| (StatusCode::BAD_GATEWAY, "pinata upload parse failed".into()))?;
     if !pinata_status.is_success() {
+        tracing::error!(
+            "pinata v3 upload failed: status={} body={}",
+            pinata_status,
+            pinata_text.chars().take(500).collect::<String>()
+        );
         return Err((
             StatusCode::BAD_GATEWAY,
             format!("pinata upload failed: {pinata_text}"),
         ));
     }
+    tracing::info!("pinata v3 upload response: {}", pinata_text.chars().take(300).collect::<String>());
     let pinata_json: serde_json::Value = serde_json::from_str(&pinata_text)
         .map_err(|_| (StatusCode::BAD_GATEWAY, "pinata upload parse failed".into()))?;
 

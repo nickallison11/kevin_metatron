@@ -146,6 +146,7 @@ async fn upload_pitch_deck(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     let mut v3_form = reqwest::multipart::Form::new()
         .text("name", display_name.clone())
+        .text("network", "public")
         .part("file", file_part);
     if let Some(ref gid) = pinata_group {
         v3_form = v3_form.text("group_id", gid.clone());

@@ -129,29 +129,18 @@ async fn upload_pitch_deck(
     let filename = format!("{}.{}", Uuid::new_v4(), ext);
     let display_name = sanitize_upload_filename(&original);
 
-    // Determine Pinata group for this user's tier.
-    let pinata_group = match authed_user.subscription_tier.to_ascii_lowercase().as_str() {
-        "pro" => state.pinata_group_pro.clone(),
-        "basic" | "monthly" | "annual" => state.pinata_group_basic.clone(),
-        _ => state.pinata_group_free.clone(),
-    };
-
-    // Upload via Pinata v3 API so we can assign a group_id in one request.
     let mime = if is_pdf { "application/pdf" } else { "application/octet-stream" };
-    let file_part = reqwest::multipart::Part::bytes(raw.clone())
+    let meta = json!({ "name": display_name });
+    let mut form = reqwest::multipart::Form::new().text("pinataMetadata", meta.to_string());
+    let part = reqwest::multipart::Part::bytes(raw.clone())
         .file_name(filename)
         .mime_str(mime)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    let mut form = reqwest::multipart::Form::new()
-        .text("name", display_name)
-        .part("file", file_part);
-    if let Some(ref gid) = pinata_group {
-        form = form.text("group_id", gid.clone());
-    }
+    form = form.part("file", part);
 
     let pinata_res = state
         .http_client
-        .post("https://api.pinata.cloud/v3/files")
+        .post("https://api.pinata.cloud/pinning/pinFileToIPFS")
         .bearer_auth(&pinata_jwt)
         .multipart(form)
         .send()
@@ -164,7 +153,7 @@ async fn upload_pitch_deck(
         .map_err(|_| (StatusCode::BAD_GATEWAY, "pinata upload parse failed".into()))?;
     if !pinata_status.is_success() {
         tracing::error!(
-            "pinata v3 upload failed: status={} body={}",
+            "pinata upload failed: status={} body={}",
             pinata_status,
             pinata_text.chars().take(500).collect::<String>()
         );
@@ -173,28 +162,18 @@ async fn upload_pitch_deck(
             format!("pinata upload failed: {pinata_text}"),
         ));
     }
-    tracing::info!("pinata v3 upload response: {}", pinata_text.chars().take(300).collect::<String>());
     let pinata_json: serde_json::Value = serde_json::from_str(&pinata_text)
         .map_err(|_| (StatusCode::BAD_GATEWAY, "pinata upload parse failed".into()))?;
 
     let cid = pinata_json
-        .pointer("/data/cid")
+        .get("IpfsHash")
         .and_then(|v| v.as_str())
         .ok_or((
             StatusCode::BAD_GATEWAY,
-            "pinata response missing data.cid".into(),
+            "pinata response missing IpfsHash".into(),
         ))?;
 
-    let file_id = pinata_json
-        .pointer("/data/id")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-    tracing::info!(
-        "pinata: uploaded file {} (CID {}) group {:?}",
-        file_id,
-        cid,
-        pinata_group
-    );
+    tracing::info!("pinata: uploaded CID {}", cid);
 
     let url = format!("https://{pinata_gateway}/ipfs/{cid}");
     let visibility = "public";

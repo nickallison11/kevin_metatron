@@ -383,7 +383,7 @@ pub async fn extract_pitch_from_deck_pdf(
     use base64::{engine::general_purpose::STANDARD, Engine as _};
     let b64 = STANDARD.encode(pdf_bytes);
 
-    let prompt = "Extract the following fields from this pitch deck: company name, one-liner, problem, solution, market size, business model, traction, funding ask, use of funds, team members (name + role). Return as JSON.";
+    let prompt = "Extract the following fields from this pitch deck and return as JSON with these exact field names: company_name, one_liner, problem, solution, market_size, business_model, traction, funding_ask, use_of_funds, incorporation_country, team_members (array of objects with name and role fields). If a field is not found, omit it or set to null.";
 
     let body = json!({
         "contents": [{

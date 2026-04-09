@@ -104,6 +104,8 @@ export default function StartupPitchesPage() {
   const [uploadBusy, setUploadBusy] = useState(false);
   const [showManualForm, setShowManualForm] = useState(false);
   const [reviewPitchId, setReviewPitchId] = useState<string | null>(null);
+  /** True when editing an existing pitch from the list (not deck review). */
+  const [isEditFromList, setIsEditFromList] = useState(false);
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -178,6 +180,7 @@ export default function StartupPitchesPage() {
     setTeamMembers([{ name: "", role: "", linkedin: "" }]);
     setTab("overview");
     setReviewPitchId(null);
+    setIsEditFromList(false);
   }
 
   function prefillFromPitch(p: Pitch) {
@@ -249,6 +252,7 @@ export default function StartupPitchesPage() {
       if (pitchRaw && typeof pitchRaw === "object" && "id" in pitchRaw) {
         prefillFromPitch(pitchRaw as Pitch);
         setReviewPitchId(String((pitchRaw as Pitch).id));
+        setIsEditFromList(false);
       }
       setShowManualForm(true);
       loadPitches();
@@ -305,7 +309,7 @@ export default function StartupPitchesPage() {
     }
 
     try {
-      if (reviewPitchId) {
+      if (reviewPitchId != null) {
         const res = await fetch(`${API_BASE}/pitches/${reviewPitchId}`, {
           method: "PUT",
           headers: authJsonHeaders(token),
@@ -412,12 +416,16 @@ export default function StartupPitchesPage() {
           <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-5 space-y-4">
             <h2 className="text-sm font-semibold">
               {reviewPitchId
-                ? "Review and confirm"
+                ? isEditFromList
+                  ? "Edit pitch"
+                  : "Review and confirm"
                 : "Create a pitch (manual)"}
             </h2>
             <p className="text-xs text-[var(--text-muted)] leading-relaxed">
               {reviewPitchId
-                ? "We pre-filled this from your deck. Edit anything that looks off, then save."
+                ? isEditFromList
+                  ? "Update your pitch below. Changes are saved when you click Save pitch."
+                  : "We pre-filled this from your deck. Edit anything that looks off, then save."
                 : "Work through each section. Only the title is required."}
             </p>
 
@@ -686,12 +694,25 @@ export default function StartupPitchesPage() {
                 </div>
               )}
 
-              <button
-                type="submit"
-                className="rounded-lg bg-metatron-accent px-4 py-2 text-xs font-semibold text-white hover:bg-metatron-accent-hover"
-              >
-                Save pitch
-              </button>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="submit"
+                  className="rounded-lg bg-metatron-accent px-4 py-2 text-xs font-semibold text-white hover:bg-metatron-accent-hover"
+                >
+                  Save pitch
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMsg(null);
+                    resetForm();
+                    setShowManualForm(false);
+                  }}
+                  className="rounded-lg border border-[var(--border)] px-4 py-2 text-xs font-semibold text-[var(--text-muted)] hover:text-[var(--text)]"
+                >
+                  Cancel
+                </button>
+              </div>
             </form>
           </div>
         ) : null}
@@ -707,14 +728,30 @@ export default function StartupPitchesPage() {
                   className="rounded-lg border border-[var(--border)] bg-[rgba(255,255,255,0.02)] px-4 py-3 space-y-2"
                 >
                   <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div className="font-medium text-[var(--text)] min-w-0">
+                    <div className="font-medium text-[var(--text)] min-w-0 flex-1">
                       {p.title}
                     </div>
-                    {p.stage ? (
-                      <span className="shrink-0 rounded-md border border-[var(--border)] px-2 py-0.5 font-mono text-[10px] uppercase tracking-wide text-[var(--text-muted)]">
-                        {p.stage}
-                      </span>
-                    ) : null}
+                    <div className="flex flex-wrap items-center justify-end gap-2 shrink-0">
+                      {p.stage ? (
+                        <span className="rounded-md border border-[var(--border)] px-2 py-0.5 font-mono text-[10px] uppercase tracking-wide text-[var(--text-muted)]">
+                          {p.stage}
+                        </span>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMsg(null);
+                          prefillFromPitch(p);
+                          setReviewPitchId(p.id);
+                          setShowManualForm(true);
+                          setIsEditFromList(true);
+                          setTab("overview");
+                        }}
+                        className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-medium text-[var(--text)] hover:bg-[rgba(255,255,255,0.04)]"
+                      >
+                        Edit
+                      </button>
+                    </div>
                   </div>
                   {p.funding_ask?.trim() ? (
                     <p className="text-xs text-[var(--text)]">

@@ -177,31 +177,61 @@ async fn upload_pitch_deck(
     let cid_out: Option<String> = Some(cid.to_string());
 
     // Assign to the appropriate Pinata group based on subscription tier (best-effort).
+    // Step 1: search for the file by CID to get its v3 file ID.
+    // Step 2: PATCH the file to set its group_id.
     let group_id = match authed_user.subscription_tier.to_ascii_lowercase().as_str() {
         "pro" => state.pinata_group_pro.as_deref(),
         "basic" | "monthly" | "annual" => state.pinata_group_basic.as_deref(),
         _ => state.pinata_group_free.as_deref(),
     };
     if let (Some(group_id), Some(jwt)) = (group_id, state.pinata_jwt.as_deref()) {
-        let group_url = format!("https://api.pinata.cloud/v3/groups/{group_id}/ids");
+        let search_url = format!("https://api.pinata.cloud/v3/files?cid={cid}&limit=1");
         match state
             .http_client
-            .put(&group_url)
+            .get(&search_url)
             .bearer_auth(jwt)
-            .json(&serde_json::json!({ "cids": [cid] }))
             .send()
             .await
         {
             Ok(resp) if resp.status().is_success() => {
-                tracing::info!("pinata: assigned CID {} to group {}", cid, group_id);
+                let search_json: serde_json::Value = resp.json().await.unwrap_or_default();
+                let file_id = search_json
+                    .pointer("/data/files/0/id")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+
+                if let Some(file_id) = file_id {
+                    let update_url = format!("https://api.pinata.cloud/v3/files/{file_id}");
+                    match state
+                        .http_client
+                        .put(&update_url)
+                        .bearer_auth(jwt)
+                        .json(&serde_json::json!({ "group_id": group_id }))
+                        .send()
+                        .await
+                    {
+                        Ok(r) if r.status().is_success() => {
+                            tracing::info!("pinata: assigned file {} (CID {}) to group {}", file_id, cid, group_id);
+                        }
+                        Ok(r) => {
+                            let status = r.status();
+                            let body = r.text().await.unwrap_or_default();
+                            tracing::warn!("pinata: group assign returned {} for file {}: {}", status, file_id, body.chars().take(200).collect::<String>());
+                        }
+                        Err(e) => {
+                            tracing::warn!("pinata: group assign request failed for file {}: {}", file_id, e);
+                        }
+                    }
+                } else {
+                    tracing::warn!("pinata: could not find file ID for CID {} in search response", cid);
+                }
             }
             Ok(resp) => {
                 let status = resp.status();
-                let body = resp.text().await.unwrap_or_default();
-                tracing::warn!("pinata: group assign returned {} for CID {}: {}", status, cid, body.chars().take(200).collect::<String>());
+                tracing::warn!("pinata: file search returned {} for CID {}", status, cid);
             }
             Err(e) => {
-                tracing::warn!("pinata: group assign request failed for CID {}: {}", cid, e);
+                tracing::warn!("pinata: file search request failed for CID {}: {}", cid, e);
             }
         }
     }

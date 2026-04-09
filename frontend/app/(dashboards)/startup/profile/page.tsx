@@ -103,12 +103,15 @@ function deckExpiryLabel(iso: string): string {
 }
 
 export default function StartupProfilePage() {
-  const { token, isPro, loading: authLoading } = useAuth();
+  const { token, isPro, isBasic, isProTier, loading: authLoading } = useAuth();
   const [msg, setMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savingVisibility, setSavingVisibility] = useState(false);
-  const [deckUpgradePrompt, setDeckUpgradePrompt] = useState(false);
+  /** Which upgrade path we are prompting for after a gated IPFS action. */
+  const [deckUpgradeKind, setDeckUpgradeKind] = useState<
+    "basic" | "pro" | null
+  >(null);
   const [profile, setProfile] = useState<Profile>({ sectors: [] });
   const [sectorDraft, setSectorDraft] = useState("");
   const [primaryDeckUploadBusy, setPrimaryDeckUploadBusy] = useState(false);
@@ -145,6 +148,48 @@ export default function StartupProfilePage() {
 
   const deckCount = profile.deck_upload_count ?? 0;
   const freeDeckUsed = !isPro && deckCount >= 1;
+  const canPublicIpfs = isBasic || isProTier;
+
+  function onDeckStorageOptionChange(
+    option: "link" | "public_ipfs" | "private_ipfs",
+  ) {
+    if (option === "link") {
+      setDeckUpgradeKind(null);
+      setProfile((p) => ({
+        ...p,
+        deckStorageOption: "link",
+        ipfs_visibility: "public",
+      }));
+      return;
+    }
+    if (option === "public_ipfs") {
+      if (!canPublicIpfs) {
+        setDeckUpgradeKind("basic");
+        setMsg("Upgrade to Basic for public IPFS.");
+        return;
+      }
+      setDeckUpgradeKind(null);
+      setProfile((p) => ({
+        ...p,
+        deckStorageOption: "public_ipfs",
+        ipfs_visibility: "public",
+      }));
+      return;
+    }
+    if (option === "private_ipfs") {
+      if (!isProTier) {
+        setDeckUpgradeKind("pro");
+        setMsg("Upgrade to Pro for private IPFS.");
+        return;
+      }
+      setDeckUpgradeKind(null);
+      setProfile((p) => ({
+        ...p,
+        deckStorageOption: "private_ipfs",
+        ipfs_visibility: "private",
+      }));
+    }
+  }
 
   async function reloadProfileFromApi() {
     if (!token) return;
@@ -250,9 +295,16 @@ export default function StartupProfilePage() {
       setMsg("Pick a file and ensure you are signed in.");
       return;
     }
-    if (!isPro) {
-      setDeckUpgradePrompt(true);
-      setMsg("Upgrade to Pro to use IPFS storage.");
+    const opt = profile.deckStorageOption ?? "link";
+    if (opt === "private_ipfs" && !isProTier) {
+      setDeckUpgradeKind("pro");
+      setMsg("Upgrade to Pro for private IPFS.");
+      e.target.value = "";
+      return;
+    }
+    if (opt === "public_ipfs" && !canPublicIpfs) {
+      setDeckUpgradeKind("basic");
+      setMsg("Upgrade to Basic for public IPFS.");
       e.target.value = "";
       return;
     }
@@ -295,6 +347,7 @@ export default function StartupProfilePage() {
         (data as { visibility?: string }).visibility === "public"
           ? "public"
           : "private";
+      setDeckUpgradeKind(null);
       setProfile((p) => ({ ...p, pitch_deck_url: url, ipfs_visibility: visibility }));
       setMsg("Pitch deck uploaded.");
     } catch {
@@ -333,9 +386,14 @@ export default function StartupProfilePage() {
       setMsg("Sign in first.");
       return;
     }
-    if (!isPro) {
-      setDeckUpgradePrompt(true);
-      setMsg("Upgrade to Pro to use IPFS storage.");
+    if (nextVisibility === "private" && !isProTier) {
+      setDeckUpgradeKind("pro");
+      setMsg("Upgrade to Pro for private IPFS.");
+      return;
+    }
+    if (nextVisibility === "public" && !canPublicIpfs) {
+      setDeckUpgradeKind("basic");
+      setMsg("Upgrade to Basic for public IPFS.");
       return;
     }
     setSavingVisibility(true);
@@ -348,6 +406,7 @@ export default function StartupProfilePage() {
       });
       const txt = await res.text();
       if (!res.ok) throw new Error(txt || "Could not update visibility");
+      setDeckUpgradeKind(null);
       setProfile((p) => ({ ...p, ipfs_visibility: nextVisibility }));
     } catch {
       setMsg("Could not update deck visibility.");
@@ -586,10 +645,7 @@ export default function StartupProfilePage() {
               <div className="grid gap-3 sm:grid-cols-3">
                 <button
                   type="button"
-                  onClick={() => {
-                    setDeckUpgradePrompt(false);
-                    setProfile((p) => ({ ...p, deckStorageOption: "link", ipfs_visibility: "public" }));
-                  }}
+                  onClick={() => onDeckStorageOptionChange("link")}
                   className={[
                     "text-left rounded-[var(--radius)] border border-[var(--border)] bg-[color-mix(in_srgb,var(--bg)_55%,transparent)] p-3 transition-all",
                     (profile.deckStorageOption ?? "link") === "link"
@@ -612,18 +668,7 @@ export default function StartupProfilePage() {
 
                 <button
                   type="button"
-                  onClick={() => {
-                    if (!isPro) {
-                      setDeckUpgradePrompt(true);
-                      return;
-                    }
-                    setDeckUpgradePrompt(false);
-                    setProfile((p) => ({
-                      ...p,
-                      deckStorageOption: "public_ipfs",
-                      ipfs_visibility: "public",
-                    }));
-                  }}
+                  onClick={() => onDeckStorageOptionChange("public_ipfs")}
                   className={[
                     "text-left rounded-[var(--radius)] border border-[var(--border)] bg-[color-mix(in_srgb,var(--bg)_55%,transparent)] p-3 transition-all relative",
                     (profile.deckStorageOption ?? "link") === "public_ipfs"
@@ -631,9 +676,9 @@ export default function StartupProfilePage() {
                       : "hover:border-metatron-accent/20 hover:shadow-[0_0_24px_rgba(108,92,231,0.08)]",
                   ].join(" ")}
                 >
-                  {!isPro && (
+                  {!canPublicIpfs && (
                     <span className="absolute top-2 right-2 font-mono text-[9px] uppercase tracking-wider border border-metatron-accent/40 text-metatron-accent px-1.5 py-0.5 rounded">
-                      Pro
+                      Basic
                     </span>
                   )}
                   <div className="text-lg">🌐</div>
@@ -652,18 +697,7 @@ export default function StartupProfilePage() {
 
                 <button
                   type="button"
-                  onClick={() => {
-                    if (!isPro) {
-                      setDeckUpgradePrompt(true);
-                      return;
-                    }
-                    setDeckUpgradePrompt(false);
-                    setProfile((p) => ({
-                      ...p,
-                      deckStorageOption: "private_ipfs",
-                      ipfs_visibility: "private",
-                    }));
-                  }}
+                  onClick={() => onDeckStorageOptionChange("private_ipfs")}
                   className={[
                     "text-left rounded-[var(--radius)] border border-[var(--border)] bg-[color-mix(in_srgb,var(--bg)_55%,transparent)] p-3 transition-all relative",
                     (profile.deckStorageOption ?? "link") === "private_ipfs"
@@ -671,7 +705,7 @@ export default function StartupProfilePage() {
                       : "hover:border-metatron-accent/20 hover:shadow-[0_0_24px_rgba(108,92,231,0.08)]",
                   ].join(" ")}
                 >
-                  {!isPro && (
+                  {!isProTier && (
                     <span className="absolute top-2 right-2 font-mono text-[9px] uppercase tracking-wider border border-metatron-accent/40 text-metatron-accent px-1.5 py-0.5 rounded">
                       Pro
                     </span>
@@ -700,20 +734,31 @@ export default function StartupProfilePage() {
                 </div>
               )}
 
-              {!isPro &&
-                deckUpgradePrompt &&
-                (profile.deckStorageOption === "public_ipfs" ||
-                  profile.deckStorageOption === "private_ipfs") && (
-                  <div className="rounded-[12px] border border-metatron-accent/20 bg-metatron-accent/5 p-3 text-xs text-[var(--text-muted)]">
-                    Upgrade to Pro to use IPFS storage.{" "}
-                    <a
-                      href="/pricing"
-                      className="text-metatron-accent hover:underline font-semibold"
-                    >
-                      View pricing →
-                    </a>
-                  </div>
-                )}
+              {deckUpgradeKind && (
+                <div className="rounded-[12px] border border-metatron-accent/20 bg-metatron-accent/5 p-3 text-xs text-[var(--text-muted)]">
+                  {deckUpgradeKind === "basic" ? (
+                    <>
+                      Upgrade to Basic for public IPFS.{" "}
+                      <a
+                        href="/pricing"
+                        className="text-metatron-accent hover:underline font-semibold"
+                      >
+                        View pricing →
+                      </a>
+                    </>
+                  ) : (
+                    <>
+                      Upgrade to Pro for private IPFS.{" "}
+                      <a
+                        href="/pricing"
+                        className="text-metatron-accent hover:underline font-semibold"
+                      >
+                        View pricing →
+                      </a>
+                    </>
+                  )}
+                </div>
+              )}
 
               {(profile.deckStorageOption ?? "link") === "link" ? (
                 <label className="block space-y-1">
@@ -761,8 +806,15 @@ export default function StartupProfilePage() {
                   <button
                     type="button"
                     onClick={() => {
-                      if (!isPro) {
-                        setDeckUpgradePrompt(true);
+                      const opt = profile.deckStorageOption ?? "link";
+                      if (opt === "private_ipfs" && !isProTier) {
+                        setDeckUpgradeKind("pro");
+                        setMsg("Upgrade to Pro for private IPFS.");
+                        return;
+                      }
+                      if (opt === "public_ipfs" && !canPublicIpfs) {
+                        setDeckUpgradeKind("basic");
+                        setMsg("Upgrade to Basic for public IPFS.");
                         return;
                       }
                       fileInputRef.current?.click();

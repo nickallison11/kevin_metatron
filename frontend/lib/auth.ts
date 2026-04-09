@@ -6,7 +6,14 @@ import { API_BASE } from "@/lib/api";
 
 export type AuthState = {
   token: string | null;
+  /** True when the user has an active paid subscription (any tier). */
   isPro: boolean;
+  /**
+   * True when subscription_tier is `basic` or `pro`, or legacy Basic billing (`monthly` / `annual`).
+   */
+  isBasic: boolean;
+  /** True when subscription_tier is `pro` and subscription is active (private IPFS). */
+  isProTier: boolean;
   loading: boolean;
 };
 
@@ -41,6 +48,8 @@ export function useAuth(
   const [state, setState] = useState<AuthState>({
     token: null,
     isPro: false,
+    isBasic: false,
+    isProTier: false,
     loading: true,
   });
   const [role, setRole] = useState<string | null>(null);
@@ -48,7 +57,13 @@ export function useAuth(
   useEffect(() => {
     const token = window.localStorage.getItem("metatron_token");
     if (!token) {
-      setState({ token: null, isPro: false, loading: false });
+      setState({
+        token: null,
+        isPro: false,
+        isBasic: false,
+        isProTier: false,
+        loading: false,
+      });
       setRole(null);
       router.replace("/login");
       return;
@@ -59,7 +74,13 @@ export function useAuth(
 
     if (requiredRole && r && r !== requiredRole) {
       router.replace(dashboardPathForRole(r));
-      setState({ token, isPro: false, loading: false });
+      setState({
+        token,
+        isPro: false,
+        isBasic: false,
+        isProTier: false,
+        loading: false,
+      });
       return;
     }
 
@@ -67,15 +88,39 @@ export function useAuth(
       headers: { Authorization: `Bearer ${token}` },
     })
       .then((res) => (res.ok ? res.json() : null))
-      .then((data: { subscription_status?: string } | null) => {
+      .then(
+        (
+          data: {
+            subscription_status?: string;
+            subscription_tier?: string;
+          } | null,
+        ) => {
+          const active = data?.subscription_status === "active";
+          const tier = (data?.subscription_tier ?? "free").toLowerCase();
+          const isProTier = active && tier === "pro";
+          const isBasic =
+            active &&
+            (tier === "basic" ||
+              tier === "pro" ||
+              tier === "monthly" ||
+              tier === "annual");
+          setState({
+            token,
+            isPro: active,
+            isBasic,
+            isProTier,
+            loading: false,
+          });
+        },
+      )
+      .catch(() => {
         setState({
           token,
-          isPro: data?.subscription_status === "active",
+          isPro: false,
+          isBasic: false,
+          isProTier: false,
           loading: false,
         });
-      })
-      .catch(() => {
-        setState({ token, isPro: false, loading: false });
       });
   }, [router, requiredRole]);
 

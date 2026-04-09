@@ -839,7 +839,7 @@ export default function StartupProfilePage() {
 
               <p className="text-xs text-[var(--text-muted)]">
                 {(profile.deckStorageOption ?? "link") === "link"
-                  ? "Store your deck on Google Drive, Dropbox, Notion, or any cloud storage. Make sure sharing is set appropriately for investors."
+                  ? "Store your deck link for your own reference only. Cloud-hosted decks are not shared with investors on metatron."
                   : "Paste a cloud link or upload a PDF directly to IPFS. Uploaded files are stored on your chosen visibility setting."}
               </p>
 

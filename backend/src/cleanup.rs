@@ -99,6 +99,164 @@ pub fn start_cleanup_task(state: Arc<AppState>) {
                 }
             }
 
+            // ----------------------------------------------------------------
+            // Deck expiry: day-7 email reminder
+            // ----------------------------------------------------------------
+            match sqlx::query_as::<_, (sqlx::types::Uuid, String)>(
+                r#"
+                SELECT u.id, u.email
+                FROM profiles p
+                JOIN users u ON u.id = p.user_id
+                WHERE p.deck_expires_at BETWEEN NOW() + INTERVAL '6 days' AND NOW() + INTERVAL '7 days'
+                AND p.pitch_deck_url IS NOT NULL
+                AND u.is_pro = FALSE
+                "#,
+            )
+            .fetch_all(&state.db)
+            .await
+            {
+                Ok(rows) => {
+                    for (id, email_addr) in rows {
+                        email::send_email(
+                            &state.http_client,
+                            state.resend_api_key.as_deref(),
+                            &state.email_from,
+                            &email_addr,
+                            "Your metatron pitch deck expires in 7 days",
+                            &email::deck_expiry_7_days_html(),
+                        )
+                        .await;
+                        tracing::info!("cleanup: deck expiry 7-day reminder sent for user {}", id);
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("cleanup: failed loading deck expiry 7-day reminder users: {e}");
+                }
+            }
+
+            // ----------------------------------------------------------------
+            // Deck expiry: day-13 email reminder (expires within 24 hours)
+            // ----------------------------------------------------------------
+            match sqlx::query_as::<_, (sqlx::types::Uuid, String)>(
+                r#"
+                SELECT u.id, u.email
+                FROM profiles p
+                JOIN users u ON u.id = p.user_id
+                WHERE p.deck_expires_at BETWEEN NOW() AND NOW() + INTERVAL '1 day'
+                AND p.pitch_deck_url IS NOT NULL
+                AND u.is_pro = FALSE
+                "#,
+            )
+            .fetch_all(&state.db)
+            .await
+            {
+                Ok(rows) => {
+                    for (id, email_addr) in rows {
+                        email::send_email(
+                            &state.http_client,
+                            state.resend_api_key.as_deref(),
+                            &state.email_from,
+                            &email_addr,
+                            "Your metatron pitch deck expires tomorrow",
+                            &email::deck_expiry_1_day_html(),
+                        )
+                        .await;
+                        tracing::info!("cleanup: deck expiry 1-day reminder sent for user {}", id);
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("cleanup: failed loading deck expiry 1-day reminder users: {e}");
+                }
+            }
+
+            // ----------------------------------------------------------------
+            // Deck expiry: unpin from Pinata and clear profile fields
+            // ----------------------------------------------------------------
+            if let Some(pinata_jwt) = state.pinata_jwt.as_deref().filter(|v| !v.trim().is_empty()) {
+                let pinata_jwt = pinata_jwt.to_string();
+                match sqlx::query_as::<_, (sqlx::types::Uuid, String)>(
+                    r#"
+                    SELECT p.user_id, p.pitch_deck_url
+                    FROM profiles p
+                    JOIN users u ON u.id = p.user_id
+                    WHERE p.deck_expires_at IS NOT NULL
+                    AND p.deck_expires_at < NOW()
+                    AND p.pitch_deck_url IS NOT NULL
+                    AND u.is_pro = FALSE
+                    "#,
+                )
+                .fetch_all(&state.db)
+                .await
+                {
+                    Ok(rows) => {
+                        for (user_id, deck_url) in rows {
+                            let cid_opt = deck_url
+                                .split("/ipfs/")
+                                .nth(1)
+                                .and_then(|s| {
+                                    let c = s.split('/').next().unwrap_or("").trim().to_string();
+                                    if c.is_empty() { None } else { Some(c) }
+                                });
+
+                            if let Some(cid) = cid_opt {
+                                let unpin_url = format!("https://api.pinata.cloud/pinning/unpin/{cid}");
+                                match state
+                                    .http_client
+                                    .delete(&unpin_url)
+                                    .bearer_auth(&pinata_jwt)
+                                    .send()
+                                    .await
+                                {
+                                    Ok(resp) => {
+                                        let status = resp.status();
+                                        if status.is_success() || status.as_u16() == 404 {
+                                            tracing::info!(
+                                                "cleanup: unpinned deck {} for user {}",
+                                                cid,
+                                                user_id
+                                            );
+                                        } else {
+                                            tracing::warn!(
+                                                "cleanup: pinata unpin returned {} for CID {} user {}",
+                                                status,
+                                                cid,
+                                                user_id
+                                            );
+                                        }
+                                    }
+                                    Err(e) => {
+                                        tracing::error!(
+                                            "cleanup: pinata unpin request failed for CID {cid}: {e}"
+                                        );
+                                    }
+                                }
+                            }
+
+                            // Always clear the profile fields regardless of unpin outcome,
+                            // so we don't retry the same record indefinitely.
+                            if let Err(e) = sqlx::query(
+                                r#"
+                                UPDATE profiles
+                                SET pitch_deck_url = NULL, deck_expires_at = NULL
+                                WHERE user_id = $1
+                                "#,
+                            )
+                            .bind(user_id)
+                            .execute(&state.db)
+                            .await
+                            {
+                                tracing::error!(
+                                    "cleanup: failed clearing expired deck fields for user {user_id}: {e}"
+                                );
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::error!("cleanup: failed loading expired decks: {e}");
+                    }
+                }
+            }
+
             tokio::time::sleep(Duration::from_secs(86_400)).await;
         }
     });

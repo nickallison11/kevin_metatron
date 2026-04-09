@@ -213,6 +213,34 @@ pub fn renewal_reminder_email_html(expiry_date: &str) -> String {
     )
 }
 
+pub fn deck_expiry_7_days_html() -> String {
+    shell_html(
+        "Your pitch deck expires in 7 days",
+        r#"
+<p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">Your free pitch deck on metatron IPFS storage will expire in <strong>7 days</strong>.</p>
+<p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">After expiry, your deck link will stop working and investors will no longer be able to view it through the platform.</p>
+<p style="margin:0 0 16px 0;font-size:14px;">
+  <a href="https://platform.metatron.id/pricing" style="display:inline-block;background:#6c5ce7;color:#ffffff;text-decoration:none;padding:10px 18px;border-radius:12px;font-weight:600;">Upgrade to Basic — keep your deck live →</a>
+</p>
+<p style="margin:0 0 0 0;font-size:13px;color:#8888a0;">Basic includes permanent IPFS storage, unlimited re-uploads, and Kevin re-extraction on every update.</p>
+"#,
+    )
+}
+
+pub fn deck_expiry_1_day_html() -> String {
+    shell_html(
+        "Your pitch deck expires tomorrow",
+        r#"
+<p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">Your free pitch deck on metatron IPFS storage expires <strong>tomorrow</strong>.</p>
+<p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">After expiry, your deck link will be removed and investors will no longer be able to view it. To re-upload or edit your pitch fields, you will need to upgrade.</p>
+<p style="margin:0 0 16px 0;font-size:14px;">
+  <a href="https://platform.metatron.id/pricing" style="display:inline-block;background:#6c5ce7;color:#ffffff;text-decoration:none;padding:10px 18px;border-radius:12px;font-weight:600;">Upgrade now to keep your deck →</a>
+</p>
+<p style="margin:0 0 0 0;font-size:13px;color:#8888a0;">Upgrade to Basic for permanent storage and unlimited re-uploads.</p>
+"#,
+    )
+}
+
 pub fn email_changed_notice_html(new_email: &str) -> String {
     shell_html(
         "Your metatron email has been changed",

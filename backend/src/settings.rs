@@ -45,6 +45,10 @@ pub struct Settings {
     pub whatsapp_phone_number_id: Option<String>,
     /// When set, signup must include a matching `invite_secret` (shared invite link code).
     pub invite_secret: Option<String>,
+    /// Pinata group IDs for tier-based file organisation. Env: PINATA_GROUP_FREE / PINATA_GROUP_BASIC / PINATA_GROUP_PRO.
+    pub pinata_group_free: Option<String>,
+    pub pinata_group_basic: Option<String>,
+    pub pinata_group_pro: Option<String>,
 }
 
 impl Settings {
@@ -160,6 +164,19 @@ impl Settings {
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty());
 
+        let pinata_group_free = env::var("PINATA_GROUP_FREE")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+        let pinata_group_basic = env::var("PINATA_GROUP_BASIC")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+        let pinata_group_pro = env::var("PINATA_GROUP_PRO")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+
         Ok(Self {
             database_url,
             port,
@@ -203,6 +220,9 @@ impl Settings {
             whatsapp_access_token,
             whatsapp_phone_number_id,
             invite_secret,
+            pinata_group_free,
+            pinata_group_basic,
+            pinata_group_pro,
         })
     }
 }

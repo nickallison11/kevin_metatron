@@ -43,6 +43,9 @@ pub struct AppState {
     pub whatsapp_access_token: Option<String>,
     pub whatsapp_phone_number_id: Option<String>,
     pub invite_secret: Option<String>,
+    pub pinata_group_free: Option<String>,
+    pub pinata_group_basic: Option<String>,
+    pub pinata_group_pro: Option<String>,
     pub http_client: Client,
 }
 
@@ -100,6 +103,9 @@ impl AppState {
             whatsapp_access_token: settings.whatsapp_access_token.clone(),
             whatsapp_phone_number_id: settings.whatsapp_phone_number_id.clone(),
             invite_secret: settings.invite_secret.clone(),
+            pinata_group_free: settings.pinata_group_free.clone(),
+            pinata_group_basic: settings.pinata_group_basic.clone(),
+            pinata_group_pro: settings.pinata_group_pro.clone(),
             http_client,
         }))
     }

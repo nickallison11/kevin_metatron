@@ -176,6 +176,36 @@ async fn upload_pitch_deck(
     let visibility = "public";
     let cid_out: Option<String> = Some(cid.to_string());
 
+    // Assign to the appropriate Pinata group based on subscription tier (best-effort).
+    let group_id = match authed_user.subscription_tier.to_ascii_lowercase().as_str() {
+        "pro" => state.pinata_group_pro.as_deref(),
+        "basic" | "monthly" | "annual" => state.pinata_group_basic.as_deref(),
+        _ => state.pinata_group_free.as_deref(),
+    };
+    if let (Some(group_id), Some(jwt)) = (group_id, state.pinata_jwt.as_deref()) {
+        let group_url = format!("https://api.pinata.cloud/v3/groups/{group_id}/ids");
+        match state
+            .http_client
+            .put(&group_url)
+            .bearer_auth(jwt)
+            .json(&serde_json::json!({ "cids": [cid] }))
+            .send()
+            .await
+        {
+            Ok(resp) if resp.status().is_success() => {
+                tracing::info!("pinata: assigned CID {} to group {}", cid, group_id);
+            }
+            Ok(resp) => {
+                let status = resp.status();
+                let body = resp.text().await.unwrap_or_default();
+                tracing::warn!("pinata: group assign returned {} for CID {}: {}", status, cid, body.chars().take(200).collect::<String>());
+            }
+            Err(e) => {
+                tracing::warn!("pinata: group assign request failed for CID {}: {}", cid, e);
+            }
+        }
+    }
+
     let deck_expires_at = Utc::now() + ChronoDuration::days(14);
 
     sqlx::query(

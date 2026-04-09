@@ -130,83 +130,85 @@ async fn upload_pitch_deck(
     let display_name = sanitize_upload_filename(&original);
 
     let mime = if is_pdf { "application/pdf" } else { "application/octet-stream" };
-    let meta = json!({ "name": display_name });
-    let mut form = reqwest::multipart::Form::new().text("pinataMetadata", meta.to_string());
-    let part = reqwest::multipart::Part::bytes(raw.clone())
-        .file_name(filename)
+
+    // Determine group for this user's tier.
+    let pinata_group = match authed_user.subscription_tier.to_ascii_lowercase().as_str() {
+        "pro" => state.pinata_group_pro.clone(),
+        "basic" | "monthly" | "annual" => state.pinata_group_basic.clone(),
+        _ => state.pinata_group_free.clone(),
+    };
+
+    // Try v3 upload (uploads.pinata.cloud — no body-size limit, supports group_id).
+    // Fall back to v2 pinFileToIPFS if v3 fails.
+    let file_part = reqwest::multipart::Part::bytes(raw.clone())
+        .file_name(filename.clone())
         .mime_str(mime)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    form = form.part("file", part);
+    let mut v3_form = reqwest::multipart::Form::new()
+        .text("name", display_name.clone())
+        .part("file", file_part);
+    if let Some(ref gid) = pinata_group {
+        v3_form = v3_form.text("group_id", gid.clone());
+    }
 
-    let pinata_res = state
+    let v3_res = state
         .http_client
-        .post("https://api.pinata.cloud/pinning/pinFileToIPFS")
+        .post("https://uploads.pinata.cloud/v3/files")
         .bearer_auth(&pinata_jwt)
-        .multipart(form)
+        .multipart(v3_form)
         .send()
-        .await
-        .map_err(|e| (StatusCode::BAD_GATEWAY, format!("pinata upload failed: {e}")))?;
-    let pinata_status = pinata_res.status();
-    let pinata_text = pinata_res
-        .text()
-        .await
-        .map_err(|_| (StatusCode::BAD_GATEWAY, "pinata upload parse failed".into()))?;
-    if !pinata_status.is_success() {
-        tracing::error!(
-            "pinata upload failed: status={} body={}",
-            pinata_status,
-            pinata_text.chars().take(500).collect::<String>()
-        );
-        return Err((
-            StatusCode::BAD_GATEWAY,
-            format!("pinata upload failed: {pinata_text}"),
-        ));
-    }
-    let pinata_json: serde_json::Value = serde_json::from_str(&pinata_text)
-        .map_err(|_| (StatusCode::BAD_GATEWAY, "pinata upload parse failed".into()))?;
+        .await;
 
-    let cid = pinata_json
-        .get("IpfsHash")
-        .and_then(|v| v.as_str())
-        .ok_or((
-            StatusCode::BAD_GATEWAY,
-            "pinata response missing IpfsHash".into(),
-        ))?;
-
-    tracing::info!("pinata: uploaded CID {}", cid);
-
-    // Register the v2-uploaded CID into v3 storage with the correct group (best-effort).
-    let pinata_group = match authed_user.subscription_tier.to_ascii_lowercase().as_str() {
-        "pro" => state.pinata_group_pro.as_deref(),
-        "basic" | "monthly" | "annual" => state.pinata_group_basic.as_deref(),
-        _ => state.pinata_group_free.as_deref(),
-    };
-    if let Some(group_id) = pinata_group {
-        let body = json!({ "cid": cid, "name": display_name, "group_id": group_id });
-        match state
-            .http_client
-            .post("https://api.pinata.cloud/v3/files/public")
-            .bearer_auth(&pinata_jwt)
-            .json(&body)
-            .send()
-            .await
-        {
-            Ok(r) if r.status().is_success() => {
-                tracing::info!("pinata: registered CID {} in v3 group {}", cid, group_id);
-            }
-            Ok(r) => {
-                let status = r.status();
-                let body = r.text().await.unwrap_or_default();
-                tracing::warn!(
-                    "pinata: v3 group register returned {} for CID {}: {}",
-                    status, cid, body.chars().take(300).collect::<String>()
-                );
-            }
-            Err(e) => {
-                tracing::warn!("pinata: v3 group register request failed for CID {}: {}", cid, e);
-            }
+    let cid: String = match v3_res {
+        Ok(r) if r.status().is_success() => {
+            let text = r.text().await.unwrap_or_default();
+            let j: serde_json::Value = serde_json::from_str(&text)
+                .map_err(|_| (StatusCode::BAD_GATEWAY, "pinata v3 parse failed".into()))?;
+            let c = j.pointer("/data/cid").and_then(|v| v.as_str())
+                .ok_or((StatusCode::BAD_GATEWAY, "pinata v3 missing data.cid".into()))?
+                .to_string();
+            tracing::info!("pinata: v3 uploaded CID {} group {:?}", c, pinata_group);
+            c
         }
-    }
+        Ok(r) => {
+            let status = r.status();
+            let body = r.text().await.unwrap_or_default();
+            tracing::warn!("pinata: v3 upload returned {} — falling back to v2: {}", status, body.chars().take(200).collect::<String>());
+            // v2 fallback
+            let meta = json!({ "name": display_name });
+            let part2 = reqwest::multipart::Part::bytes(raw.clone())
+                .file_name(filename)
+                .mime_str(mime)
+                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+            let form2 = reqwest::multipart::Form::new()
+                .text("pinataMetadata", meta.to_string())
+                .part("file", part2);
+            let res2 = state.http_client
+                .post("https://api.pinata.cloud/pinning/pinFileToIPFS")
+                .bearer_auth(&pinata_jwt)
+                .multipart(form2)
+                .send()
+                .await
+                .map_err(|e| (StatusCode::BAD_GATEWAY, format!("pinata v2 failed: {e}")))?;
+            let s2 = res2.status();
+            let t2 = res2.text().await.unwrap_or_default();
+            if !s2.is_success() {
+                tracing::error!("pinata v2 failed: status={} body={}", s2, t2.chars().take(300).collect::<String>());
+                return Err((StatusCode::BAD_GATEWAY, format!("pinata upload failed: {t2}")));
+            }
+            let j2: serde_json::Value = serde_json::from_str(&t2)
+                .map_err(|_| (StatusCode::BAD_GATEWAY, "pinata v2 parse failed".into()))?;
+            let c = j2.get("IpfsHash").and_then(|v| v.as_str())
+                .ok_or((StatusCode::BAD_GATEWAY, "pinata v2 missing IpfsHash".into()))?
+                .to_string();
+            tracing::info!("pinata: v2 fallback uploaded CID {}", c);
+            c
+        }
+        Err(e) => {
+            return Err((StatusCode::BAD_GATEWAY, format!("pinata upload failed: {e}")));
+        }
+    };
+    let cid = cid.as_str();
 
     let url = format!("https://{pinata_gateway}/ipfs/{cid}");
     let visibility = "public";

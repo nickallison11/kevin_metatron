@@ -4,7 +4,11 @@ use axum::extract::rejection::JsonRejection;
 use axum::http::HeaderMap;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
-use axum::{extract::State, routing::{get, post}, Json, Router};
+use axum::{
+    extract::{Query, State},
+    routing::{get, post},
+    Json, Router,
+};
 use axum_extra::{
     headers::{authorization::Bearer, Authorization},
     TypedHeader,
@@ -22,6 +26,7 @@ use crate::state::AppState;
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
+        .route("/chat/sessions", get(chat_sessions))
         .route("/chat/history", get(chat_history))
         .route("/chat", post(chat))
         .route("/inbound-email", post(inbound_email))
@@ -415,6 +420,8 @@ pub struct ChatRequest {
     pub messages: Vec<ChatMessage>,
     #[serde(default)]
     pub system_context: Option<String>,
+    #[serde(default)]
+    pub session_id: Option<Uuid>,
 }
 
 #[derive(Deserialize, Serialize, Clone)]
@@ -906,12 +913,15 @@ Stay in character as Kevin. If asked about capabilities you don't have, say what
     let uid2 = user.id;
     let user_msg = last_user_message.clone();
     let assistant_msg = reply.clone();
+    let session_id = body.session_id;
     tokio::spawn(async move {
         let _ = sqlx::query(
-            "INSERT INTO kevin_chat_turns (user_id, role, content) VALUES ($1, 'user', $2), ($1, 'assistant', $3)",
+            r#"INSERT INTO kevin_chat_turns (user_id, role, content, session_id)
+               VALUES ($1, 'user', $2, $3), ($1, 'assistant', $4, $3)"#,
         )
         .bind(uid2)
         .bind(&user_msg)
+        .bind(session_id)
         .bind(&assistant_msg)
         .execute(&db2)
         .await;
@@ -920,26 +930,106 @@ Stay in character as Kevin. If asked about capabilities you don't have, say what
     Ok(Json(ChatResponse { reply }))
 }
 
-async fn chat_history(
+#[derive(Deserialize)]
+struct HistoryParams {
+    session_id: Option<Uuid>,
+}
+
+#[derive(Serialize)]
+struct SessionSummary {
+    session_id: Uuid,
+    title: String,
+    last_message_at: String,
+    message_count: i64,
+}
+
+async fn chat_sessions(
     State(state): State<Arc<AppState>>,
     TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
-) -> Result<Json<Vec<ChatMessage>>, (StatusCode, String)> {
+) -> Result<Json<Vec<SessionSummary>>, (StatusCode, String)> {
     let user = require_user(&state, bearer.token()).await?;
 
-    let rows: Vec<(String, String)> = sqlx::query_as(
+    #[derive(sqlx::FromRow)]
+    struct SessionRow {
+        session_id: Uuid,
+        title: String,
+        last_message_at: String,
+        message_count: i64,
+    }
+
+    let rows: Vec<SessionRow> = sqlx::query_as(
         r#"
-        SELECT role, content FROM (
-            SELECT role, content, created_at
-            FROM kevin_chat_turns
-            WHERE user_id = $1
-            ORDER BY created_at DESC
-            LIMIT 40
-        ) sub ORDER BY sub.created_at ASC
+        SELECT
+            t.session_id,
+            COALESCE(
+                (SELECT t2.content FROM kevin_chat_turns t2
+                 WHERE t2.session_id = t.session_id
+                   AND t2.user_id = $1
+                   AND t2.role = 'user'
+                 ORDER BY t2.created_at ASC
+                 LIMIT 1),
+                ''
+            ) AS title,
+            MAX(t.created_at)::text AS last_message_at,
+            COUNT(*)::bigint AS message_count
+        FROM kevin_chat_turns t
+        WHERE t.user_id = $1 AND t.session_id IS NOT NULL
+        GROUP BY t.session_id
+        ORDER BY MAX(t.created_at) DESC
+        LIMIT 30
         "#,
     )
     .bind(user.id)
     .fetch_all(&state.db)
     .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "db error".into()))?;
+
+    Ok(Json(
+        rows
+            .into_iter()
+            .map(|r| SessionSummary {
+                session_id: r.session_id,
+                title: r.title.chars().take(50).collect::<String>(),
+                last_message_at: r.last_message_at,
+                message_count: r.message_count,
+            })
+            .collect(),
+    ))
+}
+
+async fn chat_history(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+    Query(params): Query<HistoryParams>,
+) -> Result<Json<Vec<ChatMessage>>, (StatusCode, String)> {
+    let user = require_user(&state, bearer.token()).await?;
+
+    let rows: Vec<(String, String)> = if let Some(sid) = params.session_id {
+        sqlx::query_as(
+            r#"SELECT role, content FROM kevin_chat_turns
+               WHERE user_id = $1 AND session_id = $2
+               ORDER BY created_at ASC"#,
+        )
+        .bind(user.id)
+        .bind(sid)
+        .fetch_all(&state.db)
+        .await
+    } else {
+        sqlx::query_as(
+            r#"
+            SELECT role, content FROM (
+                SELECT role, content, created_at
+                FROM kevin_chat_turns
+                WHERE user_id = $1
+                ORDER BY created_at DESC
+                LIMIT 40
+            ) sub ORDER BY sub.created_at ASC
+            "#,
+        )
+        .bind(user.id)
+        .fetch_all(&state.db)
+        .await
+    }
     .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "db error".into()))?;
 
     Ok(Json(

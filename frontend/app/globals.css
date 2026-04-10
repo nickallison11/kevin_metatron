@@ -36,15 +36,7 @@ body {
 
 /* Fixed grid (matches reference/platform-live/App.css) */
 .grid-bg {
-  position: fixed;
-  inset: 0;
-  background-image:
-    linear-gradient(var(--border) 1px, transparent 1px),
-    linear-gradient(90deg, var(--border) 1px, transparent 1px);
-  background-size: 52px 52px;
-  opacity: 0.4;
-  z-index: 0;
-  pointer-events: none;
+  display: none;
 }
 
 /* Purple orb glow */

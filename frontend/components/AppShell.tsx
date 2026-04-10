@@ -40,7 +40,14 @@ function dashboardPathForRole(role: string | null | undefined): string {
 }
 
 export default function AppShell({ children }: { children: ReactNode }) {
-  const [theme, setTheme] = useState<"dark" | "light">("dark");
+  const [theme, setTheme] = useState<"dark" | "light">(() => {
+    if (typeof window === "undefined") return "dark";
+    const stored = localStorage.getItem("metatron_theme");
+    if (stored === "light" || stored === "dark") return stored;
+    return window.matchMedia("(prefers-color-scheme: light)").matches
+      ? "light"
+      : "dark";
+  });
   const [token, setToken] = useState<string | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const router = useRouter();
@@ -96,7 +103,11 @@ export default function AppShell({ children }: { children: ReactNode }) {
   }, [token]);
 
   function toggleTheme() {
-    setTheme((t) => (t === "dark" ? "light" : "dark"));
+    setTheme((t) => {
+      const next = t === "dark" ? "light" : "dark";
+      localStorage.setItem("metatron_theme", next);
+      return next;
+    });
   }
 
   const role = token ? decodeRoleFromJwt(token) : null;

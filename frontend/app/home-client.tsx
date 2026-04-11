@@ -85,8 +85,8 @@ function HomePageContent() {
             <span className="text-metatron-accent"> metatron</span>
           </h1>
           <p className="mx-auto max-w-[420px] text-[15px] leading-relaxed text-[var(--text-muted)]">
-            The intelligence layer connecting founders, investors, and ecosystem
-            partners globally.
+            Eliminating information asymmetry between founders and capital —
+            globally.
           </p>
         </div>
 

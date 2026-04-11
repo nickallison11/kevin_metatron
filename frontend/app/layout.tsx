@@ -17,7 +17,7 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "metatron",
+  title: "metatron — The intelligence layer connecting founders and investors globally",
   description:
     "The intelligence layer connecting founders, investors, and ecosystem partners globally.",
   icons: {

@@ -1,6 +1,5 @@
 "use client";
 
-import { AnimatedGridPattern } from "@/components/ui/animated-grid-pattern";
 import { CardHoverEffect } from "@/components/ui/card-hover-effect";
 import { API_BASE } from "@/lib/api";
 import Link from "next/link";
@@ -30,7 +29,6 @@ export default function ForgotPasswordPage() {
 
   return (
     <div className="relative flex min-h-[calc(100vh-88px)] items-center justify-center px-5 py-10">
-      <AnimatedGridPattern />
       <div className="relative z-[1] w-full max-w-sm space-y-4">
         <CardHoverEffect layoutId="metatron-forgot-password-hover">
           <div className="w-full rounded-metatron border border-[var(--border)] bg-[var(--bg-card)] p-6">

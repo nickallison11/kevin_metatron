@@ -1,6 +1,5 @@
 "use client";
 
-import { AnimatedGridPattern } from "@/components/ui/animated-grid-pattern";
 import { CardHoverEffect } from "@/components/ui/card-hover-effect";
 import Link from "next/link";
 import { FormEvent, Suspense, useState } from "react";
@@ -20,7 +19,6 @@ function dashboardPathForRole(role: string | null): string {
 function InviteOnlyMessage() {
   return (
     <div className="relative flex min-h-[calc(100vh-88px)] items-center justify-center px-5 py-10">
-      <AnimatedGridPattern />
       <CardHoverEffect
         layoutId="metatron-signup-card-hover"
         className="relative z-[1] w-full max-w-sm"
@@ -114,7 +112,6 @@ function SignupForm() {
 
   return (
     <div className="relative flex min-h-[calc(100vh-88px)] items-center justify-center px-5 py-10">
-      <AnimatedGridPattern />
       <CardHoverEffect
         layoutId="metatron-signup-card-hover"
         className="relative z-[1] w-full max-w-sm"
@@ -207,7 +204,6 @@ export default function SignupPage() {
     <Suspense
       fallback={
         <div className="relative flex min-h-[calc(100vh-88px)] items-center justify-center px-5 py-10">
-          <AnimatedGridPattern />
           <p className="relative z-[1] text-sm text-[var(--text-muted)]">Loading…</p>
         </div>
       }

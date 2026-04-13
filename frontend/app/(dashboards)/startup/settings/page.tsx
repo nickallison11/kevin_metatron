@@ -85,6 +85,26 @@ export default function StartupSettingsPage() {
     })();
   }, [token]);
 
+  useEffect(() => {
+    if (!token || !telegramLinkCode || me?.telegram_id) return;
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`${API_BASE}/auth/me`, {
+          headers: authHeaders(token),
+        });
+        if (!res.ok) return;
+        const data = (await res.json()) as MeResponse;
+        if (data.telegram_id) {
+          setMe(data);
+          setTelegramLinkCode(null);
+        }
+      } catch {
+        // ignore
+      }
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [token, telegramLinkCode, me?.telegram_id]);
+
   async function onChangeEmail(e: FormEvent) {
     e.preventDefault();
     if (!token) return;

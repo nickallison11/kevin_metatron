@@ -104,15 +104,10 @@ function deckExpiryLabel(iso: string): string {
 }
 
 export default function StartupProfilePage() {
-  const { token, isPro, isBasic, isProTier, loading: authLoading } = useAuth();
+  const { token, isPro, loading: authLoading } = useAuth();
   const [msg, setMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [savingVisibility, setSavingVisibility] = useState(false);
-  /** Which upgrade path we are prompting for after a gated IPFS action. */
-  const [deckUpgradeKind, setDeckUpgradeKind] = useState<
-    "basic" | "pro" | null
-  >(null);
   const [profile, setProfile] = useState<Profile>({ sectors: [] });
   const [sectorDraft, setSectorDraft] = useState("");
   const [primaryDeckUploadBusy, setPrimaryDeckUploadBusy] = useState(false);
@@ -127,7 +122,6 @@ export default function StartupProfilePage() {
   const [whatsappSaving, setWhatsappSaving] = useState(false);
   const [whatsappMsg, setWhatsappMsg] = useState<string | null>(null);
 
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const primaryDeckPdfRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -247,48 +241,6 @@ export default function StartupProfilePage() {
 
   const deckCount = profile.deck_upload_count ?? 0;
   const freeDeckUsed = !isPro && deckCount >= 1;
-  const canPublicIpfs = isBasic || isProTier;
-
-  function onDeckStorageOptionChange(
-    option: "link" | "public_ipfs" | "private_ipfs",
-  ) {
-    if (option === "link") {
-      setDeckUpgradeKind(null);
-      setProfile((p) => ({
-        ...p,
-        deckStorageOption: "link",
-        ipfs_visibility: "public",
-      }));
-      return;
-    }
-    if (option === "public_ipfs") {
-      if (!canPublicIpfs) {
-        setDeckUpgradeKind("basic");
-        setMsg("Upgrade to Basic for public IPFS.");
-        return;
-      }
-      setDeckUpgradeKind(null);
-      setProfile((p) => ({
-        ...p,
-        deckStorageOption: "public_ipfs",
-        ipfs_visibility: "public",
-      }));
-      return;
-    }
-    if (option === "private_ipfs") {
-      if (!isProTier) {
-        setDeckUpgradeKind("pro");
-        setMsg("Upgrade to Pro for private IPFS.");
-        return;
-      }
-      setDeckUpgradeKind(null);
-      setProfile((p) => ({
-        ...p,
-        deckStorageOption: "private_ipfs",
-        ipfs_visibility: "private",
-      }));
-    }
-  }
 
   async function reloadProfileFromApi() {
     if (!token) return;
@@ -388,75 +340,6 @@ export default function StartupProfilePage() {
     }
   }
 
-  async function onDeckUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file || !token) {
-      setMsg("Pick a file and ensure you are signed in.");
-      return;
-    }
-    const opt = profile.deckStorageOption ?? "link";
-    if (opt === "private_ipfs" && !isProTier) {
-      setDeckUpgradeKind("pro");
-      setMsg("Upgrade to Pro for private IPFS.");
-      e.target.value = "";
-      return;
-    }
-    if (opt === "public_ipfs" && !canPublicIpfs) {
-      setDeckUpgradeKind("basic");
-      setMsg("Upgrade to Basic for public IPFS.");
-      e.target.value = "";
-      return;
-    }
-    setMsg(null);
-    try {
-      const desiredVisibility =
-        (profile.deckStorageOption ?? "link") === "private_ipfs"
-          ? "private"
-          : "public";
-      // Ensure the backend uploads to the correct Pinata network.
-      setSavingVisibility(true);
-      const visRes = await fetch(`${API_BASE}/uploads/ipfs-visibility`, {
-        method: "PUT",
-        headers: authJsonHeaders(token),
-        body: JSON.stringify({ visibility: desiredVisibility }),
-      });
-      if (!visRes.ok) {
-        const t = await visRes.text();
-        throw new Error(t || "Could not set IPFS visibility");
-      }
-      setProfile((p) => ({ ...p, ipfs_visibility: desiredVisibility as "public" | "private" }));
-
-      const fd = new FormData();
-      fd.append("file", file);
-      const res = await fetch(`${API_BASE}/uploads/pitch-deck`, {
-        method: "POST",
-        headers: authHeaders(token),
-        body: fd,
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(JSON.stringify(data));
-      const url =
-        typeof data === "object" && data && "url" in data
-          ? String((data as { url: string }).url)
-          : "";
-      const visibility =
-        typeof data === "object" &&
-        data &&
-        "visibility" in data &&
-        (data as { visibility?: string }).visibility === "public"
-          ? "public"
-          : "private";
-      setDeckUpgradeKind(null);
-      setProfile((p) => ({ ...p, pitch_deck_url: url, ipfs_visibility: visibility }));
-      setMsg("Pitch deck uploaded.");
-    } catch {
-      setMsg("Upload failed.");
-    } finally {
-      setSavingVisibility(false);
-    }
-    e.target.value = "";
-  }
-
   function addSectorsFromRaw(raw: string) {
     const parts = raw
       .split(",")
@@ -478,40 +361,6 @@ export default function StartupProfilePage() {
       return { ...p, sectors: next };
     });
     setSectorDraft("");
-  }
-
-  async function onVisibilityChange(nextVisibility: "public" | "private") {
-    if (!token) {
-      setMsg("Sign in first.");
-      return;
-    }
-    if (nextVisibility === "private" && !isProTier) {
-      setDeckUpgradeKind("pro");
-      setMsg("Upgrade to Pro for private IPFS.");
-      return;
-    }
-    if (nextVisibility === "public" && !canPublicIpfs) {
-      setDeckUpgradeKind("basic");
-      setMsg("Upgrade to Basic for public IPFS.");
-      return;
-    }
-    setSavingVisibility(true);
-    setMsg(null);
-    try {
-      const res = await fetch(`${API_BASE}/uploads/ipfs-visibility`, {
-        method: "PUT",
-        headers: authJsonHeaders(token),
-        body: JSON.stringify({ visibility: nextVisibility }),
-      });
-      const txt = await res.text();
-      if (!res.ok) throw new Error(txt || "Could not update visibility");
-      setDeckUpgradeKind(null);
-      setProfile((p) => ({ ...p, ipfs_visibility: nextVisibility }));
-    } catch {
-      setMsg("Could not update deck visibility.");
-    } finally {
-      setSavingVisibility(false);
-    }
   }
 
   return (
@@ -669,19 +518,15 @@ export default function StartupProfilePage() {
                 />
               </label>
             </div>
-            <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-4 space-y-3">
+            <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-4 space-y-4">
               <p className="text-xs font-semibold text-[var(--text)]">Pitch deck</p>
 
               <div className="rounded-lg border border-[var(--border)] bg-[rgba(255,255,255,0.02)] p-4 space-y-3">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <p className="text-sm font-semibold text-[var(--text)]">
-                      Upload PDF pitch deck
-                    </p>
-                    <p className="text-xs text-[var(--text-muted)] leading-relaxed mt-1 max-w-xl">
-                      We store your deck and run Kevin extraction to create a
-                      pitch automatically. PDF only for parsing; other formats
-                      are not auto-filled.
+                    <p className="text-sm font-semibold text-[var(--text)]">Upload PDF</p>
+                    <p className="text-xs text-[var(--text-muted)] leading-relaxed mt-1">
+                      Kevin extracts your pitch data automatically and shares it with matched investors.
                     </p>
                   </div>
                   {!isPro && profile.deck_expires_at ? (
@@ -693,14 +538,8 @@ export default function StartupProfilePage() {
 
                 {freeDeckUsed ? (
                   <div className="rounded-lg border border-[var(--border)] bg-[rgba(255,255,255,0.02)] px-4 py-3 text-sm text-[var(--text-muted)]">
-                    <p>
-                      Free accounts include one deck upload. Upgrade to Basic to
-                      replace your deck or use private IPFS storage below.
-                    </p>
-                    <Link
-                      href="/pricing"
-                      className="mt-2 inline-block text-xs font-semibold text-metatron-accent hover:underline"
-                    >
+                    <p>Free accounts include one deck upload. Upgrade to Basic to replace your deck.</p>
+                    <Link href="/pricing" className="mt-2 inline-block text-xs font-semibold text-metatron-accent hover:underline">
                       Upgrade to Basic — view plans
                     </Link>
                   </div>
@@ -719,242 +558,62 @@ export default function StartupProfilePage() {
                       onClick={() => primaryDeckPdfRef.current?.click()}
                       className="rounded-lg bg-metatron-accent px-4 py-2.5 text-sm font-semibold text-white hover:bg-metatron-accent-hover disabled:opacity-50"
                     >
-                      {primaryDeckUploadBusy
-                        ? "Uploading…"
-                        : "Upload PDF deck"}
+                      {primaryDeckUploadBusy ? "Uploading…" : "Upload PDF deck"}
                     </button>
-                    <p className="text-[11px] text-[var(--text-muted)]">
-                      PDF · max ~52MB
-                    </p>
+                    <p className="text-[11px] text-[var(--text-muted)]">PDF · max ~52MB</p>
                   </div>
                 )}
 
                 {deckUploadedShowPitchLink ? (
-                  <Link
-                    href="/startup/pitches"
-                    className="inline-block text-xs font-semibold text-metatron-accent hover:underline"
-                  >
+                  <Link href="/startup/pitches" className="inline-block text-xs font-semibold text-metatron-accent hover:underline">
                     Your deck has been uploaded — view your pitch data →
                   </Link>
                 ) : null}
               </div>
 
-              <p className="text-[11px] text-[var(--text-muted)] font-mono uppercase tracking-wide">
-                Or choose how your deck link is stored
-              </p>
-
-              <div className="grid gap-3 sm:grid-cols-3">
-                <button
-                  type="button"
-                  onClick={() => onDeckStorageOptionChange("link")}
-                  className={[
-                    "text-left rounded-[var(--radius)] border border-[var(--border)] bg-[color-mix(in_srgb,var(--bg)_55%,transparent)] p-3 transition-all",
-                    (profile.deckStorageOption ?? "link") === "link"
-                      ? "border-metatron-accent/40 shadow-[0_0_24px_rgba(108,92,231,0.12)]"
-                      : "hover:border-metatron-accent/20 hover:shadow-[0_0_24px_rgba(108,92,231,0.08)]",
-                  ].join(" ")}
-                >
-                  <div className="text-lg">🔗</div>
-                  <div className="mt-1 text-sm font-semibold text-[var(--text)]">
-                    Link to your deck
-                  </div>
-                  <div className="mt-1 text-xs text-[var(--text-muted)] leading-relaxed">
-                    Store your pitch deck on your own cloud (Google Drive, Dropbox, Notion,
-                    etc.) and share a link. You control access directly.
-                  </div>
-                  <div className="mt-2 font-mono text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
-                    Your own cloud
-                  </div>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => onDeckStorageOptionChange("public_ipfs")}
-                  className={[
-                    "text-left rounded-[var(--radius)] border border-[var(--border)] bg-[color-mix(in_srgb,var(--bg)_55%,transparent)] p-3 transition-all relative",
-                    (profile.deckStorageOption ?? "link") === "public_ipfs"
-                      ? "border-metatron-accent/40 shadow-[0_0_24px_rgba(108,92,231,0.12)]"
-                      : "hover:border-metatron-accent/20 hover:shadow-[0_0_24px_rgba(108,92,231,0.08)]",
-                  ].join(" ")}
-                >
-                  {!canPublicIpfs && (
-                    <span className="absolute top-2 right-2 font-mono text-[9px] uppercase tracking-wider border border-metatron-accent/40 text-metatron-accent px-1.5 py-0.5 rounded">
-                      Basic
-                    </span>
-                  )}
-                  <div className="text-lg">🌐</div>
-                  <div className="mt-1 text-sm font-semibold text-[var(--text)]">
-                    Public IPFS storage
-                  </div>
-                  <div className="mt-1 text-xs text-[var(--text-muted)] leading-relaxed">
-                    Your deck is stored on decentralised IPFS storage. Investors with access
-                    to your profile can view it directly through the platform. Best for open
-                    fundraising rounds.
-                  </div>
-                  <div className="mt-2 font-mono text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
-                    Public IPFS
-                  </div>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => onDeckStorageOptionChange("private_ipfs")}
-                  className={[
-                    "text-left rounded-[var(--radius)] border border-[var(--border)] bg-[color-mix(in_srgb,var(--bg)_55%,transparent)] p-3 transition-all relative",
-                    (profile.deckStorageOption ?? "link") === "private_ipfs"
-                      ? "border-metatron-accent/40 shadow-[0_0_24px_rgba(108,92,231,0.12)]"
-                      : "hover:border-metatron-accent/20 hover:shadow-[0_0_24px_rgba(108,92,231,0.08)]",
-                  ].join(" ")}
-                >
-                  {!isProTier && (
-                    <span className="absolute top-2 right-2 font-mono text-[9px] uppercase tracking-wider border border-metatron-accent/40 text-metatron-accent px-1.5 py-0.5 rounded">
-                      Pro
-                    </span>
-                  )}
-                  <div className="text-lg">🔒</div>
-                  <div className="mt-1 text-sm font-semibold text-[var(--text)]">
-                    Private IPFS storage
-                  </div>
-                  <div className="mt-1 text-xs text-[var(--text-muted)] leading-relaxed">
-                    Your deck is encrypted and stored privately on IPFS. Investors must send
-                    you an access request and you approve it before they can view your deck
-                    through their AI instance on the platform. Best for selective raises.
-                  </div>
-                  <div className="mt-2 font-mono text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
-                    Private IPFS
-                  </div>
-                </button>
+              <div className="flex items-center gap-3">
+                <div className="flex-1 border-t border-[var(--border)]" />
+                <span className="text-xs text-[var(--text-muted)]">or share a link</span>
+                <div className="flex-1 border-t border-[var(--border)]" />
               </div>
 
-              {(profile.deckStorageOption ?? "link") !== "link" && (
-                <div className="bg-metatron-accent/5 border border-metatron-accent/20 rounded-[12px] p-3 text-xs text-[var(--text-muted)]">
-                  <span className="font-semibold">ℹ️</span> Options 2 and 3 use a secure
-                  approval handshake. When an investor requests to view your deck, you will
-                  receive a notification and must approve access before they can see it
-                  through the platform.
-                </div>
-              )}
-
-              {deckUpgradeKind && (
-                <div className="rounded-[12px] border border-metatron-accent/20 bg-metatron-accent/5 p-3 text-xs text-[var(--text-muted)]">
-                  {deckUpgradeKind === "basic" ? (
-                    <>
-                      Upgrade to Basic for public IPFS.{" "}
-                      <a
-                        href="/pricing"
-                        className="text-metatron-accent hover:underline font-semibold"
-                      >
-                        View pricing →
-                      </a>
-                    </>
-                  ) : (
-                    <>
-                      Upgrade to Pro for private IPFS.{" "}
-                      <a
-                        href="/pricing"
-                        className="text-metatron-accent hover:underline font-semibold"
-                      >
-                        View pricing →
-                      </a>
-                    </>
-                  )}
-                </div>
-              )}
-
-              {(profile.deckStorageOption ?? "link") === "link" ? (
-                <div className="space-y-2">
-                  <label className="block space-y-1">
-                    <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
-                      Pitch Deck Link
-                    </span>
-                    <input
-                      className="input-metatron w-full"
-                      type="url"
-                      placeholder="https://drive.google.com/..."
-                      value={profile.pitch_deck_url ?? ""}
-                      onChange={(e) =>
-                        setProfile((p) => ({
-                          ...p,
-                          pitch_deck_url: e.target.value,
-                        }))
-                      }
-                    />
-                  </label>
-                  <p className="rounded-lg border border-amber-400/25 bg-amber-400/5 px-3 py-2.5 text-xs leading-relaxed text-amber-400/90">
-                    Your deck will not be shared with investors on metatron. To
-                    share your deck with investors and enable AI-powered
-                    matching, upload your PDF instead.
-                  </p>
-                </div>
-              ) : (
-                <>
-                  <label className="block space-y-1">
-                    <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
-                      Pitch Deck Link
-                    </span>
-                    <input
-                      className="input-metatron w-full"
-                      type="url"
-                      placeholder="https://drive.google.com/..."
-                      value={profile.pitch_deck_url ?? ""}
-                      onChange={(e) =>
-                        setProfile((p) => ({ ...p, pitch_deck_url: e.target.value }))
-                      }
-                    />
-                  </label>
-                  <div className="flex items-center gap-3">
-                    <div className="h-px flex-1 bg-[var(--border)]" />
-                    <span className="text-xs text-[var(--text-muted)]">or upload a PDF to IPFS</span>
-                    <div className="h-px flex-1 bg-[var(--border)]" />
-                  </div>
+              <div className="space-y-2">
+                <label className="block space-y-1">
+                  <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
+                    Pitch deck link
+                  </span>
                   <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept=".pdf,.ppt,.pptx,.key,.zip,application/pdf,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation"
-                    onChange={onDeckUpload}
-                    className="hidden"
+                    className="input-metatron w-full"
+                    type="url"
+                    placeholder="https://drive.google.com/..."
+                    value={
+                      profile.pitch_deck_url &&
+                      !profile.pitch_deck_url.includes("pinata") &&
+                      !profile.pitch_deck_url.startsWith("ipfs://")
+                        ? profile.pitch_deck_url
+                        : ""
+                    }
+                    onChange={(e) =>
+                      setProfile((p) => ({ ...p, pitch_deck_url: e.target.value }))
+                    }
                   />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const opt = profile.deckStorageOption ?? "link";
-                      if (opt === "private_ipfs" && !isProTier) {
-                        setDeckUpgradeKind("pro");
-                        setMsg("Upgrade to Pro for private IPFS.");
-                        return;
-                      }
-                      if (opt === "public_ipfs" && !canPublicIpfs) {
-                        setDeckUpgradeKind("basic");
-                        setMsg("Upgrade to Basic for public IPFS.");
-                        return;
-                      }
-                      fileInputRef.current?.click();
-                    }}
-                    disabled={savingVisibility}
-                    className="rounded-lg bg-metatron-accent px-5 py-2.5 text-sm font-semibold text-white hover:bg-metatron-accent-hover hover:shadow-[0_4px_20px_rgba(108,92,231,0.3)] transition-all disabled:opacity-60"
-                  >
-                    {savingVisibility ? "Preparing…" : "Upload to IPFS"}
-                  </button>
-                </>
-              )}
-
-              <p className="text-xs text-[var(--text-muted)]">
-                {(profile.deckStorageOption ?? "link") === "link"
-                  ? "Store your deck link for your own reference only. Cloud-hosted decks are not shared with investors on metatron."
-                  : "Paste a cloud link or upload a PDF directly to IPFS. Uploaded files are stored on your chosen visibility setting."}
-              </p>
-
-              {profile.pitch_deck_url && (
-                <a
-                  href={profile.pitch_deck_url}
-                  target="_blank"
-                  rel="noreferrer"
-                  onClick={(e) => e.stopPropagation()}
-                  className="inline-block text-xs text-metatron-accent hover:underline"
-                >
-                  Open current deck
-                </a>
-              )}
+                </label>
+                <p className="text-xs text-[var(--text-muted)]">
+                  Your link is stored privately and not shared with investors. Upload a PDF above to enable AI-powered matching.
+                </p>
+                {profile.pitch_deck_url &&
+                  !profile.pitch_deck_url.includes("pinata") &&
+                  !profile.pitch_deck_url.startsWith("ipfs://") && (
+                    <a
+                      href={profile.pitch_deck_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-block text-xs text-metatron-accent hover:underline"
+                    >
+                      Open current deck
+                    </a>
+                  )}
+              </div>
             </div>
             <button
               type="submit"

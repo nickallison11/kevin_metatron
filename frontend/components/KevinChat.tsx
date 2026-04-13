@@ -13,8 +13,6 @@ type SessionSummary = {
   message_count: number;
 };
 
-const STORAGE_KEY = "metatron_kevin_widget_v1";
-
 const UPGRADE_MESSAGE =
   "Kevin is temporarily unavailable. Please try again later.";
 
@@ -54,12 +52,12 @@ function formatSessionDate(iso: string): string {
   });
 }
 
-function loadWidgetState(): { sessionId: string; messages: Msg[] } {
+function loadWidgetState(storageKey: string): { sessionId: string; messages: Msg[] } {
   if (typeof window === "undefined") {
     return { sessionId: newSessionId(), messages: [] };
   }
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(storageKey);
     if (!raw) return { sessionId: newSessionId(), messages: [] };
     const parsed = JSON.parse(raw) as unknown;
     if (Array.isArray(parsed)) {
@@ -89,27 +87,30 @@ export default function KevinChat() {
   const [showHistory, setShowHistory] = useState(false);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [input, setInput] = useState("");
-  const [stored] = useState(() => loadWidgetState());
-  const [sessionId, setSessionId] = useState<string>(stored.sessionId);
-  const [messages, setMessages] = useState<Msg[]>(stored.messages);
-  const [loading, setLoading] = useState(false);
-  const bottomRef = useRef<HTMLDivElement>(null);
 
   const token = useMemo(() => {
     if (typeof window === "undefined") return null;
     return window.localStorage.getItem("metatron_token");
   }, []);
 
+  const storageKey = `metatron_kevin_widget_v1_${token?.slice(0, 16) ?? "anon"}`;
+
+  const [stored] = useState(() => loadWidgetState(storageKey));
+  const [sessionId, setSessionId] = useState<string>(stored.sessionId);
+  const [messages, setMessages] = useState<Msg[]>(stored.messages);
+  const [loading, setLoading] = useState(false);
+  const bottomRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     if (typeof window === "undefined") return;
     localStorage.setItem(
-      STORAGE_KEY,
+      storageKey,
       JSON.stringify({
         sessionId,
         messages: messages.slice(-60),
       }),
     );
-  }, [messages, sessionId]);
+  }, [messages, sessionId, storageKey]);
 
   useEffect(() => {
     if (!showHistory || !token) return;

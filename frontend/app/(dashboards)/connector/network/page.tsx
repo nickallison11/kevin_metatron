@@ -1,13 +1,16 @@
 "use client";
 
 import {
+  type ChangeEvent,
   FormEvent,
   Fragment,
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
+import * as XLSX from "xlsx";
 import { API_BASE, authHeaders, authJsonHeaders } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
@@ -24,6 +27,13 @@ type Contact = {
   invited_at: string | null;
   joined_user_id: string | null;
   created_at: string;
+};
+
+type SheetPreviewRow = {
+  role: string;
+  name: string;
+  firm_or_company: string;
+  notes: string;
 };
 
 export default function ConnectorNetworkPage() {
@@ -48,6 +58,14 @@ export default function ConnectorNetworkPage() {
   });
   const [savingEdit, setSavingEdit] = useState(false);
   const [editMsg, setEditMsg] = useState<string | null>(null);
+
+  const sheetInputRef = useRef<HTMLInputElement>(null);
+  const [sheetPreview, setSheetPreview] = useState<{
+    investors: SheetPreviewRow[];
+    founders: SheetPreviewRow[];
+  } | null>(null);
+  const [sheetImporting, setSheetImporting] = useState(false);
+  const [sheetMsg, setSheetMsg] = useState<string | null>(null);
 
   const [form, setForm] = useState({
     role: "investor" as "investor" | "founder",
@@ -224,6 +242,182 @@ export default function ConnectorNetworkPage() {
       setCsvMsg("Import failed.");
     } finally {
       setCsvImporting(false);
+    }
+  }
+
+  function onSpreadsheetFile(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setSheetMsg(null);
+    setSheetPreview(null);
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const data = new Uint8Array(evt.target?.result as ArrayBuffer);
+        const workbook = XLSX.read(data, { type: "array" });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
+          defval: "",
+          raw: false,
+        });
+
+        if (rows.length === 0) {
+          setSheetMsg("No data found in spreadsheet.");
+          return;
+        }
+
+        const cell = (row: Record<string, unknown>, col: string | null) => {
+          if (!col) return "";
+          const v = row[col];
+          return v == null ? "" : String(v).trim();
+        };
+
+        const headers = Object.keys(rows[0]);
+        const find = (keywords: string[]) =>
+          headers.find((h) =>
+            keywords.some((k) => h.toLowerCase().includes(k)),
+          ) ?? null;
+
+        const nameCol = find([
+          "deal name",
+          "company name",
+          "startup",
+          "name",
+        ]);
+        const sectorCol = find(["sector"]);
+        const stageCol = find(["stage"]);
+        const locationCol = find(["location", "country", "region"]);
+        const amountCol = find(["amount", "funding", "raised"]);
+        const investorCol = find(["investor"]);
+        const acceleratorCol = find(["accelerator"]);
+
+        const founders: SheetPreviewRow[] = [];
+        const investorMap = new Map<string, boolean>();
+
+        for (const row of rows) {
+          const name = nameCol ? cell(row, nameCol) : "";
+          if (!name) continue;
+
+          const parts: string[] = [];
+          if (sectorCol && cell(row, sectorCol))
+            parts.push(`Sector: ${cell(row, sectorCol)}`);
+          if (stageCol && cell(row, stageCol))
+            parts.push(`Stage: ${cell(row, stageCol)}`);
+          if (locationCol && cell(row, locationCol))
+            parts.push(`Location: ${cell(row, locationCol)}`);
+          if (amountCol && cell(row, amountCol))
+            parts.push(`Raised: ${cell(row, amountCol)}`);
+          if (acceleratorCol && cell(row, acceleratorCol))
+            parts.push(`Accelerator: ${cell(row, acceleratorCol)}`);
+
+          founders.push({
+            role: "founder",
+            name,
+            firm_or_company: name,
+            notes: parts.join(" | "),
+          });
+
+          if (investorCol && cell(row, investorCol)) {
+            const names = cell(row, investorCol)
+              .split(/,|;/)
+              .map((s) => s.trim())
+              .filter((s) => s.length > 1 && s.length < 80);
+            for (const inv of names) {
+              if (!investorMap.has(inv.toLowerCase())) {
+                investorMap.set(inv.toLowerCase(), true);
+              }
+            }
+          }
+        }
+
+        const allInvestorNames = Array.from(
+          new Set(
+            rows.flatMap((r) =>
+              investorCol && cell(r, investorCol)
+                ? cell(r, investorCol)
+                    .split(/,|;/)
+                    .map((s) => s.trim())
+                    .filter(Boolean)
+                : [],
+            ),
+          ),
+        );
+
+        const investors: SheetPreviewRow[] = Array.from(
+          investorMap.keys(),
+        ).map((key) => {
+          const originalName =
+            allInvestorNames.find((n) => n.toLowerCase() === key) ?? key;
+          return {
+            role: "investor",
+            name: originalName,
+            firm_or_company: originalName,
+            notes: "Imported from spreadsheet",
+          };
+        });
+
+        setSheetPreview({ investors, founders });
+      } catch {
+        setSheetMsg("Could not parse spreadsheet. Try saving as CSV first.");
+      }
+    };
+    reader.readAsArrayBuffer(file);
+    e.target.value = "";
+  }
+
+  async function onConfirmSheetImport(which: "all" | "investors" | "founders") {
+    if (!token || !sheetPreview) return;
+    setSheetImporting(true);
+    setSheetMsg(null);
+
+    const contacts =
+      which === "all"
+        ? [...sheetPreview.investors, ...sheetPreview.founders]
+        : which === "investors"
+          ? sheetPreview.investors
+          : sheetPreview.founders;
+
+    let totalImported = 0;
+    let totalSkipped = 0;
+    const CHUNK = 200;
+
+    try {
+      for (let i = 0; i < contacts.length; i += CHUNK) {
+        const chunk = contacts.slice(i, i + CHUNK);
+        const res = await fetch(`${API_BASE}/connector-profile/network/batch`, {
+          method: "POST",
+          headers: authJsonHeaders(token),
+          body: JSON.stringify({
+            contacts: chunk.map((c) => ({
+              role: c.role,
+              name: c.name,
+              email: null,
+              firm_or_company: c.firm_or_company || null,
+              linkedin_url: null,
+              notes: c.notes || null,
+            })),
+          }),
+        });
+        if (res.ok) {
+          const d = (await res.json()) as { imported: number; skipped: number };
+          totalImported += d.imported;
+          totalSkipped += d.skipped;
+        } else {
+          const err = await res.text();
+          setSheetMsg(err || "Batch import failed.");
+          return;
+        }
+      }
+      setSheetMsg(
+        `Imported ${totalImported} contacts.${totalSkipped > 0 ? ` ${totalSkipped} skipped.` : ""}`,
+      );
+      setSheetPreview(null);
+      void load();
+    } catch {
+      setSheetMsg("Import failed.");
+    } finally {
+      setSheetImporting(false);
     }
   }
 
@@ -814,6 +1008,134 @@ export default function ConnectorNetworkPage() {
             </div>
           </div>
         )}
+
+        <div className="rounded-[var(--radius)] border border-metatron-accent/20 bg-metatron-accent/5 p-5 space-y-4">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-[var(--text)]">
+                Smart import from spreadsheet
+              </p>
+              <p className="text-xs text-[var(--text-muted)] mt-1">
+                Upload any .xlsx, .xls, or .csv file. Kevin will detect columns
+                and extract investors and founders automatically.
+              </p>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <button
+                type="button"
+                onClick={() => sheetInputRef.current?.click()}
+                className="rounded-lg bg-metatron-accent px-4 py-2 text-sm font-semibold text-white hover:bg-metatron-accent-hover"
+              >
+                Upload spreadsheet
+              </button>
+              <input
+                ref={sheetInputRef}
+                type="file"
+                accept=".xlsx,.xls,.csv"
+                className="hidden"
+                onChange={onSpreadsheetFile}
+              />
+            </div>
+          </div>
+
+          {sheetPreview && (
+            <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-4 space-y-4">
+              <p className="text-sm font-semibold text-[var(--text)]">
+                Extraction preview
+              </p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="rounded-lg border border-[var(--border)] bg-[var(--bg)] p-3">
+                  <p className="font-mono text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
+                    Investors found
+                  </p>
+                  <p className="mt-1 text-2xl font-semibold text-metatron-accent">
+                    {sheetPreview.investors.length}
+                  </p>
+                  <p className="text-xs text-[var(--text-muted)] mt-1">
+                    Unique firms extracted from investor column
+                  </p>
+                </div>
+                <div className="rounded-lg border border-[var(--border)] bg-[var(--bg)] p-3">
+                  <p className="font-mono text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
+                    Founders found
+                  </p>
+                  <p className="mt-1 text-2xl font-semibold text-metatron-accent">
+                    {sheetPreview.founders.length}
+                  </p>
+                  <p className="text-xs text-[var(--text-muted)] mt-1">
+                    Startups with sector, stage and location
+                  </p>
+                </div>
+              </div>
+              <div className="text-xs text-[var(--text-muted)] bg-[var(--bg)] rounded-lg p-3 space-y-1">
+                <p className="font-semibold text-[var(--text)]">
+                  Sample investors:
+                </p>
+                {sheetPreview.investors.slice(0, 5).map((i, idx) => (
+                  <p key={`${i.name}-${idx}`}>{i.name}</p>
+                ))}
+                {sheetPreview.investors.length > 5 && (
+                  <p>…and {sheetPreview.investors.length - 5} more</p>
+                )}
+              </div>
+              <div className="text-xs text-[var(--text-muted)] bg-[var(--bg)] rounded-lg p-3 space-y-1">
+                <p className="font-semibold text-[var(--text)]">
+                  Sample founders:
+                </p>
+                {sheetPreview.founders.slice(0, 5).map((f, idx) => (
+                  <p key={`${f.name}-${idx}`}>
+                    {f.name}{" "}
+                    <span className="opacity-60">
+                      — {f.notes.split(" | ")[0] || "—"}
+                    </span>
+                  </p>
+                ))}
+                {sheetPreview.founders.length > 5 && (
+                  <p>…and {sheetPreview.founders.length - 5} more</p>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={sheetImporting}
+                  onClick={() => void onConfirmSheetImport("all")}
+                  className="rounded-lg bg-metatron-accent px-4 py-2 text-sm font-semibold text-white hover:bg-metatron-accent-hover disabled:opacity-60"
+                >
+                  {sheetImporting
+                    ? "Importing…"
+                    : `Import all ${sheetPreview.investors.length + sheetPreview.founders.length} contacts`}
+                </button>
+                <button
+                  type="button"
+                  disabled={sheetImporting}
+                  onClick={() => void onConfirmSheetImport("investors")}
+                  className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm text-[var(--text-muted)] hover:text-[var(--text)] disabled:opacity-60"
+                >
+                  Investors only ({sheetPreview.investors.length})
+                </button>
+                <button
+                  type="button"
+                  disabled={sheetImporting}
+                  onClick={() => void onConfirmSheetImport("founders")}
+                  className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm text-[var(--text-muted)] hover:text-[var(--text)] disabled:opacity-60"
+                >
+                  Founders only ({sheetPreview.founders.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSheetPreview(null)}
+                  className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm text-[var(--text-muted)] hover:text-[var(--text)]"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+
+          {sheetMsg && (
+            <p className="text-xs text-[var(--text-muted)]">{sheetMsg}</p>
+          )}
+        </div>
 
         <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-5 space-y-3">
           <p className="text-sm font-semibold text-[var(--text)]">

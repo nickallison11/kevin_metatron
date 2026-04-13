@@ -21,6 +21,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/all", get(list_all))
         .route("/introductions", get(list_brokered_introductions))
         .route("/referrals", get(list_referrals))
+        .route("/network/batch", post(batch_import_network))
         .route("/network/csv", post(import_network_csv))
         .route("/network", get(list_network).post(add_network_contact))
         .route(
@@ -500,6 +501,71 @@ async fn import_network_csv(
         .bind(firm)
         .bind(linkedin)
         .bind(notes)
+        .bind(joined_user_id)
+        .execute(&state.db)
+        .await;
+
+        if res.is_ok() {
+            imported += 1;
+        } else {
+            skipped += 1;
+        }
+    }
+
+    Ok(Json(serde_json::json!({ "imported": imported, "skipped": skipped })))
+}
+
+#[derive(Deserialize)]
+pub struct BatchImportBody {
+    pub contacts: Vec<NetworkContactDto>,
+}
+
+async fn batch_import_network(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+    Json(body): Json<BatchImportBody>,
+) -> Result<Json<serde_json::Value>, (axum::http::StatusCode, String)> {
+    let AuthedUser { id, .. } =
+        require_role(&state, bearer.token(), &["INTERMEDIARY"]).await?;
+
+    let mut imported = 0u32;
+    let mut skipped = 0u32;
+
+    for contact in body.contacts {
+        if contact.name.trim().is_empty() {
+            skipped += 1;
+            continue;
+        }
+        if contact.role != "investor" && contact.role != "founder" {
+            skipped += 1;
+            continue;
+        }
+
+        let joined_user_id: Option<Uuid> = if let Some(ref email) = contact.email {
+            sqlx::query_scalar("SELECT id FROM users WHERE LOWER(email) = LOWER($1)")
+                .bind(email)
+                .fetch_optional(&state.db)
+                .await
+                .unwrap_or(None)
+        } else {
+            None
+        };
+
+        let res = sqlx::query(
+            r#"
+            INSERT INTO connector_network_contacts
+                (connector_user_id, role, name, email, firm_or_company, linkedin_url, notes, joined_user_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            ON CONFLICT DO NOTHING
+            "#,
+        )
+        .bind(id)
+        .bind(&contact.role)
+        .bind(contact.name.trim())
+        .bind(&contact.email)
+        .bind(&contact.firm_or_company)
+        .bind(&contact.linkedin_url)
+        .bind(&contact.notes)
         .bind(joined_user_id)
         .execute(&state.db)
         .await;

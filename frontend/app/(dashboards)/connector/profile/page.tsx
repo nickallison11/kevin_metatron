@@ -177,11 +177,13 @@ export default function ConnectorProfilePage() {
         </p>
         <h1 className="text-lg font-semibold">Connector profile</h1>
       </header>
-      <section className="max-w-2xl p-6 md:p-10">
-        {loading ? (
-          <p className="text-sm text-[var(--text-muted)]">Loading…</p>
-        ) : (
-          <form onSubmit={onSubmit} className="space-y-5">
+      <section className="p-6 md:p-10">
+        <div className="grid gap-8 lg:grid-cols-[1fr_320px] items-start">
+          <div className="max-w-2xl space-y-6 lg:max-w-none">
+            {loading ? (
+              <p className="text-sm text-[var(--text-muted)]">Loading…</p>
+            ) : (
+              <form onSubmit={onSubmit} className="space-y-5">
             <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[#0a0a0f] px-4 py-3 text-sm text-[var(--text-muted)]">
               <span className="font-mono text-[10px] uppercase tracking-wider">
                 Name (from account)
@@ -255,135 +257,68 @@ export default function ConnectorProfilePage() {
             >
               {saving ? "Saving…" : "Save profile"}
             </button>
-          </form>
-        )}
+              </form>
+            )}
+          </div>
 
-        {!loading && (
-          <>
-            <div className="mt-8 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-6 space-y-5">
-              <h2 className="text-sm font-semibold">Telegram</h2>
-
-              {me?.telegram_id ? (
-                <div className="flex items-center gap-2">
-                  <span
-                    className="inline-flex items-center rounded-full border px-3 py-1 text-xs"
-                    style={{
-                      borderColor: "rgba(34,197,94,0.35)",
-                      backgroundColor: "rgba(34,197,94,0.12)",
-                      color: "rgb(134,239,172)",
-                    }}
-                  >
-                    Telegram linked
-                  </span>
-                  <a
-                    href="https://t.me/Kevinmetatron_bot"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-xs text-metatron-accent hover:underline"
-                  >
-                    Open @Kevinmetatron_bot
-                  </a>
-                </div>
-              ) : (
-                <>
-                  <p className="text-xs text-[var(--text-muted)]">
-                    Link your Telegram account to chat with Kevin on Telegram.
-                  </p>
-
-                  {!telegramLinkCode ? (
+          {!loading && (
+            <div className="space-y-4">
+              <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-6 space-y-5">
+                <h2 className="text-sm font-semibold">WhatsApp</h2>
+                <p className="text-xs text-[var(--text-muted)]">
+                  Add the phone number you use on WhatsApp (with country code). When you message Kevin from that number, we match it to your account.
+                </p>
+                <form onSubmit={onSaveWhatsapp} className="space-y-3 text-sm">
+                  <label className="block space-y-1">
+                    <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
+                      WhatsApp number
+                    </span>
+                    <input
+                      className="input-metatron w-full"
+                      type="tel"
+                      inputMode="tel"
+                      autoComplete="tel"
+                      placeholder="e.g. 2348012345678"
+                      value={whatsappInput}
+                      onChange={(e) => setWhatsappInput(e.target.value)}
+                    />
+                  </label>
+                  <div className="flex flex-wrap items-center gap-3">
                     <button
-                      type="button"
-                      onClick={onLinkTelegram}
-                      disabled={telegramLoading}
+                      type="submit"
+                      disabled={whatsappSaving}
                       className="rounded-lg bg-metatron-accent px-4 py-2 text-xs font-semibold text-white hover:bg-metatron-accent-hover disabled:opacity-60"
                     >
-                      {telegramLoading ? "Getting code…" : "Link Telegram"}
+                      {whatsappSaving ? "Saving…" : "Save number"}
                     </button>
-                  ) : (
-                    <div className="space-y-4">
-                      <div className="space-y-2">
-                        <p className="text-xs text-[var(--text-muted)]">
-                          1. Tap the button below to open Telegram — it will link automatically.
-                        </p>
-                        <a
-                          href={`https://t.me/Kevinmetatron_bot?start=${telegramLinkCode}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-2 rounded-lg bg-metatron-accent px-5 py-2.5 text-sm font-semibold text-white hover:bg-metatron-accent-hover"
-                        >
-                          Open Telegram &rarr;
-                        </a>
-                      </div>
+                    {me?.whatsapp_number ? (
+                      <span
+                        className="inline-flex items-center rounded-full border px-3 py-1 text-xs"
+                        style={{
+                          borderColor: "rgba(34,197,94,0.35)",
+                          backgroundColor: "rgba(34,197,94,0.12)",
+                          color: "rgb(134,239,172)",
+                        }}
+                      >
+                        Number on file
+                      </span>
+                    ) : (
+                      <span className="text-xs text-[var(--text-muted)]">
+                        Not saved yet
+                      </span>
+                    )}
+                  </div>
+                  {whatsappMsg ? (
+                    <p className="text-xs text-[var(--text-muted)]">{whatsappMsg}</p>
+                  ) : null}
+                </form>
+              </div>
 
-                      <div className="space-y-1">
-                        <p className="text-xs text-[var(--text-muted)]">
-                          2. Or open Telegram manually and send this message to{" "}
-                          <span className="font-semibold text-[var(--text)]">@Kevinmetatron_bot</span>:
-                        </p>
-                        <div className="flex items-center gap-2">
-                          <code className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-2 font-mono text-sm text-metatron-accent select-all">
-                            /start {telegramLinkCode}
-                          </code>
-                          <button
-                            type="button"
-                            onClick={() => navigator.clipboard.writeText(`/start ${telegramLinkCode}`)}
-                            className="rounded-lg border border-[var(--border)] px-3 py-2 text-xs text-[var(--text-muted)] hover:text-[var(--text)]"
-                          >
-                            Copy
-                          </button>
-                        </div>
-                      </div>
+              <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-6 space-y-5">
+                <h2 className="text-sm font-semibold">Telegram</h2>
 
-                      <div className="flex items-center justify-between">
-                        <p className="text-[11px] text-[var(--text-muted)]">Code expires in 15 minutes.</p>
-                        <button
-                          type="button"
-                          onClick={onLinkTelegram}
-                          disabled={telegramLoading}
-                          className="text-[11px] text-metatron-accent hover:underline disabled:opacity-60"
-                        >
-                          {telegramLoading ? "Refreshing…" : "Get new code"}
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </>
-              )}
-
-              {telegramMsg ? (
-                <p className="text-xs text-[var(--text-muted)]">{telegramMsg}</p>
-              ) : null}
-            </div>
-
-            <div className="mt-6 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-6 space-y-5">
-              <h2 className="text-sm font-semibold">WhatsApp</h2>
-              <p className="text-xs text-[var(--text-muted)]">
-                Add the phone number you use on WhatsApp (with country code). When you message Kevin from that number, we match it to your account.
-              </p>
-              <form onSubmit={onSaveWhatsapp} className="space-y-3 text-sm">
-                <label className="block space-y-1">
-                  <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
-                    WhatsApp number
-                  </span>
-                  <input
-                    className="input-metatron w-full"
-                    type="tel"
-                    inputMode="tel"
-                    autoComplete="tel"
-                    placeholder="e.g. 2348012345678"
-                    value={whatsappInput}
-                    onChange={(e) => setWhatsappInput(e.target.value)}
-                  />
-                </label>
-                <div className="flex flex-wrap items-center gap-3">
-                  <button
-                    type="submit"
-                    disabled={whatsappSaving}
-                    className="rounded-lg bg-metatron-accent px-4 py-2 text-xs font-semibold text-white hover:bg-metatron-accent-hover disabled:opacity-60"
-                  >
-                    {whatsappSaving ? "Saving…" : "Save number"}
-                  </button>
-                  {me?.whatsapp_number ? (
+                {me?.telegram_id ? (
+                  <div className="flex items-center gap-2">
                     <span
                       className="inline-flex items-center rounded-full border px-3 py-1 text-xs"
                       style={{
@@ -392,21 +327,90 @@ export default function ConnectorProfilePage() {
                         color: "rgb(134,239,172)",
                       }}
                     >
-                      Number on file
+                      Telegram linked
                     </span>
-                  ) : (
-                    <span className="text-xs text-[var(--text-muted)]">
-                      Not saved yet
-                    </span>
-                  )}
-                </div>
-                {whatsappMsg ? (
-                  <p className="text-xs text-[var(--text-muted)]">{whatsappMsg}</p>
+                    <a
+                      href="https://t.me/Kevinmetatron_bot"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-metatron-accent hover:underline"
+                    >
+                      Open @Kevinmetatron_bot
+                    </a>
+                  </div>
+                ) : (
+                  <>
+                    <p className="text-xs text-[var(--text-muted)]">
+                      Link your Telegram account to chat with Kevin on Telegram.
+                    </p>
+
+                    {!telegramLinkCode ? (
+                      <button
+                        type="button"
+                        onClick={onLinkTelegram}
+                        disabled={telegramLoading}
+                        className="rounded-lg bg-metatron-accent px-4 py-2 text-xs font-semibold text-white hover:bg-metatron-accent-hover disabled:opacity-60"
+                      >
+                        {telegramLoading ? "Getting code…" : "Link Telegram"}
+                      </button>
+                    ) : (
+                      <div className="space-y-4">
+                        <div className="space-y-2">
+                          <p className="text-xs text-[var(--text-muted)]">
+                            1. Tap the button below to open Telegram — it will link automatically.
+                          </p>
+                          <a
+                            href={`https://t.me/Kevinmetatron_bot?start=${telegramLinkCode}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-2 rounded-lg bg-metatron-accent px-5 py-2.5 text-sm font-semibold text-white hover:bg-metatron-accent-hover"
+                          >
+                            Open Telegram &rarr;
+                          </a>
+                        </div>
+
+                        <div className="space-y-1">
+                          <p className="text-xs text-[var(--text-muted)]">
+                            2. Or open Telegram manually and send this message to{" "}
+                            <span className="font-semibold text-[var(--text)]">@Kevinmetatron_bot</span>:
+                          </p>
+                          <div className="flex items-center gap-2">
+                            <code className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-2 font-mono text-sm text-metatron-accent select-all">
+                              /start {telegramLinkCode}
+                            </code>
+                            <button
+                              type="button"
+                              onClick={() => navigator.clipboard.writeText(`/start ${telegramLinkCode}`)}
+                              className="rounded-lg border border-[var(--border)] px-3 py-2 text-xs text-[var(--text-muted)] hover:text-[var(--text)]"
+                            >
+                              Copy
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between">
+                          <p className="text-[11px] text-[var(--text-muted)]">Code expires in 15 minutes.</p>
+                          <button
+                            type="button"
+                            onClick={onLinkTelegram}
+                            disabled={telegramLoading}
+                            className="text-[11px] text-metatron-accent hover:underline disabled:opacity-60"
+                          >
+                            {telegramLoading ? "Refreshing…" : "Get new code"}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {telegramMsg ? (
+                  <p className="text-xs text-[var(--text-muted)]">{telegramMsg}</p>
                 ) : null}
-              </form>
+              </div>
             </div>
-          </>
-        )}
+          )}
+        </div>
       </section>
     </main>
   );

@@ -7,13 +7,13 @@ import { useAuth } from "@/lib/auth";
 
 const FREE_NAV = [
   { href: "/startup", label: "Dashboard" },
-  { href: "/startup/profile", label: "Profile" },
+  { href: "/startup/profile", label: "Profile Settings" },
   { href: "/startup/pitches", label: "Pitch data" },
 ];
 
 const PRO_NAV = [
   { href: "/startup", label: "Dashboard" },
-  { href: "/startup/profile", label: "Profile" },
+  { href: "/startup/profile", label: "Profile Settings" },
   { href: "/startup/pitches", label: "Pitch data" },
   { href: "/startup/matches", label: "Matches" },
   { href: "/startup/calls", label: "Calls" },
@@ -92,7 +92,7 @@ export default function StartupShell({ children }: { children: ReactNode }) {
 
         <div className="mt-2 border-t border-[var(--border)] pt-2 space-y-1">
           <NavLink href="/startup/settings/subscription" label="Subscription" />
-          <NavLink href="/startup/settings" label="Settings" />
+          <NavLink href="/startup/settings" label="Account Settings" />
         </div>
       </aside>
       <div className="flex-1 min-w-0 flex flex-col">
@@ -125,7 +125,7 @@ export default function StartupShell({ children }: { children: ReactNode }) {
             href="/startup/settings"
             className="shrink-0 rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--text-muted)]"
           >
-            Settings
+            Account Settings
           </Link>
         </div>
         {children}

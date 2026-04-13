@@ -7,7 +7,7 @@ import { useAuth } from "@/lib/auth";
 
 const NAV = [
   { href: "/connector", label: "Dashboard" },
-  { href: "/connector/profile", label: "Profile" },
+  { href: "/connector/profile", label: "Profile Settings" },
   { href: "/connector/introductions", label: "Introductions" },
   { href: "/connector/referrals", label: "Referrals" },
 ];
@@ -58,7 +58,7 @@ export default function ConnectorShell({ children }: { children: ReactNode }) {
 
         <div className="mt-2 border-t border-[var(--border)] pt-2 space-y-1">
           <NavLink href="/connector/settings/subscription" label="Subscription" />
-          <NavLink href="/connector/settings" label="Settings" />
+          <NavLink href="/connector/settings" label="Account Settings" />
         </div>
       </aside>
       <div className="flex-1 min-w-0 flex flex-col">
@@ -82,7 +82,7 @@ export default function ConnectorShell({ children }: { children: ReactNode }) {
             href="/connector/settings"
             className="shrink-0 rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--text-muted)]"
           >
-            Settings
+            Account Settings
           </Link>
         </div>
         {children}

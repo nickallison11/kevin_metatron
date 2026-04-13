@@ -7,7 +7,7 @@ import { useAuth } from "@/lib/auth";
 
 const NAV = [
   { href: "/investor", label: "Dashboard" },
-  { href: "/investor/profile", label: "Profile" },
+  { href: "/investor/profile", label: "Profile Settings" },
   { href: "/investor/deal-flow", label: "Deal Flow" },
   { href: "/investor/watchlist", label: "Watchlist" },
 ];
@@ -79,7 +79,7 @@ export default function InvestorShell({ children }: { children: ReactNode }) {
 
         <div className="mt-2 border-t border-[var(--border)] pt-2 space-y-1">
           <NavLink href="/investor/settings/subscription" label="Subscription" />
-          <NavLink href="/investor/settings" label="Settings" />
+          <NavLink href="/investor/settings" label="Account Settings" />
         </div>
       </aside>
       <div className="flex-1 min-w-0 flex flex-col">
@@ -111,7 +111,7 @@ export default function InvestorShell({ children }: { children: ReactNode }) {
             href="/investor/settings"
             className="shrink-0 rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--text-muted)]"
           >
-            Settings
+            Account Settings
           </Link>
         </div>
         {children}

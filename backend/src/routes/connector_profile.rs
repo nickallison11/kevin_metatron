@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use axum::{
-    extract::State,
-    routing::get,
+    extract::{Path, State},
+    routing::{delete, get, post},
     Json, Router,
 };
 use axum_extra::{
@@ -21,6 +21,9 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/all", get(list_all))
         .route("/introductions", get(list_brokered_introductions))
         .route("/referrals", get(list_referrals))
+        .route("/network/csv", post(import_network_csv))
+        .route("/network", get(list_network).post(add_network_contact))
+        .route("/network/{id}", delete(delete_network_contact))
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -227,6 +230,217 @@ async fn list_referrals(
     .map_err(internal)?;
 
     Ok(Json(rows))
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct NetworkContactDto {
+    pub role: String,
+    pub name: String,
+    pub email: Option<String>,
+    pub firm_or_company: Option<String>,
+    pub linkedin_url: Option<String>,
+    pub notes: Option<String>,
+}
+
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct NetworkContactRow {
+    pub id: Uuid,
+    pub role: String,
+    pub name: String,
+    pub email: Option<String>,
+    pub firm_or_company: Option<String>,
+    pub linkedin_url: Option<String>,
+    pub notes: Option<String>,
+    pub invited_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub joined_user_id: Option<Uuid>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+async fn list_network(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+) -> Result<Json<Vec<NetworkContactRow>>, (axum::http::StatusCode, String)> {
+    let AuthedUser { id, .. } =
+        require_role(&state, bearer.token(), &["INTERMEDIARY"]).await?;
+
+    let rows = sqlx::query_as::<_, NetworkContactRow>(
+        r#"
+        SELECT id, role, name, email, firm_or_company, linkedin_url, notes,
+               invited_at, joined_user_id, created_at
+        FROM connector_network_contacts
+        WHERE connector_user_id = $1
+        ORDER BY created_at DESC
+        "#,
+    )
+    .bind(id)
+    .fetch_all(&state.db)
+    .await
+    .map_err(internal)?;
+
+    Ok(Json(rows))
+}
+
+async fn add_network_contact(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+    Json(body): Json<NetworkContactDto>,
+) -> Result<Json<NetworkContactRow>, (axum::http::StatusCode, String)> {
+    let AuthedUser { id, .. } =
+        require_role(&state, bearer.token(), &["INTERMEDIARY"]).await?;
+
+    if body.name.trim().is_empty() {
+        return Err((
+            axum::http::StatusCode::BAD_REQUEST,
+            "name is required".to_string(),
+        ));
+    }
+    if body.role != "investor" && body.role != "founder" {
+        return Err((
+            axum::http::StatusCode::BAD_REQUEST,
+            "role must be investor or founder".to_string(),
+        ));
+    }
+
+    let joined_user_id: Option<Uuid> = if let Some(ref email) = body.email {
+        sqlx::query_scalar("SELECT id FROM users WHERE LOWER(email) = LOWER($1)")
+            .bind(email)
+            .fetch_optional(&state.db)
+            .await
+            .map_err(internal)?
+    } else {
+        None
+    };
+
+    let row = sqlx::query_as::<_, NetworkContactRow>(
+        r#"
+        INSERT INTO connector_network_contacts
+            (connector_user_id, role, name, email, firm_or_company, linkedin_url, notes, joined_user_id)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        RETURNING id, role, name, email, firm_or_company, linkedin_url, notes,
+                  invited_at, joined_user_id, created_at
+        "#,
+    )
+    .bind(id)
+    .bind(&body.role)
+    .bind(body.name.trim())
+    .bind(&body.email)
+    .bind(&body.firm_or_company)
+    .bind(&body.linkedin_url)
+    .bind(&body.notes)
+    .bind(joined_user_id)
+    .fetch_one(&state.db)
+    .await
+    .map_err(internal)?;
+
+    Ok(Json(row))
+}
+
+async fn delete_network_contact(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+    Path(contact_id): Path<Uuid>,
+) -> Result<axum::http::StatusCode, (axum::http::StatusCode, String)> {
+    let AuthedUser { id, .. } =
+        require_role(&state, bearer.token(), &["INTERMEDIARY"]).await?;
+
+    sqlx::query(
+        "DELETE FROM connector_network_contacts WHERE id = $1 AND connector_user_id = $2",
+    )
+    .bind(contact_id)
+    .bind(id)
+    .execute(&state.db)
+    .await
+    .map_err(internal)?;
+
+    Ok(axum::http::StatusCode::NO_CONTENT)
+}
+
+#[derive(Deserialize)]
+pub struct CsvImportBody {
+    pub csv: String,
+}
+
+async fn import_network_csv(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+    Json(body): Json<CsvImportBody>,
+) -> Result<Json<serde_json::Value>, (axum::http::StatusCode, String)> {
+    let AuthedUser { id, .. } =
+        require_role(&state, bearer.token(), &["INTERMEDIARY"]).await?;
+
+    let mut imported = 0u32;
+    let mut skipped = 0u32;
+
+    for line in body.csv.lines().skip(1) {
+        let cols: Vec<&str> = line.splitn(6, ',').collect();
+        if cols.len() < 2 {
+            skipped += 1;
+            continue;
+        }
+        let role = cols[0].trim().to_lowercase();
+        if role != "investor" && role != "founder" {
+            skipped += 1;
+            continue;
+        }
+        let name = cols[1].trim();
+        if name.is_empty() {
+            skipped += 1;
+            continue;
+        }
+        let email: Option<&str> = cols
+            .get(2)
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty());
+        let firm: Option<&str> = cols
+            .get(3)
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty());
+        let linkedin: Option<&str> = cols
+            .get(4)
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty());
+        let notes: Option<&str> = cols
+            .get(5)
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty());
+
+        let joined_user_id: Option<Uuid> = if let Some(e) = email {
+            sqlx::query_scalar("SELECT id FROM users WHERE LOWER(email) = LOWER($1)")
+                .bind(e)
+                .fetch_optional(&state.db)
+                .await
+                .unwrap_or(None)
+        } else {
+            None
+        };
+
+        let res = sqlx::query(
+            r#"
+            INSERT INTO connector_network_contacts
+                (connector_user_id, role, name, email, firm_or_company, linkedin_url, notes, joined_user_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            ON CONFLICT DO NOTHING
+            "#,
+        )
+        .bind(id)
+        .bind(&role)
+        .bind(name)
+        .bind(email)
+        .bind(firm)
+        .bind(linkedin)
+        .bind(notes)
+        .bind(joined_user_id)
+        .execute(&state.db)
+        .await;
+
+        if res.is_ok() {
+            imported += 1;
+        } else {
+            skipped += 1;
+        }
+    }
+
+    Ok(Json(serde_json::json!({ "imported": imported, "skipped": skipped })))
 }
 
 fn internal<E: std::fmt::Debug>(_e: E) -> (axum::http::StatusCode, String) {

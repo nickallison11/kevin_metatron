@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use axum::{
     extract::{Path, State},
-    routing::{delete, get, post},
+    routing::{get, post, put},
     Json, Router,
 };
 use axum_extra::{
@@ -23,7 +23,10 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/referrals", get(list_referrals))
         .route("/network/csv", post(import_network_csv))
         .route("/network", get(list_network).post(add_network_contact))
-        .route("/network/{id}", delete(delete_network_contact))
+        .route(
+            "/network/{id}",
+            put(update_network_contact).delete(delete_network_contact),
+        )
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -331,6 +334,74 @@ async fn add_network_contact(
     .fetch_one(&state.db)
     .await
     .map_err(internal)?;
+
+    Ok(Json(row))
+}
+
+async fn update_network_contact(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+    Path(contact_id): Path<Uuid>,
+    Json(body): Json<NetworkContactDto>,
+) -> Result<Json<NetworkContactRow>, (axum::http::StatusCode, String)> {
+    let AuthedUser { id, .. } =
+        require_role(&state, bearer.token(), &["INTERMEDIARY"]).await?;
+
+    if body.name.trim().is_empty() {
+        return Err((
+            axum::http::StatusCode::BAD_REQUEST,
+            "name is required".to_string(),
+        ));
+    }
+    if body.role != "investor" && body.role != "founder" {
+        return Err((
+            axum::http::StatusCode::BAD_REQUEST,
+            "role must be investor or founder".to_string(),
+        ));
+    }
+
+    let joined_user_id: Option<Uuid> = if let Some(ref email) = body.email {
+        sqlx::query_scalar("SELECT id FROM users WHERE LOWER(email) = LOWER($1)")
+            .bind(email)
+            .fetch_optional(&state.db)
+            .await
+            .map_err(internal)?
+    } else {
+        None
+    };
+
+    let row = sqlx::query_as::<_, NetworkContactRow>(
+        r#"
+        UPDATE connector_network_contacts
+        SET role = $1,
+            name = $2,
+            email = $3,
+            firm_or_company = $4,
+            linkedin_url = $5,
+            notes = $6,
+            joined_user_id = $7
+        WHERE id = $8 AND connector_user_id = $9
+        RETURNING id, role, name, email, firm_or_company, linkedin_url, notes,
+                  invited_at, joined_user_id, created_at
+        "#,
+    )
+    .bind(&body.role)
+    .bind(body.name.trim())
+    .bind(&body.email)
+    .bind(&body.firm_or_company)
+    .bind(&body.linkedin_url)
+    .bind(&body.notes)
+    .bind(joined_user_id)
+    .bind(contact_id)
+    .bind(id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(internal)?;
+
+    let row = row.ok_or((
+        axum::http::StatusCode::NOT_FOUND,
+        "contact not found".to_string(),
+    ))?;
 
     Ok(Json(row))
 }

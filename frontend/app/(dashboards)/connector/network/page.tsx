@@ -1,8 +1,17 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import {
+  FormEvent,
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { API_BASE, authHeaders, authJsonHeaders } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+
+const PAGE_SIZE = 10;
 
 type Contact = {
   id: string;
@@ -27,6 +36,18 @@ export default function ConnectorNetworkPage() {
   const [csvMsg, setCsvMsg] = useState<string | null>(null);
   const [csvImporting, setCsvImporting] = useState(false);
   const [showForm, setShowForm] = useState(false);
+  const [view, setView] = useState<"card" | "list">("card");
+  const [page, setPage] = useState(1);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState({
+    name: "",
+    email: "",
+    firm_or_company: "",
+    linkedin_url: "",
+    notes: "",
+  });
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [editMsg, setEditMsg] = useState<string | null>(null);
 
   const [form, setForm] = useState({
     role: "investor" as "investor" | "founder",
@@ -50,6 +71,84 @@ export default function ConnectorNetworkPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  const filtered = useMemo(
+    () => contacts.filter((c) => c.role === tab),
+    [contacts, tab],
+  );
+
+  useEffect(() => {
+    setPage(1);
+    setEditingId(null);
+    setEditMsg(null);
+  }, [tab]);
+
+  useEffect(() => {
+    const tp = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+    if (page > tp) setPage(tp);
+  }, [filtered.length, page]);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const rangeStart =
+    filtered.length === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
+  const rangeEnd = Math.min(page * PAGE_SIZE, filtered.length);
+
+  function openEdit(c: Contact) {
+    setEditingId(c.id);
+    setEditForm({
+      name: c.name,
+      email: c.email ?? "",
+      firm_or_company: c.firm_or_company ?? "",
+      linkedin_url: c.linkedin_url ?? "",
+      notes: c.notes ?? "",
+    });
+    setEditMsg(null);
+    setShowForm(false);
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setEditMsg(null);
+  }
+
+  async function onSaveEdit(e: FormEvent, contact: Contact) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!token) return;
+    setSavingEdit(true);
+    setEditMsg(null);
+    try {
+      const res = await fetch(
+        `${API_BASE}/connector-profile/network/${contact.id}`,
+        {
+          method: "PUT",
+          headers: authJsonHeaders(token),
+          body: JSON.stringify({
+            role: contact.role,
+            name: editForm.name,
+            email: editForm.email || null,
+            firm_or_company: editForm.firm_or_company || null,
+            linkedin_url: editForm.linkedin_url || null,
+            notes: editForm.notes || null,
+          }),
+        },
+      );
+      if (!res.ok) {
+        const t = await res.text();
+        setEditMsg(t || "Could not save.");
+        return;
+      }
+      const updated = (await res.json()) as Contact;
+      setContacts((prev) =>
+        prev.map((x) => (x.id === updated.id ? updated : x)),
+      );
+      setEditingId(null);
+    } catch {
+      setEditMsg("Could not save.");
+    } finally {
+      setSavingEdit(false);
+    }
+  }
 
   async function onAdd(e: FormEvent) {
     e.preventDefault();
@@ -100,6 +199,7 @@ export default function ConnectorNetworkPage() {
         headers: authHeaders(token),
       });
       setContacts((prev) => prev.filter((c) => c.id !== id));
+      if (editingId === id) cancelEdit();
     } catch {}
   }
 
@@ -127,9 +227,104 @@ export default function ConnectorNetworkPage() {
     }
   }
 
-  const filtered = contacts.filter((c) => c.role === tab);
-
   if (loading || !token) return null;
+
+  const editFields = (contact: Contact) => (
+    <>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <label className="block space-y-1">
+          <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
+            Name *
+          </span>
+          <input
+            className="input-metatron w-full"
+            required
+            value={editForm.name}
+            onChange={(e) =>
+              setEditForm((f) => ({ ...f, name: e.target.value }))
+            }
+            placeholder="Full name"
+          />
+        </label>
+        <label className="block space-y-1">
+          <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
+            {contact.role === "investor" ? "Firm" : "Company"}
+          </span>
+          <input
+            className="input-metatron w-full"
+            value={editForm.firm_or_company}
+            onChange={(e) =>
+              setEditForm((f) => ({ ...f, firm_or_company: e.target.value }))
+            }
+            placeholder={
+              contact.role === "investor"
+                ? "e.g. Acme Ventures"
+                : "e.g. Acme Inc"
+            }
+          />
+        </label>
+        <label className="block space-y-1">
+          <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
+            Email
+          </span>
+          <input
+            className="input-metatron w-full"
+            type="email"
+            value={editForm.email}
+            onChange={(e) =>
+              setEditForm((f) => ({ ...f, email: e.target.value }))
+            }
+            placeholder="email@example.com"
+          />
+        </label>
+        <label className="block space-y-1">
+          <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
+            LinkedIn URL
+          </span>
+          <input
+            className="input-metatron w-full"
+            type="url"
+            value={editForm.linkedin_url}
+            onChange={(e) =>
+              setEditForm((f) => ({ ...f, linkedin_url: e.target.value }))
+            }
+            placeholder="https://linkedin.com/in/..."
+          />
+        </label>
+      </div>
+      <label className="block space-y-1">
+        <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
+          Notes
+        </span>
+        <textarea
+          className="input-metatron w-full resize-none"
+          rows={2}
+          value={editForm.notes}
+          onChange={(e) =>
+            setEditForm((f) => ({ ...f, notes: e.target.value }))
+          }
+          placeholder="Notes"
+        />
+      </label>
+      <div className="flex flex-wrap items-center gap-3">
+        <button
+          type="submit"
+          disabled={savingEdit}
+          className="rounded-lg bg-metatron-accent px-4 py-2 text-sm font-semibold text-white hover:bg-metatron-accent-hover disabled:opacity-60"
+        >
+          {savingEdit ? "Saving…" : "Save"}
+        </button>
+        <button
+          type="button"
+          onClick={cancelEdit}
+          className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm text-[var(--text-muted)] hover:text-[var(--text)]"
+        >
+          Cancel
+        </button>
+        {editMsg && <p className="text-xs text-red-400">{editMsg}</p>}
+      </div>
+    </>
+  );
 
   return (
     <main className="flex-1">
@@ -210,7 +405,9 @@ export default function ConnectorNetworkPage() {
                     setForm((f) => ({ ...f, firm_or_company: e.target.value }))
                   }
                   placeholder={
-                    tab === "investor" ? "e.g. Acme Ventures" : "e.g. Acme Inc"
+                    tab === "investor"
+                      ? "e.g. Acme Ventures"
+                      : "e.g. Acme Inc"
                   }
                 />
               </label>
@@ -281,81 +478,340 @@ export default function ConnectorNetworkPage() {
             </p>
           </div>
         ) : (
-          <div className="grid gap-3 sm:grid-cols-2">
-            {filtered.map((c) => (
-              <div
-                key={c.id}
-                className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-4 space-y-2"
+          <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-4 md:p-5 space-y-4">
+            <div className="flex items-center justify-end gap-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setView("card");
+                  setEditingId(null);
+                  setEditMsg(null);
+                }}
+                aria-label="Card view"
+                title="Card view"
+                className={[
+                  "rounded-lg p-2 transition-colors",
+                  view === "card"
+                    ? "bg-metatron-accent/15 text-metatron-accent"
+                    : "text-[var(--text-muted)] hover:bg-[rgba(108,92,231,0.1)]",
+                ].join(" ")}
               >
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <p className="text-sm font-semibold text-[var(--text)]">
-                      {c.name}
-                    </p>
-                    {c.firm_or_company && (
-                      <p className="text-xs text-[var(--text-muted)]">
-                        {c.firm_or_company}
-                      </p>
-                    )}
-                  </div>
-                  <div className="flex shrink-0 items-center gap-2">
-                    {c.joined_user_id ? (
-                      <span
-                        className="inline-flex items-center rounded-full border px-2 py-0.5 text-[10px]"
-                        style={{
-                          borderColor: "rgba(34,197,94,0.35)",
-                          backgroundColor: "rgba(34,197,94,0.12)",
-                          color: "rgb(134,239,172)",
-                        }}
-                      >
-                        On platform
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center rounded-full border border-[var(--border)] px-2 py-0.5 font-mono text-[10px] text-[var(--text-muted)]">
-                        Not yet
-                      </span>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => void onDelete(c.id)}
-                      className="text-[var(--text-muted)] hover:text-red-400 transition-colors"
-                      aria-label="Remove"
-                    >
-                      <svg
-                        width="14"
-                        height="14"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        aria-hidden
-                      >
-                        <line x1="18" y1="6" x2="6" y2="18" />
-                        <line x1="6" y1="6" x2="18" y2="18" />
-                      </svg>
-                    </button>
-                  </div>
-                </div>
-                {c.email && (
-                  <p className="text-xs text-[var(--text-muted)]">{c.email}</p>
-                )}
-                {c.linkedin_url && (
-                  <a
-                    href={c.linkedin_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-block text-xs text-metatron-accent hover:underline"
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  aria-hidden
+                >
+                  <rect x="3" y="3" width="7" height="7" rx="1" />
+                  <rect x="14" y="3" width="7" height="7" rx="1" />
+                  <rect x="3" y="14" width="7" height="7" rx="1" />
+                  <rect x="14" y="14" width="7" height="7" rx="1" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setView("list");
+                  setEditingId(null);
+                  setEditMsg(null);
+                }}
+                aria-label="List view"
+                title="List view"
+                className={[
+                  "rounded-lg p-2 transition-colors",
+                  view === "list"
+                    ? "bg-metatron-accent/15 text-metatron-accent"
+                    : "text-[var(--text-muted)] hover:bg-[rgba(108,92,231,0.1)]",
+                ].join(" ")}
+              >
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  aria-hidden
+                >
+                  <line x1="8" y1="6" x2="21" y2="6" strokeLinecap="round" />
+                  <line x1="8" y1="12" x2="21" y2="12" strokeLinecap="round" />
+                  <line x1="8" y1="18" x2="21" y2="18" strokeLinecap="round" />
+                  <line x1="3" y1="6" x2="3.01" y2="6" strokeLinecap="round" />
+                  <line
+                    x1="3"
+                    y1="12"
+                    x2="3.01"
+                    y2="12"
+                    strokeLinecap="round"
+                  />
+                  <line
+                    x1="3"
+                    y1="18"
+                    x2="3.01"
+                    y2="18"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              </button>
+            </div>
+
+            {view === "card" ? (
+              <div className="grid gap-3 sm:grid-cols-2">
+                {paginated.map((c) => (
+                  <div
+                    key={c.id}
+                    className="rounded-[var(--radius)] border border-[var(--border)] bg-[#0a0a0f] p-4 space-y-2"
                   >
-                    LinkedIn →
-                  </a>
-                )}
-                {c.notes && (
-                  <p className="text-xs text-[var(--text-muted)] italic">
-                    {c.notes}
-                  </p>
-                )}
+                    {editingId === c.id ? (
+                      <form
+                        onSubmit={(e) => void onSaveEdit(e, c)}
+                        className="space-y-4"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {editFields(c)}
+                      </form>
+                    ) : (
+                      <>
+                        <div
+                          className="flex items-start justify-between gap-2 cursor-pointer"
+                          onClick={() => openEdit(c)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              openEdit(c);
+                            }
+                          }}
+                          role="button"
+                          tabIndex={0}
+                        >
+                          <div>
+                            <p className="text-sm font-semibold text-[var(--text)]">
+                              {c.name}
+                            </p>
+                            {c.firm_or_company && (
+                              <p className="text-xs text-[var(--text-muted)]">
+                                {c.firm_or_company}
+                              </p>
+                            )}
+                          </div>
+                          <div
+                            className="flex shrink-0 items-center gap-2"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {c.joined_user_id ? (
+                              <span
+                                className="inline-flex items-center rounded-full border px-2 py-0.5 text-[10px]"
+                                style={{
+                                  borderColor: "rgba(34,197,94,0.35)",
+                                  backgroundColor: "rgba(34,197,94,0.12)",
+                                  color: "rgb(134,239,172)",
+                                }}
+                              >
+                                On platform
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center rounded-full border border-[var(--border)] px-2 py-0.5 font-mono text-[10px] text-[var(--text-muted)]">
+                                Not yet
+                              </span>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => void onDelete(c.id)}
+                              className="text-[var(--text-muted)] hover:text-red-400 transition-colors"
+                              aria-label="Remove"
+                            >
+                              <svg
+                                width="14"
+                                height="14"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                aria-hidden
+                              >
+                                <line x1="18" y1="6" x2="6" y2="18" />
+                                <line x1="6" y1="6" x2="18" y2="18" />
+                              </svg>
+                            </button>
+                          </div>
+                        </div>
+                        {c.email && (
+                          <p
+                            className="text-xs text-[var(--text-muted)] cursor-pointer"
+                            onClick={() => openEdit(c)}
+                          >
+                            {c.email}
+                          </p>
+                        )}
+                        {c.linkedin_url && (
+                          <a
+                            href={c.linkedin_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-block text-xs text-metatron-accent hover:underline"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            LinkedIn →
+                          </a>
+                        )}
+                        {c.notes && (
+                          <p
+                            className="text-xs text-[var(--text-muted)] italic cursor-pointer"
+                            onClick={() => openEdit(c)}
+                          >
+                            {c.notes}
+                          </p>
+                        )}
+                      </>
+                    )}
+                  </div>
+                ))}
               </div>
-            ))}
+            ) : (
+              <div className="overflow-x-auto -mx-1">
+                <table className="w-full min-w-[640px] text-left text-sm">
+                  <thead>
+                    <tr className="border-b border-[var(--border)]">
+                      <th className="pb-3 pr-3 font-mono text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
+                        Name
+                      </th>
+                      <th className="pb-3 pr-3 font-mono text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
+                        {tab === "investor" ? "Firm" : "Company"}
+                      </th>
+                      <th className="pb-3 pr-3 font-mono text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
+                        Email
+                      </th>
+                      <th className="pb-3 pr-3 font-mono text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
+                        Status
+                      </th>
+                      <th className="pb-3 font-mono text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
+                        Actions
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {paginated.map((c) => (
+                      <Fragment key={c.id}>
+                        <tr className="border-b border-[var(--border)] align-top">
+                          <td className="py-3 pr-3 text-[var(--text)] font-medium">
+                            {c.name}
+                          </td>
+                          <td className="py-3 pr-3 text-[var(--text-muted)]">
+                            {c.firm_or_company ?? "—"}
+                          </td>
+                          <td className="py-3 pr-3 text-[var(--text-muted)]">
+                            {c.email ?? "—"}
+                          </td>
+                          <td className="py-3 pr-3">
+                            {c.joined_user_id ? (
+                              <span
+                                className="inline-flex items-center rounded-full border px-2 py-0.5 text-[10px]"
+                                style={{
+                                  borderColor: "rgba(34,197,94,0.35)",
+                                  backgroundColor: "rgba(34,197,94,0.12)",
+                                  color: "rgb(134,239,172)",
+                                }}
+                              >
+                                On platform
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center rounded-full border border-[var(--border)] px-2 py-0.5 font-mono text-[10px] text-[var(--text-muted)]">
+                                Not yet
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3">
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => openEdit(c)}
+                                className="rounded-lg p-1.5 text-[var(--text-muted)] hover:bg-metatron-accent/10 hover:text-metatron-accent transition-colors"
+                                aria-label="Edit"
+                                title="Edit"
+                              >
+                                <svg
+                                  width="16"
+                                  height="16"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                  aria-hidden
+                                >
+                                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                                </svg>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void onDelete(c.id)}
+                                className="rounded-lg p-1.5 text-[var(--text-muted)] hover:text-red-400 transition-colors"
+                                aria-label="Remove"
+                                title="Remove"
+                              >
+                                <svg
+                                  width="16"
+                                  height="16"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                  aria-hidden
+                                >
+                                  <line x1="18" y1="6" x2="6" y2="18" />
+                                  <line x1="6" y1="6" x2="18" y2="18" />
+                                </svg>
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                        {editingId === c.id && (
+                          <tr className="border-b border-[var(--border)] bg-[rgba(108,92,231,0.06)]">
+                            <td colSpan={5} className="p-4">
+                              <form
+                                onSubmit={(e) => void onSaveEdit(e, c)}
+                                className="space-y-4 max-w-3xl"
+                              >
+                                {editFields(c)}
+                              </form>
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between pt-2 border-t border-[var(--border)]">
+              <p className="text-xs text-[var(--text-muted)]">
+                Showing {rangeStart}–{rangeEnd} of {filtered.length}
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={page <= 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-medium text-[var(--text)] disabled:opacity-40 disabled:cursor-not-allowed hover:border-metatron-accent/30"
+                >
+                  Previous
+                </button>
+                <button
+                  type="button"
+                  disabled={page >= totalPages}
+                  onClick={() =>
+                    setPage((p) => Math.min(totalPages, p + 1))
+                  }
+                  className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-medium text-[var(--text)] disabled:opacity-40 disabled:cursor-not-allowed hover:border-metatron-accent/30"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
           </div>
         )}
 

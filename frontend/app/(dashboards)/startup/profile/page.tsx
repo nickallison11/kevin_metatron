@@ -538,9 +538,9 @@ export default function StartupProfilePage() {
 
                 {freeDeckUsed ? (
                   <div className="rounded-lg border border-[var(--border)] bg-[rgba(255,255,255,0.02)] px-4 py-3 text-sm text-[var(--text-muted)]">
-                    <p>Free accounts include one deck upload. Upgrade to Basic to replace your deck.</p>
+                    <p>Free accounts include one deck upload. Upgrade to Founder Basic to replace your deck.</p>
                     <Link href="/pricing" className="mt-2 inline-block text-xs font-semibold text-metatron-accent hover:underline">
-                      Upgrade to Basic — view plans
+                      Upgrade to Founder Basic — view plans
                     </Link>
                   </div>
                 ) : (

@@ -129,9 +129,20 @@ export default function ConnectorNetworkPage() {
     const data = await res.json();
     console.log("loadStaging data:", data);
     if (res.ok) {
-      setStaged(data.contacts ?? []);
-      setStagingTotal(data.total ?? 0);
-      setStagingCounts(data.counts ?? { pending: 0, enriching: 0, enriched: 0, failed: 0 });
+      if (Array.isArray(data)) {
+        // backend returning old flat array format
+        setStaged(data.slice(0, 50));
+        setStagingTotal(data.length);
+        const counts = { pending: 0, enriching: 0, enriched: 0, failed: 0 };
+        for (const c of data as { status: string }[]) {
+          if (c.status in counts) counts[c.status as keyof typeof counts]++;
+        }
+        setStagingCounts(counts);
+      } else {
+        setStaged(data.contacts ?? []);
+        setStagingTotal(data.total ?? 0);
+        setStagingCounts(data.counts ?? { pending: 0, enriching: 0, enriched: 0, failed: 0 });
+      }
     }
     setStagingLoading(false);
   }, [token, stagingPage]);

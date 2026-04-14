@@ -1111,6 +1111,16 @@ async fn enrich_one_contact(
     .bind(enrichment.one_liner)
     .execute(pool)
     .await;
+    let _ = sqlx::query(
+        "UPDATE connector_profiles SET
+           enrichments_this_month = CASE WHEN enrichments_month_start < date_trunc('month', CURRENT_DATE)::date
+             THEN 1 ELSE enrichments_this_month + 1 END,
+           enrichments_month_start = date_trunc('month', CURRENT_DATE)::date
+         WHERE user_id = (SELECT connector_user_id FROM connector_network_staging WHERE id=$1)",
+    )
+    .bind(id)
+    .execute(pool)
+    .await;
 }
 
 async fn export_network(

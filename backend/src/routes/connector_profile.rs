@@ -629,22 +629,21 @@ async fn list_staging(
     let offset = page * per_page;
 
     let total: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM connector_network_staging WHERE connector_user_id=$1",
+        "SELECT COUNT(*)::bigint FROM connector_network_staging WHERE connector_user_id=$1",
     )
     .bind(id)
     .fetch_one(&state.db)
     .await
     .map_err(internal)?;
 
-    let rows = sqlx::query_as::<_, StagedContactRow>(
-        r#"SELECT id, role, name, firm_or_company, raw_notes, contact_name, email, linkedin_url,
-                    website, sector_focus, stage_focus, ticket_size, geography, one_liner,
-                    status, enrichment_error, created_at, enriched_at
+    let rows = sqlx::query_as::<_, StagedContactRow>(&format!(
+        r#"SELECT {}
              FROM connector_network_staging
              WHERE connector_user_id = $1
              ORDER BY created_at DESC
              LIMIT $2 OFFSET $3"#,
-    )
+        staging_select_cols()
+    ))
     .bind(id)
     .bind(per_page)
     .bind(offset)
@@ -653,7 +652,7 @@ async fn list_staging(
     .map_err(internal)?;
 
     let status_rows = sqlx::query_as::<_, StatusCount>(
-        "SELECT status, COUNT(*)::bigint as count FROM connector_network_staging WHERE connector_user_id=$1 GROUP BY status",
+        "SELECT status, COUNT(*)::bigint AS count FROM connector_network_staging WHERE connector_user_id=$1 GROUP BY status",
     )
     .bind(id)
     .fetch_all(&state.db)
@@ -661,9 +660,9 @@ async fn list_staging(
     .unwrap_or_default();
 
     let mut counts = serde_json::json!({ "pending": 0, "enriching": 0, "enriched": 0, "failed": 0 });
-    for sc in status_rows {
-        if let Some(map) = counts.as_object_mut() {
-            map.insert(sc.status, serde_json::json!(sc.count));
+    for sc in &status_rows {
+        if let Some(obj) = counts.as_object_mut() {
+            obj.insert(sc.status.clone(), serde_json::json!(sc.count));
         }
     }
 

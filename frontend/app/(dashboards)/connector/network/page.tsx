@@ -29,6 +29,27 @@ type Contact = {
   created_at: string;
 };
 
+type StagedContact = {
+  id: string;
+  role: "investor" | "founder";
+  name: string;
+  firm_or_company: string | null;
+  raw_notes: string | null;
+  contact_name: string | null;
+  email: string | null;
+  linkedin_url: string | null;
+  website: string | null;
+  sector_focus: string | null;
+  stage_focus: string | null;
+  ticket_size: string | null;
+  geography: string | null;
+  one_liner: string | null;
+  status: "pending" | "enriching" | "enriched" | "failed";
+  enrichment_error: string | null;
+  created_at: string;
+  enriched_at: string | null;
+};
+
 type SheetPreviewRow = {
   role: string;
   name: string;
@@ -64,8 +85,18 @@ export default function ConnectorNetworkPage() {
     investors: SheetPreviewRow[];
     founders: SheetPreviewRow[];
   } | null>(null);
-  const [sheetImporting, setSheetImporting] = useState(false);
   const [sheetMsg, setSheetMsg] = useState<string | null>(null);
+
+  const [staged, setStaged] = useState<StagedContact[]>([]);
+  const [stagingLoading, setStagingLoading] = useState(false);
+  const [stagingMsg, setStagingMsg] = useState<string | null>(null);
+  const [stagingTab, setStagingTab] = useState<"investor" | "founder" | "all">("investor");
+  const [stagingView, setStagingView] = useState<"table" | "cards">("table");
+  const [selectedStaged, setSelectedStaged] = useState<Set<string>>(new Set());
+  const [importingStaged, setImportingStaged] = useState(false);
+  const [editingStagedId, setEditingStagedId] = useState<string | null>(null);
+  const [editStagedForm, setEditStagedForm] = useState<Partial<StagedContact>>({});
+  const [savingStagedEdit, setSavingStagedEdit] = useState(false);
 
   const [form, setForm] = useState({
     role: "investor" as "investor" | "founder",
@@ -78,40 +109,81 @@ export default function ConnectorNetworkPage() {
 
   const load = useCallback(async () => {
     if (!token) return;
-    try {
-      const res = await fetch(`${API_BASE}/connector-profile/network`, {
-        headers: authHeaders(token),
-      });
-      if (res.ok) setContacts((await res.json()) as Contact[]);
-    } catch {}
+    const res = await fetch(`${API_BASE}/connector-profile/network`, { headers: authHeaders(token) });
+    if (res.ok) setContacts(await res.json());
+  }, [token]);
+
+  const loadStaging = useCallback(async () => {
+    if (!token) return;
+    setStagingLoading(true);
+    const res = await fetch(`${API_BASE}/connector-profile/network/staging`, { headers: authHeaders(token) });
+    if (res.ok) setStaged(await res.json());
+    setStagingLoading(false);
   }, [token]);
 
   useEffect(() => {
-    void load();
+    load();
   }, [load]);
-
-  const filtered = useMemo(
-    () => contacts.filter((c) => c.role === tab),
-    [contacts, tab],
-  );
+  useEffect(() => {
+    loadStaging();
+  }, [loadStaging]);
 
   useEffect(() => {
-    setPage(1);
-    setEditingId(null);
-    setEditMsg(null);
-  }, [tab]);
+    const hasEnriching = staged.some((s) => s.status === "enriching");
+    if (!hasEnriching) return;
+    const timer = setInterval(() => loadStaging(), 3000);
+    return () => clearInterval(timer);
+  }, [staged, loadStaging]);
 
-  useEffect(() => {
-    const tp = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-    if (page > tp) setPage(tp);
-  }, [filtered.length, page]);
+  const enrichingInStaging = staged.filter((s) => s.status === "enriching").length;
+
+  const filtered = useMemo(() => contacts.filter((c) => c.role === tab), [contacts, tab]);
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-  const rangeStart =
-    filtered.length === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
-  const rangeEnd = Math.min(page * PAGE_SIZE, filtered.length);
 
-  function openEdit(c: Contact) {
+  const filteredStaged = useMemo(
+    () => (stagingTab === "all" ? staged : staged.filter((s) => s.role === stagingTab)),
+    [staged, stagingTab],
+  );
+
+  const investorCount = contacts.filter((c) => c.role === "investor").length;
+  const founderCount = contacts.filter((c) => c.role === "founder").length;
+  const stagedInvestorCount = staged.filter((s) => s.role === "investor").length;
+  const stagedFounderCount = staged.filter((s) => s.role === "founder").length;
+  const stagedEnrichedCount = staged.filter((s) => s.status === "enriched").length;
+  const stagedPendingCount = staged.filter((s) => s.status === "pending" || s.status === "failed").length;
+
+  async function onAdd(e: FormEvent) {
+    e.preventDefault();
+    if (!token) return;
+    setAdding(true);
+    const res = await fetch(`${API_BASE}/connector-profile/network`, {
+      method: "POST",
+      headers: authJsonHeaders(token),
+      body: JSON.stringify(form),
+    });
+    if (res.ok) {
+      setMsg("Contact added.");
+      setForm({ role: "investor", name: "", email: "", firm_or_company: "", linkedin_url: "", notes: "" });
+      setShowForm(false);
+      load();
+    } else {
+      setMsg("Error adding contact.");
+    }
+    setAdding(false);
+    setTimeout(() => setMsg(null), 3000);
+  }
+
+  async function onDelete(id: string) {
+    if (!token || !confirm("Delete this contact?")) return;
+    await fetch(`${API_BASE}/connector-profile/network/${id}`, {
+      method: "DELETE",
+      headers: authHeaders(token),
+    });
+    load();
+  }
+
+  function startEdit(c: Contact) {
     setEditingId(c.id);
     setEditForm({
       name: c.name,
@@ -121,243 +193,125 @@ export default function ConnectorNetworkPage() {
       notes: c.notes ?? "",
     });
     setEditMsg(null);
-    setShowForm(false);
   }
 
-  function cancelEdit() {
-    setEditingId(null);
-    setEditMsg(null);
-  }
-
-  async function onSaveEdit(e: FormEvent, contact: Contact) {
-    e.preventDefault();
-    e.stopPropagation();
+  async function onSaveEdit(c: Contact) {
     if (!token) return;
     setSavingEdit(true);
-    setEditMsg(null);
-    try {
-      const res = await fetch(
-        `${API_BASE}/connector-profile/network/${contact.id}`,
-        {
-          method: "PUT",
-          headers: authJsonHeaders(token),
-          body: JSON.stringify({
-            role: contact.role,
-            name: editForm.name,
-            email: editForm.email || null,
-            firm_or_company: editForm.firm_or_company || null,
-            linkedin_url: editForm.linkedin_url || null,
-            notes: editForm.notes || null,
-          }),
-        },
-      );
-      if (!res.ok) {
-        const t = await res.text();
-        setEditMsg(t || "Could not save.");
-        return;
-      }
-      const updated = (await res.json()) as Contact;
-      setContacts((prev) =>
-        prev.map((x) => (x.id === updated.id ? updated : x)),
-      );
+    const res = await fetch(`${API_BASE}/connector-profile/network/${c.id}`, {
+      method: "PUT",
+      headers: authJsonHeaders(token),
+      body: JSON.stringify({ role: c.role, ...editForm }),
+    });
+    if (res.ok) {
       setEditingId(null);
-    } catch {
-      setEditMsg("Could not save.");
-    } finally {
-      setSavingEdit(false);
+      load();
+    } else {
+      setEditMsg("Save failed.");
     }
+    setSavingEdit(false);
   }
 
-  async function onAdd(e: FormEvent) {
-    e.preventDefault();
-    if (!token) return;
-    setAdding(true);
-    setMsg(null);
-    try {
-      const res = await fetch(`${API_BASE}/connector-profile/network`, {
-        method: "POST",
-        headers: authJsonHeaders(token),
-        body: JSON.stringify({
-          role: form.role,
-          name: form.name,
-          email: form.email || null,
-          firm_or_company: form.firm_or_company || null,
-          linkedin_url: form.linkedin_url || null,
-          notes: form.notes || null,
-        }),
-      });
-      if (!res.ok) {
-        const t = await res.text();
-        setMsg(t || "Could not add contact.");
-        return;
-      }
-      const newContact = (await res.json()) as Contact;
-      setContacts((prev) => [newContact, ...prev]);
-      setForm({
-        role: tab,
-        name: "",
-        email: "",
-        firm_or_company: "",
-        linkedin_url: "",
-        notes: "",
-      });
-      setShowForm(false);
-    } catch {
-      setMsg("Could not add contact.");
-    } finally {
-      setAdding(false);
-    }
-  }
-
-  async function onDelete(id: string) {
-    if (!token) return;
-    try {
-      await fetch(`${API_BASE}/connector-profile/network/${id}`, {
-        method: "DELETE",
-        headers: authHeaders(token),
-      });
-      setContacts((prev) => prev.filter((c) => c.id !== id));
-      if (editingId === id) cancelEdit();
-    } catch {}
-  }
-
-  async function onCsvImport(e: FormEvent) {
-    e.preventDefault();
+  async function onCsvImport() {
     if (!token || !csvText.trim()) return;
     setCsvImporting(true);
-    setCsvMsg(null);
-    try {
-      const res = await fetch(`${API_BASE}/connector-profile/network/csv`, {
-        method: "POST",
-        headers: authJsonHeaders(token),
-        body: JSON.stringify({ csv: csvText }),
-      });
-      const data = (await res.json()) as { imported: number; skipped: number };
-      setCsvMsg(
-        `Imported ${data.imported} contacts. ${data.skipped > 0 ? `${data.skipped} skipped.` : ""}`,
-      );
+    const res = await fetch(`${API_BASE}/connector-profile/network/csv`, {
+      method: "POST",
+      headers: authJsonHeaders(token),
+      body: JSON.stringify({ csv: csvText }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      setCsvMsg(`Imported ${data.imported}, skipped ${data.skipped}.`);
       setCsvText("");
-      void load();
-    } catch {
+      load();
+    } else {
       setCsvMsg("Import failed.");
-    } finally {
-      setCsvImporting(false);
     }
+    setCsvImporting(false);
   }
 
-  function onSpreadsheetFile(e: ChangeEvent<HTMLInputElement>) {
+  function onSheetFile(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
     setSheetMsg(null);
-    setSheetPreview(null);
-
     const reader = new FileReader();
-    reader.onload = (evt) => {
+    reader.onload = (ev) => {
       try {
-        const data = new Uint8Array(evt.target?.result as ArrayBuffer);
+        const data = new Uint8Array(ev.target!.result as ArrayBuffer);
         const workbook = XLSX.read(data, { type: "array" });
         const sheet = workbook.Sheets[workbook.SheetNames[0]];
-        const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
-          defval: "",
-          raw: false,
-        });
-
+        const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" });
         if (rows.length === 0) {
           setSheetMsg("No data found in spreadsheet.");
           return;
         }
 
-        const cell = (row: Record<string, unknown>, col: string | null) => {
-          if (!col) return "";
-          const v = row[col];
-          return v == null ? "" : String(v).trim();
-        };
+        const headers = Object.keys(rows[0]).map((h) => h.toLowerCase().trim());
 
-        const headers = Object.keys(rows[0]);
-        const find = (keywords: string[]) =>
-          headers.find((h) =>
-            keywords.some((k) => h.toLowerCase().includes(k)),
-          ) ?? null;
+        const investorCol = headers.find((h) => h.includes("investor") || h.includes("funder") || h.includes("vc"));
+        const nameCol = headers.find(
+          (h) => h.includes("deal") || h.includes("company") || h.includes("startup") || h.includes("name"),
+        );
+        const sectorCol = headers.find((h) => h.includes("sector") || h.includes("industry") || h.includes("vertical"));
+        const stageCol = headers.find((h) => h.includes("stage") || h.includes("round") || h.includes("series"));
+        const locationCol = headers.find(
+          (h) => h.includes("location") || h.includes("country") || h.includes("city") || h.includes("region"),
+        );
+        const amountCol = headers.find(
+          (h) => h.includes("amount") || h.includes("raised") || h.includes("funding") || h.includes("usd"),
+        );
 
-        const nameCol = find([
-          "deal name",
-          "company name",
-          "startup",
-          "name",
-        ]);
-        const sectorCol = find(["sector"]);
-        const stageCol = find(["stage"]);
-        const locationCol = find(["location", "country", "region"]);
-        const amountCol = find(["amount", "funding", "raised"]);
-        const investorCol = find(["investor"]);
-        const acceleratorCol = find(["accelerator"]);
+        const originalHeaders = Object.keys(rows[0]);
+        const investorOrigCol = investorCol
+          ? originalHeaders.find((h) => h.toLowerCase().trim() === investorCol)
+          : undefined;
+        const nameOrigCol = nameCol ? originalHeaders.find((h) => h.toLowerCase().trim() === nameCol) : undefined;
+        const sectorOrigCol = sectorCol ? originalHeaders.find((h) => h.toLowerCase().trim() === sectorCol) : undefined;
+        const stageOrigCol = stageCol ? originalHeaders.find((h) => h.toLowerCase().trim() === stageCol) : undefined;
+        const locationOrigCol = locationCol
+          ? originalHeaders.find((h) => h.toLowerCase().trim() === locationCol)
+          : undefined;
+        const amountOrigCol = amountCol ? originalHeaders.find((h) => h.toLowerCase().trim() === amountCol) : undefined;
 
-        const founders: SheetPreviewRow[] = [];
-        const investorMap = new Map<string, boolean>();
-
-        for (const row of rows) {
-          const name = nameCol ? cell(row, nameCol) : "";
-          if (!name) continue;
-
-          const parts: string[] = [];
-          if (sectorCol && cell(row, sectorCol))
-            parts.push(`Sector: ${cell(row, sectorCol)}`);
-          if (stageCol && cell(row, stageCol))
-            parts.push(`Stage: ${cell(row, stageCol)}`);
-          if (locationCol && cell(row, locationCol))
-            parts.push(`Location: ${cell(row, locationCol)}`);
-          if (amountCol && cell(row, amountCol))
-            parts.push(`Raised: ${cell(row, amountCol)}`);
-          if (acceleratorCol && cell(row, acceleratorCol))
-            parts.push(`Accelerator: ${cell(row, acceleratorCol)}`);
-
-          founders.push({
-            role: "founder",
-            name,
-            firm_or_company: name,
-            notes: parts.join(" | "),
-          });
-
-          if (investorCol && cell(row, investorCol)) {
-            const names = cell(row, investorCol)
-              .split(/,|;/)
+        const investorSet = new Set<string>();
+        const investorRows: SheetPreviewRow[] = [];
+        if (investorOrigCol) {
+          for (const row of rows) {
+            const val = String(row[investorOrigCol] ?? "").trim();
+            if (!val) continue;
+            const names = val
+              .split(/,|;|\/| and /)
               .map((s) => s.trim())
-              .filter((s) => s.length > 1 && s.length < 80);
+              .filter((s) => s.length > 1);
             for (const inv of names) {
-              if (!investorMap.has(inv.toLowerCase())) {
-                investorMap.set(inv.toLowerCase(), true);
+              const normalized = inv.toLowerCase();
+              if (!investorSet.has(normalized) && !normalized.includes("unnamed") && !normalized.includes("undisclosed")) {
+                investorSet.add(normalized);
+                investorRows.push({ role: "investor", name: inv, firm_or_company: inv, notes: "" });
               }
             }
           }
         }
 
-        const allInvestorNames = Array.from(
-          new Set(
-            rows.flatMap((r) =>
-              investorCol && cell(r, investorCol)
-                ? cell(r, investorCol)
-                    .split(/,|;/)
-                    .map((s) => s.trim())
-                    .filter(Boolean)
-                : [],
-            ),
-          ),
-        );
+        const founderRows: SheetPreviewRow[] = [];
+        for (const row of rows) {
+          const name = nameOrigCol ? String(row[nameOrigCol] ?? "").trim() : "";
+          if (!name) continue;
+          const sector = sectorOrigCol ? String(row[sectorOrigCol] ?? "").trim() : "";
+          const stage = stageOrigCol ? String(row[stageOrigCol] ?? "").trim() : "";
+          const location = locationOrigCol ? String(row[locationOrigCol] ?? "").trim() : "";
+          const amount = amountOrigCol ? String(row[amountOrigCol] ?? "").trim() : "";
+          const notesParts = [
+            sector && `Sector: ${sector}`,
+            stage && `Stage: ${stage}`,
+            location && `Location: ${location}`,
+            amount && `Amount: ${amount}`,
+          ].filter(Boolean);
+          founderRows.push({ role: "founder", name, firm_or_company: name, notes: notesParts.join(" | ") });
+        }
 
-        const investors: SheetPreviewRow[] = Array.from(
-          investorMap.keys(),
-        ).map((key) => {
-          const originalName =
-            allInvestorNames.find((n) => n.toLowerCase() === key) ?? key;
-          return {
-            role: "investor",
-            name: originalName,
-            firm_or_company: originalName,
-            notes: "Imported from spreadsheet",
-          };
-        });
-
-        setSheetPreview({ investors, founders });
+        setSheetPreview({ investors: investorRows, founders: founderRows });
       } catch {
         setSheetMsg("Could not parse spreadsheet. Try saving as CSV first.");
       }
@@ -366,611 +320,736 @@ export default function ConnectorNetworkPage() {
     e.target.value = "";
   }
 
-  async function onConfirmSheetImport(which: "all" | "investors" | "founders") {
+  async function onStageContacts(which: "all" | "investors" | "founders") {
     if (!token || !sheetPreview) return;
-    setSheetImporting(true);
-    setSheetMsg(null);
-
-    const contacts =
+    const toStage =
       which === "all"
         ? [...sheetPreview.investors, ...sheetPreview.founders]
         : which === "investors"
           ? sheetPreview.investors
           : sheetPreview.founders;
 
-    let totalImported = 0;
-    let totalSkipped = 0;
+    setSheetMsg("Staging contacts...");
     const CHUNK = 200;
-
-    try {
-      for (let i = 0; i < contacts.length; i += CHUNK) {
-        const chunk = contacts.slice(i, i + CHUNK);
-        const res = await fetch(`${API_BASE}/connector-profile/network/batch`, {
-          method: "POST",
-          headers: authJsonHeaders(token),
-          body: JSON.stringify({
-            contacts: chunk.map((c) => ({
-              role: c.role,
-              name: c.name,
-              email: null,
-              firm_or_company: c.firm_or_company || null,
-              linkedin_url: null,
-              notes: c.notes || null,
-            })),
-          }),
-        });
-        if (res.ok) {
-          const d = (await res.json()) as { imported: number; skipped: number };
-          totalImported += d.imported;
-          totalSkipped += d.skipped;
-        } else {
-          const err = await res.text();
-          setSheetMsg(err || "Batch import failed.");
-          return;
-        }
+    let totalStaged = 0;
+    for (let i = 0; i < toStage.length; i += CHUNK) {
+      const chunk = toStage.slice(i, i + CHUNK).map((r) => ({
+        role: r.role,
+        name: r.name,
+        firm_or_company: r.firm_or_company || null,
+        raw_notes: r.notes || null,
+      }));
+      const res = await fetch(`${API_BASE}/connector-profile/network/stage`, {
+        method: "POST",
+        headers: authJsonHeaders(token),
+        body: JSON.stringify({ contacts: chunk }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        totalStaged += data.staged ?? 0;
       }
-      setSheetMsg(
-        `Imported ${totalImported} contacts.${totalSkipped > 0 ? ` ${totalSkipped} skipped.` : ""}`,
-      );
-      setSheetPreview(null);
-      void load();
-    } catch {
-      setSheetMsg("Import failed.");
-    } finally {
-      setSheetImporting(false);
+    }
+    setSheetMsg(`Staged ${totalStaged} contacts for enrichment. See the Staging section below.`);
+    setSheetPreview(null);
+    loadStaging();
+  }
+
+  async function onEnrichSelected() {
+    if (!token || selectedStaged.size === 0) return;
+    const res = await fetch(`${API_BASE}/connector-profile/network/staging/enrich`, {
+      method: "POST",
+      headers: authJsonHeaders(token),
+      body: JSON.stringify({ ids: Array.from(selectedStaged) }),
+    });
+    if (res.ok) {
+      setStagingMsg(`Enriching ${selectedStaged.size} contacts with Kevin...`);
+      setSelectedStaged(new Set());
+      loadStaging();
     }
   }
 
-  if (loading || !token) return null;
+  async function onEnrichAll(role?: "investor" | "founder") {
+    if (!token) return;
+    const res = await fetch(`${API_BASE}/connector-profile/network/staging/enrich`, {
+      method: "POST",
+      headers: authJsonHeaders(token),
+      body: JSON.stringify({ role: role ?? null }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      setStagingMsg(`Enriching ${data.enriching} contacts... this runs in the background.`);
+      loadStaging();
+    }
+  }
 
-  const editFields = (contact: Contact) => (
-    <>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <label className="block space-y-1">
-          <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
-            Name *
-          </span>
-          <input
-            className="input-metatron w-full"
-            required
-            value={editForm.name}
-            onChange={(e) =>
-              setEditForm((f) => ({ ...f, name: e.target.value }))
-            }
-            placeholder="Full name"
-          />
-        </label>
-        <label className="block space-y-1">
-          <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
-            {contact.role === "investor" ? "Firm" : "Company"}
-          </span>
-          <input
-            className="input-metatron w-full"
-            value={editForm.firm_or_company}
-            onChange={(e) =>
-              setEditForm((f) => ({ ...f, firm_or_company: e.target.value }))
-            }
-            placeholder={
-              contact.role === "investor"
-                ? "e.g. Acme Ventures"
-                : "e.g. Acme Inc"
-            }
-          />
-        </label>
-        <label className="block space-y-1">
-          <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
-            Email
-          </span>
-          <input
-            className="input-metatron w-full"
-            type="email"
-            value={editForm.email}
-            onChange={(e) =>
-              setEditForm((f) => ({ ...f, email: e.target.value }))
-            }
-            placeholder="email@example.com"
-          />
-        </label>
-        <label className="block space-y-1">
-          <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
-            LinkedIn URL
-          </span>
-          <input
-            className="input-metatron w-full"
-            type="url"
-            value={editForm.linkedin_url}
-            onChange={(e) =>
-              setEditForm((f) => ({ ...f, linkedin_url: e.target.value }))
-            }
-            placeholder="https://linkedin.com/in/..."
-          />
-        </label>
-      </div>
-      <label className="block space-y-1">
-        <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
-          Notes
-        </span>
-        <textarea
-          className="input-metatron w-full resize-none"
-          rows={2}
-          value={editForm.notes}
-          onChange={(e) =>
-            setEditForm((f) => ({ ...f, notes: e.target.value }))
-          }
-          placeholder="Notes"
-        />
-      </label>
-      <div className="flex flex-wrap items-center gap-3">
-        <button
-          type="submit"
-          disabled={savingEdit}
-          className="rounded-lg bg-metatron-accent px-4 py-2 text-sm font-semibold text-white hover:bg-metatron-accent-hover disabled:opacity-60"
-        >
-          {savingEdit ? "Saving…" : "Save"}
-        </button>
-        <button
-          type="button"
-          onClick={cancelEdit}
-          className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm text-[var(--text-muted)] hover:text-[var(--text)]"
-        >
-          Cancel
-        </button>
-        {editMsg && <p className="text-xs text-red-400">{editMsg}</p>}
-      </div>
-    </>
-  );
+  async function onImportEnriched(ids?: string[]) {
+    if (!token) return;
+    setImportingStaged(true);
+    const res = await fetch(`${API_BASE}/connector-profile/network/staging/import`, {
+      method: "POST",
+      headers: authJsonHeaders(token),
+      body: JSON.stringify({ ids: ids ?? null }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      setStagingMsg(`Imported ${data.imported} contacts to your network.`);
+      loadStaging();
+      load();
+    }
+    setImportingStaged(false);
+  }
+
+  async function onClearStaging() {
+    if (!token || !confirm("Clear all staged contacts?")) return;
+    await fetch(`${API_BASE}/connector-profile/network/staging`, {
+      method: "DELETE",
+      headers: authHeaders(token),
+    });
+    setStaged([]);
+    setStagingMsg("Staging cleared.");
+  }
+
+  async function onDeleteStaged(id: string) {
+    if (!token) return;
+    await fetch(`${API_BASE}/connector-profile/network/staging/${id}`, {
+      method: "DELETE",
+      headers: authHeaders(token),
+    });
+    setStaged((prev) => prev.filter((s) => s.id !== id));
+  }
+
+  function startEditStaged(s: StagedContact) {
+    setEditingStagedId(s.id);
+    setEditStagedForm({
+      contact_name: s.contact_name ?? "",
+      email: s.email ?? "",
+      linkedin_url: s.linkedin_url ?? "",
+      website: s.website ?? "",
+      sector_focus: s.sector_focus ?? "",
+      stage_focus: s.stage_focus ?? "",
+      ticket_size: s.ticket_size ?? "",
+      geography: s.geography ?? "",
+      one_liner: s.one_liner ?? "",
+    });
+  }
+
+  async function onSaveStagedEdit(id: string) {
+    if (!token) return;
+    setSavingStagedEdit(true);
+    const res = await fetch(`${API_BASE}/connector-profile/network/staging/${id}`, {
+      method: "PUT",
+      headers: authJsonHeaders(token),
+      body: JSON.stringify(editStagedForm),
+    });
+    if (res.ok) {
+      setEditingStagedId(null);
+      loadStaging();
+    }
+    setSavingStagedEdit(false);
+  }
+
+  if (loading) return null;
+
+  const statusBadge = (status: StagedContact["status"]) => {
+    const map = {
+      pending: "bg-[rgba(255,255,255,0.06)] text-[#8888a0]",
+      enriching: "bg-[rgba(108,92,231,0.15)] text-[#6c5ce7] animate-pulse",
+      enriched: "bg-[rgba(0,200,100,0.12)] text-green-400",
+      failed: "bg-[rgba(255,80,80,0.12)] text-red-400",
+    };
+    return (
+      <span className={`px-2 py-0.5 rounded text-xs font-medium ${map[status]}`}>{status}</span>
+    );
+  };
 
   return (
-    <main className="flex-1">
-      <header className="border-b border-[var(--border)] px-6 py-4 md:px-10">
-        <p className="mb-1 font-mono text-[11px] font-medium uppercase tracking-[2px] text-[var(--text-muted)]">
-          Connector
-        </p>
-        <h1 className="text-lg font-semibold">My Network</h1>
-        <p className="mt-1 text-sm text-[var(--text-muted)]">
-          Import and manage the investors and founders in your network.
-        </p>
-      </header>
-
-      <section className="max-w-5xl space-y-6 p-6 md:p-10">
-        <div className="flex gap-2">
-          {(["investor", "founder"] as const).map((t) => (
-            <button
-              key={t}
-              type="button"
-              onClick={() => {
-                setTab(t);
-                setForm((f) => ({ ...f, role: t }));
-                setShowForm(false);
-              }}
-              className={[
-                "rounded-lg border px-4 py-2 text-sm font-medium transition-colors",
-                tab === t
-                  ? "border-metatron-accent/40 bg-metatron-accent/10 text-metatron-accent"
-                  : "border-[var(--border)] text-[var(--text-muted)] hover:border-metatron-accent/20",
-              ].join(" ")}
-            >
-              {t === "investor" ? "Investors" : "Founders"}
-              <span className="ml-2 rounded-full bg-[var(--bg)] px-2 py-0.5 font-mono text-[10px] text-[var(--text-muted)]">
-                {contacts.filter((c) => c.role === t).length}
-              </span>
-            </button>
-          ))}
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold text-[#e8e8ed]">My Network</h1>
+          <p className="text-[#8888a0] text-sm mt-1">Manage and enrich your investor and founder contacts</p>
         </div>
+        <button
+          type="button"
+          onClick={() => setShowForm((v) => !v)}
+          className="px-4 py-2 bg-[#6c5ce7] text-white rounded-xl text-sm font-medium hover:bg-[#7d6ff0]"
+        >
+          {showForm ? "Cancel" : "+ Add Contact"}
+        </button>
+      </div>
 
-        <div className="flex flex-wrap gap-3">
-          <button
-            type="button"
-            onClick={() => setShowForm((v) => !v)}
-            className="rounded-lg bg-metatron-accent px-4 py-2 text-sm font-semibold text-white hover:bg-metatron-accent-hover"
-          >
-            {showForm ? "Cancel" : `+ Add ${tab}`}
-          </button>
-        </div>
+      {msg && <p className="text-sm text-[#6c5ce7]">{msg}</p>}
 
-        {showForm && (
-          <form
-            onSubmit={onAdd}
-            className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-5 space-y-4 text-sm"
-          >
-            <div className="grid gap-4 sm:grid-cols-2">
-              <label className="block space-y-1">
-                <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
-                  Name *
-                </span>
-                <input
-                  className="input-metatron w-full"
-                  required
-                  value={form.name}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, name: e.target.value }))
-                  }
-                  placeholder="Full name"
-                />
-              </label>
-              <label className="block space-y-1">
-                <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
-                  {tab === "investor" ? "Firm" : "Company"}
-                </span>
-                <input
-                  className="input-metatron w-full"
-                  value={form.firm_or_company}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, firm_or_company: e.target.value }))
-                  }
-                  placeholder={
-                    tab === "investor"
-                      ? "e.g. Acme Ventures"
-                      : "e.g. Acme Inc"
-                  }
-                />
-              </label>
-              <label className="block space-y-1">
-                <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
-                  Email
-                </span>
-                <input
-                  className="input-metatron w-full"
-                  type="email"
-                  value={form.email}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, email: e.target.value }))
-                  }
-                  placeholder="email@example.com"
-                />
-              </label>
-              <label className="block space-y-1">
-                <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
-                  LinkedIn URL
-                </span>
-                <input
-                  className="input-metatron w-full"
-                  type="url"
-                  value={form.linkedin_url}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, linkedin_url: e.target.value }))
-                  }
-                  placeholder="https://linkedin.com/in/..."
-                />
-              </label>
-            </div>
-            <label className="block space-y-1">
-              <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
-                Notes
-              </span>
-              <textarea
-                className="input-metatron w-full resize-none"
-                rows={2}
-                value={form.notes}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, notes: e.target.value }))
-                }
-                placeholder="e.g. Met at AfricArena 2025, invests in fintech pre-seed"
-              />
-            </label>
-            <div className="flex items-center gap-3">
-              <button
-                type="submit"
-                disabled={adding}
-                className="rounded-lg bg-metatron-accent px-4 py-2 text-sm font-semibold text-white hover:bg-metatron-accent-hover disabled:opacity-60"
+      {showForm && (
+        <form
+          onSubmit={onAdd}
+          className="bg-[#16161f] border border-[rgba(255,255,255,0.06)] rounded-xl p-5 space-y-4"
+        >
+          <h2 className="text-sm font-semibold text-[#e8e8ed]">Add Contact</h2>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs text-[#8888a0] mb-1">Role</label>
+              <select
+                value={form.role}
+                onChange={(e) => setForm((f) => ({ ...f, role: e.target.value as "investor" | "founder" }))}
+                className="w-full bg-[#0a0a0f] border border-[rgba(255,255,255,0.06)] rounded-xl px-3 py-2 text-sm text-[#e8e8ed]"
               >
-                {adding ? "Adding…" : "Add contact"}
-              </button>
-              {msg && <p className="text-xs text-red-400">{msg}</p>}
+                <option value="investor">Investor</option>
+                <option value="founder">Founder</option>
+              </select>
             </div>
-          </form>
-        )}
+            <div>
+              <label className="block text-xs text-[#8888a0] mb-1">Name *</label>
+              <input
+                required
+                value={form.name}
+                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                className="w-full bg-[#0a0a0f] border border-[rgba(255,255,255,0.06)] rounded-xl px-3 py-2 text-sm text-[#e8e8ed]"
+                placeholder="Full name"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-[#8888a0] mb-1">Email</label>
+              <input
+                value={form.email}
+                onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+                className="w-full bg-[#0a0a0f] border border-[rgba(255,255,255,0.06)] rounded-xl px-3 py-2 text-sm text-[#e8e8ed]"
+                placeholder="email@example.com"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-[#8888a0] mb-1">Firm / Company</label>
+              <input
+                value={form.firm_or_company}
+                onChange={(e) => setForm((f) => ({ ...f, firm_or_company: e.target.value }))}
+                className="w-full bg-[#0a0a0f] border border-[rgba(255,255,255,0.06)] rounded-xl px-3 py-2 text-sm text-[#e8e8ed]"
+                placeholder="Acme Ventures"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-[#8888a0] mb-1">LinkedIn</label>
+              <input
+                value={form.linkedin_url}
+                onChange={(e) => setForm((f) => ({ ...f, linkedin_url: e.target.value }))}
+                className="w-full bg-[#0a0a0f] border border-[rgba(255,255,255,0.06)] rounded-xl px-3 py-2 text-sm text-[#e8e8ed]"
+                placeholder="https://linkedin.com/in/..."
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-[#8888a0] mb-1">Notes</label>
+              <input
+                value={form.notes}
+                onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
+                className="w-full bg-[#0a0a0f] border border-[rgba(255,255,255,0.06)] rounded-xl px-3 py-2 text-sm text-[#e8e8ed]"
+                placeholder="Met at AfricArena..."
+              />
+            </div>
+          </div>
+          <button
+            type="submit"
+            disabled={adding}
+            className="px-4 py-2 bg-[#6c5ce7] text-white rounded-xl text-sm font-medium hover:bg-[#7d6ff0] disabled:opacity-50"
+          >
+            {adding ? "Adding..." : "Add Contact"}
+          </button>
+        </form>
+      )}
 
-        {filtered.length === 0 ? (
-          <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-8 text-center">
-            <p className="text-sm text-[var(--text-muted)]">
-              No {tab === "investor" ? "investors" : "founders"} in your network
-              yet.
-            </p>
-            <p className="mt-1 text-xs text-[var(--text-muted)]">
-              Add them manually above or import via CSV below.
-            </p>
+      <div className="bg-[#16161f] border border-[rgba(255,255,255,0.06)] rounded-xl p-5">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex gap-2">
+            {(["investor", "founder"] as const).map((t) => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => {
+                  setTab(t);
+                  setPage(1);
+                }}
+                className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                  tab === t ? "bg-[#6c5ce7] text-white" : "text-[#8888a0] hover:text-[#e8e8ed]"
+                }`}
+              >
+                {t === "investor" ? "Investors" : "Founders"}
+                <span className="ml-1.5 text-xs opacity-70">({t === "investor" ? investorCount : founderCount})</span>
+              </button>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            {(["card", "list"] as const).map((v) => (
+              <button
+                key={v}
+                type="button"
+                onClick={() => setView(v)}
+                className={`px-3 py-1 rounded-lg text-xs ${
+                  view === v ? "bg-[rgba(108,92,231,0.2)] text-[#6c5ce7]" : "text-[#8888a0] hover:text-[#e8e8ed]"
+                }`}
+              >
+                {v === "card" ? "Cards" : "List"}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {paginated.length === 0 ? (
+          <p className="text-[#8888a0] text-sm text-center py-8">No {tab}s yet.</p>
+        ) : view === "card" ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {paginated.map((c) => (
+              <div key={c.id} className="bg-[#0a0a0f] border border-[rgba(255,255,255,0.06)] rounded-xl p-4">
+                {editingId === c.id ? (
+                  <div className="space-y-2">
+                    {(["name", "email", "firm_or_company", "linkedin_url", "notes"] as const).map((f) => (
+                      <input
+                        key={f}
+                        value={editForm[f]}
+                        onChange={(e) => setEditForm((ef) => ({ ...ef, [f]: e.target.value }))}
+                        placeholder={f.replace(/_/g, " ")}
+                        className="w-full bg-[#16161f] border border-[rgba(255,255,255,0.06)] rounded-lg px-2 py-1.5 text-xs text-[#e8e8ed]"
+                      />
+                    ))}
+                    {editMsg && <p className="text-xs text-red-400">{editMsg}</p>}
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => onSaveEdit(c)}
+                        disabled={savingEdit}
+                        className="px-3 py-1 bg-[#6c5ce7] text-white rounded-lg text-xs"
+                      >
+                        Save
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditingId(null)}
+                        className="px-3 py-1 text-[#8888a0] text-xs"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <p className="text-sm font-medium text-[#e8e8ed]">{c.name}</p>
+                        {c.firm_or_company && <p className="text-xs text-[#8888a0]">{c.firm_or_company}</p>}
+                      </div>
+                      <div className="flex gap-1">
+                        <button type="button" onClick={() => startEdit(c)} className="text-xs text-[#6c5ce7] hover:underline">
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onDelete(c.id)}
+                          className="text-xs text-red-400 hover:underline ml-2"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                    {c.email && <p className="text-xs text-[#8888a0] mt-1">{c.email}</p>}
+                    {c.notes && <p className="text-xs text-[#8888a0] mt-1 line-clamp-2">{c.notes}</p>}
+                    {c.joined_user_id && (
+                      <span className="mt-2 inline-block text-xs bg-[rgba(108,92,231,0.15)] text-[#6c5ce7] px-2 py-0.5 rounded-full">
+                        On platform
+                      </span>
+                    )}
+                  </>
+                )}
+              </div>
+            ))}
           </div>
         ) : (
-          <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-4 md:p-5 space-y-4">
-            <div className="flex items-center justify-end gap-1">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-[#8888a0] text-xs border-b border-[rgba(255,255,255,0.06)]">
+                  <th className="text-left pb-2">Name</th>
+                  <th className="text-left pb-2">Firm</th>
+                  <th className="text-left pb-2">Email</th>
+                  <th className="text-left pb-2">Notes</th>
+                  <th className="text-left pb-2" />
+                </tr>
+              </thead>
+              <tbody>
+                {paginated.map((c) => (
+                  <tr key={c.id} className="border-b border-[rgba(255,255,255,0.03)] hover:bg-[rgba(255,255,255,0.02)]">
+                    <td className="py-2 text-[#e8e8ed]">{c.name}</td>
+                    <td className="py-2 text-[#8888a0] text-xs">{c.firm_or_company ?? "—"}</td>
+                    <td className="py-2 text-[#8888a0] text-xs">{c.email ?? "—"}</td>
+                    <td className="py-2 text-[#8888a0] text-xs max-w-xs truncate">{c.notes ?? "—"}</td>
+                    <td className="py-2 flex gap-2">
+                      <button type="button" onClick={() => startEdit(c)} className="text-xs text-[#6c5ce7] hover:underline">
+                        Edit
+                      </button>
+                      <button type="button" onClick={() => onDelete(c.id)} className="text-xs text-red-400 hover:underline">
+                        Del
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between mt-4 text-xs text-[#8888a0]">
+            <span>
+              Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, filtered.length)} of {filtered.length}
+            </span>
+            <div className="flex gap-2">
               <button
                 type="button"
-                onClick={() => {
-                  setView("card");
-                  setEditingId(null);
-                  setEditMsg(null);
-                }}
-                aria-label="Card view"
-                title="Card view"
-                className={[
-                  "rounded-lg p-2 transition-colors",
-                  view === "card"
-                    ? "bg-metatron-accent/15 text-metatron-accent"
-                    : "text-[var(--text-muted)] hover:bg-[rgba(108,92,231,0.1)]",
-                ].join(" ")}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page === 1}
+                className="px-3 py-1 bg-[rgba(255,255,255,0.06)] rounded-lg disabled:opacity-30"
               >
-                <svg
-                  width="18"
-                  height="18"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  aria-hidden
-                >
-                  <rect x="3" y="3" width="7" height="7" rx="1" />
-                  <rect x="14" y="3" width="7" height="7" rx="1" />
-                  <rect x="3" y="14" width="7" height="7" rx="1" />
-                  <rect x="14" y="14" width="7" height="7" rx="1" />
-                </svg>
+                Previous
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  setView("list");
-                  setEditingId(null);
-                  setEditMsg(null);
-                }}
-                aria-label="List view"
-                title="List view"
-                className={[
-                  "rounded-lg p-2 transition-colors",
-                  view === "list"
-                    ? "bg-metatron-accent/15 text-metatron-accent"
-                    : "text-[var(--text-muted)] hover:bg-[rgba(108,92,231,0.1)]",
-                ].join(" ")}
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={page === totalPages}
+                className="px-3 py-1 bg-[rgba(255,255,255,0.06)] rounded-lg disabled:opacity-30"
               >
-                <svg
-                  width="18"
-                  height="18"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  aria-hidden
-                >
-                  <line x1="8" y1="6" x2="21" y2="6" strokeLinecap="round" />
-                  <line x1="8" y1="12" x2="21" y2="12" strokeLinecap="round" />
-                  <line x1="8" y1="18" x2="21" y2="18" strokeLinecap="round" />
-                  <line x1="3" y1="6" x2="3.01" y2="6" strokeLinecap="round" />
-                  <line
-                    x1="3"
-                    y1="12"
-                    x2="3.01"
-                    y2="12"
-                    strokeLinecap="round"
-                  />
-                  <line
-                    x1="3"
-                    y1="18"
-                    x2="3.01"
-                    y2="18"
-                    strokeLinecap="round"
-                  />
-                </svg>
+                Next
               </button>
             </div>
+          </div>
+        )}
+      </div>
 
-            {view === "card" ? (
-              <div className="grid gap-3 sm:grid-cols-2">
-                {paginated.map((c) => (
-                  <div
-                    key={c.id}
-                    className="rounded-[var(--radius)] border border-[var(--border)] bg-[#0a0a0f] p-4 space-y-2"
+      <div className="bg-[#16161f] border border-[rgba(255,255,255,0.06)] rounded-xl p-5 space-y-5">
+        <div className="flex items-start justify-between">
+          <div>
+            <h2 className="text-base font-semibold text-[#e8e8ed]">Enrichment Staging</h2>
+            <p className="text-xs text-[#8888a0] mt-0.5">
+              Upload a spreadsheet, Kevin enriches each contact with web data, then you import to your network.
+            </p>
+          </div>
+          <div className="flex gap-2 items-center flex-wrap justify-end">
+            {staged.length > 0 && (
+              <>
+                {stagedPendingCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => onEnrichAll()}
+                    className="px-3 py-1.5 bg-[#6c5ce7] text-white rounded-xl text-xs font-medium hover:bg-[#7d6ff0]"
                   >
-                    {editingId === c.id ? (
-                      <form
-                        onSubmit={(e) => void onSaveEdit(e, c)}
-                        className="space-y-4"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        {editFields(c)}
-                      </form>
-                    ) : (
-                      <>
-                        <div
-                          className="flex items-start justify-between gap-2 cursor-pointer"
-                          onClick={() => openEdit(c)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter" || e.key === " ") {
-                              e.preventDefault();
-                              openEdit(c);
-                            }
-                          }}
-                          role="button"
-                          tabIndex={0}
-                        >
-                          <div>
-                            <p className="text-sm font-semibold text-[var(--text)]">
-                              {c.name}
-                            </p>
-                            {c.firm_or_company && (
-                              <p className="text-xs text-[var(--text-muted)]">
-                                {c.firm_or_company}
-                              </p>
-                            )}
-                          </div>
-                          <div
-                            className="flex shrink-0 items-center gap-2"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            {c.joined_user_id ? (
-                              <span
-                                className="inline-flex items-center rounded-full border px-2 py-0.5 text-[10px]"
-                                style={{
-                                  borderColor: "rgba(34,197,94,0.35)",
-                                  backgroundColor: "rgba(34,197,94,0.12)",
-                                  color: "rgb(134,239,172)",
-                                }}
-                              >
-                                On platform
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center rounded-full border border-[var(--border)] px-2 py-0.5 font-mono text-[10px] text-[var(--text-muted)]">
-                                Not yet
-                              </span>
-                            )}
-                            <button
-                              type="button"
-                              onClick={() => void onDelete(c.id)}
-                              className="text-[var(--text-muted)] hover:text-red-400 transition-colors"
-                              aria-label="Remove"
-                            >
-                              <svg
-                                width="14"
-                                height="14"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2"
-                                aria-hidden
-                              >
-                                <line x1="18" y1="6" x2="6" y2="18" />
-                                <line x1="6" y1="6" x2="18" y2="18" />
-                              </svg>
-                            </button>
-                          </div>
-                        </div>
-                        {c.email && (
-                          <p
-                            className="text-xs text-[var(--text-muted)] cursor-pointer"
-                            onClick={() => openEdit(c)}
-                          >
-                            {c.email}
-                          </p>
-                        )}
-                        {c.linkedin_url && (
-                          <a
-                            href={c.linkedin_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-block text-xs text-metatron-accent hover:underline"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            LinkedIn →
-                          </a>
-                        )}
-                        {c.notes && (
-                          <p
-                            className="text-xs text-[var(--text-muted)] italic cursor-pointer"
-                            onClick={() => openEdit(c)}
-                          >
-                            {c.notes}
-                          </p>
-                        )}
-                      </>
-                    )}
-                  </div>
+                    Enrich all pending ({stagedPendingCount})
+                  </button>
+                )}
+                {stagedEnrichedCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => onImportEnriched()}
+                    disabled={importingStaged}
+                    className="px-3 py-1.5 bg-green-600 text-white rounded-xl text-xs font-medium hover:bg-green-500 disabled:opacity-50"
+                  >
+                    {importingStaged ? "Importing..." : `Import enriched (${stagedEnrichedCount})`}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={onClearStaging}
+                  className="px-3 py-1.5 bg-[rgba(255,80,80,0.1)] text-red-400 rounded-xl text-xs hover:bg-[rgba(255,80,80,0.2)]"
+                >
+                  Clear all
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+
+        {stagingMsg && <p className="text-xs text-[#6c5ce7]">{stagingMsg}</p>}
+        {stagingLoading && staged.length === 0 && <p className="text-xs text-[#8888a0]">Loading staging…</p>}
+        {enrichingInStaging > 0 && (
+          <div className="flex items-center gap-2 text-xs text-[#6c5ce7] animate-pulse">
+            <svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <circle cx="12" cy="12" r="10" strokeWidth="2" strokeDasharray="32" strokeLinecap="round" />
+            </svg>
+            Enriching {enrichingInStaging} contacts in background...
+          </div>
+        )}
+
+        <div className="border border-[rgba(255,255,255,0.06)] rounded-xl p-4 space-y-4">
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <div>
+              <p className="text-sm font-medium text-[#e8e8ed]">Smart import from spreadsheet</p>
+              <p className="text-xs text-[#8888a0]">
+                Upload any .xlsx, .xls, or .csv file. Kevin will detect columns and extract investors and founders.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => sheetInputRef.current?.click()}
+              className="px-4 py-2 bg-[#6c5ce7] text-white rounded-xl text-sm font-medium hover:bg-[#7d6ff0] whitespace-nowrap"
+            >
+              Upload spreadsheet
+            </button>
+            <input ref={sheetInputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={onSheetFile} />
+          </div>
+
+          {sheetMsg && <p className="text-xs text-[#8888a0]">{sheetMsg}</p>}
+
+          {sheetPreview && (
+            <div className="border border-[rgba(255,255,255,0.06)] rounded-xl p-4 space-y-4">
+              <p className="text-sm font-medium text-[#e8e8ed]">Extraction preview</p>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-[#0a0a0f] rounded-xl p-3">
+                  <p className="text-xs text-[#8888a0] uppercase tracking-wide mb-1">Investors found</p>
+                  <p className="text-2xl font-bold text-[#6c5ce7]">{sheetPreview.investors.length}</p>
+                  <p className="text-xs text-[#8888a0]">Unique firms extracted from investor column</p>
+                </div>
+                <div className="bg-[#0a0a0f] rounded-xl p-3">
+                  <p className="text-xs text-[#8888a0] uppercase tracking-wide mb-1">Founders found</p>
+                  <p className="text-2xl font-bold text-[#6c5ce7]">{sheetPreview.founders.length}</p>
+                  <p className="text-xs text-[#8888a0]">Startups with sector, stage and location</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4 text-xs text-[#8888a0]">
+                <div>
+                  <p className="font-medium text-[#e8e8ed] mb-1">Sample investors:</p>
+                  {sheetPreview.investors.slice(0, 5).map((i, idx) => (
+                    <p key={idx}>{i.name}</p>
+                  ))}
+                  {sheetPreview.investors.length > 5 && <p>…and {sheetPreview.investors.length - 5} more</p>}
+                </div>
+                <div>
+                  <p className="font-medium text-[#e8e8ed] mb-1">Sample founders:</p>
+                  {sheetPreview.founders.slice(0, 5).map((f, idx) => (
+                    <p key={idx}>
+                      {f.name}
+                      {f.notes && ` — ${f.notes.split(" | ")[0]}`}
+                    </p>
+                  ))}
+                  {sheetPreview.founders.length > 5 && <p>…and {sheetPreview.founders.length - 5} more</p>}
+                </div>
+              </div>
+              <p className="text-xs text-[#8888a0]">
+                These will be staged for enrichment — Kevin will search the web to fill in contact details, sectors,
+                ticket sizes, and more before you import.
+              </p>
+              <div className="flex gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => onStageContacts("all")}
+                  className="px-4 py-2 bg-[#6c5ce7] text-white rounded-xl text-sm font-medium hover:bg-[#7d6ff0]"
+                >
+                  Stage all {sheetPreview.investors.length + sheetPreview.founders.length} for enrichment
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onStageContacts("investors")}
+                  className="px-3 py-2 bg-[rgba(108,92,231,0.15)] text-[#6c5ce7] rounded-xl text-sm hover:bg-[rgba(108,92,231,0.25)]"
+                >
+                  Investors only ({sheetPreview.investors.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onStageContacts("founders")}
+                  className="px-3 py-2 bg-[rgba(108,92,231,0.15)] text-[#6c5ce7] rounded-xl text-sm hover:bg-[rgba(108,92,231,0.25)]"
+                >
+                  Founders only ({sheetPreview.founders.length})
+                </button>
+                <button type="button" onClick={() => setSheetPreview(null)} className="px-3 py-2 text-[#8888a0] text-sm">
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {staged.length > 0 && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div className="flex gap-2">
+                {(["investor", "founder", "all"] as const).map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => setStagingTab(t)}
+                    className={`px-3 py-1 rounded-lg text-xs font-medium ${
+                      stagingTab === t
+                        ? "bg-[#6c5ce7] text-white"
+                        : "text-[#8888a0] hover:text-[#e8e8ed]"
+                    }`}
+                  >
+                    {t === "all" ? "All" : t === "investor" ? "Investors" : "Founders"}
+                    <span className="ml-1 opacity-70">
+                      (
+                      {t === "all" ? staged.length : t === "investor" ? stagedInvestorCount : stagedFounderCount})
+                    </span>
+                  </button>
                 ))}
               </div>
-            ) : (
-              <div className="overflow-x-auto -mx-1">
-                <table className="w-full min-w-[640px] text-left text-sm">
+              <div className="flex gap-2 items-center flex-wrap">
+                {selectedStaged.size > 0 && (
+                  <>
+                    <button type="button" onClick={onEnrichSelected} className="px-3 py-1 bg-[#6c5ce7] text-white rounded-lg text-xs">
+                      Enrich selected ({selectedStaged.size})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onImportEnriched(Array.from(selectedStaged))}
+                      disabled={importingStaged}
+                      className="px-3 py-1 bg-green-600 text-white rounded-lg text-xs disabled:opacity-50"
+                    >
+                      Import selected
+                    </button>
+                  </>
+                )}
+                {(["table", "cards"] as const).map((v) => (
+                  <button
+                    key={v}
+                    type="button"
+                    onClick={() => setStagingView(v)}
+                    className={`px-2 py-1 rounded text-xs ${
+                      stagingView === v ? "bg-[rgba(108,92,231,0.2)] text-[#6c5ce7]" : "text-[#8888a0]"
+                    }`}
+                  >
+                    {v === "table" ? "Table" : "Cards"}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {stagingView === "table" ? (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
                   <thead>
-                    <tr className="border-b border-[var(--border)]">
-                      <th className="pb-3 pr-3 font-mono text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
-                        Name
+                    <tr className="text-[#8888a0] border-b border-[rgba(255,255,255,0.06)]">
+                      <th className="text-left pb-2 pr-2">
+                        <input
+                          type="checkbox"
+                          checked={selectedStaged.size === filteredStaged.length && filteredStaged.length > 0}
+                          onChange={(e) =>
+                            setSelectedStaged(
+                              e.target.checked ? new Set(filteredStaged.map((s) => s.id)) : new Set(),
+                            )
+                          }
+                          className="rounded"
+                        />
                       </th>
-                      <th className="pb-3 pr-3 font-mono text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
-                        {tab === "investor" ? "Firm" : "Company"}
-                      </th>
-                      <th className="pb-3 pr-3 font-mono text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
-                        Email
-                      </th>
-                      <th className="pb-3 pr-3 font-mono text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
-                        Status
-                      </th>
-                      <th className="pb-3 font-mono text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
-                        Actions
-                      </th>
+                      <th className="text-left pb-2">Name / Firm</th>
+                      <th className="text-left pb-2">Contact</th>
+                      <th className="text-left pb-2">Sector</th>
+                      <th className="text-left pb-2">Stage</th>
+                      <th className="text-left pb-2">Ticket</th>
+                      <th className="text-left pb-2">Location</th>
+                      <th className="text-left pb-2">Website</th>
+                      <th className="text-left pb-2">Status</th>
+                      <th className="text-left pb-2" />
                     </tr>
                   </thead>
                   <tbody>
-                    {paginated.map((c) => (
-                      <Fragment key={c.id}>
-                        <tr className="border-b border-[var(--border)] align-top">
-                          <td className="py-3 pr-3 text-[var(--text)] font-medium">
-                            {c.name}
+                    {filteredStaged.map((s) => (
+                      <Fragment key={s.id}>
+                        <tr className="border-b border-[rgba(255,255,255,0.03)] hover:bg-[rgba(255,255,255,0.02)]">
+                          <td className="py-2 pr-2">
+                            <input
+                              type="checkbox"
+                              checked={selectedStaged.has(s.id)}
+                              onChange={(e) =>
+                                setSelectedStaged((prev) => {
+                                  const next = new Set(prev);
+                                  if (e.target.checked) next.add(s.id);
+                                  else next.delete(s.id);
+                                  return next;
+                                })
+                              }
+                              className="rounded"
+                            />
                           </td>
-                          <td className="py-3 pr-3 text-[var(--text-muted)]">
-                            {c.firm_or_company ?? "—"}
-                          </td>
-                          <td className="py-3 pr-3 text-[var(--text-muted)]">
-                            {c.email ?? "—"}
-                          </td>
-                          <td className="py-3 pr-3">
-                            {c.joined_user_id ? (
-                              <span
-                                className="inline-flex items-center rounded-full border px-2 py-0.5 text-[10px]"
-                                style={{
-                                  borderColor: "rgba(34,197,94,0.35)",
-                                  backgroundColor: "rgba(34,197,94,0.12)",
-                                  color: "rgb(134,239,172)",
-                                }}
-                              >
-                                On platform
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center rounded-full border border-[var(--border)] px-2 py-0.5 font-mono text-[10px] text-[var(--text-muted)]">
-                                Not yet
-                              </span>
+                          <td className="py-2 pr-2">
+                            <p className="text-[#e8e8ed] font-medium">{s.name}</p>
+                            {s.firm_or_company && s.firm_or_company !== s.name && (
+                              <p className="text-[#8888a0]">{s.firm_or_company}</p>
                             )}
                           </td>
-                          <td className="py-3">
-                            <div className="flex items-center gap-2">
-                              <button
-                                type="button"
-                                onClick={() => openEdit(c)}
-                                className="rounded-lg p-1.5 text-[var(--text-muted)] hover:bg-metatron-accent/10 hover:text-metatron-accent transition-colors"
-                                aria-label="Edit"
-                                title="Edit"
-                              >
-                                <svg
-                                  width="16"
-                                  height="16"
-                                  viewBox="0 0 24 24"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  strokeWidth="2"
-                                  aria-hidden
-                                >
-                                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                                </svg>
+                          <td className="py-2 pr-2 text-[#8888a0]">
+                            {s.contact_name && <p>{s.contact_name}</p>}
+                            {s.email && <p>{s.email}</p>}
+                          </td>
+                          <td className="py-2 pr-2 text-[#8888a0] max-w-[120px] truncate">{s.sector_focus ?? "—"}</td>
+                          <td className="py-2 pr-2 text-[#8888a0]">{s.stage_focus ?? "—"}</td>
+                          <td className="py-2 pr-2 text-[#8888a0]">{s.ticket_size ?? "—"}</td>
+                          <td className="py-2 pr-2 text-[#8888a0]">{s.geography ?? "—"}</td>
+                          <td className="py-2 pr-2 text-[#8888a0] max-w-[100px] truncate">
+                            {s.website ? (
+                              <a href={s.website} target="_blank" rel="noreferrer" className="text-[#6c5ce7] hover:underline">
+                                link
+                              </a>
+                            ) : (
+                              "—"
+                            )}
+                          </td>
+                          <td className="py-2 pr-2">{statusBadge(s.status)}</td>
+                          <td className="py-2">
+                            <div className="flex gap-1">
+                              <button type="button" onClick={() => startEditStaged(s)} className="text-[#6c5ce7] hover:underline">
+                                Edit
                               </button>
-                              <button
-                                type="button"
-                                onClick={() => void onDelete(c.id)}
-                                className="rounded-lg p-1.5 text-[var(--text-muted)] hover:text-red-400 transition-colors"
-                                aria-label="Remove"
-                                title="Remove"
-                              >
-                                <svg
-                                  width="16"
-                                  height="16"
-                                  viewBox="0 0 24 24"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  strokeWidth="2"
-                                  aria-hidden
+                              {s.status === "enriched" && (
+                                <button
+                                  type="button"
+                                  onClick={() => onImportEnriched([s.id])}
+                                  className="text-green-400 hover:underline ml-1"
                                 >
-                                  <line x1="18" y1="6" x2="6" y2="18" />
-                                  <line x1="6" y1="6" x2="18" y2="18" />
-                                </svg>
+                                  Import
+                                </button>
+                              )}
+                              <button type="button" onClick={() => onDeleteStaged(s.id)} className="text-red-400 hover:underline ml-1">
+                                Del
                               </button>
                             </div>
                           </td>
                         </tr>
-                        {editingId === c.id && (
-                          <tr className="border-b border-[var(--border)] bg-[rgba(108,92,231,0.06)]">
-                            <td colSpan={5} className="p-4">
-                              <form
-                                onSubmit={(e) => void onSaveEdit(e, c)}
-                                className="space-y-4 max-w-3xl"
-                              >
-                                {editFields(c)}
-                              </form>
+                        {editingStagedId === s.id && (
+                          <tr className="bg-[rgba(108,92,231,0.05)]">
+                            <td colSpan={10} className="py-3 px-2">
+                              <div className="grid grid-cols-3 gap-2">
+                                {(
+                                  [
+                                    ["contact_name", "Contact name"],
+                                    ["email", "Email"],
+                                    ["linkedin_url", "LinkedIn URL"],
+                                    ["website", "Website"],
+                                    ["sector_focus", "Sector focus"],
+                                    ["stage_focus", "Stage focus"],
+                                    ["ticket_size", "Ticket size"],
+                                    ["geography", "Geography"],
+                                    ["one_liner", "One liner"],
+                                  ] as [keyof typeof editStagedForm, string][]
+                                ).map(([f, label]) => (
+                                  <div key={f}>
+                                    <label className="block text-[10px] text-[#8888a0] mb-0.5">{label}</label>
+                                    <input
+                                      value={(editStagedForm[f] as string) ?? ""}
+                                      onChange={(e) => setEditStagedForm((ef) => ({ ...ef, [f]: e.target.value }))}
+                                      className="w-full bg-[#0a0a0f] border border-[rgba(255,255,255,0.06)] rounded-lg px-2 py-1 text-xs text-[#e8e8ed]"
+                                    />
+                                  </div>
+                                ))}
+                              </div>
+                              <div className="flex gap-2 mt-2">
+                                <button
+                                  type="button"
+                                  onClick={() => onSaveStagedEdit(s.id)}
+                                  disabled={savingStagedEdit}
+                                  className="px-3 py-1 bg-[#6c5ce7] text-white rounded-lg text-xs disabled:opacity-50"
+                                >
+                                  Save
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setEditingStagedId(null)}
+                                  className="px-3 py-1 text-[#8888a0] text-xs"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         )}
@@ -979,203 +1058,74 @@ export default function ConnectorNetworkPage() {
                   </tbody>
                 </table>
               </div>
-            )}
-
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between pt-2 border-t border-[var(--border)]">
-              <p className="text-xs text-[var(--text-muted)]">
-                Showing {rangeStart}–{rangeEnd} of {filtered.length}
-              </p>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  disabled={page <= 1}
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
-                  className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-medium text-[var(--text)] disabled:opacity-40 disabled:cursor-not-allowed hover:border-metatron-accent/30"
-                >
-                  Previous
-                </button>
-                <button
-                  type="button"
-                  disabled={page >= totalPages}
-                  onClick={() =>
-                    setPage((p) => Math.min(totalPages, p + 1))
-                  }
-                  className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-medium text-[var(--text)] disabled:opacity-40 disabled:cursor-not-allowed hover:border-metatron-accent/30"
-                >
-                  Next
-                </button>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {filteredStaged.map((s) => (
+                  <div key={s.id} className="bg-[#0a0a0f] border border-[rgba(255,255,255,0.06)] rounded-xl p-4 space-y-2">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <p className="text-sm font-medium text-[#e8e8ed]">{s.name}</p>
+                        {s.one_liner && <p className="text-xs text-[#8888a0]">{s.one_liner}</p>}
+                      </div>
+                      {statusBadge(s.status)}
+                    </div>
+                    <div className="grid grid-cols-2 gap-1 text-xs text-[#8888a0]">
+                      {s.contact_name && <span>Contact: {s.contact_name}</span>}
+                      {s.email && <span>Email: {s.email}</span>}
+                      {s.sector_focus && <span>Sector: {s.sector_focus}</span>}
+                      {s.stage_focus && <span>Stage: {s.stage_focus}</span>}
+                      {s.ticket_size && <span>Ticket: {s.ticket_size}</span>}
+                      {s.geography && <span>Location: {s.geography}</span>}
+                    </div>
+                    {s.enrichment_error && <p className="text-xs text-red-400">{s.enrichment_error}</p>}
+                    <div className="flex gap-2">
+                      <button type="button" onClick={() => startEditStaged(s)} className="text-xs text-[#6c5ce7] hover:underline">
+                        Edit
+                      </button>
+                      {s.status === "enriched" && (
+                        <button type="button" onClick={() => onImportEnriched([s.id])} className="text-xs text-green-400 hover:underline">
+                          Import
+                        </button>
+                      )}
+                      <button type="button" onClick={() => onDeleteStaged(s.id)} className="text-xs text-red-400 hover:underline">
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                ))}
               </div>
-            </div>
+            )}
           </div>
         )}
+      </div>
 
-        <div className="rounded-[var(--radius)] border border-metatron-accent/20 bg-metatron-accent/5 p-5 space-y-4">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold text-[var(--text)]">
-                Smart import from spreadsheet
-              </p>
-              <p className="text-xs text-[var(--text-muted)] mt-1">
-                Upload any .xlsx, .xls, or .csv file. Kevin will detect columns
-                and extract investors and founders automatically.
-              </p>
-            </div>
-            <div className="flex shrink-0 items-center gap-2">
-              <button
-                type="button"
-                onClick={() => sheetInputRef.current?.click()}
-                className="rounded-lg bg-metatron-accent px-4 py-2 text-sm font-semibold text-white hover:bg-metatron-accent-hover"
-              >
-                Upload spreadsheet
-              </button>
-              <input
-                ref={sheetInputRef}
-                type="file"
-                accept=".xlsx,.xls,.csv"
-                className="hidden"
-                onChange={onSpreadsheetFile}
-              />
-            </div>
-          </div>
-
-          {sheetPreview && (
-            <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-4 space-y-4">
-              <p className="text-sm font-semibold text-[var(--text)]">
-                Extraction preview
-              </p>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="rounded-lg border border-[var(--border)] bg-[var(--bg)] p-3">
-                  <p className="font-mono text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
-                    Investors found
-                  </p>
-                  <p className="mt-1 text-2xl font-semibold text-metatron-accent">
-                    {sheetPreview.investors.length}
-                  </p>
-                  <p className="text-xs text-[var(--text-muted)] mt-1">
-                    Unique firms extracted from investor column
-                  </p>
-                </div>
-                <div className="rounded-lg border border-[var(--border)] bg-[var(--bg)] p-3">
-                  <p className="font-mono text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
-                    Founders found
-                  </p>
-                  <p className="mt-1 text-2xl font-semibold text-metatron-accent">
-                    {sheetPreview.founders.length}
-                  </p>
-                  <p className="text-xs text-[var(--text-muted)] mt-1">
-                    Startups with sector, stage and location
-                  </p>
-                </div>
-              </div>
-              <div className="text-xs text-[var(--text-muted)] bg-[var(--bg)] rounded-lg p-3 space-y-1">
-                <p className="font-semibold text-[var(--text)]">
-                  Sample investors:
-                </p>
-                {sheetPreview.investors.slice(0, 5).map((i, idx) => (
-                  <p key={`${i.name}-${idx}`}>{i.name}</p>
-                ))}
-                {sheetPreview.investors.length > 5 && (
-                  <p>…and {sheetPreview.investors.length - 5} more</p>
-                )}
-              </div>
-              <div className="text-xs text-[var(--text-muted)] bg-[var(--bg)] rounded-lg p-3 space-y-1">
-                <p className="font-semibold text-[var(--text)]">
-                  Sample founders:
-                </p>
-                {sheetPreview.founders.slice(0, 5).map((f, idx) => (
-                  <p key={`${f.name}-${idx}`}>
-                    {f.name}{" "}
-                    <span className="opacity-60">
-                      — {f.notes.split(" | ")[0] || "—"}
-                    </span>
-                  </p>
-                ))}
-                {sheetPreview.founders.length > 5 && (
-                  <p>…and {sheetPreview.founders.length - 5} more</p>
-                )}
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  disabled={sheetImporting}
-                  onClick={() => void onConfirmSheetImport("all")}
-                  className="rounded-lg bg-metatron-accent px-4 py-2 text-sm font-semibold text-white hover:bg-metatron-accent-hover disabled:opacity-60"
-                >
-                  {sheetImporting
-                    ? "Importing…"
-                    : `Import all ${sheetPreview.investors.length + sheetPreview.founders.length} contacts`}
-                </button>
-                <button
-                  type="button"
-                  disabled={sheetImporting}
-                  onClick={() => void onConfirmSheetImport("investors")}
-                  className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm text-[var(--text-muted)] hover:text-[var(--text)] disabled:opacity-60"
-                >
-                  Investors only ({sheetPreview.investors.length})
-                </button>
-                <button
-                  type="button"
-                  disabled={sheetImporting}
-                  onClick={() => void onConfirmSheetImport("founders")}
-                  className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm text-[var(--text-muted)] hover:text-[var(--text)] disabled:opacity-60"
-                >
-                  Founders only ({sheetPreview.founders.length})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSheetPreview(null)}
-                  className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm text-[var(--text-muted)] hover:text-[var(--text)]"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          )}
-
-          {sheetMsg && (
-            <p className="text-xs text-[var(--text-muted)]">{sheetMsg}</p>
-          )}
-        </div>
-
-        <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-5 space-y-3">
-          <p className="text-sm font-semibold text-[var(--text)]">
-            Bulk import via CSV
-          </p>
-          <p className="text-xs text-[var(--text-muted)]">
-            Paste CSV with columns:{" "}
-            <code className="text-metatron-accent">
-              role, name, email, firm, linkedin, notes
-            </code>
-            <br />
-            First row is header (skipped). Role must be{" "}
-            <code className="text-metatron-accent">investor</code> or{" "}
-            <code className="text-metatron-accent">founder</code>.
-          </p>
-          <form onSubmit={onCsvImport} className="space-y-3">
-            <textarea
-              className="input-metatron w-full resize-none font-mono text-xs"
-              rows={6}
-              value={csvText}
-              onChange={(e) => setCsvText(e.target.value)}
-              placeholder={
-                "role,name,email,firm,linkedin,notes\ninvestor,Jane Smith,jane@vc.com,Acme Ventures,,Invests in fintech\nfounder,John Doe,john@startup.com,Startup Inc,,Met at AfricArena"
-              }
-            />
-            <div className="flex items-center gap-3">
-              <button
-                type="submit"
-                disabled={csvImporting || !csvText.trim()}
-                className="rounded-lg bg-metatron-accent px-4 py-2 text-sm font-semibold text-white hover:bg-metatron-accent-hover disabled:opacity-60"
-              >
-                {csvImporting ? "Importing…" : "Import CSV"}
-              </button>
-              {csvMsg && (
-                <p className="text-xs text-[var(--text-muted)]">{csvMsg}</p>
-              )}
-            </div>
-          </form>
-        </div>
-      </section>
-    </main>
+      <div className="bg-[#16161f] border border-[rgba(255,255,255,0.06)] rounded-xl p-5 space-y-3">
+        <h2 className="text-sm font-semibold text-[#e8e8ed]">Bulk import via CSV</h2>
+        <p className="text-xs text-[#8888a0]">
+          Paste CSV with columns: <code className="text-[#6c5ce7]">role, name, email, firm, linkedin, notes</code>
+          <br />
+          First row is header (skipped). Role must be <code className="text-[#6c5ce7]">investor</code> or{" "}
+          <code className="text-[#6c5ce7]">founder</code>.
+        </p>
+        <textarea
+          value={csvText}
+          onChange={(e) => setCsvText(e.target.value)}
+          rows={5}
+          className="w-full bg-[#0a0a0f] border border-[rgba(255,255,255,0.06)] rounded-xl px-3 py-2 text-xs text-[#e8e8ed] font-mono"
+          placeholder={
+            "role,name,email,firm,linkedin,notes\ninvestor,Jane Smith,jane@vc.com,Acme Ventures,,Invests in fintech\nfounder,John Doe,john@startup.com,Startup Inc,,Met at AfricArena"
+          }
+        />
+        {csvMsg && <p className="text-xs text-[#6c5ce7]">{csvMsg}</p>}
+        <button
+          type="button"
+          onClick={onCsvImport}
+          disabled={csvImporting || !csvText.trim()}
+          className="px-4 py-2 bg-[#6c5ce7] text-white rounded-xl text-sm font-medium hover:bg-[#7d6ff0] disabled:opacity-50"
+        >
+          {csvImporting ? "Importing..." : "Import CSV"}
+        </button>
+      </div>
+    </div>
   );
 }

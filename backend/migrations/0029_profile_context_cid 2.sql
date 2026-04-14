@@ -1,0 +1,2 @@
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS context_cid TEXT;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS context_ipfs_url TEXT;

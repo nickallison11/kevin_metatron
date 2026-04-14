@@ -240,8 +240,28 @@ export default function ConnectorNetworkPage() {
       try {
         const data = new Uint8Array(ev.target!.result as ArrayBuffer);
         const workbook = XLSX.read(data, { type: "array" });
-        const sheet = workbook.Sheets[workbook.SheetNames[0]];
-        const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" });
+        // Read all sheets and combine, skipping sheets with no useful headers
+        const rows: Record<string, unknown>[] = [];
+        for (const sheetName of workbook.SheetNames) {
+          const sheet = workbook.Sheets[sheetName];
+          const sheetRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" });
+          if (sheetRows.length > 0) {
+            const firstRowKeys = Object.keys(sheetRows[0]).map((k) => k.toLowerCase());
+            // Only include sheets that look like contact data (name/email/firm-style columns)
+            if (
+              firstRowKeys.some(
+                (k) =>
+                  k.includes("name") ||
+                  k.includes("email") ||
+                  k.includes("firm") ||
+                  k.includes("company") ||
+                  k.includes("investor"),
+              )
+            ) {
+              rows.push(...sheetRows);
+            }
+          }
+        }
         if (rows.length === 0) {
           setSheetMsg("No data found in spreadsheet.");
           return;

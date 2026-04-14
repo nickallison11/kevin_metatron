@@ -247,68 +247,110 @@ export default function ConnectorNetworkPage() {
           return;
         }
 
-        const headers = Object.keys(rows[0]).map((h) => h.toLowerCase().trim());
-
-        const investorCol = headers.find((h) => h.includes("investor") || h.includes("funder") || h.includes("vc"));
-        const nameCol = headers.find(
-          (h) => h.includes("deal") || h.includes("company") || h.includes("startup") || h.includes("name"),
-        );
-        const sectorCol = headers.find((h) => h.includes("sector") || h.includes("industry") || h.includes("vertical"));
-        const stageCol = headers.find((h) => h.includes("stage") || h.includes("round") || h.includes("series"));
-        const locationCol = headers.find(
-          (h) => h.includes("location") || h.includes("country") || h.includes("city") || h.includes("region"),
-        );
-        const amountCol = headers.find(
-          (h) => h.includes("amount") || h.includes("raised") || h.includes("funding") || h.includes("usd"),
-        );
-
         const originalHeaders = Object.keys(rows[0]);
-        const investorOrigCol = investorCol
-          ? originalHeaders.find((h) => h.toLowerCase().trim() === investorCol)
-          : undefined;
-        const nameOrigCol = nameCol ? originalHeaders.find((h) => h.toLowerCase().trim() === nameCol) : undefined;
-        const sectorOrigCol = sectorCol ? originalHeaders.find((h) => h.toLowerCase().trim() === sectorCol) : undefined;
-        const stageOrigCol = stageCol ? originalHeaders.find((h) => h.toLowerCase().trim() === stageCol) : undefined;
-        const locationOrigCol = locationCol
-          ? originalHeaders.find((h) => h.toLowerCase().trim() === locationCol)
-          : undefined;
-        const amountOrigCol = amountCol ? originalHeaders.find((h) => h.toLowerCase().trim() === amountCol) : undefined;
+        const lc = (s: string) => s.toLowerCase().trim();
 
-        const investorSet = new Set<string>();
+        const find = (...terms: string[]) =>
+          originalHeaders.find((h) => terms.some((t) => lc(h).includes(t)));
+
+        const col = {
+          investorList: find("investor", "funder", "vc", "backer"),
+          name: find("name", "contact", "full name", "first name"),
+          firm: find("firm", "fund", "company", "organisation", "organization", "startup", "deal"),
+          email: find("email", "e-mail", "mail"),
+          linkedin: find("linkedin", "linked in", "profile"),
+          website: find("website", "url", "web", "site"),
+          sector: find("sector", "industry", "focus", "vertical", "thesis"),
+          stage: find("stage", "round", "series"),
+          ticket: find("ticket", "check", "cheque", "size", "amount", "raised", "funding", "usd", "$"),
+          geo: find("geo", "location", "country", "city", "region", "hq"),
+          role: find("role", "type"),
+        };
+
+        const str = (row: Record<string, unknown>, key: string | undefined) =>
+          key ? String(row[key] ?? "").trim() : "";
+
         const investorRows: SheetPreviewRow[] = [];
-        if (investorOrigCol) {
+        const founderRows: SheetPreviewRow[] = [];
+
+        if (col.investorList) {
+          const investorSet = new Set<string>();
           for (const row of rows) {
-            const val = String(row[investorOrigCol] ?? "").trim();
-            if (!val) continue;
-            const names = val
-              .split(/,|;|\/| and /)
-              .map((s) => s.trim())
-              .filter((s) => s.length > 1);
-            for (const inv of names) {
-              const normalized = inv.toLowerCase();
-              if (!investorSet.has(normalized) && !normalized.includes("unnamed") && !normalized.includes("undisclosed")) {
-                investorSet.add(normalized);
-                investorRows.push({ role: "investor", name: inv, firm_or_company: inv, notes: "" });
+            const val = str(row, col.investorList);
+            if (val) {
+              const names = val
+                .split(/,|;|\/| and /)
+                .map((s) => s.trim())
+                .filter((s) => s.length > 1);
+              for (const inv of names) {
+                const norm = inv.toLowerCase();
+                if (!investorSet.has(norm) && !norm.includes("unnamed") && !norm.includes("undisclosed")) {
+                  investorSet.add(norm);
+                  investorRows.push({ role: "investor", name: inv, firm_or_company: inv, notes: "" });
+                }
               }
             }
+            const founderName = str(row, col.firm) || str(row, col.name);
+            if (founderName) {
+              const notesParts = [
+                str(row, col.sector) && `Sector: ${str(row, col.sector)}`,
+                str(row, col.stage) && `Stage: ${str(row, col.stage)}`,
+                str(row, col.geo) && `Location: ${str(row, col.geo)}`,
+                str(row, col.ticket) && `Amount: ${str(row, col.ticket)}`,
+              ].filter(Boolean);
+              founderRows.push({
+                role: "founder",
+                name: founderName,
+                firm_or_company: founderName,
+                notes: notesParts.join(" | "),
+              });
+            }
+          }
+        } else {
+          const investorSet = new Set<string>();
+          for (const row of rows) {
+            const roleVal = str(row, col.role).toLowerCase();
+            const isFounder = roleVal.includes("founder") || roleVal.includes("startup");
+            const name = str(row, col.name) || str(row, col.firm);
+            const firm = str(row, col.firm) || str(row, col.name);
+            if (!name) continue;
+            const norm = name.toLowerCase();
+            if (investorSet.has(norm)) continue;
+            investorSet.add(norm);
+
+            const email = str(row, col.email);
+            const linkedin = str(row, col.linkedin);
+            const website = str(row, col.website);
+            const sector = str(row, col.sector);
+            const stage = str(row, col.stage);
+            const ticket = str(row, col.ticket);
+            const geo = str(row, col.geo);
+
+            const notesParts = [
+              email && `Email: ${email}`,
+              linkedin && `LinkedIn: ${linkedin}`,
+              website && `Website: ${website}`,
+              sector && `Sector: ${sector}`,
+              stage && `Stage: ${stage}`,
+              ticket && `Ticket: ${ticket}`,
+              geo && `Location: ${geo}`,
+            ].filter(Boolean);
+
+            const contact: SheetPreviewRow = {
+              role: isFounder ? "founder" : "investor",
+              name,
+              firm_or_company: firm,
+              notes: notesParts.join(" | "),
+            };
+
+            if (isFounder) founderRows.push(contact);
+            else investorRows.push(contact);
           }
         }
 
-        const founderRows: SheetPreviewRow[] = [];
-        for (const row of rows) {
-          const name = nameOrigCol ? String(row[nameOrigCol] ?? "").trim() : "";
-          if (!name) continue;
-          const sector = sectorOrigCol ? String(row[sectorOrigCol] ?? "").trim() : "";
-          const stage = stageOrigCol ? String(row[stageOrigCol] ?? "").trim() : "";
-          const location = locationOrigCol ? String(row[locationOrigCol] ?? "").trim() : "";
-          const amount = amountOrigCol ? String(row[amountOrigCol] ?? "").trim() : "";
-          const notesParts = [
-            sector && `Sector: ${sector}`,
-            stage && `Stage: ${stage}`,
-            location && `Location: ${location}`,
-            amount && `Amount: ${amount}`,
-          ].filter(Boolean);
-          founderRows.push({ role: "founder", name, firm_or_company: name, notes: notesParts.join(" | ") });
+        if (investorRows.length === 0 && founderRows.length === 0) {
+          setSheetMsg("No contacts found. Check that your spreadsheet has name, email, or firm columns.");
+          return;
         }
 
         setSheetPreview({ investors: investorRows, founders: founderRows });
@@ -463,7 +505,7 @@ export default function ConnectorNetworkPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 px-6 py-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold text-[#e8e8ed]">My Network</h1>

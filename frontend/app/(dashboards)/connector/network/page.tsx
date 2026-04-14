@@ -240,141 +240,110 @@ export default function ConnectorNetworkPage() {
       try {
         const data = new Uint8Array(ev.target!.result as ArrayBuffer);
         const workbook = XLSX.read(data, { type: "array" });
-        // Read all sheets and combine, skipping sheets with no useful headers
-        const rows: Record<string, unknown>[] = [];
+        const allContacts: SheetPreviewRow[] = [];
+        const seen = new Set<string>();
+        const lc = (s: unknown) => String(s ?? "").toLowerCase().trim();
+        const cell = (row: unknown[], idx: number) => (idx >= 0 ? String(row[idx] ?? "").trim() : "");
+
         for (const sheetName of workbook.SheetNames) {
           const sheet = workbook.Sheets[sheetName];
-          const sheetRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" });
-          if (sheetRows.length > 0) {
-            const firstRowKeys = Object.keys(sheetRows[0]).map((k) => k.toLowerCase());
-            // Only include sheets that look like contact data (name/email/firm-style columns)
-            if (
-              firstRowKeys.some(
-                (k) =>
-                  k.includes("name") ||
-                  k.includes("email") ||
-                  k.includes("firm") ||
-                  k.includes("company") ||
-                  k.includes("investor"),
-              )
-            ) {
-              rows.push(...sheetRows);
+          const raw = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: "" });
+          if (raw.length < 2) continue;
+
+          // Find the real header row (first row with 3+ non-empty cells, within first 5 rows)
+          let headerIdx = -1;
+          let headers: string[] = [];
+          for (let i = 0; i < Math.min(raw.length, 5); i++) {
+            const r = raw[i] as unknown[];
+            if (r.filter((c) => String(c ?? "").trim() !== "").length >= 3) {
+              headerIdx = i;
+              headers = r.map((c) => String(c ?? "").trim());
+              break;
             }
           }
-        }
-        if (rows.length === 0) {
-          setSheetMsg("No data found in spreadsheet.");
-          return;
-        }
+          if (headerIdx === -1) continue;
 
-        const originalHeaders = Object.keys(rows[0]);
-        const lc = (s: string) => s.toLowerCase().trim();
+          const hl = headers.map(lc);
+          const hasContact = hl.some(
+            (h) =>
+              h.includes("name") ||
+              h.includes("email") ||
+              h.includes("firm") ||
+              h.includes("company") ||
+              h.includes("investor"),
+          );
+          if (!hasContact) continue;
 
-        const find = (...terms: string[]) =>
-          originalHeaders.find((h) => terms.some((t) => lc(h).includes(t)));
+          const fi = (...terms: string[]) => hl.findIndex((h) => terms.some((t) => h.includes(t)));
+          const col = {
+            investorList: fi("investor", "funder", "vc", "backer"),
+            name: fi("name", "contact"),
+            firm: fi("firm", "fund", "company", "organisation", "organization", "startup"),
+            email: fi("email", "e-mail", "mail"),
+            linkedin: fi("linkedin"),
+            website: fi("website", "url", "site"),
+            sector: fi("sector", "industry", "focus", "vertical", "thesis"),
+            stage: fi("stage", "round", "series"),
+            ticket: fi("ticket", "check", "cheque", "size", "raised"),
+            geo: fi("geo", "location", "country", "city", "region"),
+            role: fi("role", "type"),
+          };
 
-        const col = {
-          investorList: find("investor", "funder", "vc", "backer"),
-          name: find("name", "contact", "full name", "first name"),
-          firm: find("firm", "fund", "company", "organisation", "organization", "startup", "deal"),
-          email: find("email", "e-mail", "mail"),
-          linkedin: find("linkedin", "linked in", "profile"),
-          website: find("website", "url", "web", "site"),
-          sector: find("sector", "industry", "focus", "vertical", "thesis"),
-          stage: find("stage", "round", "series"),
-          ticket: find("ticket", "check", "cheque", "size", "amount", "raised", "funding", "usd", "$"),
-          geo: find("geo", "location", "country", "city", "region", "hq"),
-          role: find("role", "type"),
-        };
-
-        const str = (row: Record<string, unknown>, key: string | undefined) =>
-          key ? String(row[key] ?? "").trim() : "";
-
-        const investorRows: SheetPreviewRow[] = [];
-        const founderRows: SheetPreviewRow[] = [];
-
-        if (col.investorList) {
-          const investorSet = new Set<string>();
-          for (const row of rows) {
-            const val = str(row, col.investorList);
-            if (val) {
-              const names = val
-                .split(/,|;|\/| and /)
-                .map((s) => s.trim())
-                .filter((s) => s.length > 1);
-              for (const inv of names) {
-                const norm = inv.toLowerCase();
-                if (!investorSet.has(norm) && !norm.includes("unnamed") && !norm.includes("undisclosed")) {
-                  investorSet.add(norm);
-                  investorRows.push({ role: "investor", name: inv, firm_or_company: inv, notes: "" });
-                }
+          for (let i = headerIdx + 1; i < raw.length; i++) {
+            const row = raw[i] as unknown[];
+            if (col.investorList >= 0) {
+              const val = cell(row, col.investorList);
+              if (val) {
+                val
+                  .split(/,|;|\/| and /)
+                  .map((s) => s.trim())
+                  .filter((s) => s.length > 1)
+                  .forEach((inv) => {
+                    const norm = inv.toLowerCase();
+                    if (!seen.has(norm) && !norm.includes("unnamed") && !norm.includes("undisclosed")) {
+                      seen.add(norm);
+                      allContacts.push({ role: "investor", name: inv, firm_or_company: inv, notes: "" });
+                    }
+                  });
               }
-            }
-            const founderName = str(row, col.firm) || str(row, col.name);
-            if (founderName) {
+            } else {
+              const name = cell(row, col.name) || cell(row, col.firm);
+              const firm = cell(row, col.firm) || cell(row, col.name);
+              if (!name) continue;
+              const norm = name.toLowerCase();
+              if (seen.has(norm)) continue;
+              seen.add(norm);
+              const roleVal = cell(row, col.role).toLowerCase();
+              const isFounder = roleVal.includes("founder") || roleVal.includes("startup");
               const notesParts = [
-                str(row, col.sector) && `Sector: ${str(row, col.sector)}`,
-                str(row, col.stage) && `Stage: ${str(row, col.stage)}`,
-                str(row, col.geo) && `Location: ${str(row, col.geo)}`,
-                str(row, col.ticket) && `Amount: ${str(row, col.ticket)}`,
+                cell(row, col.email) && `Email: ${cell(row, col.email)}`,
+                cell(row, col.linkedin) && `LinkedIn: ${cell(row, col.linkedin)}`,
+                cell(row, col.website) && `Website: ${cell(row, col.website)}`,
+                cell(row, col.sector) && `Sector: ${cell(row, col.sector)}`,
+                cell(row, col.stage) && `Stage: ${cell(row, col.stage)}`,
+                cell(row, col.ticket) && `Ticket: ${cell(row, col.ticket)}`,
+                cell(row, col.geo) && `Location: ${cell(row, col.geo)}`,
               ].filter(Boolean);
-              founderRows.push({
-                role: "founder",
-                name: founderName,
-                firm_or_company: founderName,
+              allContacts.push({
+                role: isFounder ? "founder" : "investor",
+                name,
+                firm_or_company: firm,
                 notes: notesParts.join(" | "),
               });
             }
           }
-        } else {
-          const investorSet = new Set<string>();
-          for (const row of rows) {
-            const roleVal = str(row, col.role).toLowerCase();
-            const isFounder = roleVal.includes("founder") || roleVal.includes("startup");
-            const name = str(row, col.name) || str(row, col.firm);
-            const firm = str(row, col.firm) || str(row, col.name);
-            if (!name) continue;
-            const norm = name.toLowerCase();
-            if (investorSet.has(norm)) continue;
-            investorSet.add(norm);
-
-            const email = str(row, col.email);
-            const linkedin = str(row, col.linkedin);
-            const website = str(row, col.website);
-            const sector = str(row, col.sector);
-            const stage = str(row, col.stage);
-            const ticket = str(row, col.ticket);
-            const geo = str(row, col.geo);
-
-            const notesParts = [
-              email && `Email: ${email}`,
-              linkedin && `LinkedIn: ${linkedin}`,
-              website && `Website: ${website}`,
-              sector && `Sector: ${sector}`,
-              stage && `Stage: ${stage}`,
-              ticket && `Ticket: ${ticket}`,
-              geo && `Location: ${geo}`,
-            ].filter(Boolean);
-
-            const contact: SheetPreviewRow = {
-              role: isFounder ? "founder" : "investor",
-              name,
-              firm_or_company: firm,
-              notes: notesParts.join(" | "),
-            };
-
-            if (isFounder) founderRows.push(contact);
-            else investorRows.push(contact);
-          }
         }
 
-        if (investorRows.length === 0 && founderRows.length === 0) {
+        if (allContacts.length === 0) {
           setSheetMsg("No contacts found. Check that your spreadsheet has name, email, or firm columns.");
           return;
         }
-
-        setSheetPreview({ investors: investorRows, founders: founderRows });
-      } catch {
+        setSheetPreview({
+          investors: allContacts.filter((c) => c.role === "investor"),
+          founders: allContacts.filter((c) => c.role === "founder"),
+        });
+      } catch (err) {
+        console.error("Sheet parse error:", err);
         setSheetMsg("Could not parse spreadsheet. Try saving as CSV first.");
       }
     };

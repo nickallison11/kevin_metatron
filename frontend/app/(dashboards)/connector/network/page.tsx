@@ -125,8 +125,10 @@ export default function ConnectorNetworkPage() {
       `${API_BASE}/connector-profile/network/staging?page=${stagingPage}&per_page=50`,
       { headers: authHeaders(token) },
     );
+    console.log("loadStaging status:", res.status);
+    const data = await res.json();
+    console.log("loadStaging data:", data);
     if (res.ok) {
-      const data = await res.json();
       setStaged(data.contacts ?? []);
       setStagingTotal(data.total ?? 0);
       setStagingCounts(data.counts ?? { pending: 0, enriching: 0, enriched: 0, failed: 0 });

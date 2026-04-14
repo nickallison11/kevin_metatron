@@ -131,7 +131,7 @@ export default function ConnectorNetworkPage() {
     if (res.ok) {
       if (Array.isArray(data)) {
         // backend returning old flat array format
-        setStaged(data.slice(0, 50));
+        setStaged((data as StagedContact[]).slice(stagingPage * 50, (stagingPage + 1) * 50));
         setStagingTotal(data.length);
         const counts = { pending: 0, enriching: 0, enriched: 0, failed: 0 };
         for (const c of data as { status: string }[]) {
@@ -1055,6 +1055,35 @@ export default function ConnectorNetworkPage() {
                 ))}
               </div>
             </div>
+
+            {stagingTotal > 50 && (
+              <div className="flex items-center justify-between pt-2">
+                <p className="text-xs text-[#8888a0]">
+                  Showing {stagingPage * 50 + 1}–{Math.min((stagingPage + 1) * 50, stagingTotal)} of {stagingTotal}
+                </p>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setStagingPage((p) => Math.max(0, p - 1))}
+                    disabled={stagingPage === 0}
+                    className="px-3 py-1.5 text-xs rounded-xl bg-[rgba(255,255,255,0.04)] text-[#8888a0] hover:text-[#e8e8ed] disabled:opacity-30 disabled:cursor-not-allowed"
+                  >
+                    ← Prev
+                  </button>
+                  <span className="text-xs text-[#8888a0]">
+                    Page {stagingPage + 1} of {Math.ceil(stagingTotal / 50)}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setStagingPage((p) => Math.min(Math.ceil(stagingTotal / 50) - 1, p + 1))}
+                    disabled={stagingPage >= Math.ceil(stagingTotal / 50) - 1}
+                    className="px-3 py-1.5 text-xs rounded-xl bg-[rgba(255,255,255,0.04)] text-[#8888a0] hover:text-[#e8e8ed] disabled:opacity-30 disabled:cursor-not-allowed"
+                  >
+                    Next →
+                  </button>
+                </div>
+              </div>
+            )}
 
             {stagingView === "table" ? (
               <div className="overflow-x-auto">

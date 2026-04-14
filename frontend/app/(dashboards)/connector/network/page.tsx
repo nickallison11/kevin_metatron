@@ -81,6 +81,8 @@ export default function ConnectorNetworkPage() {
   const [editMsg, setEditMsg] = useState<string | null>(null);
 
   const sheetInputRef = useRef<HTMLInputElement>(null);
+  const [ipfsLoading, setIpfsLoading] = useState(false);
+  const [ipfsResult, setIpfsResult] = useState<{ cid: string; url: string; count: number } | null>(null);
   const [sheetPreview, setSheetPreview] = useState<{
     investors: SheetPreviewRow[];
     founders: SheetPreviewRow[];
@@ -91,6 +93,9 @@ export default function ConnectorNetworkPage() {
   const [stagingLoading, setStagingLoading] = useState(false);
   const [stagingMsg, setStagingMsg] = useState<string | null>(null);
   const [stagingTab, setStagingTab] = useState<"investor" | "founder" | "all">("investor");
+  const [stagingPage, setStagingPage] = useState(0);
+  const [stagingTotal, setStagingTotal] = useState(0);
+  const [stagingCounts, setStagingCounts] = useState({ pending: 0, enriching: 0, enriched: 0, failed: 0 });
   const [stagingView, setStagingView] = useState<"table" | "cards">("table");
   const [selectedStaged, setSelectedStaged] = useState<Set<string>>(new Set());
   const [importingStaged, setImportingStaged] = useState(false);
@@ -116,10 +121,18 @@ export default function ConnectorNetworkPage() {
   const loadStaging = useCallback(async () => {
     if (!token) return;
     setStagingLoading(true);
-    const res = await fetch(`${API_BASE}/connector-profile/network/staging`, { headers: authHeaders(token) });
-    if (res.ok) setStaged(await res.json());
+    const res = await fetch(
+      `${API_BASE}/connector-profile/network/staging?page=${stagingPage}&per_page=50`,
+      { headers: authHeaders(token) },
+    );
+    if (res.ok) {
+      const data = await res.json();
+      setStaged(data.contacts ?? []);
+      setStagingTotal(data.total ?? 0);
+      setStagingCounts(data.counts ?? { pending: 0, enriching: 0, enriched: 0, failed: 0 });
+    }
     setStagingLoading(false);
-  }, [token]);
+  }, [token, stagingPage]);
 
   useEffect(() => {
     load();
@@ -129,13 +142,17 @@ export default function ConnectorNetworkPage() {
   }, [loadStaging]);
 
   useEffect(() => {
-    const hasEnriching = staged.some((s) => s.status === "enriching");
-    if (!hasEnriching) return;
-    const timer = setInterval(() => loadStaging(), 3000);
-    return () => clearInterval(timer);
-  }, [staged, loadStaging]);
+    if (stagingTotal <= 0) return;
+    const maxPage = Math.max(0, Math.ceil(stagingTotal / 50) - 1);
+    if (stagingPage > maxPage) setStagingPage(maxPage);
+  }, [stagingTotal, stagingPage]);
 
-  const enrichingInStaging = staged.filter((s) => s.status === "enriching").length;
+  useEffect(() => {
+    const isActive = stagingCounts.enriching > 0 || stagingCounts.pending > 0;
+    if (!isActive) return;
+    const timer = setInterval(() => loadStaging(), 4000);
+    return () => clearInterval(timer);
+  }, [stagingCounts, loadStaging]);
 
   const filtered = useMemo(() => contacts.filter((c) => c.role === tab), [contacts, tab]);
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
@@ -150,8 +167,8 @@ export default function ConnectorNetworkPage() {
   const founderCount = contacts.filter((c) => c.role === "founder").length;
   const stagedInvestorCount = staged.filter((s) => s.role === "investor").length;
   const stagedFounderCount = staged.filter((s) => s.role === "founder").length;
-  const stagedEnrichedCount = staged.filter((s) => s.status === "enriched").length;
-  const stagedPendingCount = staged.filter((s) => s.status === "pending" || s.status === "failed").length;
+  const stagedEnrichedCount = stagingCounts.enriched;
+  const stagedPendingCount = stagingCounts.pending + stagingCounts.failed;
 
   async function onAdd(e: FormEvent) {
     e.preventDefault();
@@ -432,21 +449,51 @@ export default function ConnectorNetworkPage() {
 
   async function onClearStaging() {
     if (!token || !confirm("Clear all staged contacts?")) return;
-    await fetch(`${API_BASE}/connector-profile/network/staging`, {
+    const res = await fetch(`${API_BASE}/connector-profile/network/staging`, {
       method: "DELETE",
       headers: authHeaders(token),
     });
-    setStaged([]);
-    setStagingMsg("Staging cleared.");
+    if (res.ok) {
+      setStagingPage(0);
+      setStagingMsg("Staging cleared.");
+      loadStaging();
+    }
+  }
+
+  async function onExportNetwork() {
+    if (!token) return;
+    const res = await fetch(`${API_BASE}/connector-profile/network/export`, { headers: authHeaders(token) });
+    if (!res.ok) return;
+    const data: Record<string, unknown>[] = await res.json();
+    if (data.length === 0) return;
+    const XLSX = await import("xlsx");
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Network");
+    XLSX.writeFile(wb, `metatron-network-${new Date().toISOString().slice(0, 10)}.xlsx`);
+  }
+
+  async function onIpfsSnapshot() {
+    if (!token) return;
+    setIpfsLoading(true);
+    const res = await fetch(`${API_BASE}/connector-profile/network/ipfs-snapshot`, {
+      method: "POST",
+      headers: authHeaders(token),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      setIpfsResult(data);
+    }
+    setIpfsLoading(false);
   }
 
   async function onDeleteStaged(id: string) {
     if (!token) return;
-    await fetch(`${API_BASE}/connector-profile/network/staging/${id}`, {
+    const res = await fetch(`${API_BASE}/connector-profile/network/staging/${id}`, {
       method: "DELETE",
       headers: authHeaders(token),
     });
-    setStaged((prev) => prev.filter((s) => s.id !== id));
+    if (res.ok) loadStaging();
   }
 
   function startEditStaged(s: StagedContact) {
@@ -588,23 +635,52 @@ export default function ConnectorNetworkPage() {
 
       <div className="bg-[#16161f] border border-[rgba(255,255,255,0.06)] rounded-xl p-5">
         <div className="flex items-center justify-between mb-4">
-          <div className="flex gap-2">
-            {(["investor", "founder"] as const).map((t) => (
+          <div className="flex flex-col gap-2">
+            <div className="flex gap-2">
+              {(["investor", "founder"] as const).map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => {
+                    setTab(t);
+                    setPage(1);
+                  }}
+                  className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                    tab === t ? "bg-[#6c5ce7] text-white" : "text-[#8888a0] hover:text-[#e8e8ed]"
+                  }`}
+                >
+                  {t === "investor" ? "Investors" : "Founders"}
+                  <span className="ml-1.5 text-xs opacity-70">({t === "investor" ? investorCount : founderCount})</span>
+                </button>
+              ))}
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
               <button
-                key={t}
                 type="button"
-                onClick={() => {
-                  setTab(t);
-                  setPage(1);
-                }}
-                className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                  tab === t ? "bg-[#6c5ce7] text-white" : "text-[#8888a0] hover:text-[#e8e8ed]"
-                }`}
+                onClick={onExportNetwork}
+                className="px-3 py-1.5 text-xs rounded-xl bg-[rgba(255,255,255,0.04)] text-[#8888a0] border border-[rgba(255,255,255,0.06)] hover:text-[#e8e8ed] hover:border-[rgba(255,255,255,0.12)]"
               >
-                {t === "investor" ? "Investors" : "Founders"}
-                <span className="ml-1.5 text-xs opacity-70">({t === "investor" ? investorCount : founderCount})</span>
+                Export XLSX
               </button>
-            ))}
+              <button
+                type="button"
+                onClick={onIpfsSnapshot}
+                disabled={ipfsLoading}
+                className="px-3 py-1.5 text-xs rounded-xl bg-[rgba(108,92,231,0.08)] text-[#6c5ce7] border border-[rgba(108,92,231,0.2)] hover:bg-[rgba(108,92,231,0.15)] disabled:opacity-40"
+              >
+                {ipfsLoading ? "Anchoring…" : "Anchor to IPFS"}
+              </button>
+              {ipfsResult?.cid && (
+                <a
+                  href={ipfsResult.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-[#6c5ce7] hover:underline font-mono"
+                >
+                  {ipfsResult.cid.slice(0, 16)}… ({ipfsResult.count} contacts)
+                </a>
+              )}
+            </div>
           </div>
           <div className="flex gap-2">
             {(["card", "list"] as const).map((v) => (
@@ -760,7 +836,7 @@ export default function ConnectorNetworkPage() {
             </p>
           </div>
           <div className="flex gap-2 items-center flex-wrap justify-end">
-            {staged.length > 0 && (
+            {stagingTotal > 0 && (
               <>
                 {stagedPendingCount > 0 && (
                   <button
@@ -794,13 +870,29 @@ export default function ConnectorNetworkPage() {
         </div>
 
         {stagingMsg && <p className="text-xs text-[#6c5ce7]">{stagingMsg}</p>}
-        {stagingLoading && staged.length === 0 && <p className="text-xs text-[#8888a0]">Loading staging…</p>}
-        {enrichingInStaging > 0 && (
-          <div className="flex items-center gap-2 text-xs text-[#6c5ce7] animate-pulse">
-            <svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-              <circle cx="12" cy="12" r="10" strokeWidth="2" strokeDasharray="32" strokeLinecap="round" />
-            </svg>
-            Enriching {enrichingInStaging} contacts in background...
+        {stagingLoading && stagingTotal === 0 && (
+          <p className="text-xs text-[#8888a0]">Loading staging…</p>
+        )}
+        {stagingTotal > 0 && (
+          <div className="space-y-2">
+            <div className="flex justify-between text-xs text-[#8888a0]">
+              <span>
+                {stagingCounts.enriched} of {stagingTotal} enriched
+                {stagingCounts.enriching > 0 && (
+                  <span className="text-[#6c5ce7] ml-2 animate-pulse">· {stagingCounts.enriching} in progress</span>
+                )}
+                {stagingCounts.failed > 0 && (
+                  <span className="text-red-400 ml-2">· {stagingCounts.failed} failed</span>
+                )}
+              </span>
+              <span>{stagingTotal > 0 ? Math.round((stagingCounts.enriched / stagingTotal) * 100) : 0}%</span>
+            </div>
+            <div className="w-full bg-[rgba(255,255,255,0.06)] rounded-full h-2">
+              <div
+                className="bg-[#6c5ce7] h-2 rounded-full transition-all duration-500"
+                style={{ width: `${stagingTotal > 0 ? (stagingCounts.enriched / stagingTotal) * 100 : 0}%` }}
+              />
+            </div>
           </div>
         )}
 
@@ -892,7 +984,7 @@ export default function ConnectorNetworkPage() {
           )}
         </div>
 
-        {staged.length > 0 && (
+        {stagingTotal > 0 && (
           <div className="space-y-3">
             <div className="flex items-center justify-between flex-wrap gap-2">
               <div className="flex gap-2">
@@ -910,7 +1002,12 @@ export default function ConnectorNetworkPage() {
                     {t === "all" ? "All" : t === "investor" ? "Investors" : "Founders"}
                     <span className="ml-1 opacity-70">
                       (
-                      {t === "all" ? staged.length : t === "investor" ? stagedInvestorCount : stagedFounderCount})
+                      {t === "all"
+                        ? stagingTotal
+                        : t === "investor"
+                          ? stagedInvestorCount
+                          : stagedFounderCount}
+                      )
                     </span>
                   </button>
                 ))}
@@ -1124,6 +1221,34 @@ export default function ConnectorNetworkPage() {
                     </div>
                   </div>
                 ))}
+              </div>
+            )}
+            {stagingTotal > 50 && (
+              <div className="flex items-center justify-between pt-2">
+                <p className="text-xs text-[#8888a0]">
+                  Showing {stagingPage * 50 + 1}–{Math.min((stagingPage + 1) * 50, stagingTotal)} of {stagingTotal}
+                </p>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setStagingPage((p) => Math.max(0, p - 1))}
+                    disabled={stagingPage === 0}
+                    className="px-3 py-1.5 text-xs rounded-xl bg-[rgba(255,255,255,0.04)] text-[#8888a0] hover:text-[#e8e8ed] disabled:opacity-30 disabled:cursor-not-allowed"
+                  >
+                    ← Prev
+                  </button>
+                  <span className="text-xs text-[#8888a0]">
+                    Page {stagingPage + 1} of {Math.ceil(stagingTotal / 50)}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setStagingPage((p) => Math.min(Math.ceil(stagingTotal / 50) - 1, p + 1))}
+                    disabled={stagingPage >= Math.ceil(stagingTotal / 50) - 1}
+                    className="px-3 py-1.5 text-xs rounded-xl bg-[rgba(255,255,255,0.04)] text-[#8888a0] hover:text-[#e8e8ed] disabled:opacity-30 disabled:cursor-not-allowed"
+                  >
+                    Next →
+                  </button>
+                </div>
               </div>
             )}
           </div>

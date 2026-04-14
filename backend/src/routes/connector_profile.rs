@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     routing::{get, post, put},
     Json, Router,
 };
@@ -16,6 +16,30 @@ use uuid::Uuid;
 use crate::identity::{require_role, require_user, AuthedUser};
 use crate::state::AppState;
 
+#[derive(Deserialize)]
+struct StagingQuery {
+    page: Option<i64>,
+    per_page: Option<i64>,
+}
+
+#[derive(sqlx::FromRow)]
+struct StatusCount {
+    status: String,
+    count: i64,
+}
+
+#[derive(Serialize, sqlx::FromRow)]
+struct NetworkExportRow {
+    id: Uuid,
+    role: String,
+    name: String,
+    email: Option<String>,
+    firm_or_company: Option<String>,
+    linkedin_url: Option<String>,
+    notes: Option<String>,
+    created_at: chrono::DateTime<chrono::Utc>,
+}
+
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/", get(get_own).put(put_own))
@@ -25,6 +49,8 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/network/batch", post(batch_import_network))
         .route("/network/csv", post(import_network_csv))
         .route("/network", get(list_network).post(add_network_contact))
+        .route("/network/export", get(export_network))
+        .route("/network/ipfs-snapshot", post(ipfs_snapshot))
         .route(
             "/network/{id}",
             put(update_network_contact).delete(delete_network_contact),
@@ -45,6 +71,8 @@ pub struct ConnectorProfileDto {
     pub bio: Option<String>,
     pub speciality: Option<String>,
     pub country: Option<String>,
+    pub connector_tier: Option<String>,
+    pub ipfs_cid: Option<String>,
 }
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
@@ -62,6 +90,8 @@ struct ConnectorRow {
     bio: Option<String>,
     speciality: Option<String>,
     country: Option<String>,
+    connector_tier: Option<String>,
+    ipfs_cid: Option<String>,
 }
 
 #[derive(Serialize, sqlx::FromRow)]
@@ -185,7 +215,7 @@ async fn fetch_dto(
     user_id: Uuid,
 ) -> Result<ConnectorProfileDto, (axum::http::StatusCode, String)> {
     let row = sqlx::query_as::<_, ConnectorRow>(
-        r#"SELECT organisation, bio, speciality, country
+        r#"SELECT organisation, bio, speciality, country, connector_tier, ipfs_cid
              FROM connector_profiles WHERE user_id = $1"#,
     )
     .bind(user_id)
@@ -199,6 +229,8 @@ async fn fetch_dto(
             bio: r.bio,
             speciality: r.speciality,
             country: r.country,
+            connector_tier: r.connector_tier,
+            ipfs_cid: r.ipfs_cid,
         })
         .unwrap_or_default())
 }
@@ -589,22 +621,59 @@ async fn stage_contacts(
 async fn list_staging(
     State(state): State<Arc<AppState>>,
     TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
-) -> Result<Json<Vec<StagedContactRow>>, (axum::http::StatusCode, String)> {
-    let AuthedUser { id, .. } =
-        require_role(&state, bearer.token(), &["INTERMEDIARY"]).await?;
+    Query(params): Query<StagingQuery>,
+) -> Result<Json<serde_json::Value>, (axum::http::StatusCode, String)> {
+    let AuthedUser { id, .. } = require_role(&state, bearer.token(), &["INTERMEDIARY"]).await?;
+    let per_page = params.per_page.unwrap_or(50).clamp(1, 200);
+    let page = params.page.unwrap_or(0).max(0);
+    let offset = page * per_page;
+
+    let total: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM connector_network_staging WHERE connector_user_id=$1",
+    )
+    .bind(id)
+    .fetch_one(&state.db)
+    .await
+    .map_err(internal)?;
+
     let rows = sqlx::query_as::<_, StagedContactRow>(
         r#"SELECT id, role, name, firm_or_company, raw_notes, contact_name, email, linkedin_url,
                     website, sector_focus, stage_focus, ticket_size, geography, one_liner,
                     status, enrichment_error, created_at, enriched_at
              FROM connector_network_staging
              WHERE connector_user_id = $1
-             ORDER BY created_at DESC"#,
+             ORDER BY created_at DESC
+             LIMIT $2 OFFSET $3"#,
+    )
+    .bind(id)
+    .bind(per_page)
+    .bind(offset)
+    .fetch_all(&state.db)
+    .await
+    .map_err(internal)?;
+
+    let status_rows = sqlx::query_as::<_, StatusCount>(
+        "SELECT status, COUNT(*)::bigint as count FROM connector_network_staging WHERE connector_user_id=$1 GROUP BY status",
     )
     .bind(id)
     .fetch_all(&state.db)
     .await
-    .map_err(internal)?;
-    Ok(Json(rows))
+    .unwrap_or_default();
+
+    let mut counts = serde_json::json!({ "pending": 0, "enriching": 0, "enriched": 0, "failed": 0 });
+    for sc in status_rows {
+        if let Some(map) = counts.as_object_mut() {
+            map.insert(sc.status, serde_json::json!(sc.count));
+        }
+    }
+
+    Ok(Json(serde_json::json!({
+        "contacts": rows,
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+        "counts": counts,
+    })))
 }
 
 async fn clear_staging(
@@ -687,6 +756,13 @@ async fn enrich_staged_contacts(
     let AuthedUser { id: user_id, .. } =
         require_role(&state, bearer.token(), &["INTERMEDIARY"]).await?;
 
+    let user_email: Option<String> = sqlx::query_scalar("SELECT email FROM users WHERE id=$1")
+        .bind(user_id)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten();
+
     let anthropic_key = std::env::var("ANTHROPIC_API_KEY").map_err(|_| {
         (
             axum::http::StatusCode::INTERNAL_SERVER_ERROR,
@@ -720,8 +796,7 @@ async fn enrich_staged_contacts(
         sqlx::query_as::<_, StagedContactRow>(&format!(
             r#"SELECT {}
                  FROM connector_network_staging
-                 WHERE connector_user_id=$1 AND status IN ('pending','failed') AND role LIKE $2
-                 LIMIT 100"#,
+                 WHERE connector_user_id=$1 AND status IN ('pending','failed') AND role LIKE $2"#,
             staging_select_cols()
         ))
         .bind(user_id)
@@ -733,37 +808,84 @@ async fn enrich_staged_contacts(
 
     let count = rows.len();
 
-    for row in &rows {
-        let _ = sqlx::query("UPDATE connector_network_staging SET status='enriching' WHERE id=$1")
-            .bind(row.id)
+    if let Some(ids) = &body.ids {
+        if !ids.is_empty() {
+            let id_list = ids.iter().map(|u| format!("'{u}'")).collect::<Vec<_>>().join(",");
+            let _ = sqlx::query(&format!(
+                "UPDATE connector_network_staging SET status='enriching' WHERE connector_user_id=$1 AND id IN ({})",
+                id_list
+            ))
+            .bind(user_id)
             .execute(&state.db)
             .await;
+        }
+    } else {
+        let role_filter = body.role.as_deref().unwrap_or("%");
+        let _ = sqlx::query(
+            "UPDATE connector_network_staging SET status='enriching' WHERE connector_user_id=$1 AND status IN ('pending','failed') AND role LIKE $2",
+        )
+        .bind(user_id)
+        .bind(role_filter)
+        .execute(&state.db)
+        .await;
     }
 
     let pool = state.db.clone();
     let key = anthropic_key.clone();
+    let uid_for_notify = user_id;
+    let email_for_notify = user_email;
     tokio::spawn(async move {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(90))
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
         let sem = Arc::new(Semaphore::new(5));
         let mut handles = vec![];
         for row in rows {
             let pool = pool.clone();
             let key = key.clone();
             let sem = sem.clone();
+            let client = client.clone();
             handles.push(tokio::spawn(async move {
                 let _permit = sem.acquire().await.unwrap();
-                enrich_one_contact(
-                    &pool,
-                    row.id,
-                    &row.role,
-                    &row.name,
-                    row.raw_notes.as_deref(),
-                    &key,
-                )
-                .await;
+                enrich_one_contact(&client, &pool, row.id, &row.role, &row.name, row.raw_notes.as_deref(), &key).await;
             }));
         }
         for h in handles {
             let _ = h.await;
+        }
+        let remaining: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM connector_network_staging WHERE connector_user_id=$1 AND status IN ('pending','enriching')",
+        )
+        .bind(uid_for_notify)
+        .fetch_one(&pool)
+        .await
+        .unwrap_or(1);
+        if remaining == 0 {
+            let enriched_count: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM connector_network_staging WHERE connector_user_id=$1 AND status='enriched'",
+            )
+            .bind(uid_for_notify)
+            .fetch_one(&pool)
+            .await
+            .unwrap_or(0);
+            if let (Some(to_email), Ok(resend_key)) = (email_for_notify, std::env::var("RESEND_API_KEY")) {
+                let client = reqwest::Client::new();
+                let _ = client
+                    .post("https://api.resend.com/emails")
+                    .bearer_auth(&resend_key)
+                    .json(&serde_json::json!({
+                        "from": "metatron <kevin@metatron.id>",
+                        "to": to_email,
+                        "subject": format!("{} contacts enriched and ready to import — metatron", enriched_count),
+                        "html": format!(
+                            r#"<div style="background:#0a0a0f;color:#e8e8ed;font-family:'DM Sans',Arial,sans-serif;padding:40px;max-width:560px;margin:0 auto;border-radius:12px;"><img src="https://metatron.id/metatron-logo.png" alt="metatron" height="42" style="margin-bottom:32px;" /><h1 style="font-size:22px;font-weight:600;margin-bottom:16px;">Your contacts are ready.</h1><p style="color:#8888a0;font-size:15px;line-height:1.6;margin-bottom:16px;">Kevin has finished enriching <strong style="color:#e8e8ed;">{}</strong> contacts with web research.</p><p style="color:#8888a0;font-size:15px;line-height:1.6;margin-bottom:32px;">Head back to your <a href="https://platform.metatron.id/connector/network" style="color:#6c5ce7;text-decoration:none;">network page</a> to review and import them into your network.</p><hr style="border:none;border-top:1px solid rgba(255,255,255,0.06);margin:32px 0;" /><p style="color:#8888a0;font-size:13px;">metatron — Eliminating information asymmetry between founders and capital, globally.</p></div>"#,
+                            enriched_count
+                        ),
+                    }))
+                    .send()
+                    .await;
+            }
         }
     });
 
@@ -879,6 +1001,7 @@ async fn import_from_staging(
 }
 
 async fn enrich_one_contact(
+    client: &reqwest::Client,
     pool: &sqlx::PgPool,
     id: Uuid,
     role: &str,
@@ -902,7 +1025,6 @@ async fn enrich_one_contact(
         )
     };
 
-    let client = reqwest::Client::new();
     let resp = client
         .post("https://api.anthropic.com/v1/messages")
         .header("x-api-key", anthropic_key)
@@ -989,6 +1111,82 @@ async fn enrich_one_contact(
     .bind(enrichment.one_liner)
     .execute(pool)
     .await;
+}
+
+async fn export_network(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+) -> Result<Json<Vec<NetworkExportRow>>, (axum::http::StatusCode, String)> {
+    let AuthedUser { id: user_id, .. } = require_role(&state, bearer.token(), &["INTERMEDIARY"]).await?;
+    let rows = sqlx::query_as::<_, NetworkExportRow>(
+        r#"SELECT id, role, name, email, firm_or_company, linkedin_url, notes, created_at
+             FROM connector_network_contacts
+             WHERE connector_user_id = $1
+             ORDER BY role, name"#,
+    )
+    .bind(user_id)
+    .fetch_all(&state.db)
+    .await
+    .map_err(internal)?;
+    Ok(Json(rows))
+}
+
+async fn ipfs_snapshot(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+) -> Result<Json<serde_json::Value>, (axum::http::StatusCode, String)> {
+    let AuthedUser { id: user_id, .. } = require_role(&state, bearer.token(), &["INTERMEDIARY"]).await?;
+    let pinata_jwt = std::env::var("PINATA_JWT").map_err(|_| {
+        (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            "PINATA_JWT not configured".to_string(),
+        )
+    })?;
+    let rows = sqlx::query_as::<_, NetworkExportRow>(
+        r#"SELECT id, role, name, email, firm_or_company, linkedin_url, notes, created_at
+             FROM connector_network_contacts
+             WHERE connector_user_id = $1
+             ORDER BY role, name"#,
+    )
+    .bind(user_id)
+    .fetch_all(&state.db)
+    .await
+    .map_err(internal)?;
+    let client = reqwest::Client::new();
+    let resp = client
+        .post("https://api.pinata.cloud/pinning/pinJSONToIPFS")
+        .bearer_auth(&pinata_jwt)
+        .json(&serde_json::json!({
+            "pinataContent": {
+                "connector_user_id": user_id,
+                "snapshot_at": chrono::Utc::now().to_rfc3339(),
+                "contact_count": rows.len(),
+                "contacts": rows,
+            },
+            "pinataMetadata": { "name": format!("metatron-network-{}", user_id) }
+        }))
+        .send()
+        .await
+        .map_err(|e| (axum::http::StatusCode::BAD_GATEWAY, e.to_string()))?;
+    let result = resp
+        .json::<serde_json::Value>()
+        .await
+        .map_err(|e| (axum::http::StatusCode::BAD_GATEWAY, e.to_string()))?;
+    let cid = result["IpfsHash"].as_str().unwrap_or("").to_string();
+    if !cid.is_empty() {
+        let _ = sqlx::query(
+            "UPDATE connector_profiles SET ipfs_cid=$1, ipfs_updated_at=now() WHERE user_id=$2",
+        )
+        .bind(&cid)
+        .bind(user_id)
+        .execute(&state.db)
+        .await;
+    }
+    Ok(Json(serde_json::json!({
+        "cid": cid,
+        "url": format!("https://ipfs.io/ipfs/{}", cid),
+        "count": rows.len(),
+    })))
 }
 
 fn internal<E: std::fmt::Debug>(_e: E) -> (axum::http::StatusCode, String) {

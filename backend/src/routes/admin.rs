@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use axum::routing::{get, put};
+use axum::routing::{get, post, put};
 use sqlx::Error as SqlxError;
 use axum::{Json, Router};
 use axum_extra::{
@@ -18,6 +18,7 @@ use crate::state::AppState;
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/users", get(list_users))
+        .route("/users/invite", post(invite_user))
         .route("/users/:id/pro", put(set_user_pro))
         .route("/users/:id/suspend", put(toggle_user_suspend))
         .route(
@@ -455,6 +456,58 @@ async fn update_prospect(
     .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "database error".to_string()))?;
 
     Ok(StatusCode::OK)
+}
+
+#[derive(Deserialize)]
+struct InviteBody {
+    email: String,
+    role: String,
+}
+
+async fn invite_user(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+    Json(body): Json<InviteBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let _ = require_admin(&state, bearer.token()).await?;
+
+    let secret = std::env::var("INVITE_SECRET").map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "INVITE_SECRET not set".to_string(),
+        )
+    })?;
+
+    let role = match body.role.as_str() {
+        "founder" | "investor" | "connector" => body.role.clone(),
+        _ => return Err((StatusCode::BAD_REQUEST, "Invalid role".to_string())),
+    };
+
+    let platform_url =
+        std::env::var("PLATFORM_URL").unwrap_or_else(|_| "https://platform.metatron.id".to_string());
+    let invite_link = format!(
+        "{}/auth/signup?invite={}&code={}",
+        platform_url.trim_end_matches('/'),
+        urlencoding::encode(&role),
+        urlencoding::encode(&secret)
+    );
+
+    if let Ok(resend_key) = std::env::var("RESEND_API_KEY") {
+        let client = reqwest::Client::new();
+        let _ = client
+            .post("https://api.resend.com/emails")
+            .bearer_auth(&resend_key)
+            .json(&serde_json::json!({
+                "from": "metatron <kevin@metatron.id>",
+                "to": &body.email,
+                "subject": "You've been invited to metatron",
+                "html": format!(r#"<div style="background:#0a0a0f;color:#e8e8ed;font-family:'DM Sans',Arial,sans-serif;padding:40px;max-width:560px;margin:0 auto;border-radius:12px;"><img src="https://metatron.id/metatron-logo.png" alt="metatron" height="42" style="margin-bottom:32px;" /><h1 style="font-size:22px;font-weight:600;margin-bottom:16px;">You've been invited.</h1><p style="color:#8888a0;font-size:15px;line-height:1.6;margin-bottom:32px;">You've been invited to join metatron as a <strong style="color:#e8e8ed;">{}</strong>. Click below to create your account.</p><a href="{}" style="display:inline-block;background:#6c5ce7;color:#fff;padding:12px 28px;border-radius:10px;text-decoration:none;font-weight:600;font-size:15px;">Create account</a><hr style="border:none;border-top:1px solid rgba(255,255,255,0.06);margin:32px 0;" /><p style="color:#8888a0;font-size:13px;">metatron — Eliminating information asymmetry between founders and capital, globally.</p></div>"#, role, invite_link),
+            }))
+            .send()
+            .await;
+    }
+
+    Ok(Json(serde_json::json!({ "invited": body.email, "link": invite_link })))
 }
 
 async fn delete_prospect(

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 import { API_BASE, authHeaders } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
@@ -47,7 +47,38 @@ function formatJoined(iso: string) {
 export default function AdminUsersPage() {
   const { token, loading: authLoading } = useAuth();
   const [rows, setRows] = useState<AdminUserRow[] | null>(null);
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteRole, setInviteRole] = useState("connector");
+  const [inviteMsg, setInviteMsg] = useState<string | null>(null);
+  const [inviteBusy, setInviteBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  async function onSendInvite(e: FormEvent) {
+    e.preventDefault();
+    if (!token) return;
+    setInviteBusy(true);
+    setInviteMsg(null);
+    const res = await fetch(`${API_BASE}/api/admin/users/invite`, {
+      method: "POST",
+      headers: { ...authHeaders(token), "Content-Type": "application/json" },
+      body: JSON.stringify({ email: inviteEmail, role: inviteRole }),
+    });
+    const raw = await res.text();
+    let data: { error?: string } = {};
+    try {
+      data = JSON.parse(raw) as { error?: string };
+    } catch {
+      /* plain-text error body */
+    }
+    if (res.ok) {
+      setInviteMsg(`Invite sent to ${inviteEmail}`);
+      setInviteEmail("");
+    } else {
+      setInviteMsg(data.error ?? (raw.trim() || "Failed to send invite"));
+    }
+    setInviteBusy(false);
+  }
 
   useEffect(() => {
     if (!token || authLoading) return;
@@ -84,11 +115,20 @@ export default function AdminUsersPage() {
 
   return (
     <main className="min-w-0">
-      <header className="border-b border-[var(--border)] px-6 py-4 md:px-10">
-        <p className="font-mono text-[11px] font-medium uppercase tracking-[2px] text-[var(--text-muted)] mb-1">
-          Admin
-        </p>
-        <h1 className="text-lg font-semibold">Users</h1>
+      <header className="border-b border-[var(--border)] px-6 py-4 md:px-10 flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <p className="font-mono text-[11px] font-medium uppercase tracking-[2px] text-[var(--text-muted)] mb-1">
+            Admin
+          </p>
+          <h1 className="text-lg font-semibold">Users</h1>
+        </div>
+        <button
+          type="button"
+          onClick={() => setInviteOpen(true)}
+          className="px-4 py-2 bg-[#6c5ce7] text-white rounded-xl text-sm font-medium hover:bg-[#7d6ff0]"
+        >
+          + Invite User
+        </button>
       </header>
 
       <section className="p-6 md:p-10">
@@ -181,6 +221,53 @@ export default function AdminUsersPage() {
           </div>
         )}
       </section>
+
+      {inviteOpen && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-[#16161f] border border-[rgba(255,255,255,0.06)] rounded-xl p-6 w-full max-w-sm space-y-4">
+            <h2 className="text-base font-semibold text-[#e8e8ed]">Invite User</h2>
+            <form onSubmit={onSendInvite} className="space-y-3">
+              <input
+                type="email"
+                required
+                placeholder="Email address"
+                value={inviteEmail}
+                onChange={(e) => setInviteEmail(e.target.value)}
+                className="w-full bg-[#0a0a0f] border border-[rgba(255,255,255,0.06)] rounded-xl px-3 py-2 text-sm text-[#e8e8ed] placeholder:text-[#8888a0]"
+              />
+              <select
+                value={inviteRole}
+                onChange={(e) => setInviteRole(e.target.value)}
+                className="w-full bg-[#0a0a0f] border border-[rgba(255,255,255,0.06)] rounded-xl px-3 py-2 text-sm text-[#e8e8ed]"
+              >
+                <option value="connector">Connector</option>
+                <option value="founder">Founder</option>
+                <option value="investor">Investor</option>
+              </select>
+              {inviteMsg && <p className="text-xs text-[#6c5ce7]">{inviteMsg}</p>}
+              <div className="flex gap-2 pt-1">
+                <button
+                  type="submit"
+                  disabled={inviteBusy}
+                  className="flex-1 py-2 bg-[#6c5ce7] text-white rounded-xl text-sm hover:bg-[#7d6ff0] disabled:opacity-40"
+                >
+                  {inviteBusy ? "Sending…" : "Send Invite"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setInviteOpen(false);
+                    setInviteMsg(null);
+                  }}
+                  className="flex-1 py-2 bg-[rgba(255,255,255,0.04)] text-[#8888a0] rounded-xl text-sm"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

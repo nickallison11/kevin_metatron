@@ -138,8 +138,8 @@ export default function ConnectorNetworkPage() {
     load();
   }, [load]);
   useEffect(() => {
-    loadStaging();
-  }, [loadStaging]);
+    if (token) loadStaging();
+  }, [token, loadStaging]);
 
   useEffect(() => {
     if (stagingTotal <= 0) return;

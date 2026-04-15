@@ -23,6 +23,12 @@ type Contact = {
   email: string | null;
   firm_or_company: string | null;
   linkedin_url: string | null;
+  website: string | null;
+  sector_focus: string | null;
+  stage_focus: string | null;
+  ticket_size: string | null;
+  geography: string | null;
+  one_liner: string | null;
   notes: string | null;
   invited_at: string | null;
   joined_user_id: string | null;
@@ -760,26 +766,86 @@ export default function ConnectorNetworkPage() {
                   </div>
                 ) : (
                   <>
-                    <div className="flex justify-between items-start">
-                      <div>
+                    <div className="flex justify-between items-start gap-2">
+                      <div className="min-w-0">
                         <p className="text-sm font-medium text-[#e8e8ed]">{c.name}</p>
-                        {c.firm_or_company && <p className="text-xs text-[#8888a0]">{c.firm_or_company}</p>}
+                        {c.firm_or_company && c.firm_or_company !== c.name && (
+                          <p className="text-xs text-[#8888a0]">{c.firm_or_company}</p>
+                        )}
+                        {c.one_liner && (
+                          <div className="mt-2">
+                            <p className="text-[10px] font-mono uppercase tracking-wide text-[#8888a0] mb-0.5">One-liner</p>
+                            <p className="text-xs text-[#e8e8ed] leading-snug">{c.one_liner}</p>
+                          </div>
+                        )}
                       </div>
-                      <div className="flex gap-1">
+                      <div className="flex gap-1 shrink-0">
                         <button type="button" onClick={() => startEdit(c)} className="text-xs text-[#6c5ce7] hover:underline">
                           Edit
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => onDelete(c.id)}
-                          className="text-xs text-red-400 hover:underline ml-2"
-                        >
+                        <button type="button" onClick={() => onDelete(c.id)} className="text-xs text-red-400 hover:underline ml-2">
                           Delete
                         </button>
                       </div>
                     </div>
-                    {c.email && <p className="text-xs text-[#8888a0] mt-1">{c.email}</p>}
-                    {c.notes && <p className="text-xs text-[#8888a0] mt-1 line-clamp-2">{c.notes}</p>}
+                    <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-1.5 mt-3 text-xs">
+                      {c.email && (
+                        <div>
+                          <dt className="text-[10px] font-mono uppercase tracking-wide text-[#8888a0]">Email</dt>
+                          <dd className="text-[#e8e8ed] truncate">{c.email}</dd>
+                        </div>
+                      )}
+                      {c.sector_focus && (
+                        <div>
+                          <dt className="text-[10px] font-mono uppercase tracking-wide text-[#8888a0]">Sector</dt>
+                          <dd className="text-[#e8e8ed]">{c.sector_focus}</dd>
+                        </div>
+                      )}
+                      {c.stage_focus && (
+                        <div>
+                          <dt className="text-[10px] font-mono uppercase tracking-wide text-[#8888a0]">Stage</dt>
+                          <dd className="text-[#e8e8ed]">{c.stage_focus}</dd>
+                        </div>
+                      )}
+                      {c.ticket_size && (
+                        <div>
+                          <dt className="text-[10px] font-mono uppercase tracking-wide text-[#8888a0]">Ticket</dt>
+                          <dd className="text-[#e8e8ed]">{c.ticket_size}</dd>
+                        </div>
+                      )}
+                      {c.geography && (
+                        <div>
+                          <dt className="text-[10px] font-mono uppercase tracking-wide text-[#8888a0]">Location</dt>
+                          <dd className="text-[#e8e8ed]">{c.geography}</dd>
+                        </div>
+                      )}
+                      {c.website && (
+                        <div>
+                          <dt className="text-[10px] font-mono uppercase tracking-wide text-[#8888a0]">Website</dt>
+                          <dd>
+                            <a href={c.website} target="_blank" rel="noreferrer" className="text-[#6c5ce7] hover:underline break-all">
+                              {c.website.replace(/^https?:\/\//, "")}
+                            </a>
+                          </dd>
+                        </div>
+                      )}
+                      {c.linkedin_url && (
+                        <div>
+                          <dt className="text-[10px] font-mono uppercase tracking-wide text-[#8888a0]">LinkedIn</dt>
+                          <dd>
+                            <a href={c.linkedin_url} target="_blank" rel="noreferrer" className="text-[#6c5ce7] hover:underline break-all">
+                              Profile
+                            </a>
+                          </dd>
+                        </div>
+                      )}
+                    </dl>
+                    {c.notes && (
+                      <div className="mt-2 pt-2 border-t border-[rgba(255,255,255,0.06)]">
+                        <p className="text-[10px] font-mono uppercase tracking-wide text-[#8888a0] mb-0.5">Notes</p>
+                        <p className="text-xs text-[#8888a0] line-clamp-3">{c.notes}</p>
+                      </div>
+                    )}
                     {c.joined_user_id && (
                       <span className="mt-2 inline-block text-xs bg-[rgba(108,92,231,0.15)] text-[#6c5ce7] px-2 py-0.5 rounded-full">
                         On platform
@@ -795,20 +861,34 @@ export default function ConnectorNetworkPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-[#8888a0] text-xs border-b border-[rgba(255,255,255,0.06)]">
-                  <th className="text-left pb-2">Name</th>
-                  <th className="text-left pb-2">Firm</th>
-                  <th className="text-left pb-2">Email</th>
-                  <th className="text-left pb-2">Notes</th>
+                  <th className="text-left pb-2 pr-3">Name / Firm</th>
+                  <th className="text-left pb-2 pr-3">Email</th>
+                  <th className="text-left pb-2 pr-3">Sector</th>
+                  <th className="text-left pb-2 pr-3">Stage</th>
+                  <th className="text-left pb-2 pr-3">Ticket</th>
+                  <th className="text-left pb-2 pr-3">Location</th>
+                  <th className="text-left pb-2 pr-3">Links</th>
                   <th className="text-left pb-2" />
                 </tr>
               </thead>
               <tbody>
                 {paginated.map((c) => (
                   <tr key={c.id} className="border-b border-[rgba(255,255,255,0.03)] hover:bg-[rgba(255,255,255,0.02)]">
-                    <td className="py-2 text-[#e8e8ed]">{c.name}</td>
-                    <td className="py-2 text-[#8888a0] text-xs">{c.firm_or_company ?? "—"}</td>
-                    <td className="py-2 text-[#8888a0] text-xs">{c.email ?? "—"}</td>
-                    <td className="py-2 text-[#8888a0] text-xs max-w-xs truncate">{c.notes ?? "—"}</td>
+                    <td className="py-2 pr-3">
+                      <p className="text-[#e8e8ed]">{c.name}</p>
+                      {c.firm_or_company && c.firm_or_company !== c.name && (
+                        <p className="text-[#8888a0] text-xs">{c.firm_or_company}</p>
+                      )}
+                    </td>
+                    <td className="py-2 pr-3 text-[#8888a0] text-xs">{c.email ?? "—"}</td>
+                    <td className="py-2 pr-3 text-[#8888a0] text-xs max-w-[120px] truncate">{c.sector_focus ?? "—"}</td>
+                    <td className="py-2 pr-3 text-[#8888a0] text-xs">{c.stage_focus ?? "—"}</td>
+                    <td className="py-2 pr-3 text-[#8888a0] text-xs">{c.ticket_size ?? "—"}</td>
+                    <td className="py-2 pr-3 text-[#8888a0] text-xs">{c.geography ?? "—"}</td>
+                    <td className="py-2 pr-3 text-xs flex gap-2">
+                      {c.website && <a href={c.website} target="_blank" rel="noreferrer" className="text-[#6c5ce7] hover:underline">Web</a>}
+                      {c.linkedin_url && <a href={c.linkedin_url} target="_blank" rel="noreferrer" className="text-[#6c5ce7] hover:underline">LI</a>}
+                    </td>
                     <td className="py-2 flex gap-2">
                       <button type="button" onClick={() => startEdit(c)} className="text-xs text-[#6c5ce7] hover:underline">
                         Edit

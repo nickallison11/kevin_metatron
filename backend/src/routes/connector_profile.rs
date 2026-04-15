@@ -36,6 +36,12 @@ struct NetworkExportRow {
     email: Option<String>,
     firm_or_company: Option<String>,
     linkedin_url: Option<String>,
+    website: Option<String>,
+    sector_focus: Option<String>,
+    stage_focus: Option<String>,
+    ticket_size: Option<String>,
+    geography: Option<String>,
+    one_liner: Option<String>,
     notes: Option<String>,
     created_at: chrono::DateTime<chrono::Utc>,
 }
@@ -132,6 +138,12 @@ pub struct NetworkContactRow {
     pub email: Option<String>,
     pub firm_or_company: Option<String>,
     pub linkedin_url: Option<String>,
+    pub website: Option<String>,
+    pub sector_focus: Option<String>,
+    pub stage_focus: Option<String>,
+    pub ticket_size: Option<String>,
+    pub geography: Option<String>,
+    pub one_liner: Option<String>,
     pub notes: Option<String>,
     pub invited_at: Option<chrono::DateTime<chrono::Utc>>,
     pub joined_user_id: Option<Uuid>,
@@ -346,7 +358,7 @@ async fn list_network(
     let AuthedUser { id, .. } =
         require_role(&state, bearer.token(), &["INTERMEDIARY"]).await?;
     let rows = sqlx::query_as::<_, NetworkContactRow>(
-        r#"SELECT id, role, name, email, firm_or_company, linkedin_url, notes,
+        r#"SELECT id, role, name, email, firm_or_company, linkedin_url, website, sector_focus, stage_focus, ticket_size, geography, one_liner, notes,
                     invited_at, joined_user_id, created_at
              FROM connector_network_contacts WHERE connector_user_id = $1 ORDER BY created_at DESC"#,
     )
@@ -386,7 +398,7 @@ async fn add_network_contact(
         r#"INSERT INTO connector_network_contacts
                  (connector_user_id, role, name, email, firm_or_company, linkedin_url, notes, joined_user_id)
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-             RETURNING id, role, name, email, firm_or_company, linkedin_url, notes,
+             RETURNING id, role, name, email, firm_or_company, linkedin_url, website, sector_focus, stage_focus, ticket_size, geography, one_liner, notes,
                        invited_at, joined_user_id, created_at"#,
     )
     .bind(id)
@@ -433,7 +445,7 @@ async fn update_network_contact(
         r#"UPDATE connector_network_contacts
              SET role=$1, name=$2, email=$3, firm_or_company=$4, linkedin_url=$5, notes=$6, joined_user_id=$7
              WHERE id=$8 AND connector_user_id=$9
-             RETURNING id, role, name, email, firm_or_company, linkedin_url, notes,
+             RETURNING id, role, name, email, firm_or_company, linkedin_url, website, sector_focus, stage_focus, ticket_size, geography, one_liner, notes,
                        invited_at, joined_user_id, created_at"#,
     )
     .bind(&body.role)
@@ -936,31 +948,6 @@ async fn import_from_staging(
 
     let mut imported = 0u32;
     for row in &rows {
-        let mut notes_parts: Vec<String> = vec![];
-        if let Some(ref s) = row.sector_focus {
-            notes_parts.push(format!("Sector: {}", s));
-        }
-        if let Some(ref s) = row.stage_focus {
-            notes_parts.push(format!("Stage: {}", s));
-        }
-        if let Some(ref s) = row.ticket_size {
-            notes_parts.push(format!("Ticket: {}", s));
-        }
-        if let Some(ref s) = row.geography {
-            notes_parts.push(format!("Geography: {}", s));
-        }
-        if let Some(ref s) = row.one_liner {
-            notes_parts.push(s.clone());
-        }
-        if let Some(ref s) = row.raw_notes {
-            notes_parts.push(s.clone());
-        }
-        let notes = if notes_parts.is_empty() {
-            None
-        } else {
-            Some(notes_parts.join(" | "))
-        };
-
         let name = row
             .contact_name
             .as_deref()
@@ -974,8 +961,9 @@ async fn import_from_staging(
 
         let res = sqlx::query(
             r#"INSERT INTO connector_network_contacts
-                     (connector_user_id, role, name, email, firm_or_company, linkedin_url, notes)
-                 VALUES ($1,$2,$3,$4,$5,$6,$7)
+                     (connector_user_id, role, name, email, firm_or_company, linkedin_url, notes,
+                      website, sector_focus, stage_focus, ticket_size, geography, one_liner)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
                  ON CONFLICT DO NOTHING"#,
         )
         .bind(user_id)
@@ -984,7 +972,13 @@ async fn import_from_staging(
         .bind(&row.email)
         .bind(firm)
         .bind(&row.linkedin_url)
-        .bind(&notes)
+        .bind(row.raw_notes.as_deref())
+        .bind(row.website.as_deref())
+        .bind(row.sector_focus.as_deref())
+        .bind(row.stage_focus.as_deref())
+        .bind(row.ticket_size.as_deref())
+        .bind(row.geography.as_deref())
+        .bind(row.one_liner.as_deref())
         .execute(&state.db)
         .await;
 
@@ -1141,7 +1135,7 @@ async fn export_network(
 ) -> Result<Json<Vec<NetworkExportRow>>, (axum::http::StatusCode, String)> {
     let AuthedUser { id: user_id, .. } = require_role(&state, bearer.token(), &["INTERMEDIARY"]).await?;
     let rows = sqlx::query_as::<_, NetworkExportRow>(
-        r#"SELECT id, role, name, email, firm_or_company, linkedin_url, notes, created_at
+        r#"SELECT id, role, name, email, firm_or_company, linkedin_url, website, sector_focus, stage_focus, ticket_size, geography, one_liner, notes, created_at
              FROM connector_network_contacts
              WHERE connector_user_id = $1
              ORDER BY role, name"#,
@@ -1165,7 +1159,7 @@ async fn ipfs_snapshot(
         )
     })?;
     let rows = sqlx::query_as::<_, NetworkExportRow>(
-        r#"SELECT id, role, name, email, firm_or_company, linkedin_url, notes, created_at
+        r#"SELECT id, role, name, email, firm_or_company, linkedin_url, website, sector_focus, stage_focus, ticket_size, geography, one_liner, notes, created_at
              FROM connector_network_contacts
              WHERE connector_user_id = $1
              ORDER BY role, name"#,

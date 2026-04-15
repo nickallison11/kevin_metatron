@@ -407,11 +407,15 @@ export default function ConnectorNetworkPage() {
 
   useEffect(() => {
     if (!viewingContact) return;
+    document.body.style.overflow = "hidden";
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") closeContactModal();
     };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = "";
+    };
   }, [viewingContact, closeContactModal]);
 
   async function onCsvImport() {

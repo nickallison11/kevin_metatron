@@ -1140,8 +1140,7 @@ async fn enrich_one_contact(
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
         "tools": [{"google_search": {}}],
         "generationConfig": {
-            "maxOutputTokens": 1024,
-            "thinkingConfig": {"thinkingBudget": 0}
+            "maxOutputTokens": 2048
         }
     });
 

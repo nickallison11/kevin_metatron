@@ -1225,7 +1225,7 @@ async fn enrich_one_contact(
             let _ = sqlx::query(
                 "UPDATE connector_network_staging SET status='failed', enrichment_error=$1, updated_at=now() WHERE id=$2",
             )
-            .bind("Could not parse enrichment response")
+                        .bind(format!("Could not parse: {}", &text[..text.len().min(300)]))
             .bind(id)
             .execute(pool)
             .await;

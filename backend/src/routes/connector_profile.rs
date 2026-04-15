@@ -183,6 +183,7 @@ pub struct StagedContactRow {
     pub enrichment_error: Option<String>,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub enriched_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
 }
 
 #[derive(Debug, Deserialize, Default, Serialize)]
@@ -663,6 +664,19 @@ async fn list_staging(
     .await
     .map_err(internal)?;
 
+    let recent = sqlx::query_as::<_, StagedContactRow>(&format!(
+        r#"SELECT {}
+             FROM connector_network_staging
+             WHERE connector_user_id = $1 AND status = 'enriched'
+             ORDER BY enriched_at DESC
+             LIMIT 10"#,
+        staging_select_cols()
+    ))
+    .bind(id)
+    .fetch_all(&state.db)
+    .await
+    .map_err(internal)?;
+
     let status_rows = sqlx::query_as::<_, StatusCount>(
         "SELECT status, COUNT(*)::bigint AS count FROM connector_network_staging WHERE connector_user_id=$1 GROUP BY status",
     )
@@ -680,6 +694,7 @@ async fn list_staging(
 
     Ok(Json(serde_json::json!({
         "contacts": rows,
+        "recent": recent,
         "total": total,
         "page": page,
         "per_page": per_page,
@@ -729,11 +744,12 @@ async fn update_staged_contact(
         r#"UPDATE connector_network_staging SET
                  contact_name=$1, email=$2, linkedin_url=$3, website=$4,
                  sector_focus=$5, stage_focus=$6, ticket_size=$7, geography=$8, one_liner=$9,
-                 status = CASE WHEN status = 'pending' THEN 'enriched' ELSE status END
+                 status = CASE WHEN status = 'pending' THEN 'enriched' ELSE status END,
+                 updated_at = now()
              WHERE id=$10 AND connector_user_id=$11
              RETURNING id, role, name, firm_or_company, raw_notes, contact_name, email, linkedin_url,
                        website, sector_focus, stage_focus, ticket_size, geography, one_liner,
-                       status, enrichment_error, created_at, enriched_at"#,
+                       status, enrichment_error, created_at, enriched_at, updated_at"#,
     )
     .bind(&body.contact_name)
     .bind(&body.email)
@@ -756,7 +772,7 @@ async fn update_staged_contact(
 fn staging_select_cols() -> &'static str {
     r#"id, role, name, firm_or_company, raw_notes, contact_name, email, linkedin_url,
         website, sector_focus, stage_focus, ticket_size, geography, one_liner,
-        status, enrichment_error, created_at, enriched_at"#
+        status, enrichment_error, created_at, enriched_at, updated_at"#
 }
 
 async fn enrich_staged_contacts(
@@ -820,33 +836,28 @@ async fn enrich_staged_contacts(
 
     let count = rows.len();
 
-    if let Some(ids) = &body.ids {
-        if !ids.is_empty() {
-            let id_list = ids.iter().map(|u| format!("'{u}'")).collect::<Vec<_>>().join(",");
-            let _ = sqlx::query(&format!(
-                "UPDATE connector_network_staging SET status='enriching' WHERE connector_user_id=$1 AND id IN ({})",
-                id_list
-            ))
-            .bind(user_id)
-            .execute(&state.db)
-            .await;
-        }
-    } else {
-        let role_filter = body.role.as_deref().unwrap_or("%");
-        let _ = sqlx::query(
-            "UPDATE connector_network_staging SET status='enriching' WHERE connector_user_id=$1 AND status IN ('pending','failed') AND role LIKE $2",
-        )
-        .bind(user_id)
-        .bind(role_filter)
-        .execute(&state.db)
-        .await;
-    }
-
     let pool = state.db.clone();
     let key = gemini_key.clone();
     let uid_for_notify = user_id;
     let email_for_notify = user_email;
     tokio::spawn(async move {
+        let _ = sqlx::query(
+            "UPDATE connector_network_staging SET status='pending', updated_at=now() WHERE connector_user_id=$1 AND status='enriching'",
+        )
+        .bind(uid_for_notify)
+        .execute(&pool)
+        .await;
+
+        if !rows.is_empty() {
+            let id_list = rows.iter().map(|r| format!("'{}'", r.id)).collect::<Vec<_>>().join(",");
+            let _ = sqlx::query(&format!(
+                "UPDATE connector_network_staging SET status='enriching', updated_at=now() WHERE connector_user_id=$1 AND id IN ({id_list})"
+            ))
+            .bind(uid_for_notify)
+            .execute(&pool)
+            .await;
+        }
+
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(90))
             .build()
@@ -1024,50 +1035,69 @@ async fn enrich_one_contact(
         gemini_key
     );
 
-    let resp = client
-        .post(&url)
-        .header("content-type", "application/json")
-        .json(&serde_json::json!({
-            "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-            "tools": [{"google_search": {}}],
-            "generationConfig": {
-                "maxOutputTokens": 1024,
-                "thinkingConfig": {"thinkingBudget": 0}
-            }
-        }))
-        .send()
-        .await;
+    let payload = serde_json::json!({
+        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+        "tools": [{"google_search": {}}],
+        "generationConfig": {
+            "maxOutputTokens": 1024,
+            "thinkingConfig": {"thinkingBudget": 0}
+        }
+    });
 
-    let body = match resp {
-        Err(e) => {
+    let gemini_result = tokio::time::timeout(
+        std::time::Duration::from_secs(60),
+        async {
+            let r = client
+                .post(&url)
+                .header("content-type", "application/json")
+                .json(&payload)
+                .send()
+                .await
+                .map_err(|e| e.to_string())?;
+            let status = r.status();
+            let b = r.json::<serde_json::Value>().await.map_err(|e| e.to_string())?;
+            Ok::<_, String>((status, b))
+        },
+    )
+    .await;
+
+    let body = match gemini_result {
+        Err(_elapsed) => {
             let _ = sqlx::query(
-                "UPDATE connector_network_staging SET status='failed', enrichment_error=$1 WHERE id=$2",
-            ).bind(e.to_string()).bind(id).execute(pool).await;
+                "UPDATE connector_network_staging SET status='failed', enrichment_error=$1, updated_at=now() WHERE id=$2",
+            )
+            .bind("Enrichment timed out")
+            .bind(id)
+            .execute(pool)
+            .await;
             return;
         }
-        Ok(r) => {
-            let status = r.status();
-            match r.json::<serde_json::Value>().await {
-                Err(e) => {
-                    let _ = sqlx::query(
-                        "UPDATE connector_network_staging SET status='failed', enrichment_error=$1 WHERE id=$2",
-                    ).bind(e.to_string()).bind(id).execute(pool).await;
-                    return;
-                }
-                Ok(b) => {
-                    if !status.is_success() {
-                        let msg = b["error"]["message"]
-                            .as_str()
-                            .map(str::to_owned)
-                            .unwrap_or_else(|| b.to_string());
-                        let _ = sqlx::query(
-                            "UPDATE connector_network_staging SET status='failed', enrichment_error=$1 WHERE id=$2",
-                        ).bind(msg).bind(id).execute(pool).await;
-                        return;
-                    }
-                    b
-                }
+        Ok(Err(err_msg)) => {
+            let _ = sqlx::query(
+                "UPDATE connector_network_staging SET status='failed', enrichment_error=$1, updated_at=now() WHERE id=$2",
+            )
+            .bind(&err_msg)
+            .bind(id)
+            .execute(pool)
+            .await;
+            return;
+        }
+        Ok(Ok((status, b))) => {
+            if !status.is_success() {
+                let msg = b["error"]["message"]
+                    .as_str()
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| b.to_string());
+                let _ = sqlx::query(
+                    "UPDATE connector_network_staging SET status='failed', enrichment_error=$1, updated_at=now() WHERE id=$2",
+                )
+                .bind(msg)
+                .bind(id)
+                .execute(pool)
+                .await;
+                return;
             }
+            b
         }
     };
 
@@ -1092,15 +1122,19 @@ async fn enrich_one_contact(
         }
         _ => {
             let _ = sqlx::query(
-                "UPDATE connector_network_staging SET status='failed', enrichment_error=$1 WHERE id=$2",
-            ).bind("Could not parse enrichment response").bind(id).execute(pool).await;
+                "UPDATE connector_network_staging SET status='failed', enrichment_error=$1, updated_at=now() WHERE id=$2",
+            )
+            .bind("Could not parse enrichment response")
+            .bind(id)
+            .execute(pool)
+            .await;
             return;
         }
     };
 
     let _ = sqlx::query(
         r#"UPDATE connector_network_staging SET
-                 status='enriched', enriched_at=now(),
+                 status='enriched', enriched_at=now(), updated_at=now(),
                  contact_name=$2, email=$3, linkedin_url=$4, website=$5,
                  sector_focus=$6, stage_focus=$7, ticket_size=$8, geography=$9, one_liner=$10
              WHERE id=$1"#,

@@ -70,6 +70,14 @@ const STAGING_STATUS_RANK: Record<StagedContact["status"], number> = {
   failed: 3,
 };
 
+function parseRecentStagingFromApi(raw: unknown): StagedContact[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((item): item is StagedContact => {
+    const r = item as Partial<StagedContact>;
+    return typeof r.id === "string" && typeof r.name === "string";
+  });
+}
+
 function compareStagedContacts(a: StagedContact, b: StagedContact): number {
   const ra = STAGING_STATUS_RANK[a.status];
   const rb = STAGING_STATUS_RANK[b.status];
@@ -82,7 +90,7 @@ function compareStagedContacts(a: StagedContact, b: StagedContact): number {
   return Date.parse(b.created_at) - Date.parse(a.created_at);
 }
 
-/** Green glow for rows/cards that just finished enriching (see polling + `recentlyEnriched`). */
+/** Green glow when a contact id newly appears in the staging `recent` feed (see `loadStaging`). */
 const STAGING_RECENT_HIGHLIGHT_BG = "bg-[rgba(0,200,100,0.05)] transition-all duration-1000";
 const STAGING_RECENT_HIGHLIGHT = `border-green-400/30 ${STAGING_RECENT_HIGHLIGHT_BG}`;
 
@@ -133,7 +141,8 @@ export default function ConnectorNetworkPage() {
   const [editStagedForm, setEditStagedForm] = useState<Partial<StagedContact>>({});
   const [savingStagedEdit, setSavingStagedEdit] = useState(false);
   const [recentlyEnriched, setRecentlyEnriched] = useState<Set<string>>(() => new Set());
-  const prevStagedRef = useRef<StagedContact[]>([]);
+  const [recentFeed, setRecentFeed] = useState<StagedContact[]>([]);
+  const prevRecentFeedIdsRef = useRef<Set<string>>(new Set());
 
   const [form, setForm] = useState({
     role: "investor" as "investor" | "founder",
@@ -177,21 +186,22 @@ export default function ConnectorNetworkPage() {
         counts = data.counts ?? { pending: 0, enriching: 0, enriched: 0, failed: 0 };
       }
 
-      const prevSnapshot = prevStagedRef.current;
-      const prevById = new Map(prevSnapshot.map((s) => [s.id, s.status]));
-      const transitionedToEnriched: string[] = [];
-      for (const s of next) {
-        if (prevById.get(s.id) === "enriching" && s.status === "enriched") {
-          transitionedToEnriched.push(s.id);
-        }
-      }
-      if (transitionedToEnriched.length > 0) {
+      const recentRaw = Array.isArray(data) ? [] : ((data as { recent?: unknown }).recent ?? []);
+      const recentList = parseRecentStagingFromApi(recentRaw);
+      setRecentFeed(recentList);
+
+      const prevFeedIds = prevRecentFeedIdsRef.current;
+      const seedRecentFeed = prevFeedIds.size === 0 && recentList.length > 0;
+      const newlyInRecentFeed = seedRecentFeed
+        ? []
+        : recentList.filter((r) => !prevFeedIds.has(r.id)).map((r) => r.id);
+      if (newlyInRecentFeed.length > 0) {
         setRecentlyEnriched((prevSet) => {
           const n = new Set(prevSet);
-          for (const id of transitionedToEnriched) n.add(id);
+          for (const id of newlyInRecentFeed) n.add(id);
           return n;
         });
-        for (const id of transitionedToEnriched) {
+        for (const id of newlyInRecentFeed) {
           window.setTimeout(() => {
             setRecentlyEnriched((prevSet) => {
               const n = new Set(prevSet);
@@ -201,7 +211,7 @@ export default function ConnectorNetworkPage() {
           }, 3000);
         }
       }
-      prevStagedRef.current = next;
+      prevRecentFeedIdsRef.current = new Set(recentList.map((r) => r.id));
 
       setStaged(next);
       setStagingTotal(total);
@@ -1285,6 +1295,36 @@ export default function ConnectorNetworkPage() {
                     Next →
                   </button>
                 </div>
+              </div>
+            )}
+
+            {(stagingCounts.enriching > 0 || stagingCounts.pending > 0) && recentFeed.length > 0 && (
+              <div className="overflow-hidden rounded-xl border border-[rgba(255,255,255,0.06)] bg-[#0a0a0f]">
+                <div className="border-b border-[rgba(255,255,255,0.06)] px-3 py-2">
+                  <span className="text-[10px] font-mono uppercase tracking-wide text-[#6c5ce7]">Live feed</span>
+                  <p className="mt-0.5 text-[10px] text-[#8888a0]">Newest enriched first</p>
+                </div>
+                <ul className="divide-y divide-[rgba(255,255,255,0.06)]">
+                  {recentFeed.map((r) => {
+                    const flash = recentlyEnriched.has(r.id);
+                    return (
+                      <li
+                        key={r.id}
+                        className={`flex items-center justify-between gap-3 px-3 py-2 transition-all duration-1000 ${
+                          flash ? `border-l-2 border-l-green-400/50 ${STAGING_RECENT_HIGHLIGHT_BG}` : ""
+                        }`}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-xs font-medium text-[#e8e8ed]">{r.name}</p>
+                          <p className="truncate text-[10px] text-[#8888a0]">{r.sector_focus?.trim() || "—"}</p>
+                        </div>
+                        <span className="shrink-0 rounded-md bg-[rgba(0,200,100,0.12)] px-2 py-0.5 text-[10px] font-medium text-green-400">
+                          enriched
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
               </div>
             )}
 

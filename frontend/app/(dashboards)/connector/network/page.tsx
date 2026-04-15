@@ -1054,7 +1054,11 @@ export default function ConnectorNetworkPage() {
               </thead>
               <tbody>
                 {paginated.map((c) => (
-                  <tr key={c.id} className="border-b border-[rgba(255,255,255,0.03)] hover:bg-[rgba(255,255,255,0.02)]">
+                  <tr
+                    key={c.id}
+                    onClick={() => openContactModalView(c)}
+                    className="border-b border-[rgba(255,255,255,0.03)] hover:bg-[rgba(255,255,255,0.02)] cursor-pointer"
+                  >
                     <td className="py-2 pr-3">
                       <p className="text-[#e8e8ed]">{c.name}</p>
                       {c.firm_or_company && c.firm_or_company !== c.name && (
@@ -1071,10 +1075,24 @@ export default function ConnectorNetworkPage() {
                       {c.linkedin_url && <a href={c.linkedin_url} target="_blank" rel="noreferrer" className="text-[#6c5ce7] hover:underline">LI</a>}
                     </td>
                     <td className="py-2 flex gap-2">
-                      <button type="button" onClick={() => openContactModalEdit(c)} className="text-xs text-[#6c5ce7] hover:underline">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openContactModalEdit(c);
+                        }}
+                        className="text-xs text-[#6c5ce7] hover:underline"
+                      >
                         Edit
                       </button>
-                      <button type="button" onClick={() => onDelete(c.id)} className="text-xs text-red-400 hover:underline">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDelete(c.id);
+                        }}
+                        className="text-xs text-red-400 hover:underline"
+                      >
                         Del
                       </button>
                     </td>

@@ -63,6 +63,29 @@ type SheetPreviewRow = {
   notes: string;
 };
 
+const STAGING_STATUS_RANK: Record<StagedContact["status"], number> = {
+  enriched: 0,
+  enriching: 1,
+  pending: 2,
+  failed: 3,
+};
+
+function compareStagedContacts(a: StagedContact, b: StagedContact): number {
+  const ra = STAGING_STATUS_RANK[a.status];
+  const rb = STAGING_STATUS_RANK[b.status];
+  if (ra !== rb) return ra - rb;
+  if (a.status === "enriched" && b.status === "enriched") {
+    const ta = a.enriched_at ? Date.parse(a.enriched_at) : 0;
+    const tb = b.enriched_at ? Date.parse(b.enriched_at) : 0;
+    return tb - ta;
+  }
+  return Date.parse(b.created_at) - Date.parse(a.created_at);
+}
+
+/** Green glow for rows/cards that just finished enriching (see polling + `recentlyEnriched`). */
+const STAGING_RECENT_HIGHLIGHT_BG = "bg-[rgba(0,200,100,0.05)] transition-all duration-1000";
+const STAGING_RECENT_HIGHLIGHT = `border-green-400/30 ${STAGING_RECENT_HIGHLIGHT_BG}`;
+
 export default function ConnectorNetworkPage() {
   const { token, loading } = useAuth("INTERMEDIARY");
   const [contacts, setContacts] = useState<Contact[]>([]);
@@ -109,6 +132,8 @@ export default function ConnectorNetworkPage() {
   const [editingStagedId, setEditingStagedId] = useState<string | null>(null);
   const [editStagedForm, setEditStagedForm] = useState<Partial<StagedContact>>({});
   const [savingStagedEdit, setSavingStagedEdit] = useState(false);
+  const [recentlyEnriched, setRecentlyEnriched] = useState<Set<string>>(() => new Set());
+  const prevStagedRef = useRef<StagedContact[]>([]);
 
   const [form, setForm] = useState({
     role: "investor" as "investor" | "founder",
@@ -128,30 +153,62 @@ export default function ConnectorNetworkPage() {
   const loadStaging = useCallback(async () => {
     if (!token) return;
     setStagingLoading(true);
-    const res = await fetch(
-      `${API_BASE}/connector-profile/network/staging?page=${stagingPage}&per_page=50`,
-      { headers: authHeaders(token) },
-    );
-    console.log("loadStaging status:", res.status);
-    const data = await res.json();
-    console.log("loadStaging data:", data);
-    if (res.ok) {
+    try {
+      const res = await fetch(
+        `${API_BASE}/connector-profile/network/staging?page=${stagingPage}&per_page=50`,
+        { headers: authHeaders(token) },
+      );
+      const data = await res.json();
+      if (!res.ok) return;
+
+      let next: StagedContact[];
+      let total: number;
+      let counts = { pending: 0, enriching: 0, enriched: 0, failed: 0 };
+
       if (Array.isArray(data)) {
-        // backend returning old flat array format
-        setStaged((data as StagedContact[]).slice(stagingPage * 50, (stagingPage + 1) * 50));
-        setStagingTotal(data.length);
-        const counts = { pending: 0, enriching: 0, enriched: 0, failed: 0 };
+        next = (data as StagedContact[]).slice(stagingPage * 50, (stagingPage + 1) * 50);
+        total = data.length;
         for (const c of data as { status: string }[]) {
           if (c.status in counts) counts[c.status as keyof typeof counts]++;
         }
-        setStagingCounts(counts);
       } else {
-        setStaged(data.contacts ?? []);
-        setStagingTotal(data.total ?? 0);
-        setStagingCounts(data.counts ?? { pending: 0, enriching: 0, enriched: 0, failed: 0 });
+        next = data.contacts ?? [];
+        total = data.total ?? 0;
+        counts = data.counts ?? { pending: 0, enriching: 0, enriched: 0, failed: 0 };
       }
+
+      const prevSnapshot = prevStagedRef.current;
+      const prevById = new Map(prevSnapshot.map((s) => [s.id, s.status]));
+      const transitionedToEnriched: string[] = [];
+      for (const s of next) {
+        if (prevById.get(s.id) === "enriching" && s.status === "enriched") {
+          transitionedToEnriched.push(s.id);
+        }
+      }
+      if (transitionedToEnriched.length > 0) {
+        setRecentlyEnriched((prevSet) => {
+          const n = new Set(prevSet);
+          for (const id of transitionedToEnriched) n.add(id);
+          return n;
+        });
+        for (const id of transitionedToEnriched) {
+          window.setTimeout(() => {
+            setRecentlyEnriched((prevSet) => {
+              const n = new Set(prevSet);
+              n.delete(id);
+              return n;
+            });
+          }, 3000);
+        }
+      }
+      prevStagedRef.current = next;
+
+      setStaged(next);
+      setStagingTotal(total);
+      setStagingCounts(counts);
+    } finally {
+      setStagingLoading(false);
     }
-    setStagingLoading(false);
   }, [token, stagingPage]);
 
   useEffect(() => {
@@ -170,7 +227,7 @@ export default function ConnectorNetworkPage() {
   useEffect(() => {
     const isActive = stagingCounts.enriching > 0 || stagingCounts.pending > 0;
     if (!isActive) return;
-    const timer = setInterval(() => loadStaging(), 4000);
+    const timer = setInterval(() => loadStaging(), 2000);
     return () => clearInterval(timer);
   }, [stagingCounts, loadStaging]);
 
@@ -187,10 +244,10 @@ export default function ConnectorNetworkPage() {
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
-  const filteredStaged = useMemo(
-    () => (stagingTab === "all" ? staged : staged.filter((s) => s.role === stagingTab)),
-    [staged, stagingTab],
-  );
+  const filteredStaged = useMemo(() => {
+    const filtered = stagingTab === "all" ? staged : staged.filter((s) => s.role === stagingTab);
+    return [...filtered].sort(compareStagedContacts);
+  }, [staged, stagingTab]);
 
   const investorCount = contacts.filter((c) => c.role === "investor").length;
   const founderCount = contacts.filter((c) => c.role === "founder").length;
@@ -1262,7 +1319,13 @@ export default function ConnectorNetworkPage() {
                   <tbody>
                     {filteredStaged.map((s) => (
                       <Fragment key={s.id}>
-                        <tr className="border-b border-[rgba(255,255,255,0.03)] hover:bg-[rgba(255,255,255,0.02)]">
+                        <tr
+                          className={
+                            recentlyEnriched.has(s.id)
+                              ? `border-b border-green-400/30 ${STAGING_RECENT_HIGHLIGHT_BG}`
+                              : "border-b border-[rgba(255,255,255,0.03)] hover:bg-[rgba(255,255,255,0.02)]"
+                          }
+                        >
                           <td className="py-2 pr-2">
                             <input
                               type="checkbox"
@@ -1386,7 +1449,14 @@ export default function ConnectorNetworkPage() {
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 {filteredStaged.map((s) => (
-                  <div key={s.id} className="bg-[#0a0a0f] border border-[rgba(255,255,255,0.06)] rounded-xl p-4 space-y-2">
+                  <div
+                    key={s.id}
+                    className={`rounded-xl p-4 space-y-2 ${
+                      recentlyEnriched.has(s.id)
+                        ? `border ${STAGING_RECENT_HIGHLIGHT}`
+                        : "border border-[rgba(255,255,255,0.06)] bg-[#0a0a0f]"
+                    }`}
+                  >
                     <div className="flex justify-between items-start">
                       <div>
                         <p className="text-sm font-medium text-[#e8e8ed]">{s.name}</p>

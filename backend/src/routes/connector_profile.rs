@@ -752,7 +752,7 @@ async fn enrich_staged_contacts(
     TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
     Json(body): Json<EnrichBody>,
 ) -> Result<Json<serde_json::Value>, (axum::http::StatusCode, String)> {
-    let AuthedUser { id: user_id, .. } =
+    let AuthedUser { id: user_id, custom_ai_api_key: byok, .. } =
         require_role(&state, bearer.token(), &["INTERMEDIARY"]).await?;
 
     let user_email: Option<String> = sqlx::query_scalar("SELECT email FROM users WHERE id=$1")
@@ -762,12 +762,14 @@ async fn enrich_staged_contacts(
         .ok()
         .flatten();
 
-    let anthropic_key = std::env::var("ANTHROPIC_API_KEY").map_err(|_| {
-        (
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            "ANTHROPIC_API_KEY not set".to_string(),
-        )
-    })?;
+    let anthropic_key = byok
+        .or_else(|| std::env::var("ANTHROPIC_API_KEY").ok())
+        .ok_or_else(|| {
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "ANTHROPIC_API_KEY not set".to_string(),
+            )
+        })?;
 
     let rows: Vec<StagedContactRow> = if let Some(ids) = &body.ids {
         if ids.is_empty() {
@@ -1039,44 +1041,61 @@ async fn enrich_one_contact(
         .await;
 
     let enrichment = match resp {
-        Ok(r) => match r.json::<serde_json::Value>().await {
-            Ok(body) => {
-                let text = body["content"]
-                    .as_array()
-                    .and_then(|arr| {
-                        arr.iter()
-                            .find(|b| b["type"] == "text")
-                            .and_then(|b| b["text"].as_str())
-                    })
-                    .unwrap_or("");
-
-                let start = text.find('{');
-                let end = text.rfind('}');
-                match (start, end) {
-                    (Some(s), Some(e)) if e >= s => {
-                        serde_json::from_str::<EnrichmentData>(&text[s..=e]).unwrap_or_default()
-                    }
-                    _ => {
+        Ok(r) => {
+            let status = r.status();
+            match r.json::<serde_json::Value>().await {
+                Ok(body) => {
+                    if !status.is_success() {
+                        let err_msg = body["error"]["message"]
+                            .as_str()
+                            .map(str::to_owned)
+                            .unwrap_or_else(|| body.to_string());
                         let _ = sqlx::query(
                             "UPDATE connector_network_staging SET status='failed', enrichment_error=$1 WHERE id=$2",
                         )
-                        .bind("Could not parse enrichment response")
+                        .bind(&err_msg)
                         .bind(id)
                         .execute(pool)
                         .await;
                         return;
                     }
+                    let text = body["content"]
+                        .as_array()
+                        .and_then(|arr| {
+                            arr.iter()
+                                .find(|b| b["type"] == "text")
+                                .and_then(|b| b["text"].as_str())
+                        })
+                        .unwrap_or("");
+
+                    let start = text.find('{');
+                    let end = text.rfind('}');
+                    match (start, end) {
+                        (Some(s), Some(e)) if e >= s => {
+                            serde_json::from_str::<EnrichmentData>(&text[s..=e]).unwrap_or_default()
+                        }
+                        _ => {
+                            let _ = sqlx::query(
+                                "UPDATE connector_network_staging SET status='failed', enrichment_error=$1 WHERE id=$2",
+                            )
+                            .bind("Could not parse enrichment response")
+                            .bind(id)
+                            .execute(pool)
+                            .await;
+                            return;
+                        }
+                    }
                 }
-            }
-            Err(e) => {
-                let _ = sqlx::query(
-                    "UPDATE connector_network_staging SET status='failed', enrichment_error=$1 WHERE id=$2",
-                )
-                .bind(e.to_string())
-                .bind(id)
-                .execute(pool)
-                .await;
-                return;
+                Err(e) => {
+                    let _ = sqlx::query(
+                        "UPDATE connector_network_staging SET status='failed', enrichment_error=$1 WHERE id=$2",
+                    )
+                    .bind(e.to_string())
+                    .bind(id)
+                    .execute(pool)
+                    .await;
+                    return;
+                }
             }
         },
         Err(e) => {

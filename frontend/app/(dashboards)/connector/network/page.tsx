@@ -181,7 +181,8 @@ export default function ConnectorNetworkPage() {
   const stagedInvestorCount = staged.filter((s) => s.role === "investor").length;
   const stagedFounderCount = staged.filter((s) => s.role === "founder").length;
   const stagedEnrichedCount = stagingCounts.enriched;
-  const stagedPendingCount = stagingCounts.pending + stagingCounts.failed;
+  const stagedPendingCount = stagingCounts.pending;
+  const stagedFailedCount = stagingCounts.failed;
 
   async function onAdd(e: FormEvent) {
     e.preventDefault();
@@ -458,6 +459,16 @@ export default function ConnectorNetworkPage() {
       load();
     }
     setImportingStaged(false);
+  }
+
+  async function onRetryContact(id: string) {
+    if (!token) return;
+    await fetch(`${API_BASE}/connector-profile/network/staging/enrich`, {
+      method: "POST",
+      headers: authJsonHeaders(token),
+      body: JSON.stringify({ ids: [id] }),
+    });
+    loadStaging();
   }
 
   async function onClearStaging() {
@@ -845,7 +856,8 @@ export default function ConnectorNetworkPage() {
           <div>
             <h2 className="text-base font-semibold text-[#e8e8ed]">Enrichment Staging</h2>
             <p className="text-xs text-[#8888a0] mt-0.5">
-              Upload a spreadsheet, Kevin enriches each contact with web data, then you import to your network.
+              Upload a spreadsheet, Kevin enriches each contact with web data, then you import to your network.{" "}
+              <a href="/connector/settings" className="text-[#6c5ce7] hover:underline">Use your own API key</a> to boost enrichment.
             </p>
           </div>
           <div className="flex gap-2 items-center flex-wrap justify-end">
@@ -858,6 +870,15 @@ export default function ConnectorNetworkPage() {
                     className="px-3 py-1.5 bg-[#6c5ce7] text-white rounded-xl text-xs font-medium hover:bg-[#7d6ff0]"
                   >
                     Enrich all pending ({stagedPendingCount})
+                  </button>
+                )}
+                {stagedFailedCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => onEnrichAll()}
+                    className="px-3 py-1.5 bg-[rgba(255,80,80,0.12)] text-red-400 border border-[rgba(255,80,80,0.2)] rounded-xl text-xs font-medium hover:bg-[rgba(255,80,80,0.2)]"
+                  >
+                    Retry failed ({stagedFailedCount})
                   </button>
                 )}
                 {stagedEnrichedCount > 0 && (
@@ -1170,6 +1191,15 @@ export default function ConnectorNetworkPage() {
                                   Import
                                 </button>
                               )}
+                              {s.status === "failed" && (
+                                <button
+                                  type="button"
+                                  onClick={() => onRetryContact(s.id)}
+                                  className="text-orange-400 hover:underline ml-1"
+                                >
+                                  Retry
+                                </button>
+                              )}
                               <button type="button" onClick={() => onDeleteStaged(s.id)} className="text-red-400 hover:underline ml-1">
                                 Del
                               </button>
@@ -1255,6 +1285,11 @@ export default function ConnectorNetworkPage() {
                       {s.status === "enriched" && (
                         <button type="button" onClick={() => onImportEnriched([s.id])} className="text-xs text-green-400 hover:underline">
                           Import
+                        </button>
+                      )}
+                      {s.status === "failed" && (
+                        <button type="button" onClick={() => onRetryContact(s.id)} className="text-xs text-orange-400 hover:underline">
+                          Retry
                         </button>
                       )}
                       <button type="button" onClick={() => onDeleteStaged(s.id)} className="text-xs text-red-400 hover:underline">

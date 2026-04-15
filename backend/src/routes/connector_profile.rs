@@ -762,14 +762,13 @@ async fn enrich_staged_contacts(
         .ok()
         .flatten();
 
-    let anthropic_key = byok
-        .or_else(|| std::env::var("ANTHROPIC_API_KEY").ok())
-        .ok_or_else(|| {
-            (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                "ANTHROPIC_API_KEY not set".to_string(),
-            )
-        })?;
+    let _ = byok; // BYOK reserved for future use; enrichment uses platform Gemini key
+    let gemini_key = std::env::var("GEMINI_API_KEY").map_err(|_| {
+        (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            "GEMINI_API_KEY not set".to_string(),
+        )
+    })?;
 
     let rows: Vec<StagedContactRow> = if let Some(ids) = &body.ids {
         if ids.is_empty() {
@@ -832,7 +831,7 @@ async fn enrich_staged_contacts(
     }
 
     let pool = state.db.clone();
-    let key = anthropic_key.clone();
+    let key = gemini_key.clone();
     let uid_for_notify = user_id;
     let email_for_notify = user_email;
     tokio::spawn(async move {
@@ -840,7 +839,7 @@ async fn enrich_staged_contacts(
             .timeout(std::time::Duration::from_secs(90))
             .build()
             .unwrap_or_else(|_| reqwest::Client::new());
-        let sem = Arc::new(Semaphore::new(5));
+        let sem = Arc::new(Semaphore::new(3));
         let mut handles = vec![];
         for row in rows {
             let pool = pool.clone();
@@ -1008,7 +1007,7 @@ async fn enrich_one_contact(
     role: &str,
     name: &str,
     notes: Option<&str>,
-    anthropic_key: &str,
+    gemini_key: &str,
 ) {
     let context = notes
         .map(|n| format!("\nContext from spreadsheet: {}", n))
@@ -1016,96 +1015,87 @@ async fn enrich_one_contact(
 
     let prompt = if role == "investor" {
         format!(
-            r#"Find information about this investment firm or investor: "{}"{}\n\nSearch the web and return ONLY a JSON object (no other text):\n{{\n  "website": null,\n  "contact_name": null,\n  "email": null,\n  "linkedin_url": null,\n  "sector_focus": null,\n  "stage_focus": null,\n  "ticket_size": null,\n  "geography": null,\n  "one_liner": null\n}}\n\nFill in:\n- website: their website URL\n- contact_name: primary partner/contact name\n- email: contact email if publicly listed\n- linkedin_url: LinkedIn URL\n- sector_focus: sectors they invest in e.g. "Fintech, Healthtech"\n- stage_focus: e.g. "Pre-seed, Seed, Series A"\n- ticket_size: typical check size e.g. "$50k-$500k"\n- geography: geographic focus e.g. "Sub-Saharan Africa"\n- one_liner: one sentence investment thesis"#,
+            "Find information about this investment firm or investor: \"{}\"{}\n\nSearch the web and return ONLY a valid JSON object (no markdown, no code fences, no other text):\n{{\"website\":null,\"contact_name\":null,\"email\":null,\"linkedin_url\":null,\"sector_focus\":null,\"stage_focus\":null,\"ticket_size\":null,\"geography\":null,\"one_liner\":null}}\n\nFill in: website (URL), contact_name (primary partner), email (if public), linkedin_url, sector_focus (e.g. \"Fintech, Healthtech\"), stage_focus (e.g. \"Pre-seed, Seed\"), ticket_size (e.g. \"$50k-$500k\"), geography (e.g. \"Sub-Saharan Africa\"), one_liner (investment thesis).",
             name, context
         )
     } else {
         format!(
-            r#"Find information about this startup: "{}"{}\n\nSearch the web and return ONLY a JSON object (no other text):\n{{\n  "website": null,\n  "contact_name": null,\n  "email": null,\n  "linkedin_url": null,\n  "sector_focus": null,\n  "stage_focus": null,\n  "ticket_size": null,\n  "geography": null,\n  "one_liner": null\n}}\n\nFill in:\n- website: company website\n- contact_name: founder name\n- email: founder/company email if public\n- linkedin_url: founder LinkedIn\n- sector_focus: industry e.g. "Fintech"\n- stage_focus: funding stage e.g. "Seed"\n- ticket_size: total raised e.g. "$2M"\n- geography: HQ location e.g. "Lagos, Nigeria"\n- one_liner: one sentence description of what they do"#,
+            "Find information about this startup: \"{}\"{}\n\nSearch the web and return ONLY a valid JSON object (no markdown, no code fences, no other text):\n{{\"website\":null,\"contact_name\":null,\"email\":null,\"linkedin_url\":null,\"sector_focus\":null,\"stage_focus\":null,\"ticket_size\":null,\"geography\":null,\"one_liner\":null}}\n\nFill in: website (URL), contact_name (founder name), email (if public), linkedin_url, sector_focus (industry), stage_focus (funding stage), ticket_size (total raised), geography (HQ location), one_liner (one sentence description).",
             name, context
         )
     };
 
+    let url = format!(
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={}",
+        gemini_key
+    );
+
     let resp = client
-        .post("https://api.anthropic.com/v1/messages")
-        .header("x-api-key", anthropic_key)
-        .header("anthropic-version", "2023-06-01")
+        .post(&url)
         .header("content-type", "application/json")
         .json(&serde_json::json!({
-            "model": "claude-sonnet-4-6",
-            "max_tokens": 1024,
-            "tools": [{"type": "web_search_20250305", "name": "web_search", "max_uses": 3}],
-            "messages": [{"role": "user", "content": prompt}]
+            "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+            "tools": [{"google_search": {}}],
+            "generationConfig": {"maxOutputTokens": 1024, "temperature": 0.1}
         }))
         .send()
         .await;
 
-    let enrichment = match resp {
-        Ok(r) => {
-            let status = r.status();
-            match r.json::<serde_json::Value>().await {
-                Ok(body) => {
-                    if !status.is_success() {
-                        let err_msg = body["error"]["message"]
-                            .as_str()
-                            .map(str::to_owned)
-                            .unwrap_or_else(|| body.to_string());
-                        let _ = sqlx::query(
-                            "UPDATE connector_network_staging SET status='failed', enrichment_error=$1 WHERE id=$2",
-                        )
-                        .bind(&err_msg)
-                        .bind(id)
-                        .execute(pool)
-                        .await;
-                        return;
-                    }
-                    let text = body["content"]
-                        .as_array()
-                        .and_then(|arr| {
-                            arr.iter()
-                                .find(|b| b["type"] == "text")
-                                .and_then(|b| b["text"].as_str())
-                        })
-                        .unwrap_or("");
-
-                    let start = text.find('{');
-                    let end = text.rfind('}');
-                    match (start, end) {
-                        (Some(s), Some(e)) if e >= s => {
-                            serde_json::from_str::<EnrichmentData>(&text[s..=e]).unwrap_or_default()
-                        }
-                        _ => {
-                            let _ = sqlx::query(
-                                "UPDATE connector_network_staging SET status='failed', enrichment_error=$1 WHERE id=$2",
-                            )
-                            .bind("Could not parse enrichment response")
-                            .bind(id)
-                            .execute(pool)
-                            .await;
-                            return;
-                        }
-                    }
-                }
-                Err(e) => {
-                    let _ = sqlx::query(
-                        "UPDATE connector_network_staging SET status='failed', enrichment_error=$1 WHERE id=$2",
-                    )
-                    .bind(e.to_string())
-                    .bind(id)
-                    .execute(pool)
-                    .await;
-                    return;
-                }
-            }
-        },
+    let body = match resp {
         Err(e) => {
             let _ = sqlx::query(
                 "UPDATE connector_network_staging SET status='failed', enrichment_error=$1 WHERE id=$2",
-            )
-            .bind(e.to_string())
-            .bind(id)
-            .execute(pool)
-            .await;
+            ).bind(e.to_string()).bind(id).execute(pool).await;
+            return;
+        }
+        Ok(r) => {
+            let status = r.status();
+            match r.json::<serde_json::Value>().await {
+                Err(e) => {
+                    let _ = sqlx::query(
+                        "UPDATE connector_network_staging SET status='failed', enrichment_error=$1 WHERE id=$2",
+                    ).bind(e.to_string()).bind(id).execute(pool).await;
+                    return;
+                }
+                Ok(b) => {
+                    if !status.is_success() {
+                        let msg = b["error"]["message"]
+                            .as_str()
+                            .map(str::to_owned)
+                            .unwrap_or_else(|| b.to_string());
+                        let _ = sqlx::query(
+                            "UPDATE connector_network_staging SET status='failed', enrichment_error=$1 WHERE id=$2",
+                        ).bind(msg).bind(id).execute(pool).await;
+                        return;
+                    }
+                    b
+                }
+            }
+        }
+    };
+
+    // Gemini response: candidates[0].content.parts — find the text part
+    let text = body["candidates"]
+        .as_array()
+        .and_then(|c| c.first())
+        .and_then(|c| c["content"]["parts"].as_array())
+        .and_then(|parts| {
+            parts.iter()
+                .find(|p| p["text"].is_string())
+                .and_then(|p| p["text"].as_str())
+        })
+        .unwrap_or("");
+
+    let start = text.find('{');
+    let end = text.rfind('}');
+    let enrichment = match (start, end) {
+        (Some(s), Some(e)) if e >= s => {
+            serde_json::from_str::<EnrichmentData>(&text[s..=e]).unwrap_or_default()
+        }
+        _ => {
+            let _ = sqlx::query(
+                "UPDATE connector_network_staging SET status='failed', enrichment_error=$1 WHERE id=$2",
+            ).bind("Could not parse enrichment response").bind(id).execute(pool).await;
             return;
         }
     };

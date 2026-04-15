@@ -526,7 +526,13 @@ async fn import_network_csv(
         let res = sqlx::query(
             r#"INSERT INTO connector_network_contacts
                      (connector_user_id, role, name, email, firm_or_company, linkedin_url, notes, joined_user_id)
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING"#,
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+                 ON CONFLICT (connector_user_id, role, lower(name)) DO UPDATE SET
+                     email = COALESCE(connector_network_contacts.email, EXCLUDED.email),
+                     firm_or_company = COALESCE(connector_network_contacts.firm_or_company, EXCLUDED.firm_or_company),
+                     linkedin_url = COALESCE(connector_network_contacts.linkedin_url, EXCLUDED.linkedin_url),
+                     notes = COALESCE(connector_network_contacts.notes, EXCLUDED.notes),
+                     joined_user_id = COALESCE(connector_network_contacts.joined_user_id, EXCLUDED.joined_user_id)"#,
         )
         .bind(id)
         .bind(&role)
@@ -579,7 +585,13 @@ async fn batch_import_network(
         let res = sqlx::query(
             r#"INSERT INTO connector_network_contacts
                      (connector_user_id, role, name, email, firm_or_company, linkedin_url, notes, joined_user_id)
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING"#,
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+                 ON CONFLICT (connector_user_id, role, lower(name)) DO UPDATE SET
+                     email = COALESCE(connector_network_contacts.email, EXCLUDED.email),
+                     firm_or_company = COALESCE(connector_network_contacts.firm_or_company, EXCLUDED.firm_or_company),
+                     linkedin_url = COALESCE(connector_network_contacts.linkedin_url, EXCLUDED.linkedin_url),
+                     notes = COALESCE(connector_network_contacts.notes, EXCLUDED.notes),
+                     joined_user_id = COALESCE(connector_network_contacts.joined_user_id, EXCLUDED.joined_user_id)"#,
         )
         .bind(id)
         .bind(&contact.role)
@@ -975,7 +987,16 @@ async fn import_from_staging(
                      (connector_user_id, role, name, email, firm_or_company, linkedin_url, notes,
                       website, sector_focus, stage_focus, ticket_size, geography, one_liner)
                  VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
-                 ON CONFLICT DO NOTHING"#,
+                 ON CONFLICT (connector_user_id, role, lower(name)) DO UPDATE SET
+                     email = COALESCE(connector_network_contacts.email, EXCLUDED.email),
+                     firm_or_company = COALESCE(connector_network_contacts.firm_or_company, EXCLUDED.firm_or_company),
+                     linkedin_url = COALESCE(connector_network_contacts.linkedin_url, EXCLUDED.linkedin_url),
+                     website = COALESCE(connector_network_contacts.website, EXCLUDED.website),
+                     sector_focus = COALESCE(connector_network_contacts.sector_focus, EXCLUDED.sector_focus),
+                     stage_focus = COALESCE(connector_network_contacts.stage_focus, EXCLUDED.stage_focus),
+                     ticket_size = COALESCE(connector_network_contacts.ticket_size, EXCLUDED.ticket_size),
+                     geography = COALESCE(connector_network_contacts.geography, EXCLUDED.geography),
+                     one_liner = COALESCE(connector_network_contacts.one_liner, EXCLUDED.one_liner)"#,
         )
         .bind(user_id)
         .bind(&row.role)

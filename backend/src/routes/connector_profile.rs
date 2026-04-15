@@ -1036,7 +1036,10 @@ async fn enrich_one_contact(
         .json(&serde_json::json!({
             "contents": [{"role": "user", "parts": [{"text": prompt}]}],
             "tools": [{"google_search": {}}],
-            "generationConfig": {"maxOutputTokens": 1024, "temperature": 0.1}
+            "generationConfig": {
+                "maxOutputTokens": 1024,
+                "thinkingConfig": {"thinkingBudget": 0}
+            }
         }))
         .send()
         .await;
@@ -1074,14 +1077,15 @@ async fn enrich_one_contact(
         }
     };
 
-    // Gemini response: candidates[0].content.parts — find the text part
+    // Gemini response: skip thought parts, use last non-thought text part
     let text = body["candidates"]
         .as_array()
         .and_then(|c| c.first())
         .and_then(|c| c["content"]["parts"].as_array())
         .and_then(|parts| {
             parts.iter()
-                .find(|p| p["text"].is_string())
+                .filter(|p| p["thought"] != true && p["text"].is_string())
+                .last()
                 .and_then(|p| p["text"].as_str())
         })
         .unwrap_or("");

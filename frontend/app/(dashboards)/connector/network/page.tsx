@@ -63,6 +63,12 @@ type SheetPreviewRow = {
   notes: string;
 };
 
+type AdminUserOption = {
+  id: string;
+  email: string;
+  role: string;
+};
+
 const STAGING_STATUS_RANK: Record<StagedContact["status"], number> = {
   enriched: 0,
   enriching: 1,
@@ -96,6 +102,9 @@ const STAGING_RECENT_HIGHLIGHT = `border-green-400/30 ${STAGING_RECENT_HIGHLIGHT
 
 export default function ConnectorNetworkPage() {
   const { token, loading } = useAuth("INTERMEDIARY");
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  const [actingAsUserId, setActingAsUserId] = useState("");
+  const [actingOptions, setActingOptions] = useState<AdminUserOption[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [tab, setTab] = useState<"investor" | "founder">("investor");
   const [msg, setMsg] = useState<string | null>(null);
@@ -112,6 +121,12 @@ export default function ConnectorNetworkPage() {
     email: "",
     firm_or_company: "",
     linkedin_url: "",
+    website: "",
+    sector_focus: "",
+    stage_focus: "",
+    ticket_size: "",
+    geography: "",
+    one_liner: "",
     notes: "",
   });
   const [savingEdit, setSavingEdit] = useState(false);
@@ -153,18 +168,29 @@ export default function ConnectorNetworkPage() {
     notes: "",
   });
 
+  const connectorApiUrl = useCallback(
+    (path: string) => {
+      const url = new URL(`${API_BASE}${path}`);
+      if (isSuperAdmin && actingAsUserId) {
+        url.searchParams.set("as_user", actingAsUserId);
+      }
+      return url.toString();
+    },
+    [isSuperAdmin, actingAsUserId],
+  );
+
   const load = useCallback(async () => {
     if (!token) return;
-    const res = await fetch(`${API_BASE}/connector-profile/network`, { headers: authHeaders(token) });
+    const res = await fetch(connectorApiUrl("/connector-profile/network"), { headers: authHeaders(token) });
     if (res.ok) setContacts(await res.json());
-  }, [token]);
+  }, [token, connectorApiUrl]);
 
   const loadStaging = useCallback(async () => {
     if (!token) return;
     setStagingLoading(true);
     try {
       const res = await fetch(
-        `${API_BASE}/connector-profile/network/staging?page=${stagingPage}&per_page=50`,
+        connectorApiUrl(`/connector-profile/network/staging?page=${stagingPage}&per_page=50`),
         { headers: authHeaders(token) },
       );
       const data = await res.json();
@@ -219,7 +245,7 @@ export default function ConnectorNetworkPage() {
     } finally {
       setStagingLoading(false);
     }
-  }, [token, stagingPage]);
+  }, [token, stagingPage, connectorApiUrl]);
 
   useEffect(() => {
     load();
@@ -250,6 +276,34 @@ export default function ConnectorNetworkPage() {
     return () => window.removeEventListener("keydown", onKey);
   }, [viewingContact]);
 
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    const run = async () => {
+      const meRes = await fetch(`${API_BASE}/auth/me`, { headers: authHeaders(token) });
+      if (!meRes.ok) return;
+      const me = (await meRes.json()) as { is_super_admin?: boolean };
+      if (cancelled) return;
+      const superAdmin = Boolean(me.is_super_admin);
+      setIsSuperAdmin(superAdmin);
+      if (!superAdmin) {
+        setActingOptions([]);
+        setActingAsUserId("");
+        return;
+      }
+      const usersRes = await fetch(`${API_BASE}/admin/users`, { headers: authHeaders(token) });
+      if (!usersRes.ok || cancelled) return;
+      const users = (await usersRes.json()) as AdminUserOption[];
+      const intermediaries = users.filter((u) => u.role === "INTERMEDIARY");
+      setActingOptions(intermediaries);
+      setActingAsUserId((prev) => prev || intermediaries[0]?.id || "");
+    };
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
   const filtered = useMemo(() => contacts.filter((c) => c.role === tab), [contacts, tab]);
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
@@ -271,7 +325,7 @@ export default function ConnectorNetworkPage() {
     e.preventDefault();
     if (!token) return;
     setAdding(true);
-    const res = await fetch(`${API_BASE}/connector-profile/network`, {
+    const res = await fetch(connectorApiUrl("/connector-profile/network"), {
       method: "POST",
       headers: authJsonHeaders(token),
       body: JSON.stringify(form),
@@ -290,7 +344,7 @@ export default function ConnectorNetworkPage() {
 
   async function onDelete(id: string) {
     if (!token || !confirm("Delete this contact?")) return;
-    await fetch(`${API_BASE}/connector-profile/network/${id}`, {
+    await fetch(connectorApiUrl(`/connector-profile/network/${id}`), {
       method: "DELETE",
       headers: authHeaders(token),
     });
@@ -305,6 +359,12 @@ export default function ConnectorNetworkPage() {
       email: c.email ?? "",
       firm_or_company: c.firm_or_company ?? "",
       linkedin_url: c.linkedin_url ?? "",
+      website: c.website ?? "",
+      sector_focus: c.sector_focus ?? "",
+      stage_focus: c.stage_focus ?? "",
+      ticket_size: c.ticket_size ?? "",
+      geography: c.geography ?? "",
+      one_liner: c.one_liner ?? "",
       notes: c.notes ?? "",
     });
     setEditMsg(null);
@@ -313,7 +373,7 @@ export default function ConnectorNetworkPage() {
   async function onSaveEdit(c: Contact) {
     if (!token) return;
     setSavingEdit(true);
-    const res = await fetch(`${API_BASE}/connector-profile/network/${c.id}`, {
+    const res = await fetch(connectorApiUrl(`/connector-profile/network/${c.id}`), {
       method: "PUT",
       headers: authJsonHeaders(token),
       body: JSON.stringify({ role: c.role, ...editForm }),
@@ -330,7 +390,7 @@ export default function ConnectorNetworkPage() {
   async function onCsvImport() {
     if (!token || !csvText.trim()) return;
     setCsvImporting(true);
-    const res = await fetch(`${API_BASE}/connector-profile/network/csv`, {
+    const res = await fetch(connectorApiUrl("/connector-profile/network/csv"), {
       method: "POST",
       headers: authJsonHeaders(token),
       body: JSON.stringify({ csv: csvText }),
@@ -485,7 +545,7 @@ export default function ConnectorNetworkPage() {
         firm_or_company: r.firm_or_company || null,
         raw_notes: r.notes || null,
       }));
-      const res = await fetch(`${API_BASE}/connector-profile/network/stage`, {
+      const res = await fetch(connectorApiUrl("/connector-profile/network/stage"), {
         method: "POST",
         headers: authJsonHeaders(token),
         body: JSON.stringify({ contacts: chunk }),
@@ -502,7 +562,7 @@ export default function ConnectorNetworkPage() {
 
   async function onEnrichSelected() {
     if (!token || selectedStaged.size === 0) return;
-    const res = await fetch(`${API_BASE}/connector-profile/network/staging/enrich`, {
+    const res = await fetch(connectorApiUrl("/connector-profile/network/staging/enrich"), {
       method: "POST",
       headers: authJsonHeaders(token),
       body: JSON.stringify({ ids: Array.from(selectedStaged) }),
@@ -516,7 +576,7 @@ export default function ConnectorNetworkPage() {
 
   async function onEnrichAll(role?: "investor" | "founder") {
     if (!token) return;
-    const res = await fetch(`${API_BASE}/connector-profile/network/staging/enrich`, {
+    const res = await fetch(connectorApiUrl("/connector-profile/network/staging/enrich"), {
       method: "POST",
       headers: authJsonHeaders(token),
       body: JSON.stringify({ role: role ?? null }),
@@ -531,7 +591,7 @@ export default function ConnectorNetworkPage() {
   async function onImportEnriched(ids?: string[]) {
     if (!token) return;
     setImportingStaged(true);
-    const res = await fetch(`${API_BASE}/connector-profile/network/staging/import`, {
+    const res = await fetch(connectorApiUrl("/connector-profile/network/staging/import"), {
       method: "POST",
       headers: authJsonHeaders(token),
       body: JSON.stringify({ ids: ids ?? null }),
@@ -547,7 +607,7 @@ export default function ConnectorNetworkPage() {
 
   async function onRetryContact(id: string) {
     if (!token) return;
-    await fetch(`${API_BASE}/connector-profile/network/staging/enrich`, {
+    await fetch(connectorApiUrl("/connector-profile/network/staging/enrich"), {
       method: "POST",
       headers: authJsonHeaders(token),
       body: JSON.stringify({ ids: [id] }),
@@ -557,7 +617,7 @@ export default function ConnectorNetworkPage() {
 
   async function onClearStaging() {
     if (!token || !confirm("Clear all staged contacts?")) return;
-    const res = await fetch(`${API_BASE}/connector-profile/network/staging`, {
+    const res = await fetch(connectorApiUrl("/connector-profile/network/staging"), {
       method: "DELETE",
       headers: authHeaders(token),
     });
@@ -570,7 +630,7 @@ export default function ConnectorNetworkPage() {
 
   async function onExportNetwork() {
     if (!token) return;
-    const res = await fetch(`${API_BASE}/connector-profile/network/export`, { headers: authHeaders(token) });
+    const res = await fetch(connectorApiUrl("/connector-profile/network/export"), { headers: authHeaders(token) });
     if (!res.ok) return;
     const data: Record<string, unknown>[] = await res.json();
     if (data.length === 0) return;
@@ -584,7 +644,7 @@ export default function ConnectorNetworkPage() {
   async function onIpfsSnapshot() {
     if (!token) return;
     setIpfsLoading(true);
-    const res = await fetch(`${API_BASE}/connector-profile/network/ipfs-snapshot`, {
+    const res = await fetch(connectorApiUrl("/connector-profile/network/ipfs-snapshot"), {
       method: "POST",
       headers: authHeaders(token),
     });
@@ -597,7 +657,7 @@ export default function ConnectorNetworkPage() {
 
   async function onDeleteStaged(id: string) {
     if (!token) return;
-    const res = await fetch(`${API_BASE}/connector-profile/network/staging/${id}`, {
+    const res = await fetch(connectorApiUrl(`/connector-profile/network/staging/${id}`), {
       method: "DELETE",
       headers: authHeaders(token),
     });
@@ -622,7 +682,7 @@ export default function ConnectorNetworkPage() {
   async function onSaveStagedEdit(id: string) {
     if (!token) return;
     setSavingStagedEdit(true);
-    const res = await fetch(`${API_BASE}/connector-profile/network/staging/${id}`, {
+    const res = await fetch(connectorApiUrl(`/connector-profile/network/staging/${id}`), {
       method: "PUT",
       headers: authJsonHeaders(token),
       body: JSON.stringify(editStagedForm),
@@ -654,6 +714,26 @@ export default function ConnectorNetworkPage() {
         <div>
           <h1 className="text-2xl font-semibold text-[#e8e8ed]">My Network</h1>
           <p className="text-[#8888a0] text-sm mt-1">Manage and enrich your investor and founder contacts</p>
+          {isSuperAdmin && (
+            <div className="mt-3 flex items-center gap-2">
+              <label className="text-xs text-[#8888a0]">Acting as:</label>
+              <select
+                value={actingAsUserId}
+                onChange={(e) => setActingAsUserId(e.target.value)}
+                className="bg-[#0a0a0f] border border-[rgba(255,255,255,0.06)] rounded-lg px-2 py-1 text-xs text-[#e8e8ed]"
+              >
+                {actingOptions.length === 0 ? (
+                  <option value="">No intermediary users</option>
+                ) : (
+                  actingOptions.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.email}
+                    </option>
+                  ))
+                )}
+              </select>
+            </div>
+          )}
         </div>
         <button
           type="button"
@@ -822,7 +902,21 @@ export default function ConnectorNetworkPage() {
               >
                 {editingId === c.id ? (
                   <div className="space-y-2">
-                    {(["name", "email", "firm_or_company", "linkedin_url", "notes"] as const).map((f) => (
+                    {(
+                      [
+                        "name",
+                        "email",
+                        "firm_or_company",
+                        "linkedin_url",
+                        "website",
+                        "sector_focus",
+                        "stage_focus",
+                        "ticket_size",
+                        "geography",
+                        "one_liner",
+                        "notes",
+                      ] as const
+                    ).map((f) => (
                       <input
                         key={f}
                         value={editForm[f]}
@@ -860,7 +954,7 @@ export default function ConnectorNetworkPage() {
                         )}
                         {c.one_liner && (
                           <div className="mt-2">
-                            <p className="text-[10px] font-mono uppercase tracking-wide text-[#8888a0] mb-0.5">One-liner</p>
+                            <p className="text-[10px] uppercase tracking-wide text-[#8888a0] mb-0.5">One-liner</p>
                             <p className="text-xs text-[#e8e8ed] leading-snug">{c.one_liner}</p>
                           </div>
                         )}
@@ -891,37 +985,37 @@ export default function ConnectorNetworkPage() {
                     <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-1.5 mt-3 text-xs">
                       {c.email && (
                         <div>
-                          <dt className="text-[10px] font-mono uppercase tracking-wide text-[#8888a0]">Email</dt>
+                          <dt className="text-[10px] uppercase tracking-wide text-[#8888a0]">Email</dt>
                           <dd className="text-[#e8e8ed] truncate">{c.email}</dd>
                         </div>
                       )}
                       {c.sector_focus && (
                         <div>
-                          <dt className="text-[10px] font-mono uppercase tracking-wide text-[#8888a0]">Sector</dt>
+                          <dt className="text-[10px] uppercase tracking-wide text-[#8888a0]">Sector</dt>
                           <dd className="text-[#e8e8ed]">{c.sector_focus}</dd>
                         </div>
                       )}
                       {c.stage_focus && (
                         <div>
-                          <dt className="text-[10px] font-mono uppercase tracking-wide text-[#8888a0]">Stage</dt>
+                          <dt className="text-[10px] uppercase tracking-wide text-[#8888a0]">Stage</dt>
                           <dd className="text-[#e8e8ed]">{c.stage_focus}</dd>
                         </div>
                       )}
                       {c.ticket_size && (
                         <div>
-                          <dt className="text-[10px] font-mono uppercase tracking-wide text-[#8888a0]">Ticket</dt>
+                          <dt className="text-[10px] uppercase tracking-wide text-[#8888a0]">Ticket</dt>
                           <dd className="text-[#e8e8ed]">{c.ticket_size}</dd>
                         </div>
                       )}
                       {c.geography && (
                         <div>
-                          <dt className="text-[10px] font-mono uppercase tracking-wide text-[#8888a0]">Location</dt>
+                          <dt className="text-[10px] uppercase tracking-wide text-[#8888a0]">Location</dt>
                           <dd className="text-[#e8e8ed]">{c.geography}</dd>
                         </div>
                       )}
                       {c.website && (
                         <div>
-                          <dt className="text-[10px] font-mono uppercase tracking-wide text-[#8888a0]">Website</dt>
+                          <dt className="text-[10px] uppercase tracking-wide text-[#8888a0]">Website</dt>
                           <dd>
                             <a
                               href={c.website}
@@ -937,7 +1031,7 @@ export default function ConnectorNetworkPage() {
                       )}
                       {c.linkedin_url && (
                         <div>
-                          <dt className="text-[10px] font-mono uppercase tracking-wide text-[#8888a0]">LinkedIn</dt>
+                          <dt className="text-[10px] uppercase tracking-wide text-[#8888a0]">LinkedIn</dt>
                           <dd>
                             <a
                               href={c.linkedin_url}
@@ -954,7 +1048,7 @@ export default function ConnectorNetworkPage() {
                     </dl>
                     {c.notes && (
                       <div className="mt-2 pt-2 border-t border-[rgba(255,255,255,0.06)]">
-                        <p className="text-[10px] font-mono uppercase tracking-wide text-[#8888a0] mb-0.5">Notes</p>
+                        <p className="text-[10px] uppercase tracking-wide text-[#8888a0] mb-0.5">Notes</p>
                         <p className="text-xs text-[#8888a0] line-clamp-3">{c.notes}</p>
                       </div>
                     )}
@@ -985,31 +1079,83 @@ export default function ConnectorNetworkPage() {
               </thead>
               <tbody>
                 {paginated.map((c) => (
-                  <tr key={c.id} className="border-b border-[rgba(255,255,255,0.03)] hover:bg-[rgba(255,255,255,0.02)]">
-                    <td className="py-2 pr-3">
-                      <p className="text-[#e8e8ed]">{c.name}</p>
-                      {c.firm_or_company && c.firm_or_company !== c.name && (
-                        <p className="text-[#8888a0] text-xs">{c.firm_or_company}</p>
-                      )}
-                    </td>
-                    <td className="py-2 pr-3 text-[#8888a0] text-xs">{c.email ?? "—"}</td>
-                    <td className="py-2 pr-3 text-[#8888a0] text-xs max-w-[120px] truncate">{c.sector_focus ?? "—"}</td>
-                    <td className="py-2 pr-3 text-[#8888a0] text-xs">{c.stage_focus ?? "—"}</td>
-                    <td className="py-2 pr-3 text-[#8888a0] text-xs">{c.ticket_size ?? "—"}</td>
-                    <td className="py-2 pr-3 text-[#8888a0] text-xs">{c.geography ?? "—"}</td>
-                    <td className="py-2 pr-3 text-xs flex gap-2">
-                      {c.website && <a href={c.website} target="_blank" rel="noreferrer" className="text-[#6c5ce7] hover:underline">Web</a>}
-                      {c.linkedin_url && <a href={c.linkedin_url} target="_blank" rel="noreferrer" className="text-[#6c5ce7] hover:underline">LI</a>}
-                    </td>
-                    <td className="py-2 flex gap-2">
-                      <button type="button" onClick={() => startEdit(c)} className="text-xs text-[#6c5ce7] hover:underline">
-                        Edit
-                      </button>
-                      <button type="button" onClick={() => onDelete(c.id)} className="text-xs text-red-400 hover:underline">
-                        Del
-                      </button>
-                    </td>
-                  </tr>
+                  <Fragment key={c.id}>
+                    {editingId === c.id ? (
+                      <tr className="border-b border-[rgba(255,255,255,0.03)] bg-[rgba(108,92,231,0.05)]">
+                        <td colSpan={8} className="py-3 px-3">
+                          <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                            {(
+                              [
+                                "name",
+                                "email",
+                                "firm_or_company",
+                                "linkedin_url",
+                                "website",
+                                "sector_focus",
+                                "stage_focus",
+                                "ticket_size",
+                                "geography",
+                                "one_liner",
+                                "notes",
+                              ] as const
+                            ).map((f) => (
+                              <input
+                                key={f}
+                                value={editForm[f]}
+                                onChange={(e) => setEditForm((ef) => ({ ...ef, [f]: e.target.value }))}
+                                placeholder={f.replace(/_/g, " ")}
+                                className="w-full bg-[#16161f] border border-[rgba(255,255,255,0.06)] rounded-lg px-2 py-1.5 text-xs text-[#e8e8ed]"
+                              />
+                            ))}
+                          </div>
+                          {editMsg && <p className="text-xs text-red-400 mt-2">{editMsg}</p>}
+                          <div className="flex gap-2 mt-2">
+                            <button
+                              type="button"
+                              onClick={() => onSaveEdit(c)}
+                              disabled={savingEdit}
+                              className="px-3 py-1 bg-[#6c5ce7] text-white rounded-lg text-xs disabled:opacity-50"
+                            >
+                              Save
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEditingId(null)}
+                              className="px-3 py-1 text-[#8888a0] text-xs"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ) : (
+                      <tr className="border-b border-[rgba(255,255,255,0.03)] hover:bg-[rgba(255,255,255,0.02)]">
+                        <td className="py-2 pr-3">
+                          <p className="text-[#e8e8ed]">{c.name}</p>
+                          {c.firm_or_company && c.firm_or_company !== c.name && (
+                            <p className="text-[#8888a0] text-xs">{c.firm_or_company}</p>
+                          )}
+                        </td>
+                        <td className="py-2 pr-3 text-[#8888a0] text-xs">{c.email ?? "—"}</td>
+                        <td className="py-2 pr-3 text-[#8888a0] text-xs max-w-[120px] truncate">{c.sector_focus ?? "—"}</td>
+                        <td className="py-2 pr-3 text-[#8888a0] text-xs">{c.stage_focus ?? "—"}</td>
+                        <td className="py-2 pr-3 text-[#8888a0] text-xs">{c.ticket_size ?? "—"}</td>
+                        <td className="py-2 pr-3 text-[#8888a0] text-xs">{c.geography ?? "—"}</td>
+                        <td className="py-2 pr-3 text-xs flex gap-2">
+                          {c.website && <a href={c.website} target="_blank" rel="noreferrer" className="text-[#6c5ce7] hover:underline">Web</a>}
+                          {c.linkedin_url && <a href={c.linkedin_url} target="_blank" rel="noreferrer" className="text-[#6c5ce7] hover:underline">LI</a>}
+                        </td>
+                        <td className="py-2 flex gap-2">
+                          <button type="button" onClick={() => startEdit(c)} className="text-xs text-[#6c5ce7] hover:underline">
+                            Edit
+                          </button>
+                          <button type="button" onClick={() => onDelete(c.id)} className="text-xs text-red-400 hover:underline">
+                            Del
+                          </button>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
                 ))}
               </tbody>
             </table>
@@ -1301,7 +1447,7 @@ export default function ConnectorNetworkPage() {
             {(stagingCounts.enriching > 0 || stagingCounts.pending > 0) && recentFeed.length > 0 && (
               <div className="overflow-hidden rounded-xl border border-[rgba(255,255,255,0.06)] bg-[#0a0a0f]">
                 <div className="border-b border-[rgba(255,255,255,0.06)] px-3 py-2">
-                  <span className="text-[10px] font-mono uppercase tracking-wide text-[#6c5ce7]">Live feed</span>
+                  <span className="text-[10px] uppercase tracking-wide text-[#6c5ce7]">Live feed</span>
                   <p className="mt-0.5 text-[10px] text-[#8888a0]">Newest enriched first</p>
                 </div>
                 <ul className="divide-y divide-[rgba(255,255,255,0.06)]">
@@ -1616,7 +1762,7 @@ export default function ConnectorNetworkPage() {
                 {viewingContact.firm_or_company && viewingContact.firm_or_company !== viewingContact.name && (
                   <p className="mt-1 text-base text-[#8888a0]">{viewingContact.firm_or_company}</p>
                 )}
-                <p className="mt-2 text-[10px] font-mono uppercase tracking-wide text-[#6c5ce7]">{viewingContact.role}</p>
+                <p className="mt-2 text-[10px] uppercase tracking-wide text-[#6c5ce7]">{viewingContact.role}</p>
               </div>
               <button
                 type="button"
@@ -1647,7 +1793,7 @@ export default function ConnectorNetworkPage() {
                   ] as const
                 ).map(([label, val]) => (
                   <div key={label}>
-                    <p className="text-[10px] font-mono uppercase tracking-wide text-[#8888a0]">{label}</p>
+                    <p className="text-[10px] uppercase tracking-wide text-[#8888a0]">{label}</p>
                     <div className="mt-0.5 text-sm text-[#e8e8ed]">
                       {!val ? (
                         <span className="text-[#8888a0]">—</span>
@@ -1674,7 +1820,7 @@ export default function ConnectorNetworkPage() {
 
               {viewingContact.notes && (
                 <div className="mt-5 border-t border-[rgba(255,255,255,0.06)] pt-4">
-                  <p className="text-[10px] font-mono uppercase tracking-wide text-[#8888a0]">Notes</p>
+                  <p className="text-[10px] uppercase tracking-wide text-[#8888a0]">Notes</p>
                   <div className="mt-2 max-h-40 overflow-y-auto rounded-lg border border-[rgba(255,255,255,0.06)] bg-[#0a0a0f] px-3 py-2">
                     <p className="whitespace-pre-wrap text-xs leading-relaxed text-[#8888a0]">{viewingContact.notes}</p>
                   </div>

@@ -13,13 +13,43 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::Semaphore;
 use uuid::Uuid;
 
-use crate::identity::{require_role, require_user, AuthedUser};
+use crate::identity::require_user;
 use crate::state::AppState;
 
 #[derive(Deserialize)]
 struct StagingQuery {
     page: Option<i64>,
     per_page: Option<i64>,
+    as_user: Option<Uuid>,
+}
+
+#[derive(Deserialize, Default)]
+struct AsUserQuery {
+    as_user: Option<Uuid>,
+}
+
+async fn resolve_connector_user(
+    state: &AppState,
+    token: &str,
+    as_user: Option<Uuid>,
+) -> Result<Uuid, (axum::http::StatusCode, String)> {
+    let authed = require_user(state, token).await?;
+    if authed.role != "INTERMEDIARY" && !authed.is_super_admin {
+        return Err((
+            axum::http::StatusCode::FORBIDDEN,
+            "wrong role for this resource".to_string(),
+        ));
+    }
+    if let Some(target) = as_user {
+        if !authed.is_super_admin {
+            return Err((
+                axum::http::StatusCode::FORBIDDEN,
+                "super admin required for as_user".to_string(),
+            ));
+        }
+        return Ok(target);
+    }
+    Ok(authed.id)
 }
 
 #[derive(sqlx::FromRow)]
@@ -54,13 +84,8 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/referrals", get(list_referrals))
         .route("/network/batch", post(batch_import_network))
         .route("/network/csv", post(import_network_csv))
-        .route("/network", get(list_network).post(add_network_contact))
         .route("/network/export", get(export_network))
         .route("/network/ipfs-snapshot", post(ipfs_snapshot))
-        .route(
-            "/network/{id}",
-            put(update_network_contact).delete(delete_network_contact),
-        )
         .route("/network/stage", post(stage_contacts))
         .route("/network/staging/enrich", post(enrich_staged_contacts))
         .route("/network/staging/import", post(import_from_staging))
@@ -68,6 +93,11 @@ pub fn router() -> Router<Arc<AppState>> {
         .route(
             "/network/staging/{id}",
             put(update_staged_contact).delete(delete_staged_contact),
+        )
+        .route("/network", get(list_network).post(add_network_contact))
+        .route(
+            "/network/{id}",
+            put(update_network_contact).delete(delete_network_contact),
         )
 }
 
@@ -127,6 +157,12 @@ pub struct NetworkContactDto {
     pub email: Option<String>,
     pub firm_or_company: Option<String>,
     pub linkedin_url: Option<String>,
+    pub website: Option<String>,
+    pub sector_focus: Option<String>,
+    pub stage_focus: Option<String>,
+    pub ticket_size: Option<String>,
+    pub geography: Option<String>,
+    pub one_liner: Option<String>,
     pub notes: Option<String>,
 }
 
@@ -251,19 +287,19 @@ async fn fetch_dto(
 async fn get_own(
     State(state): State<Arc<AppState>>,
     TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+    Query(as_user): Query<AsUserQuery>,
 ) -> Result<Json<ConnectorProfileDto>, (axum::http::StatusCode, String)> {
-    let AuthedUser { id, .. } =
-        require_role(&state, bearer.token(), &["INTERMEDIARY"]).await?;
-    Ok(Json(fetch_dto(&state, id).await?))
+    let user_id = resolve_connector_user(&state, bearer.token(), as_user.as_user).await?;
+    Ok(Json(fetch_dto(&state, user_id).await?))
 }
 
 async fn put_own(
     State(state): State<Arc<AppState>>,
     TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+    Query(as_user): Query<AsUserQuery>,
     Json(body): Json<ConnectorProfileDto>,
 ) -> Result<Json<ConnectorProfileDto>, (axum::http::StatusCode, String)> {
-    let AuthedUser { id, .. } =
-        require_role(&state, bearer.token(), &["INTERMEDIARY"]).await?;
+    let user_id = resolve_connector_user(&state, bearer.token(), as_user.as_user).await?;
 
     let country = body.country.as_ref().and_then(|c| {
         let s: String = c
@@ -286,7 +322,7 @@ async fn put_own(
                  speciality = EXCLUDED.speciality, country = EXCLUDED.country,
                  updated_at = now()"#,
     )
-    .bind(id)
+    .bind(user_id)
     .bind(&body.organisation)
     .bind(&body.bio)
     .bind(&body.speciality)
@@ -295,7 +331,7 @@ async fn put_own(
     .await
     .map_err(internal)?;
 
-    Ok(Json(fetch_dto(&state, id).await?))
+    Ok(Json(fetch_dto(&state, user_id).await?))
 }
 
 async fn list_all(
@@ -318,9 +354,9 @@ async fn list_all(
 async fn list_brokered_introductions(
     State(state): State<Arc<AppState>>,
     TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+    Query(as_user): Query<AsUserQuery>,
 ) -> Result<Json<Vec<BrokeredIntroduction>>, (axum::http::StatusCode, String)> {
-    let AuthedUser { id, .. } =
-        require_role(&state, bearer.token(), &["INTERMEDIARY"]).await?;
+    let user_id = resolve_connector_user(&state, bearer.token(), as_user.as_user).await?;
     let rows = sqlx::query_as::<_, BrokeredIntroduction>(
         r#"SELECT i.id, i.startup_user_id, i.investor_user_id, i.status,
                     sf.company_name AS founder_company, inv.firm_name AS investor_firm, i.created_at
@@ -329,7 +365,7 @@ async fn list_brokered_introductions(
              LEFT JOIN investor_profiles inv ON inv.user_id = i.investor_user_id
              WHERE i.broker_user_id = $1 ORDER BY i.created_at DESC"#,
     )
-    .bind(id)
+    .bind(user_id)
     .fetch_all(&state.db)
     .await
     .map_err(internal)?;
@@ -339,13 +375,13 @@ async fn list_brokered_introductions(
 async fn list_referrals(
     State(state): State<Arc<AppState>>,
     TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+    Query(as_user): Query<AsUserQuery>,
 ) -> Result<Json<Vec<ReferralRow>>, (axum::http::StatusCode, String)> {
-    let AuthedUser { id, .. } =
-        require_role(&state, bearer.token(), &["INTERMEDIARY"]).await?;
+    let user_id = resolve_connector_user(&state, bearer.token(), as_user.as_user).await?;
     let rows = sqlx::query_as::<_, ReferralRow>(
         "SELECT id, email, referred_user_id, status, created_at FROM referrals WHERE referrer_user_id = $1 ORDER BY created_at DESC",
     )
-    .bind(id)
+    .bind(user_id)
     .fetch_all(&state.db)
     .await
     .map_err(internal)?;
@@ -355,15 +391,15 @@ async fn list_referrals(
 async fn list_network(
     State(state): State<Arc<AppState>>,
     TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+    Query(as_user): Query<AsUserQuery>,
 ) -> Result<Json<Vec<NetworkContactRow>>, (axum::http::StatusCode, String)> {
-    let AuthedUser { id, .. } =
-        require_role(&state, bearer.token(), &["INTERMEDIARY"]).await?;
+    let user_id = resolve_connector_user(&state, bearer.token(), as_user.as_user).await?;
     let rows = sqlx::query_as::<_, NetworkContactRow>(
         r#"SELECT id, role, name, email, firm_or_company, linkedin_url, website, sector_focus, stage_focus, ticket_size, geography, one_liner, notes,
                     invited_at, joined_user_id, created_at
              FROM connector_network_contacts WHERE connector_user_id = $1 ORDER BY created_at DESC"#,
     )
-    .bind(id)
+    .bind(user_id)
     .fetch_all(&state.db)
     .await
     .map_err(internal)?;
@@ -373,10 +409,10 @@ async fn list_network(
 async fn add_network_contact(
     State(state): State<Arc<AppState>>,
     TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+    Query(as_user): Query<AsUserQuery>,
     Json(body): Json<NetworkContactDto>,
 ) -> Result<Json<NetworkContactRow>, (axum::http::StatusCode, String)> {
-    let AuthedUser { id, .. } =
-        require_role(&state, bearer.token(), &["INTERMEDIARY"]).await?;
+    let user_id = resolve_connector_user(&state, bearer.token(), as_user.as_user).await?;
     if body.name.trim().is_empty() {
         return Err((axum::http::StatusCode::BAD_REQUEST, "name is required".into()));
     }
@@ -397,12 +433,13 @@ async fn add_network_contact(
     };
     let row = sqlx::query_as::<_, NetworkContactRow>(
         r#"INSERT INTO connector_network_contacts
-                 (connector_user_id, role, name, email, firm_or_company, linkedin_url, notes, joined_user_id)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+                 (connector_user_id, role, name, email, firm_or_company, linkedin_url, notes, joined_user_id,
+                  website, sector_focus, stage_focus, ticket_size, geography, one_liner)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
              RETURNING id, role, name, email, firm_or_company, linkedin_url, website, sector_focus, stage_focus, ticket_size, geography, one_liner, notes,
                        invited_at, joined_user_id, created_at"#,
     )
-    .bind(id)
+    .bind(user_id)
     .bind(&body.role)
     .bind(body.name.trim())
     .bind(&body.email)
@@ -410,6 +447,12 @@ async fn add_network_contact(
     .bind(&body.linkedin_url)
     .bind(&body.notes)
     .bind(joined_user_id)
+    .bind(&body.website)
+    .bind(&body.sector_focus)
+    .bind(&body.stage_focus)
+    .bind(&body.ticket_size)
+    .bind(&body.geography)
+    .bind(&body.one_liner)
     .fetch_one(&state.db)
     .await
     .map_err(internal)?;
@@ -419,11 +462,11 @@ async fn add_network_contact(
 async fn update_network_contact(
     State(state): State<Arc<AppState>>,
     TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+    Query(as_user): Query<AsUserQuery>,
     Path(contact_id): Path<Uuid>,
     Json(body): Json<NetworkContactDto>,
 ) -> Result<Json<NetworkContactRow>, (axum::http::StatusCode, String)> {
-    let AuthedUser { id, .. } =
-        require_role(&state, bearer.token(), &["INTERMEDIARY"]).await?;
+    let user_id = resolve_connector_user(&state, bearer.token(), as_user.as_user).await?;
     if body.name.trim().is_empty() {
         return Err((axum::http::StatusCode::BAD_REQUEST, "name is required".into()));
     }
@@ -444,8 +487,9 @@ async fn update_network_contact(
     };
     let row = sqlx::query_as::<_, NetworkContactRow>(
         r#"UPDATE connector_network_contacts
-             SET role=$1, name=$2, email=$3, firm_or_company=$4, linkedin_url=$5, notes=$6, joined_user_id=$7
-             WHERE id=$8 AND connector_user_id=$9
+             SET role=$1, name=$2, email=$3, firm_or_company=$4, linkedin_url=$5, notes=$6, joined_user_id=$7,
+                 website=$8, sector_focus=$9, stage_focus=$10, ticket_size=$11, geography=$12, one_liner=$13
+             WHERE id=$14 AND connector_user_id=$15
              RETURNING id, role, name, email, firm_or_company, linkedin_url, website, sector_focus, stage_focus, ticket_size, geography, one_liner, notes,
                        invited_at, joined_user_id, created_at"#,
     )
@@ -456,8 +500,14 @@ async fn update_network_contact(
     .bind(&body.linkedin_url)
     .bind(&body.notes)
     .bind(joined_user_id)
+    .bind(&body.website)
+    .bind(&body.sector_focus)
+    .bind(&body.stage_focus)
+    .bind(&body.ticket_size)
+    .bind(&body.geography)
+    .bind(&body.one_liner)
     .bind(contact_id)
-    .bind(id)
+    .bind(user_id)
     .fetch_optional(&state.db)
     .await
     .map_err(internal)?
@@ -468,13 +518,13 @@ async fn update_network_contact(
 async fn delete_network_contact(
     State(state): State<Arc<AppState>>,
     TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+    Query(as_user): Query<AsUserQuery>,
     Path(contact_id): Path<Uuid>,
 ) -> Result<axum::http::StatusCode, (axum::http::StatusCode, String)> {
-    let AuthedUser { id, .. } =
-        require_role(&state, bearer.token(), &["INTERMEDIARY"]).await?;
+    let user_id = resolve_connector_user(&state, bearer.token(), as_user.as_user).await?;
     sqlx::query("DELETE FROM connector_network_contacts WHERE id=$1 AND connector_user_id=$2")
         .bind(contact_id)
-        .bind(id)
+        .bind(user_id)
         .execute(&state.db)
         .await
         .map_err(internal)?;
@@ -489,10 +539,10 @@ pub struct CsvImportBody {
 async fn import_network_csv(
     State(state): State<Arc<AppState>>,
     TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+    Query(as_user): Query<AsUserQuery>,
     Json(body): Json<CsvImportBody>,
 ) -> Result<Json<serde_json::Value>, (axum::http::StatusCode, String)> {
-    let AuthedUser { id, .. } =
-        require_role(&state, bearer.token(), &["INTERMEDIARY"]).await?;
+    let user_id = resolve_connector_user(&state, bearer.token(), as_user.as_user).await?;
     let (mut imported, mut skipped) = (0u32, 0u32);
     for line in body.csv.lines().skip(1) {
         let cols: Vec<&str> = line.splitn(6, ',').collect();
@@ -534,7 +584,7 @@ async fn import_network_csv(
                      notes = COALESCE(connector_network_contacts.notes, EXCLUDED.notes),
                      joined_user_id = COALESCE(connector_network_contacts.joined_user_id, EXCLUDED.joined_user_id)"#,
         )
-        .bind(id)
+        .bind(user_id)
         .bind(&role)
         .bind(name)
         .bind(email)
@@ -561,10 +611,10 @@ pub struct BatchImportBody {
 async fn batch_import_network(
     State(state): State<Arc<AppState>>,
     TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+    Query(as_user): Query<AsUserQuery>,
     Json(body): Json<BatchImportBody>,
 ) -> Result<Json<serde_json::Value>, (axum::http::StatusCode, String)> {
-    let AuthedUser { id, .. } =
-        require_role(&state, bearer.token(), &["INTERMEDIARY"]).await?;
+    let user_id = resolve_connector_user(&state, bearer.token(), as_user.as_user).await?;
     let (mut imported, mut skipped) = (0u32, 0u32);
     for contact in body.contacts {
         if contact.name.trim().is_empty()
@@ -593,7 +643,7 @@ async fn batch_import_network(
                      notes = COALESCE(connector_network_contacts.notes, EXCLUDED.notes),
                      joined_user_id = COALESCE(connector_network_contacts.joined_user_id, EXCLUDED.joined_user_id)"#,
         )
-        .bind(id)
+        .bind(user_id)
         .bind(&contact.role)
         .bind(contact.name.trim())
         .bind(&contact.email)
@@ -615,10 +665,10 @@ async fn batch_import_network(
 async fn stage_contacts(
     State(state): State<Arc<AppState>>,
     TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+    Query(as_user): Query<AsUserQuery>,
     Json(body): Json<StageBody>,
 ) -> Result<Json<serde_json::Value>, (axum::http::StatusCode, String)> {
-    let AuthedUser { id, .. } =
-        require_role(&state, bearer.token(), &["INTERMEDIARY"]).await?;
+    let user_id = resolve_connector_user(&state, bearer.token(), as_user.as_user).await?;
     let mut staged = 0u32;
     for c in body.contacts {
         if c.name.trim().is_empty() || (c.role != "investor" && c.role != "founder") {
@@ -629,7 +679,7 @@ async fn stage_contacts(
                      (connector_user_id, role, name, firm_or_company, raw_notes)
                  VALUES ($1,$2,$3,$4,$5)"#,
         )
-        .bind(id)
+        .bind(user_id)
         .bind(&c.role)
         .bind(c.name.trim())
         .bind(&c.firm_or_company)
@@ -648,7 +698,7 @@ async fn list_staging(
     TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
     Query(params): Query<StagingQuery>,
 ) -> Result<Json<serde_json::Value>, (axum::http::StatusCode, String)> {
-    let AuthedUser { id, .. } = require_role(&state, bearer.token(), &["INTERMEDIARY"]).await?;
+    let user_id = resolve_connector_user(&state, bearer.token(), params.as_user).await?;
     let per_page = params.per_page.unwrap_or(50).clamp(1, 200);
     let page = params.page.unwrap_or(0).max(0);
     let offset = page * per_page;
@@ -656,7 +706,7 @@ async fn list_staging(
     let total: i64 = sqlx::query_scalar(
         "SELECT COUNT(*)::bigint FROM connector_network_staging WHERE connector_user_id=$1",
     )
-    .bind(id)
+    .bind(user_id)
     .fetch_one(&state.db)
     .await
     .map_err(internal)?;
@@ -669,7 +719,7 @@ async fn list_staging(
              LIMIT $2 OFFSET $3"#,
         staging_select_cols()
     ))
-    .bind(id)
+    .bind(user_id)
     .bind(per_page)
     .bind(offset)
     .fetch_all(&state.db)
@@ -684,7 +734,7 @@ async fn list_staging(
              LIMIT 10"#,
         staging_select_cols()
     ))
-    .bind(id)
+    .bind(user_id)
     .fetch_all(&state.db)
     .await
     .map_err(internal)?;
@@ -692,7 +742,7 @@ async fn list_staging(
     let status_rows = sqlx::query_as::<_, StatusCount>(
         "SELECT status, COUNT(*)::bigint AS count FROM connector_network_staging WHERE connector_user_id=$1 GROUP BY status",
     )
-    .bind(id)
+    .bind(user_id)
     .fetch_all(&state.db)
     .await
     .unwrap_or_default();
@@ -717,11 +767,11 @@ async fn list_staging(
 async fn clear_staging(
     State(state): State<Arc<AppState>>,
     TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+    Query(as_user): Query<AsUserQuery>,
 ) -> Result<Json<serde_json::Value>, (axum::http::StatusCode, String)> {
-    let AuthedUser { id, .. } =
-        require_role(&state, bearer.token(), &["INTERMEDIARY"]).await?;
+    let user_id = resolve_connector_user(&state, bearer.token(), as_user.as_user).await?;
     let result = sqlx::query("DELETE FROM connector_network_staging WHERE connector_user_id=$1")
-        .bind(id)
+        .bind(user_id)
         .execute(&state.db)
         .await
         .map_err(internal)?;
@@ -731,13 +781,13 @@ async fn clear_staging(
 async fn delete_staged_contact(
     State(state): State<Arc<AppState>>,
     TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+    Query(as_user): Query<AsUserQuery>,
     Path(staging_id): Path<Uuid>,
 ) -> Result<axum::http::StatusCode, (axum::http::StatusCode, String)> {
-    let AuthedUser { id, .. } =
-        require_role(&state, bearer.token(), &["INTERMEDIARY"]).await?;
+    let user_id = resolve_connector_user(&state, bearer.token(), as_user.as_user).await?;
     sqlx::query("DELETE FROM connector_network_staging WHERE id=$1 AND connector_user_id=$2")
         .bind(staging_id)
-        .bind(id)
+        .bind(user_id)
         .execute(&state.db)
         .await
         .map_err(internal)?;
@@ -747,11 +797,11 @@ async fn delete_staged_contact(
 async fn update_staged_contact(
     State(state): State<Arc<AppState>>,
     TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+    Query(as_user): Query<AsUserQuery>,
     Path(staging_id): Path<Uuid>,
     Json(body): Json<UpdateStagedDto>,
 ) -> Result<Json<StagedContactRow>, (axum::http::StatusCode, String)> {
-    let AuthedUser { id, .. } =
-        require_role(&state, bearer.token(), &["INTERMEDIARY"]).await?;
+    let user_id = resolve_connector_user(&state, bearer.token(), as_user.as_user).await?;
     let row = sqlx::query_as::<_, StagedContactRow>(
         r#"UPDATE connector_network_staging SET
                  contact_name=$1, email=$2, linkedin_url=$3, website=$4,
@@ -773,7 +823,7 @@ async fn update_staged_contact(
     .bind(&body.geography)
     .bind(&body.one_liner)
     .bind(staging_id)
-    .bind(id)
+    .bind(user_id)
     .fetch_optional(&state.db)
     .await
     .map_err(internal)?
@@ -790,10 +840,21 @@ fn staging_select_cols() -> &'static str {
 async fn enrich_staged_contacts(
     State(state): State<Arc<AppState>>,
     TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+    Query(as_user): Query<AsUserQuery>,
     Json(body): Json<EnrichBody>,
 ) -> Result<Json<serde_json::Value>, (axum::http::StatusCode, String)> {
-    let AuthedUser { id: user_id, custom_ai_api_key: byok, .. } =
-        require_role(&state, bearer.token(), &["INTERMEDIARY"]).await?;
+    let authed = require_user(&state, bearer.token()).await?;
+    let user_id = if authed.is_super_admin {
+        as_user.as_user.unwrap_or(authed.id)
+    } else if authed.role == "INTERMEDIARY" {
+        authed.id
+    } else {
+        return Err((
+            axum::http::StatusCode::FORBIDDEN,
+            "wrong role for this resource".to_string(),
+        ));
+    };
+    let byok = authed.custom_ai_api_key;
 
     let user_email: Option<String> = sqlx::query_scalar("SELECT email FROM users WHERE id=$1")
         .bind(user_id)
@@ -930,10 +991,10 @@ async fn enrich_staged_contacts(
 async fn import_from_staging(
     State(state): State<Arc<AppState>>,
     TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+    Query(as_user): Query<AsUserQuery>,
     Json(body): Json<ImportStagingBody>,
 ) -> Result<Json<serde_json::Value>, (axum::http::StatusCode, String)> {
-    let AuthedUser { id: user_id, .. } =
-        require_role(&state, bearer.token(), &["INTERMEDIARY"]).await?;
+    let user_id = resolve_connector_user(&state, bearer.token(), as_user.as_user).await?;
 
     let rows: Vec<StagedContactRow> = if let Some(ids) = &body.ids {
         if ids.is_empty() {
@@ -1187,8 +1248,9 @@ async fn enrich_one_contact(
 async fn export_network(
     State(state): State<Arc<AppState>>,
     TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+    Query(as_user): Query<AsUserQuery>,
 ) -> Result<Json<Vec<NetworkExportRow>>, (axum::http::StatusCode, String)> {
-    let AuthedUser { id: user_id, .. } = require_role(&state, bearer.token(), &["INTERMEDIARY"]).await?;
+    let user_id = resolve_connector_user(&state, bearer.token(), as_user.as_user).await?;
     let rows = sqlx::query_as::<_, NetworkExportRow>(
         r#"SELECT id, role, name, email, firm_or_company, linkedin_url, website, sector_focus, stage_focus, ticket_size, geography, one_liner, notes, created_at
              FROM connector_network_contacts
@@ -1205,8 +1267,9 @@ async fn export_network(
 async fn ipfs_snapshot(
     State(state): State<Arc<AppState>>,
     TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+    Query(as_user): Query<AsUserQuery>,
 ) -> Result<Json<serde_json::Value>, (axum::http::StatusCode, String)> {
-    let AuthedUser { id: user_id, .. } = require_role(&state, bearer.token(), &["INTERMEDIARY"]).await?;
+    let user_id = resolve_connector_user(&state, bearer.token(), as_user.as_user).await?;
     let pinata_jwt = std::env::var("PINATA_JWT").map_err(|_| {
         (
             axum::http::StatusCode::INTERNAL_SERVER_ERROR,

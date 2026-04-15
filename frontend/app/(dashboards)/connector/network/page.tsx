@@ -1661,7 +1661,7 @@ export default function ConnectorNetworkPage() {
       <div className="bg-[#16161f] border border-[rgba(255,255,255,0.06)] rounded-xl p-5 space-y-3">
         <h2 className="text-sm font-semibold text-[#e8e8ed]">Bulk import via CSV</h2>
         <p className="text-xs text-[#8888a0]">
-          Paste CSV with columns: <code className="text-[#6c5ce7]">role, name, email, firm, linkedin, notes</code>
+          Paste CSV with columns: <code className="text-[#6c5ce7]">role, name, email, firm, linkedin, website, sector, stage, ticket, geography, one_liner, notes</code>
           <br />
           First row is header (skipped). Role must be <code className="text-[#6c5ce7]">investor</code> or{" "}
           <code className="text-[#6c5ce7]">founder</code>.

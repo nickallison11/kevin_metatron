@@ -545,7 +545,7 @@ async fn import_network_csv(
     let user_id = resolve_connector_user(&state, bearer.token(), as_user.as_user).await?;
     let (mut imported, mut skipped) = (0u32, 0u32);
     for line in body.csv.lines().skip(1) {
-        let cols: Vec<&str> = line.splitn(6, ',').collect();
+        let cols: Vec<&str> = line.splitn(12, ',').collect();
         if cols.len() < 2 {
             skipped += 1;
             continue;
@@ -563,7 +563,13 @@ async fn import_network_csv(
         let email = cols.get(2).map(|s| s.trim()).filter(|s| !s.is_empty());
         let firm = cols.get(3).map(|s| s.trim()).filter(|s| !s.is_empty());
         let linkedin = cols.get(4).map(|s| s.trim()).filter(|s| !s.is_empty());
-        let notes = cols.get(5).map(|s| s.trim()).filter(|s| !s.is_empty());
+        let website = cols.get(5).map(|s| s.trim()).filter(|s| !s.is_empty());
+        let sector = cols.get(6).map(|s| s.trim()).filter(|s| !s.is_empty());
+        let stage = cols.get(7).map(|s| s.trim()).filter(|s| !s.is_empty());
+        let ticket = cols.get(8).map(|s| s.trim()).filter(|s| !s.is_empty());
+        let geo = cols.get(9).map(|s| s.trim()).filter(|s| !s.is_empty());
+        let one_liner = cols.get(10).map(|s| s.trim()).filter(|s| !s.is_empty());
+        let notes = cols.get(11).map(|s| s.trim()).filter(|s| !s.is_empty());
         let joined: Option<Uuid> = if let Some(e) = email {
             sqlx::query_scalar("SELECT id FROM users WHERE LOWER(email)=LOWER($1)")
                 .bind(e)
@@ -575,14 +581,21 @@ async fn import_network_csv(
         };
         let res = sqlx::query(
             r#"INSERT INTO connector_network_contacts
-                     (connector_user_id, role, name, email, firm_or_company, linkedin_url, notes, joined_user_id)
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+                     (connector_user_id, role, name, email, firm_or_company, linkedin_url,
+                      website, sector_focus, stage_focus, ticket_size, geography, one_liner, notes, joined_user_id)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
                  ON CONFLICT (connector_user_id, role, lower(name)) DO UPDATE SET
-                     email = COALESCE(connector_network_contacts.email, EXCLUDED.email),
+                     email           = COALESCE(connector_network_contacts.email, EXCLUDED.email),
                      firm_or_company = COALESCE(connector_network_contacts.firm_or_company, EXCLUDED.firm_or_company),
-                     linkedin_url = COALESCE(connector_network_contacts.linkedin_url, EXCLUDED.linkedin_url),
-                     notes = COALESCE(connector_network_contacts.notes, EXCLUDED.notes),
-                     joined_user_id = COALESCE(connector_network_contacts.joined_user_id, EXCLUDED.joined_user_id)"#,
+                     linkedin_url    = COALESCE(connector_network_contacts.linkedin_url, EXCLUDED.linkedin_url),
+                     website         = COALESCE(connector_network_contacts.website, EXCLUDED.website),
+                     sector_focus    = COALESCE(connector_network_contacts.sector_focus, EXCLUDED.sector_focus),
+                     stage_focus     = COALESCE(connector_network_contacts.stage_focus, EXCLUDED.stage_focus),
+                     ticket_size     = COALESCE(connector_network_contacts.ticket_size, EXCLUDED.ticket_size),
+                     geography       = COALESCE(connector_network_contacts.geography, EXCLUDED.geography),
+                     one_liner       = COALESCE(connector_network_contacts.one_liner, EXCLUDED.one_liner),
+                     notes           = COALESCE(connector_network_contacts.notes, EXCLUDED.notes),
+                     joined_user_id  = COALESCE(connector_network_contacts.joined_user_id, EXCLUDED.joined_user_id)"#,
         )
         .bind(user_id)
         .bind(&role)
@@ -590,6 +603,12 @@ async fn import_network_csv(
         .bind(email)
         .bind(firm)
         .bind(linkedin)
+        .bind(website)
+        .bind(sector)
+        .bind(stage)
+        .bind(ticket)
+        .bind(geo)
+        .bind(one_liner)
         .bind(notes)
         .bind(joined)
         .execute(&state.db)

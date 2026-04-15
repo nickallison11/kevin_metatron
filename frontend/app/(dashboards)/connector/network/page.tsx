@@ -390,6 +390,7 @@ export default function ConnectorNetworkPage() {
     if (!token || !viewingContact) return;
     setSavingEdit(true);
     setEditMsg(null);
+    console.log("PUT URL:", connectorApiUrl(`/connector-profile/network/${viewingContact.id}`));
     const res = await fetch(connectorApiUrl(`/connector-profile/network/${viewingContact.id}`), {
       method: "PUT",
       headers: authJsonHeaders(token),

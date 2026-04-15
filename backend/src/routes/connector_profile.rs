@@ -91,12 +91,12 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/network/staging/import", post(import_from_staging))
         .route("/network/staging", get(list_staging).delete(clear_staging))
         .route(
-            "/network/staging/{id}",
+            "/network/staging/:id",
             put(update_staged_contact).delete(delete_staged_contact),
         )
         .route("/network", get(list_network).post(add_network_contact))
         .route(
-            "/network/{id}",
+            "/network/:id",
             put(update_network_contact).delete(delete_network_contact),
         )
 }

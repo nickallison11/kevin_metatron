@@ -115,7 +115,7 @@ export default function ConnectorNetworkPage() {
   const [showForm, setShowForm] = useState(false);
   const [view, setView] = useState<"card" | "list">("card");
   const [page, setPage] = useState(1);
-  const [editingId, setEditingId] = useState<string | null>(null);
+  const [contactModalMode, setContactModalMode] = useState<"view" | "edit">("view");
   const [editForm, setEditForm] = useState({
     name: "",
     email: "",
@@ -268,15 +268,6 @@ export default function ConnectorNetworkPage() {
   }, [stagingCounts, loadStaging]);
 
   useEffect(() => {
-    if (!viewingContact) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setViewingContact(null);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [viewingContact]);
-
-  useEffect(() => {
     if (!token) return;
     let cancelled = false;
     const run = async () => {
@@ -349,11 +340,11 @@ export default function ConnectorNetworkPage() {
       headers: authHeaders(token),
     });
     setViewingContact((v) => (v?.id === id ? null : v));
+    setContactModalMode("view");
     load();
   }
 
-  function startEdit(c: Contact) {
-    setEditingId(c.id);
+  function populateEditFormFromContact(c: Contact) {
     setEditForm({
       name: c.name,
       email: c.email ?? "",
@@ -367,25 +358,60 @@ export default function ConnectorNetworkPage() {
       one_liner: c.one_liner ?? "",
       notes: c.notes ?? "",
     });
+  }
+
+  function openContactModalView(c: Contact) {
+    setViewingContact(c);
+    setContactModalMode("view");
     setEditMsg(null);
   }
 
-  async function onSaveEdit(c: Contact) {
-    if (!token) return;
+  function openContactModalEdit(c: Contact) {
+    setViewingContact(c);
+    setContactModalMode("edit");
+    populateEditFormFromContact(c);
+    setEditMsg(null);
+  }
+
+  const closeContactModal = useCallback(() => {
+    setViewingContact(null);
+    setContactModalMode("view");
+    setEditMsg(null);
+  }, []);
+
+  function cancelContactModalEdit() {
+    if (!viewingContact) return;
+    setContactModalMode("view");
+    populateEditFormFromContact(viewingContact);
+    setEditMsg(null);
+  }
+
+  async function onSaveContactModal() {
+    if (!token || !viewingContact) return;
     setSavingEdit(true);
-    const res = await fetch(connectorApiUrl(`/connector-profile/network/${c.id}`), {
+    setEditMsg(null);
+    const res = await fetch(connectorApiUrl(`/connector-profile/network/${viewingContact.id}`), {
       method: "PUT",
       headers: authJsonHeaders(token),
-      body: JSON.stringify({ role: c.role, ...editForm }),
+      body: JSON.stringify({ role: viewingContact.role, ...editForm }),
     });
     if (res.ok) {
-      setEditingId(null);
-      load();
+      closeContactModal();
+      await load();
     } else {
       setEditMsg("Save failed.");
     }
     setSavingEdit(false);
   }
+
+  useEffect(() => {
+    if (!viewingContact) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closeContactModal();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [viewingContact, closeContactModal]);
 
   async function onCsvImport() {
     if (!token || !csvText.trim()) return;
@@ -893,171 +919,119 @@ export default function ConnectorNetworkPage() {
             {paginated.map((c) => (
               <div
                 key={c.id}
-                onClick={() => {
-                  if (editingId !== c.id) setViewingContact(c);
-                }}
-                className={`bg-[#0a0a0f] border border-[rgba(255,255,255,0.06)] rounded-xl p-4 ${
-                  editingId !== c.id ? "cursor-pointer hover:border-[rgba(108,92,231,0.2)] transition-colors" : ""
-                }`}
+                onClick={() => openContactModalView(c)}
+                className="bg-[#0a0a0f] border border-[rgba(255,255,255,0.06)] rounded-xl p-4 cursor-pointer hover:border-[rgba(108,92,231,0.2)] transition-colors"
               >
-                {editingId === c.id ? (
-                  <div className="space-y-2">
-                    {(
-                      [
-                        "name",
-                        "email",
-                        "firm_or_company",
-                        "linkedin_url",
-                        "website",
-                        "sector_focus",
-                        "stage_focus",
-                        "ticket_size",
-                        "geography",
-                        "one_liner",
-                        "notes",
-                      ] as const
-                    ).map((f) => (
-                      <input
-                        key={f}
-                        value={editForm[f]}
-                        onChange={(e) => setEditForm((ef) => ({ ...ef, [f]: e.target.value }))}
-                        placeholder={f.replace(/_/g, " ")}
-                        className="w-full bg-[#16161f] border border-[rgba(255,255,255,0.06)] rounded-lg px-2 py-1.5 text-xs text-[#e8e8ed]"
-                      />
-                    ))}
-                    {editMsg && <p className="text-xs text-red-400">{editMsg}</p>}
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={() => onSaveEdit(c)}
-                        disabled={savingEdit}
-                        className="px-3 py-1 bg-[#6c5ce7] text-white rounded-lg text-xs"
-                      >
-                        Save
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setEditingId(null)}
-                        className="px-3 py-1 text-[#8888a0] text-xs"
-                      >
-                        Cancel
-                      </button>
-                    </div>
+                <div className="flex justify-between items-start gap-2">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-[#e8e8ed]">{c.name}</p>
+                    {c.firm_or_company && c.firm_or_company !== c.name && (
+                      <p className="text-xs text-[#8888a0]">{c.firm_or_company}</p>
+                    )}
+                    {c.one_liner && (
+                      <div className="mt-2">
+                        <p className="text-[10px] uppercase tracking-wide text-[#8888a0] mb-0.5">One-liner</p>
+                        <p className="text-xs text-[#e8e8ed] leading-snug">{c.one_liner}</p>
+                      </div>
+                    )}
                   </div>
-                ) : (
-                  <>
-                    <div className="flex justify-between items-start gap-2">
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium text-[#e8e8ed]">{c.name}</p>
-                        {c.firm_or_company && c.firm_or_company !== c.name && (
-                          <p className="text-xs text-[#8888a0]">{c.firm_or_company}</p>
-                        )}
-                        {c.one_liner && (
-                          <div className="mt-2">
-                            <p className="text-[10px] uppercase tracking-wide text-[#8888a0] mb-0.5">One-liner</p>
-                            <p className="text-xs text-[#e8e8ed] leading-snug">{c.one_liner}</p>
-                          </div>
-                        )}
-                      </div>
-                      <div className="flex gap-1 shrink-0">
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            startEdit(c);
-                          }}
-                          className="text-xs text-[#6c5ce7] hover:underline"
-                        >
-                          Edit
-                        </button>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onDelete(c.id);
-                          }}
-                          className="text-xs text-red-400 hover:underline ml-2"
-                        >
-                          Delete
-                        </button>
-                      </div>
+                  <div className="flex gap-1 shrink-0">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openContactModalEdit(c);
+                      }}
+                      className="text-xs text-[#6c5ce7] hover:underline"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDelete(c.id);
+                      }}
+                      className="text-xs text-red-400 hover:underline ml-2"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+                <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-1.5 mt-3 text-xs">
+                  {c.email && (
+                    <div>
+                      <dt className="text-[10px] uppercase tracking-wide text-[#8888a0]">Email</dt>
+                      <dd className="text-[#e8e8ed] truncate">{c.email}</dd>
                     </div>
-                    <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-1.5 mt-3 text-xs">
-                      {c.email && (
-                        <div>
-                          <dt className="text-[10px] uppercase tracking-wide text-[#8888a0]">Email</dt>
-                          <dd className="text-[#e8e8ed] truncate">{c.email}</dd>
-                        </div>
-                      )}
-                      {c.sector_focus && (
-                        <div>
-                          <dt className="text-[10px] uppercase tracking-wide text-[#8888a0]">Sector</dt>
-                          <dd className="text-[#e8e8ed]">{c.sector_focus}</dd>
-                        </div>
-                      )}
-                      {c.stage_focus && (
-                        <div>
-                          <dt className="text-[10px] uppercase tracking-wide text-[#8888a0]">Stage</dt>
-                          <dd className="text-[#e8e8ed]">{c.stage_focus}</dd>
-                        </div>
-                      )}
-                      {c.ticket_size && (
-                        <div>
-                          <dt className="text-[10px] uppercase tracking-wide text-[#8888a0]">Ticket</dt>
-                          <dd className="text-[#e8e8ed]">{c.ticket_size}</dd>
-                        </div>
-                      )}
-                      {c.geography && (
-                        <div>
-                          <dt className="text-[10px] uppercase tracking-wide text-[#8888a0]">Location</dt>
-                          <dd className="text-[#e8e8ed]">{c.geography}</dd>
-                        </div>
-                      )}
-                      {c.website && (
-                        <div>
-                          <dt className="text-[10px] uppercase tracking-wide text-[#8888a0]">Website</dt>
-                          <dd>
-                            <a
-                              href={c.website}
-                              target="_blank"
-                              rel="noreferrer"
-                              onClick={(e) => e.stopPropagation()}
-                              className="text-[#6c5ce7] hover:underline break-all"
-                            >
-                              {c.website.replace(/^https?:\/\//, "")}
-                            </a>
-                          </dd>
-                        </div>
-                      )}
-                      {c.linkedin_url && (
-                        <div>
-                          <dt className="text-[10px] uppercase tracking-wide text-[#8888a0]">LinkedIn</dt>
-                          <dd>
-                            <a
-                              href={c.linkedin_url}
-                              target="_blank"
-                              rel="noreferrer"
-                              onClick={(e) => e.stopPropagation()}
-                              className="text-[#6c5ce7] hover:underline break-all"
-                            >
-                              Profile
-                            </a>
-                          </dd>
-                        </div>
-                      )}
-                    </dl>
-                    {c.notes && (
-                      <div className="mt-2 pt-2 border-t border-[rgba(255,255,255,0.06)]">
-                        <p className="text-[10px] uppercase tracking-wide text-[#8888a0] mb-0.5">Notes</p>
-                        <p className="text-xs text-[#8888a0] line-clamp-3">{c.notes}</p>
-                      </div>
-                    )}
-                    {c.joined_user_id && (
-                      <span className="mt-2 inline-block text-xs bg-[rgba(108,92,231,0.15)] text-[#6c5ce7] px-2 py-0.5 rounded-full">
-                        On platform
-                      </span>
-                    )}
-                  </>
+                  )}
+                  {c.sector_focus && (
+                    <div>
+                      <dt className="text-[10px] uppercase tracking-wide text-[#8888a0]">Sector</dt>
+                      <dd className="text-[#e8e8ed]">{c.sector_focus}</dd>
+                    </div>
+                  )}
+                  {c.stage_focus && (
+                    <div>
+                      <dt className="text-[10px] uppercase tracking-wide text-[#8888a0]">Stage</dt>
+                      <dd className="text-[#e8e8ed]">{c.stage_focus}</dd>
+                    </div>
+                  )}
+                  {c.ticket_size && (
+                    <div>
+                      <dt className="text-[10px] uppercase tracking-wide text-[#8888a0]">Ticket</dt>
+                      <dd className="text-[#e8e8ed]">{c.ticket_size}</dd>
+                    </div>
+                  )}
+                  {c.geography && (
+                    <div>
+                      <dt className="text-[10px] uppercase tracking-wide text-[#8888a0]">Location</dt>
+                      <dd className="text-[#e8e8ed]">{c.geography}</dd>
+                    </div>
+                  )}
+                  {c.website && (
+                    <div>
+                      <dt className="text-[10px] uppercase tracking-wide text-[#8888a0]">Website</dt>
+                      <dd>
+                        <a
+                          href={c.website}
+                          target="_blank"
+                          rel="noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="text-[#6c5ce7] hover:underline break-all"
+                        >
+                          {c.website.replace(/^https?:\/\//, "")}
+                        </a>
+                      </dd>
+                    </div>
+                  )}
+                  {c.linkedin_url && (
+                    <div>
+                      <dt className="text-[10px] uppercase tracking-wide text-[#8888a0]">LinkedIn</dt>
+                      <dd>
+                        <a
+                          href={c.linkedin_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="text-[#6c5ce7] hover:underline break-all"
+                        >
+                          Profile
+                        </a>
+                      </dd>
+                    </div>
+                  )}
+                </dl>
+                {c.notes && (
+                  <div className="mt-2 pt-2 border-t border-[rgba(255,255,255,0.06)]">
+                    <p className="text-[10px] uppercase tracking-wide text-[#8888a0] mb-0.5">Notes</p>
+                    <p className="text-xs text-[#8888a0] line-clamp-3">{c.notes}</p>
+                  </div>
+                )}
+                {c.joined_user_id && (
+                  <span className="mt-2 inline-block text-xs bg-[rgba(108,92,231,0.15)] text-[#6c5ce7] px-2 py-0.5 rounded-full">
+                    On platform
+                  </span>
                 )}
               </div>
             ))}
@@ -1079,83 +1053,31 @@ export default function ConnectorNetworkPage() {
               </thead>
               <tbody>
                 {paginated.map((c) => (
-                  <Fragment key={c.id}>
-                    {editingId === c.id ? (
-                      <tr className="border-b border-[rgba(255,255,255,0.03)] bg-[rgba(108,92,231,0.05)]">
-                        <td colSpan={8} className="py-3 px-3">
-                          <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                            {(
-                              [
-                                "name",
-                                "email",
-                                "firm_or_company",
-                                "linkedin_url",
-                                "website",
-                                "sector_focus",
-                                "stage_focus",
-                                "ticket_size",
-                                "geography",
-                                "one_liner",
-                                "notes",
-                              ] as const
-                            ).map((f) => (
-                              <input
-                                key={f}
-                                value={editForm[f]}
-                                onChange={(e) => setEditForm((ef) => ({ ...ef, [f]: e.target.value }))}
-                                placeholder={f.replace(/_/g, " ")}
-                                className="w-full bg-[#16161f] border border-[rgba(255,255,255,0.06)] rounded-lg px-2 py-1.5 text-xs text-[#e8e8ed]"
-                              />
-                            ))}
-                          </div>
-                          {editMsg && <p className="text-xs text-red-400 mt-2">{editMsg}</p>}
-                          <div className="flex gap-2 mt-2">
-                            <button
-                              type="button"
-                              onClick={() => onSaveEdit(c)}
-                              disabled={savingEdit}
-                              className="px-3 py-1 bg-[#6c5ce7] text-white rounded-lg text-xs disabled:opacity-50"
-                            >
-                              Save
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setEditingId(null)}
-                              className="px-3 py-1 text-[#8888a0] text-xs"
-                            >
-                              Cancel
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ) : (
-                      <tr className="border-b border-[rgba(255,255,255,0.03)] hover:bg-[rgba(255,255,255,0.02)]">
-                        <td className="py-2 pr-3">
-                          <p className="text-[#e8e8ed]">{c.name}</p>
-                          {c.firm_or_company && c.firm_or_company !== c.name && (
-                            <p className="text-[#8888a0] text-xs">{c.firm_or_company}</p>
-                          )}
-                        </td>
-                        <td className="py-2 pr-3 text-[#8888a0] text-xs">{c.email ?? "—"}</td>
-                        <td className="py-2 pr-3 text-[#8888a0] text-xs max-w-[120px] truncate">{c.sector_focus ?? "—"}</td>
-                        <td className="py-2 pr-3 text-[#8888a0] text-xs">{c.stage_focus ?? "—"}</td>
-                        <td className="py-2 pr-3 text-[#8888a0] text-xs">{c.ticket_size ?? "—"}</td>
-                        <td className="py-2 pr-3 text-[#8888a0] text-xs">{c.geography ?? "—"}</td>
-                        <td className="py-2 pr-3 text-xs flex gap-2">
-                          {c.website && <a href={c.website} target="_blank" rel="noreferrer" className="text-[#6c5ce7] hover:underline">Web</a>}
-                          {c.linkedin_url && <a href={c.linkedin_url} target="_blank" rel="noreferrer" className="text-[#6c5ce7] hover:underline">LI</a>}
-                        </td>
-                        <td className="py-2 flex gap-2">
-                          <button type="button" onClick={() => startEdit(c)} className="text-xs text-[#6c5ce7] hover:underline">
-                            Edit
-                          </button>
-                          <button type="button" onClick={() => onDelete(c.id)} className="text-xs text-red-400 hover:underline">
-                            Del
-                          </button>
-                        </td>
-                      </tr>
-                    )}
-                  </Fragment>
+                  <tr key={c.id} className="border-b border-[rgba(255,255,255,0.03)] hover:bg-[rgba(255,255,255,0.02)]">
+                    <td className="py-2 pr-3">
+                      <p className="text-[#e8e8ed]">{c.name}</p>
+                      {c.firm_or_company && c.firm_or_company !== c.name && (
+                        <p className="text-[#8888a0] text-xs">{c.firm_or_company}</p>
+                      )}
+                    </td>
+                    <td className="py-2 pr-3 text-[#8888a0] text-xs">{c.email ?? "—"}</td>
+                    <td className="py-2 pr-3 text-[#8888a0] text-xs max-w-[120px] truncate">{c.sector_focus ?? "—"}</td>
+                    <td className="py-2 pr-3 text-[#8888a0] text-xs">{c.stage_focus ?? "—"}</td>
+                    <td className="py-2 pr-3 text-[#8888a0] text-xs">{c.ticket_size ?? "—"}</td>
+                    <td className="py-2 pr-3 text-[#8888a0] text-xs">{c.geography ?? "—"}</td>
+                    <td className="py-2 pr-3 text-xs flex gap-2">
+                      {c.website && <a href={c.website} target="_blank" rel="noreferrer" className="text-[#6c5ce7] hover:underline">Web</a>}
+                      {c.linkedin_url && <a href={c.linkedin_url} target="_blank" rel="noreferrer" className="text-[#6c5ce7] hover:underline">LI</a>}
+                    </td>
+                    <td className="py-2 flex gap-2">
+                      <button type="button" onClick={() => openContactModalEdit(c)} className="text-xs text-[#6c5ce7] hover:underline">
+                        Edit
+                      </button>
+                      <button type="button" onClick={() => onDelete(c.id)} className="text-xs text-red-400 hover:underline">
+                        Del
+                      </button>
+                    </td>
+                  </tr>
                 ))}
               </tbody>
             </table>
@@ -1743,94 +1665,195 @@ export default function ConnectorNetworkPage() {
 
       {viewingContact && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div
-            className="absolute inset-0 bg-black/60"
-            aria-hidden
-            onClick={() => setViewingContact(null)}
-          />
+          <div className="absolute inset-0 bg-black/60" aria-hidden onClick={closeContactModal} />
           <div
             role="dialog"
             aria-modal="true"
             aria-labelledby="contact-modal-title"
-            className="relative z-10 flex w-full max-w-lg max-h-[min(90vh,720px)] flex-col rounded-xl border border-[rgba(255,255,255,0.06)] bg-[#16161f]"
+            className="relative z-10 flex w-full max-w-2xl max-h-[min(90vh,800px)] flex-col rounded-xl border border-[rgba(255,255,255,0.06)] bg-[#16161f]"
           >
             <div className="flex shrink-0 items-start justify-between gap-3 border-b border-[rgba(255,255,255,0.06)] px-5 py-4">
               <div className="min-w-0 pr-2">
-                <h2 id="contact-modal-title" className="text-2xl font-semibold leading-tight text-[#e8e8ed]">
-                  {viewingContact.name}
-                </h2>
-                {viewingContact.firm_or_company && viewingContact.firm_or_company !== viewingContact.name && (
-                  <p className="mt-1 text-base text-[#8888a0]">{viewingContact.firm_or_company}</p>
+                {contactModalMode === "view" ? (
+                  <>
+                    <h2 id="contact-modal-title" className="text-2xl font-semibold leading-tight text-[#e8e8ed]">
+                      {viewingContact.name}
+                    </h2>
+                    {viewingContact.firm_or_company && viewingContact.firm_or_company !== viewingContact.name && (
+                      <p className="mt-1 text-base text-[#8888a0]">{viewingContact.firm_or_company}</p>
+                    )}
+                    <p className="mt-2 text-[10px] uppercase tracking-wide text-[#6c5ce7]">{viewingContact.role}</p>
+                  </>
+                ) : (
+                  <>
+                    <h2 id="contact-modal-title" className="text-lg font-semibold leading-tight text-[#e8e8ed]">
+                      Edit contact
+                    </h2>
+                    <p className="mt-1 text-xs text-[#8888a0] truncate">{viewingContact.name}</p>
+                  </>
                 )}
-                <p className="mt-2 text-[10px] uppercase tracking-wide text-[#6c5ce7]">{viewingContact.role}</p>
               </div>
-              <button
-                type="button"
-                onClick={() => setViewingContact(null)}
-                className="shrink-0 rounded-lg p-2 text-[#8888a0] transition-colors hover:bg-[rgba(255,255,255,0.06)] hover:text-[#e8e8ed]"
-                aria-label="Close"
-              >
-                <span className="block text-xl leading-none" aria-hidden>
-                  ×
-                </span>
-              </button>
+              <div className="flex shrink-0 items-center gap-1">
+                {contactModalMode === "view" && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      populateEditFormFromContact(viewingContact);
+                      setContactModalMode("edit");
+                      setEditMsg(null);
+                    }}
+                    className="rounded-lg px-3 py-1.5 text-xs font-medium text-[#6c5ce7] transition-colors hover:bg-[rgba(108,92,231,0.12)]"
+                  >
+                    Edit
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={closeContactModal}
+                  className="shrink-0 rounded-lg p-2 text-[#8888a0] transition-colors hover:bg-[rgba(255,255,255,0.06)] hover:text-[#e8e8ed]"
+                  aria-label="Close"
+                >
+                  <span className="block text-xl leading-none" aria-hidden>
+                    ×
+                  </span>
+                </button>
+              </div>
             </div>
 
             <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-              {viewingContact.one_liner && (
-                <p className="mb-5 text-sm italic leading-relaxed text-[#8888a0]">{viewingContact.one_liner}</p>
-              )}
+              {contactModalMode === "view" ? (
+                <>
+                  {viewingContact.one_liner && (
+                    <p className="mb-5 text-sm italic leading-relaxed text-[#8888a0]">{viewingContact.one_liner}</p>
+                  )}
 
-              <div className="space-y-3 border-t border-[rgba(255,255,255,0.06)] pt-4">
-                {(
-                  [
-                    ["Sector", viewingContact.sector_focus] as const,
-                    ["Stage", viewingContact.stage_focus] as const,
-                    ["Ticket", viewingContact.ticket_size] as const,
-                    ["Geography", viewingContact.geography] as const,
-                    ["Website", viewingContact.website] as const,
-                    ["LinkedIn", viewingContact.linkedin_url] as const,
-                  ] as const
-                ).map(([label, val]) => (
-                  <div key={label}>
-                    <p className="text-[10px] uppercase tracking-wide text-[#8888a0]">{label}</p>
-                    <div className="mt-0.5 text-sm text-[#e8e8ed]">
-                      {!val ? (
-                        <span className="text-[#8888a0]">—</span>
-                      ) : label === "Website" ? (
-                        <a
-                          href={val}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="break-all text-[#6c5ce7] hover:underline"
-                        >
-                          {val.replace(/^https?:\/\//, "")}
-                        </a>
-                      ) : label === "LinkedIn" ? (
-                        <a href={val} target="_blank" rel="noreferrer" className="break-all text-[#6c5ce7] hover:underline">
-                          View profile
-                        </a>
+                  <div className="space-y-3 border-t border-[rgba(255,255,255,0.06)] pt-4">
+                    {(
+                      [
+                        ["Email", viewingContact.email] as const,
+                        ["Sector", viewingContact.sector_focus] as const,
+                        ["Stage", viewingContact.stage_focus] as const,
+                        ["Ticket", viewingContact.ticket_size] as const,
+                        ["Geography", viewingContact.geography] as const,
+                        ["Website", viewingContact.website] as const,
+                        ["LinkedIn", viewingContact.linkedin_url] as const,
+                      ] as const
+                    ).map(([label, val]) => (
+                      <div key={label}>
+                        <p className="text-[10px] uppercase tracking-wide text-[#8888a0]">{label}</p>
+                        <div className="mt-0.5 text-sm text-[#e8e8ed]">
+                          {!val ? (
+                            <span className="text-[#8888a0]">—</span>
+                          ) : label === "Website" ? (
+                            <a
+                              href={val}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="break-all text-[#6c5ce7] hover:underline"
+                            >
+                              {val.replace(/^https?:\/\//, "")}
+                            </a>
+                          ) : label === "LinkedIn" ? (
+                            <a href={val} target="_blank" rel="noreferrer" className="break-all text-[#6c5ce7] hover:underline">
+                              View profile
+                            </a>
+                          ) : label === "Email" ? (
+                            <a href={`mailto:${val}`} className="break-all text-[#6c5ce7] hover:underline">
+                              {val}
+                            </a>
+                          ) : (
+                            val
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="mt-5 border-t border-[rgba(255,255,255,0.06)] pt-4">
+                    <p className="text-[10px] uppercase tracking-wide text-[#8888a0]">Notes</p>
+                    <div className="mt-2 max-h-40 overflow-y-auto rounded-lg border border-[rgba(255,255,255,0.06)] bg-[#0a0a0f] px-3 py-2">
+                      {viewingContact.notes ? (
+                        <p className="whitespace-pre-wrap text-xs leading-relaxed text-[#8888a0]">{viewingContact.notes}</p>
                       ) : (
-                        val
+                        <span className="text-xs text-[#8888a0]">—</span>
                       )}
                     </div>
                   </div>
-                ))}
-              </div>
 
-              {viewingContact.notes && (
-                <div className="mt-5 border-t border-[rgba(255,255,255,0.06)] pt-4">
-                  <p className="text-[10px] uppercase tracking-wide text-[#8888a0]">Notes</p>
-                  <div className="mt-2 max-h-40 overflow-y-auto rounded-lg border border-[rgba(255,255,255,0.06)] bg-[#0a0a0f] px-3 py-2">
-                    <p className="whitespace-pre-wrap text-xs leading-relaxed text-[#8888a0]">{viewingContact.notes}</p>
+                  {viewingContact.joined_user_id && (
+                    <p className="mt-4 text-xs text-[#6c5ce7]">On platform</p>
+                  )}
+                </>
+              ) : (
+                <div className="space-y-4">
+                  {(
+                    [
+                      ["name", "Name", "text"] as const,
+                      ["firm_or_company", "Firm / company", "text"] as const,
+                      ["email", "Email", "text"] as const,
+                      ["linkedin_url", "LinkedIn URL", "text"] as const,
+                      ["website", "Website", "text"] as const,
+                      ["sector_focus", "Sector focus", "text"] as const,
+                      ["stage_focus", "Stage focus", "text"] as const,
+                      ["ticket_size", "Ticket size", "text"] as const,
+                      ["geography", "Geography", "text"] as const,
+                    ] as const
+                  ).map(([key, label, kind]) => (
+                    <div key={key}>
+                      <label className="block text-xs text-[#8888a0] mb-1">{label}</label>
+                      <input
+                        type={kind}
+                        value={editForm[key]}
+                        onChange={(e) => setEditForm((ef) => ({ ...ef, [key]: e.target.value }))}
+                        className="w-full bg-[#0a0a0f] border border-[rgba(255,255,255,0.06)] rounded-xl px-3 py-2 text-sm text-[#e8e8ed]"
+                      />
+                    </div>
+                  ))}
+                  <div>
+                    <label className="block text-xs text-[#8888a0] mb-1">One-liner</label>
+                    <textarea
+                      value={editForm.one_liner}
+                      onChange={(e) => setEditForm((ef) => ({ ...ef, one_liner: e.target.value }))}
+                      rows={3}
+                      className="w-full bg-[#0a0a0f] border border-[rgba(255,255,255,0.06)] rounded-xl px-3 py-2 text-sm text-[#e8e8ed] resize-y min-h-[4rem]"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-[#8888a0] mb-1">Notes</label>
+                    <textarea
+                      value={editForm.notes}
+                      onChange={(e) => setEditForm((ef) => ({ ...ef, notes: e.target.value }))}
+                      rows={4}
+                      className="w-full bg-[#0a0a0f] border border-[rgba(255,255,255,0.06)] rounded-xl px-3 py-2 text-sm text-[#e8e8ed] resize-y min-h-[5rem]"
+                    />
                   </div>
                 </div>
               )}
-
-              {viewingContact.joined_user_id && (
-                <p className="mt-4 text-xs text-[#6c5ce7]">On platform</p>
-              )}
             </div>
+
+            {contactModalMode === "edit" && (
+              <div className="shrink-0 border-t border-[rgba(255,255,255,0.06)] px-5 py-3 space-y-2">
+                {editMsg && <p className="text-xs text-red-400">{editMsg}</p>}
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void onSaveContactModal()}
+                    disabled={savingEdit}
+                    className="px-4 py-2 bg-[#6c5ce7] text-white rounded-xl text-sm font-medium hover:bg-[#7d6ff0] disabled:opacity-50"
+                  >
+                    {savingEdit ? "Saving…" : "Save"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={cancelContactModalEdit}
+                    disabled={savingEdit}
+                    className="px-4 py-2 text-sm text-[#8888a0] rounded-xl hover:bg-[rgba(255,255,255,0.06)] hover:text-[#e8e8ed] disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

@@ -186,7 +186,7 @@ export default function ConnectorNetworkPage() {
     if (!token) return;
     const [networkRes, profileRes] = await Promise.all([
       fetch(connectorApiUrl("/connector-profile/network"), { headers: authHeaders(token) }),
-      fetch(connectorApiUrl("/connector-profile/"), { headers: authHeaders(token) }),
+      fetch(connectorApiUrl("/connector-profile"), { headers: authHeaders(token) }),
     ]);
     if (networkRes.ok) setContacts(await networkRes.json());
     if (profileRes.ok) {
@@ -892,14 +892,16 @@ export default function ConnectorNetworkPage() {
               >
                 Export XLSX
               </button>
-              <button
-                type="button"
-                onClick={onIpfsSnapshot}
-                disabled={ipfsLoading}
-                className="px-3 py-1.5 text-xs rounded-xl bg-[rgba(108,92,231,0.08)] text-[#6c5ce7] border border-[rgba(108,92,231,0.2)] hover:bg-[rgba(108,92,231,0.15)] disabled:opacity-40"
-              >
-                {ipfsLoading ? "Anchoring…" : "Anchor to IPFS"}
-              </button>
+              {connectorTier !== "free" && (
+                <button
+                  type="button"
+                  onClick={onIpfsSnapshot}
+                  disabled={ipfsLoading}
+                  className="px-3 py-1.5 text-xs rounded-xl bg-[rgba(108,92,231,0.08)] text-[#6c5ce7] border border-[rgba(108,92,231,0.2)] hover:bg-[rgba(108,92,231,0.15)] disabled:opacity-40"
+                >
+                  {ipfsLoading ? "Anchoring…" : "Anchor to IPFS"}
+                </button>
+              )}
               {ipfsResult?.cid && (
                 <a
                   href={ipfsResult.url}

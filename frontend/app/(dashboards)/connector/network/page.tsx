@@ -107,9 +107,6 @@ export default function ConnectorNetworkPage() {
   const [tab, setTab] = useState<"investor" | "founder">("investor");
   const [msg, setMsg] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
-  const [csvText, setCsvText] = useState("");
-  const [csvMsg, setCsvMsg] = useState<string | null>(null);
-  const [csvImporting, setCsvImporting] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [view, setView] = useState<"card" | "list">("list");
   const [page, setPage] = useState(1);
@@ -431,25 +428,6 @@ export default function ConnectorNetworkPage() {
       document.body.style.overflow = "";
     };
   }, [viewingContact, closeContactModal]);
-
-  async function onCsvImport() {
-    if (!token || !csvText.trim()) return;
-    setCsvImporting(true);
-    const res = await fetch(connectorApiUrl("/connector-profile/network/csv"), {
-      method: "POST",
-      headers: authJsonHeaders(token),
-      body: JSON.stringify({ csv: csvText }),
-    });
-    if (res.ok) {
-      const data = await res.json();
-      setCsvMsg(`Imported ${data.imported}, skipped ${data.skipped}.`);
-      setCsvText("");
-      load();
-    } else {
-      setCsvMsg("Import failed.");
-    }
-    setCsvImporting(false);
-  }
 
   function onSheetFile(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -953,32 +931,17 @@ export default function ConnectorNetworkPage() {
                 onClick={() => openContactModalView(c)}
                 className="bg-[var(--bg)] border border-[var(--border)] rounded-xl p-4 cursor-pointer hover:bg-[var(--bg-card)] hover:border-[rgba(108,92,231,0.2)] transition-colors"
               >
-                <div className="flex justify-between items-start gap-2">
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-[var(--text)]">{c.name}</p>
-                    {c.firm_or_company && c.firm_or_company !== c.name && (
-                      <p className="text-xs text-[var(--text-muted)]">{c.firm_or_company}</p>
-                    )}
-                    {c.one_liner && (
-                      <div className="mt-2">
-                        <p className="text-[10px] uppercase tracking-wide text-[var(--text-muted)] mb-0.5">One-liner</p>
-                        <p className="text-xs text-[var(--text)] leading-snug">{c.one_liner}</p>
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex gap-1 shrink-0">
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        void onArchive(c.id);
-                      }}
-                      className="text-xs text-[var(--text-muted)] hover:text-[var(--text)]"
-                      title="Archive contact"
-                    >
-                      Archive
-                    </button>
-                  </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-[var(--text)]">{c.name}</p>
+                  {c.firm_or_company && c.firm_or_company !== c.name && (
+                    <p className="text-xs text-[var(--text-muted)]">{c.firm_or_company}</p>
+                  )}
+                  {c.one_liner && (
+                    <div className="mt-2">
+                      <p className="text-[10px] uppercase tracking-wide text-[var(--text-muted)] mb-0.5">One-liner</p>
+                      <p className="text-xs text-[var(--text)] leading-snug">{c.one_liner}</p>
+                    </div>
+                  )}
                 </div>
                 <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-1.5 mt-3 text-xs">
                   {c.email && (
@@ -1070,7 +1033,6 @@ export default function ConnectorNetworkPage() {
                   <th className="text-left pb-2 pr-3">Ticket</th>
                   <th className="text-left pb-2 pr-3">Location</th>
                   <th className="text-left pb-2 pr-3">Links</th>
-                  <th className="text-left pb-2" />
                 </tr>
               </thead>
               <tbody>
@@ -1092,30 +1054,28 @@ export default function ConnectorNetworkPage() {
                     <td className="py-2 pr-3 text-[var(--text-muted)] text-xs">{c.ticket_size ?? "—"}</td>
                     <td className="py-2 pr-3 text-[var(--text-muted)] text-xs">{c.geography ?? "—"}</td>
                     <td className="py-2 pr-3 text-xs flex gap-2">
-                      {c.website && <a href={c.website} target="_blank" rel="noreferrer" className="text-[#6c5ce7] hover:underline">Web</a>}
-                      {c.linkedin_url && <a href={c.linkedin_url} target="_blank" rel="noreferrer" className="text-[#6c5ce7] hover:underline">LI</a>}
-                    </td>
-                    <td className="py-2 flex gap-2">
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openContactModalEdit(c);
-                        }}
-                        className="text-xs text-[#6c5ce7] hover:underline"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onDelete(c.id);
-                        }}
-                        className="text-xs text-red-400 hover:underline"
-                      >
-                        Del
-                      </button>
+                      {c.website && (
+                        <a
+                          href={c.website}
+                          target="_blank"
+                          rel="noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="text-[#6c5ce7] hover:underline"
+                        >
+                          Web
+                        </a>
+                      )}
+                      {c.linkedin_url && (
+                        <a
+                          href={c.linkedin_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="text-[#6c5ce7] hover:underline"
+                        >
+                          LI
+                        </a>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -1675,34 +1635,6 @@ export default function ConnectorNetworkPage() {
         )}
       </div>
 
-      <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-5 space-y-3">
-        <h2 className="text-sm font-semibold text-[var(--text)]">Bulk import via CSV</h2>
-        <p className="text-xs text-[var(--text-muted)]">
-          Paste CSV with columns: <code className="text-[#6c5ce7]">role, name, email, firm, linkedin, website, sector, stage, ticket, geography, one_liner, notes</code>
-          <br />
-          First row is header (skipped). Role must be <code className="text-[#6c5ce7]">investor</code> or{" "}
-          <code className="text-[#6c5ce7]">founder</code>.
-        </p>
-        <textarea
-          value={csvText}
-          onChange={(e) => setCsvText(e.target.value)}
-          rows={5}
-          className="w-full bg-[var(--bg)] border border-[var(--border)] rounded-xl px-3 py-2 text-xs text-[var(--text)] font-mono"
-          placeholder={
-            "role,name,email,firm,linkedin,notes\ninvestor,Jane Smith,jane@vc.com,Acme Ventures,,Invests in fintech\nfounder,John Doe,john@startup.com,Startup Inc,,Met at AfricArena"
-          }
-        />
-        {csvMsg && <p className="text-xs text-[#6c5ce7]">{csvMsg}</p>}
-        <button
-          type="button"
-          onClick={onCsvImport}
-          disabled={csvImporting || !csvText.trim()}
-          className="px-4 py-2 bg-[#6c5ce7] text-white rounded-xl text-sm font-medium hover:bg-[#7d6ff0] disabled:opacity-50"
-        >
-          {csvImporting ? "Importing..." : "Import CSV"}
-        </button>
-      </div>
-
       {viewingContact && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/60" aria-hidden onClick={closeContactModal} />
@@ -1734,19 +1666,6 @@ export default function ConnectorNetworkPage() {
                 )}
               </div>
               <div className="flex shrink-0 items-center gap-1">
-                {contactModalMode === "view" && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      populateEditFormFromContact(viewingContact);
-                      setContactModalMode("edit");
-                      setEditMsg(null);
-                    }}
-                    className="rounded-lg px-3 py-1.5 text-xs font-medium text-[#6c5ce7] transition-colors hover:bg-[rgba(108,92,231,0.12)]"
-                  >
-                    Edit
-                  </button>
-                )}
                 <button
                   type="button"
                   onClick={closeContactModal}
@@ -1870,6 +1789,38 @@ export default function ConnectorNetworkPage() {
                 </div>
               )}
             </div>
+
+            {contactModalMode === "view" && (
+              <div className="shrink-0 border-t border-[var(--border)] px-5 py-3">
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      populateEditFormFromContact(viewingContact);
+                      setContactModalMode("edit");
+                      setEditMsg(null);
+                    }}
+                    className="rounded-xl px-4 py-2 text-sm font-medium text-[#6c5ce7] transition-colors hover:bg-[rgba(108,92,231,0.12)]"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void onArchive(viewingContact.id)}
+                    className="rounded-xl px-4 py-2 text-sm font-medium text-[var(--text-muted)] transition-colors hover:bg-[rgba(255,255,255,0.06)] hover:text-[var(--text)]"
+                  >
+                    Archive
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void onDelete(viewingContact.id)}
+                    className="rounded-xl px-4 py-2 text-sm font-medium text-red-400 transition-colors hover:bg-[rgba(255,80,80,0.12)]"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+            )}
 
             {contactModalMode === "edit" && (
               <div className="shrink-0 border-t border-[var(--border)] px-5 py-3 space-y-2">

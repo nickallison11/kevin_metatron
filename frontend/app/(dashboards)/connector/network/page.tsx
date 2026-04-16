@@ -67,6 +67,11 @@ type AdminUserOption = {
   role: string;
 };
 
+type ConnectorProfileSummary = {
+  connector_tier?: string | null;
+  enrichment_credits?: number | null;
+};
+
 const STAGING_STATUS_RANK: Record<StagedContact["status"], number> = {
   enriched: 0,
   enriching: 1,
@@ -110,7 +115,7 @@ export default function ConnectorNetworkPage() {
   const [showForm, setShowForm] = useState(false);
   const [view, setView] = useState<"card" | "list">("list");
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(20);
+  const [pageSize, setPageSize] = useState(10);
   const [contactModalMode, setContactModalMode] = useState<"view" | "edit">("view");
   const [editForm, setEditForm] = useState({
     name: "",
@@ -128,6 +133,8 @@ export default function ConnectorNetworkPage() {
   const [savingEdit, setSavingEdit] = useState(false);
   const [editMsg, setEditMsg] = useState<string | null>(null);
   const [viewingContact, setViewingContact] = useState<Contact | null>(null);
+  const [connectorTier, setConnectorTier] = useState("free");
+  const [enrichmentCredits, setEnrichmentCredits] = useState(0);
 
   const sheetInputRef = useRef<HTMLInputElement>(null);
   const [ipfsLoading, setIpfsLoading] = useState(false);
@@ -177,8 +184,16 @@ export default function ConnectorNetworkPage() {
 
   const load = useCallback(async () => {
     if (!token) return;
-    const res = await fetch(connectorApiUrl("/connector-profile/network"), { headers: authHeaders(token) });
-    if (res.ok) setContacts(await res.json());
+    const [networkRes, profileRes] = await Promise.all([
+      fetch(connectorApiUrl("/connector-profile/network"), { headers: authHeaders(token) }),
+      fetch(connectorApiUrl("/connector-profile/"), { headers: authHeaders(token) }),
+    ]);
+    if (networkRes.ok) setContacts(await networkRes.json());
+    if (profileRes.ok) {
+      const profile = (await profileRes.json()) as ConnectorProfileSummary;
+      setConnectorTier(profile.connector_tier ?? "free");
+      setEnrichmentCredits(profile.enrichment_credits ?? 0);
+    }
   }, [token, connectorApiUrl]);
 
   const loadStaging = useCallback(async () => {
@@ -311,6 +326,9 @@ export default function ConnectorNetworkPage() {
   const stagedEnrichedCount = stagingCounts.enriched;
   const stagedPendingCount = stagingCounts.pending;
   const stagedFailedCount = stagingCounts.failed;
+  const isFreeTier = connectorTier === "free";
+  const contactCount = contacts.length;
+  const atFreeLimit = isFreeTier && contactCount >= 50;
 
   async function onAdd(e: FormEvent) {
     e.preventDefault();
@@ -921,6 +939,42 @@ export default function ConnectorNetworkPage() {
           </div>
         </div>
 
+        <div className="mb-4 flex flex-wrap items-center gap-2 text-xs">
+          <span
+            className={`inline-flex items-center rounded-full border px-3 py-1 ${
+              enrichmentCredits > 0
+                ? "border-[#6c5ce7]/30 bg-[#6c5ce7]/10 text-[#6c5ce7]"
+                : "border-red-400/30 bg-red-400/10 text-red-400"
+            }`}
+          >
+            ⚡ {enrichmentCredits} credits
+          </span>
+          {enrichmentCredits <= 0 && (
+            <a href="/connector/settings/subscription" className="text-red-400 hover:underline">
+              Buy credits
+            </a>
+          )}
+          {isFreeTier && (
+            <span className={`${atFreeLimit ? "text-red-400" : "text-[var(--text-muted)]"}`}>
+              {contactCount}/50 contacts
+            </span>
+          )}
+        </div>
+
+        {isFreeTier && (
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#6c5ce7]/20 bg-[#6c5ce7]/10 px-4 py-3">
+            <p className="text-xs text-[var(--text)]">
+              Upgrade to $10/month to unlock unlimited contacts, IPFS storage & 50 enrichment credits.
+            </p>
+            <a
+              href="/connector/settings/subscription"
+              className="rounded-lg bg-[#6c5ce7] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#7d6ff0]"
+            >
+              Upgrade
+            </a>
+          </div>
+        )}
+
         {paginated.length === 0 ? (
           <p className="text-[var(--text-muted)] text-sm text-center py-8">No {tab}s yet.</p>
         ) : view === "card" ? (
@@ -1039,7 +1093,7 @@ export default function ConnectorNetworkPage() {
                   <tr
                     key={c.id}
                     onClick={() => openContactModalView(c)}
-                    className="border-b border-[rgba(255,255,255,0.03)] hover:bg-[var(--bg-card)] cursor-pointer"
+                    className="border-b border-[rgba(255,255,255,0.03)] bg-[var(--bg)] hover:bg-[var(--bg-card)] cursor-pointer"
                   >
                     <td className="py-2 pr-3">
                       <p className="text-[var(--text)]">{c.name}</p>
@@ -1102,7 +1156,9 @@ export default function ConnectorNetworkPage() {
                   <button
                     type="button"
                     onClick={() => onEnrichAll()}
-                    className="px-3 py-1.5 bg-[#6c5ce7] text-white rounded-xl text-xs font-medium hover:bg-[#7d6ff0]"
+                    disabled={enrichmentCredits === 0}
+                    title={enrichmentCredits === 0 ? "No credits remaining" : undefined}
+                    className="px-3 py-1.5 bg-[#6c5ce7] text-white rounded-xl text-xs font-medium hover:bg-[#7d6ff0] disabled:opacity-50"
                   >
                     Enrich all pending ({stagedPendingCount})
                   </button>
@@ -1111,7 +1167,9 @@ export default function ConnectorNetworkPage() {
                   <button
                     type="button"
                     onClick={() => onEnrichAll()}
-                    className="px-3 py-1.5 bg-[rgba(255,80,80,0.12)] text-red-400 border border-[rgba(255,80,80,0.2)] rounded-xl text-xs font-medium hover:bg-[rgba(255,80,80,0.2)]"
+                    disabled={enrichmentCredits === 0}
+                    title={enrichmentCredits === 0 ? "No credits remaining" : undefined}
+                    className="px-3 py-1.5 bg-[rgba(255,80,80,0.12)] text-red-400 border border-[rgba(255,80,80,0.2)] rounded-xl text-xs font-medium hover:bg-[rgba(255,80,80,0.2)] disabled:opacity-50"
                   >
                     Retry failed ({stagedFailedCount})
                   </button>

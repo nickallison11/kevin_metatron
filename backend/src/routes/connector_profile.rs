@@ -110,6 +110,7 @@ pub struct ConnectorProfileDto {
     pub country: Option<String>,
     pub connector_tier: Option<String>,
     pub ipfs_cid: Option<String>,
+    pub enrichment_credits: Option<i32>,
 }
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
@@ -129,6 +130,7 @@ struct ConnectorRow {
     country: Option<String>,
     connector_tier: Option<String>,
     ipfs_cid: Option<String>,
+    enrichment_credits: Option<i32>,
 }
 
 #[derive(Serialize, sqlx::FromRow)]
@@ -265,7 +267,7 @@ async fn fetch_dto(
     user_id: Uuid,
 ) -> Result<ConnectorProfileDto, (axum::http::StatusCode, String)> {
     let row = sqlx::query_as::<_, ConnectorRow>(
-        r#"SELECT organisation, bio, speciality, country, connector_tier, ipfs_cid
+        r#"SELECT organisation, bio, speciality, country, connector_tier, ipfs_cid, enrichment_credits
              FROM connector_profiles WHERE user_id = $1"#,
     )
     .bind(user_id)
@@ -281,8 +283,32 @@ async fn fetch_dto(
             country: r.country,
             connector_tier: r.connector_tier,
             ipfs_cid: r.ipfs_cid,
+            enrichment_credits: r.enrichment_credits,
         })
         .unwrap_or_default())
+}
+
+async fn connector_tier_and_active_count(
+    state: &AppState,
+    user_id: Uuid,
+) -> Result<(String, i64), (axum::http::StatusCode, String)> {
+    let tier = sqlx::query_scalar::<_, Option<String>>(
+        "SELECT connector_tier FROM connector_profiles WHERE user_id = $1",
+    )
+    .bind(user_id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(internal)?
+    .flatten()
+    .unwrap_or_else(|| "free".to_string());
+    let active_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM connector_network_contacts WHERE connector_user_id = $1 AND NOT is_archived",
+    )
+    .bind(user_id)
+    .fetch_one(&state.db)
+    .await
+    .map_err(internal)?;
+    Ok((tier, active_count))
 }
 
 async fn get_own(
@@ -416,6 +442,13 @@ async fn add_network_contact(
     Json(body): Json<NetworkContactDto>,
 ) -> Result<Json<NetworkContactRow>, (axum::http::StatusCode, String)> {
     let user_id = resolve_connector_user(&state, bearer.token(), as_user.as_user).await?;
+    let (tier, active_count) = connector_tier_and_active_count(&state, user_id).await?;
+    if tier == "free" && active_count >= 50 {
+        return Err((
+            axum::http::StatusCode::PAYMENT_REQUIRED,
+            "Contact limit reached. Upgrade to store unlimited contacts.".to_string(),
+        ));
+    }
     if body.name.trim().is_empty() {
         return Err((axum::http::StatusCode::BAD_REQUEST, "name is required".into()));
     }
@@ -564,8 +597,15 @@ async fn import_network_csv(
     Json(body): Json<CsvImportBody>,
 ) -> Result<Json<serde_json::Value>, (axum::http::StatusCode, String)> {
     let user_id = resolve_connector_user(&state, bearer.token(), as_user.as_user).await?;
+    let (tier, mut active_count) = connector_tier_and_active_count(&state, user_id).await?;
     let (mut imported, mut skipped) = (0u32, 0u32);
     for line in body.csv.lines().skip(1) {
+        if tier == "free" && active_count >= 50 {
+            return Err((
+                axum::http::StatusCode::PAYMENT_REQUIRED,
+                "Contact limit reached. Upgrade to store unlimited contacts.".to_string(),
+            ));
+        }
         let cols: Vec<&str> = line.splitn(12, ',').collect();
         if cols.len() < 2 {
             skipped += 1;
@@ -636,6 +676,7 @@ async fn import_network_csv(
         .await;
         if res.is_ok() {
             imported += 1;
+            active_count += 1;
         } else {
             skipped += 1;
         }
@@ -904,6 +945,21 @@ async fn enrich_staged_contacts(
         .flatten();
 
     let _ = byok; // BYOK reserved for future use; enrichment uses platform Gemini key
+    let credits_remaining: i32 = sqlx::query_scalar::<_, Option<i32>>(
+        "SELECT enrichment_credits FROM connector_profiles WHERE user_id = $1",
+    )
+    .bind(user_id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(internal)?
+    .flatten()
+    .unwrap_or(0);
+    if credits_remaining <= 0 {
+        return Err((
+            axum::http::StatusCode::PAYMENT_REQUIRED,
+            "No enrichment credits remaining. Purchase a credit pack to continue.".to_string(),
+        ));
+    }
     let gemini_key = std::env::var("GEMINI_API_KEY").map_err(|_| {
         (
             axum::http::StatusCode::INTERNAL_SERVER_ERROR,
@@ -984,7 +1040,17 @@ async fn enrich_staged_contacts(
             let client = client.clone();
             handles.push(tokio::spawn(async move {
                 let _permit = sem.acquire().await.unwrap();
-                enrich_one_contact(&client, &pool, row.id, &row.role, &row.name, row.raw_notes.as_deref(), &key).await;
+                enrich_one_contact(
+                    &client,
+                    &pool,
+                    uid_for_notify,
+                    row.id,
+                    &row.role,
+                    &row.name,
+                    row.raw_notes.as_deref(),
+                    &key,
+                )
+                .await;
             }));
         }
         for h in handles {
@@ -1035,6 +1101,7 @@ async fn import_from_staging(
     Json(body): Json<ImportStagingBody>,
 ) -> Result<Json<serde_json::Value>, (axum::http::StatusCode, String)> {
     let user_id = resolve_connector_user(&state, bearer.token(), as_user.as_user).await?;
+    let (tier, mut active_count) = connector_tier_and_active_count(&state, user_id).await?;
 
     let rows: Vec<StagedContactRow> = if let Some(ids) = &body.ids {
         if ids.is_empty() {
@@ -1072,6 +1139,12 @@ async fn import_from_staging(
 
     let mut imported = 0u32;
     for row in &rows {
+        if tier == "free" && active_count >= 50 {
+            return Err((
+                axum::http::StatusCode::PAYMENT_REQUIRED,
+                "Contact limit reached. Upgrade to store unlimited contacts.".to_string(),
+            ));
+        }
         let name = row
             .contact_name
             .as_deref()
@@ -1117,6 +1190,7 @@ async fn import_from_staging(
 
         if res.is_ok() {
             imported += 1;
+            active_count += 1;
             let _ = sqlx::query("DELETE FROM connector_network_staging WHERE id=$1")
                 .bind(row.id)
                 .execute(&state.db)
@@ -1130,6 +1204,7 @@ async fn import_from_staging(
 async fn enrich_one_contact(
     client: &reqwest::Client,
     pool: &sqlx::PgPool,
+    user_id: Uuid,
     id: Uuid,
     role: &str,
     name: &str,
@@ -1273,13 +1348,11 @@ async fn enrich_one_contact(
     .execute(pool)
     .await;
     let _ = sqlx::query(
-        "UPDATE connector_profiles SET
-           enrichments_this_month = CASE WHEN enrichments_month_start < date_trunc('month', CURRENT_DATE)::date
-             THEN 1 ELSE enrichments_this_month + 1 END,
-           enrichments_month_start = date_trunc('month', CURRENT_DATE)::date
-         WHERE user_id = (SELECT connector_user_id FROM connector_network_staging WHERE id=$1)",
+        "UPDATE connector_profiles
+         SET enrichment_credits = GREATEST(enrichment_credits - 1, 0)
+         WHERE user_id = $1",
     )
-    .bind(id)
+    .bind(user_id)
     .execute(pool)
     .await;
 }
@@ -1309,6 +1382,21 @@ async fn ipfs_snapshot(
     Query(as_user): Query<AsUserQuery>,
 ) -> Result<Json<serde_json::Value>, (axum::http::StatusCode, String)> {
     let user_id = resolve_connector_user(&state, bearer.token(), as_user.as_user).await?;
+    let tier = sqlx::query_scalar::<_, Option<String>>(
+        "SELECT connector_tier FROM connector_profiles WHERE user_id = $1",
+    )
+    .bind(user_id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(internal)?
+    .flatten()
+    .unwrap_or_else(|| "free".to_string());
+    if tier == "free" {
+        return Err((
+            axum::http::StatusCode::PAYMENT_REQUIRED,
+            "IPFS storage requires a paid plan.".to_string(),
+        ));
+    }
     let pinata_jwt = std::env::var("PINATA_JWT").map_err(|_| {
         (
             axum::http::StatusCode::INTERNAL_SERVER_ERROR,

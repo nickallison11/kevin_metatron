@@ -14,8 +14,6 @@ import * as XLSX from "xlsx";
 import { API_BASE, authHeaders, authJsonHeaders } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
-const PAGE_SIZE = 10;
-
 type Contact = {
   id: string;
   role: "investor" | "founder";
@@ -113,8 +111,9 @@ export default function ConnectorNetworkPage() {
   const [csvMsg, setCsvMsg] = useState<string | null>(null);
   const [csvImporting, setCsvImporting] = useState(false);
   const [showForm, setShowForm] = useState(false);
-  const [view, setView] = useState<"card" | "list">("card");
+  const [view, setView] = useState<"card" | "list">("list");
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
   const [contactModalMode, setContactModalMode] = useState<"view" | "edit">("view");
   const [editForm, setEditForm] = useState({
     name: "",
@@ -296,8 +295,12 @@ export default function ConnectorNetworkPage() {
   }, [token]);
 
   const filtered = useMemo(() => contacts.filter((c) => c.role === tab), [contacts, tab]);
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const paginated = filtered.slice((page - 1) * pageSize, page * pageSize);
+
+  useEffect(() => {
+    setPage(1);
+  }, [tab, pageSize]);
 
   const filteredStaged = useMemo(() => {
     const filtered = stagingTab === "all" ? staged : staged.filter((s) => s.role === stagingTab);
@@ -337,6 +340,17 @@ export default function ConnectorNetworkPage() {
     if (!token || !confirm("Delete this contact?")) return;
     await fetch(connectorApiUrl(`/connector-profile/network/${id}`), {
       method: "DELETE",
+      headers: authHeaders(token),
+    });
+    setViewingContact((v) => (v?.id === id ? null : v));
+    setContactModalMode("view");
+    load();
+  }
+
+  async function onArchive(id: string) {
+    if (!token) return;
+    await fetch(connectorApiUrl(`/connector-profile/network/${id}/archive`), {
+      method: "POST",
       headers: authHeaders(token),
     });
     setViewingContact((v) => (v?.id === id ? null : v));
@@ -729,7 +743,7 @@ export default function ConnectorNetworkPage() {
 
   const statusBadge = (status: StagedContact["status"]) => {
     const map = {
-      pending: "bg-[rgba(255,255,255,0.06)] text-[#8888a0]",
+      pending: "bg-[rgba(255,255,255,0.06)] text-[var(--text-muted)]",
       enriching: "bg-[rgba(108,92,231,0.15)] text-[#6c5ce7] animate-pulse",
       enriched: "bg-[rgba(0,200,100,0.12)] text-green-400",
       failed: "bg-[rgba(255,80,80,0.12)] text-red-400",
@@ -740,18 +754,19 @@ export default function ConnectorNetworkPage() {
   };
 
   return (
-    <div className="space-y-6 px-6 py-6">
+    <main className="flex-1 text-[var(--text)]">
+      <div className="space-y-6 px-6 py-6 md:px-10">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-[#e8e8ed]">My Network</h1>
-          <p className="text-[#8888a0] text-sm mt-1">Manage and enrich your investor and founder contacts</p>
+          <h1 className="text-2xl font-semibold text-[var(--text)]">My Network</h1>
+          <p className="text-[var(--text-muted)] text-sm mt-1">Manage and enrich your investor and founder contacts</p>
           {isSuperAdmin && (
             <div className="mt-3 flex items-center gap-2">
-              <label className="text-xs text-[#8888a0]">Acting as:</label>
+              <label className="text-xs text-[var(--text-muted)]">Acting as:</label>
               <select
                 value={actingAsUserId}
                 onChange={(e) => setActingAsUserId(e.target.value)}
-                className="bg-[#0a0a0f] border border-[rgba(255,255,255,0.06)] rounded-lg px-2 py-1 text-xs text-[#e8e8ed]"
+                className="bg-[var(--bg)] border border-[var(--border)] rounded-lg px-2 py-1 text-xs text-[var(--text)]"
               >
                 {actingOptions.length === 0 ? (
                   <option value="">No intermediary users</option>
@@ -780,64 +795,64 @@ export default function ConnectorNetworkPage() {
       {showForm && (
         <form
           onSubmit={onAdd}
-          className="bg-[#16161f] border border-[rgba(255,255,255,0.06)] rounded-xl p-5 space-y-4"
+          className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-5 space-y-4"
         >
-          <h2 className="text-sm font-semibold text-[#e8e8ed]">Add Contact</h2>
+          <h2 className="text-sm font-semibold text-[var(--text)]">Add Contact</h2>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs text-[#8888a0] mb-1">Role</label>
+              <label className="block text-xs text-[var(--text-muted)] mb-1">Role</label>
               <select
                 value={form.role}
                 onChange={(e) => setForm((f) => ({ ...f, role: e.target.value as "investor" | "founder" }))}
-                className="w-full bg-[#0a0a0f] border border-[rgba(255,255,255,0.06)] rounded-xl px-3 py-2 text-sm text-[#e8e8ed]"
+                className="w-full bg-[var(--bg)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm text-[var(--text)]"
               >
                 <option value="investor">Investor</option>
                 <option value="founder">Founder</option>
               </select>
             </div>
             <div>
-              <label className="block text-xs text-[#8888a0] mb-1">Name *</label>
+              <label className="block text-xs text-[var(--text-muted)] mb-1">Name *</label>
               <input
                 required
                 value={form.name}
                 onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                className="w-full bg-[#0a0a0f] border border-[rgba(255,255,255,0.06)] rounded-xl px-3 py-2 text-sm text-[#e8e8ed]"
+                className="w-full bg-[var(--bg)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm text-[var(--text)]"
                 placeholder="Full name"
               />
             </div>
             <div>
-              <label className="block text-xs text-[#8888a0] mb-1">Email</label>
+              <label className="block text-xs text-[var(--text-muted)] mb-1">Email</label>
               <input
                 value={form.email}
                 onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
-                className="w-full bg-[#0a0a0f] border border-[rgba(255,255,255,0.06)] rounded-xl px-3 py-2 text-sm text-[#e8e8ed]"
+                className="w-full bg-[var(--bg)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm text-[var(--text)]"
                 placeholder="email@example.com"
               />
             </div>
             <div>
-              <label className="block text-xs text-[#8888a0] mb-1">Firm / Company</label>
+              <label className="block text-xs text-[var(--text-muted)] mb-1">Firm / Company</label>
               <input
                 value={form.firm_or_company}
                 onChange={(e) => setForm((f) => ({ ...f, firm_or_company: e.target.value }))}
-                className="w-full bg-[#0a0a0f] border border-[rgba(255,255,255,0.06)] rounded-xl px-3 py-2 text-sm text-[#e8e8ed]"
+                className="w-full bg-[var(--bg)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm text-[var(--text)]"
                 placeholder="Acme Ventures"
               />
             </div>
             <div>
-              <label className="block text-xs text-[#8888a0] mb-1">LinkedIn</label>
+              <label className="block text-xs text-[var(--text-muted)] mb-1">LinkedIn</label>
               <input
                 value={form.linkedin_url}
                 onChange={(e) => setForm((f) => ({ ...f, linkedin_url: e.target.value }))}
-                className="w-full bg-[#0a0a0f] border border-[rgba(255,255,255,0.06)] rounded-xl px-3 py-2 text-sm text-[#e8e8ed]"
+                className="w-full bg-[var(--bg)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm text-[var(--text)]"
                 placeholder="https://linkedin.com/in/..."
               />
             </div>
             <div>
-              <label className="block text-xs text-[#8888a0] mb-1">Notes</label>
+              <label className="block text-xs text-[var(--text-muted)] mb-1">Notes</label>
               <input
                 value={form.notes}
                 onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
-                className="w-full bg-[#0a0a0f] border border-[rgba(255,255,255,0.06)] rounded-xl px-3 py-2 text-sm text-[#e8e8ed]"
+                className="w-full bg-[var(--bg)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm text-[var(--text)]"
                 placeholder="Met at AfricArena..."
               />
             </div>
@@ -852,7 +867,7 @@ export default function ConnectorNetworkPage() {
         </form>
       )}
 
-      <div className="bg-[#16161f] border border-[rgba(255,255,255,0.06)] rounded-xl p-5">
+      <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-5">
         <div className="flex items-center justify-between mb-4">
           <div className="flex flex-col gap-2">
             <div className="flex gap-2">
@@ -865,7 +880,7 @@ export default function ConnectorNetworkPage() {
                     setPage(1);
                   }}
                   className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                    tab === t ? "bg-[#6c5ce7] text-white" : "text-[#8888a0] hover:text-[#e8e8ed]"
+                    tab === t ? "bg-[#6c5ce7] text-white" : "text-[var(--text-muted)] hover:text-[var(--text)]"
                   }`}
                 >
                   {t === "investor" ? "Investors" : "Founders"}
@@ -877,7 +892,7 @@ export default function ConnectorNetworkPage() {
               <button
                 type="button"
                 onClick={onExportNetwork}
-                className="px-3 py-1.5 text-xs rounded-xl bg-[rgba(255,255,255,0.04)] text-[#8888a0] border border-[rgba(255,255,255,0.06)] hover:text-[#e8e8ed] hover:border-[rgba(255,255,255,0.12)]"
+                className="px-3 py-1.5 text-xs rounded-xl bg-[rgba(255,255,255,0.04)] text-[var(--text-muted)] border border-[var(--border)] hover:text-[var(--text)] hover:border-[rgba(255,255,255,0.12)]"
               >
                 Export XLSX
               </button>
@@ -901,14 +916,25 @@ export default function ConnectorNetworkPage() {
               )}
             </div>
           </div>
-          <div className="flex gap-2">
-            {(["card", "list"] as const).map((v) => (
+          <div className="flex items-center gap-2">
+            <select
+              value={pageSize}
+              onChange={(e) => setPageSize(Number(e.target.value))}
+              className="bg-[var(--bg)] border border-[var(--border)] rounded-lg px-2 py-1 text-xs text-[var(--text-muted)]"
+            >
+              {[5, 10, 20, 50, 100].map((n) => (
+                <option key={n} value={n}>
+                  {n} per page
+                </option>
+              ))}
+            </select>
+            {(["list", "card"] as const).map((v) => (
               <button
                 key={v}
                 type="button"
                 onClick={() => setView(v)}
                 className={`px-3 py-1 rounded-lg text-xs ${
-                  view === v ? "bg-[rgba(108,92,231,0.2)] text-[#6c5ce7]" : "text-[#8888a0] hover:text-[#e8e8ed]"
+                  view === v ? "bg-[rgba(108,92,231,0.2)] text-[#6c5ce7]" : "text-[var(--text-muted)] hover:text-[var(--text)]"
                 }`}
               >
                 {v === "card" ? "Cards" : "List"}
@@ -918,25 +944,25 @@ export default function ConnectorNetworkPage() {
         </div>
 
         {paginated.length === 0 ? (
-          <p className="text-[#8888a0] text-sm text-center py-8">No {tab}s yet.</p>
+          <p className="text-[var(--text-muted)] text-sm text-center py-8">No {tab}s yet.</p>
         ) : view === "card" ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {paginated.map((c) => (
               <div
                 key={c.id}
                 onClick={() => openContactModalView(c)}
-                className="bg-[#0a0a0f] border border-[rgba(255,255,255,0.06)] rounded-xl p-4 cursor-pointer hover:border-[rgba(108,92,231,0.2)] transition-colors"
+                className="bg-[var(--bg)] border border-[var(--border)] rounded-xl p-4 cursor-pointer hover:bg-[var(--bg-card)] hover:border-[rgba(108,92,231,0.2)] transition-colors"
               >
                 <div className="flex justify-between items-start gap-2">
                   <div className="min-w-0">
-                    <p className="text-sm font-medium text-[#e8e8ed]">{c.name}</p>
+                    <p className="text-sm font-medium text-[var(--text)]">{c.name}</p>
                     {c.firm_or_company && c.firm_or_company !== c.name && (
-                      <p className="text-xs text-[#8888a0]">{c.firm_or_company}</p>
+                      <p className="text-xs text-[var(--text-muted)]">{c.firm_or_company}</p>
                     )}
                     {c.one_liner && (
                       <div className="mt-2">
-                        <p className="text-[10px] uppercase tracking-wide text-[#8888a0] mb-0.5">One-liner</p>
-                        <p className="text-xs text-[#e8e8ed] leading-snug">{c.one_liner}</p>
+                        <p className="text-[10px] uppercase tracking-wide text-[var(--text-muted)] mb-0.5">One-liner</p>
+                        <p className="text-xs text-[var(--text)] leading-snug">{c.one_liner}</p>
                       </div>
                     )}
                   </div>
@@ -945,58 +971,49 @@ export default function ConnectorNetworkPage() {
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation();
-                        openContactModalEdit(c);
+                        void onArchive(c.id);
                       }}
-                      className="text-xs text-[#6c5ce7] hover:underline"
+                      className="text-xs text-[var(--text-muted)] hover:text-[var(--text)]"
+                      title="Archive contact"
                     >
-                      Edit
-                    </button>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onDelete(c.id);
-                      }}
-                      className="text-xs text-red-400 hover:underline ml-2"
-                    >
-                      Delete
+                      Archive
                     </button>
                   </div>
                 </div>
                 <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-1.5 mt-3 text-xs">
                   {c.email && (
                     <div>
-                      <dt className="text-[10px] uppercase tracking-wide text-[#8888a0]">Email</dt>
-                      <dd className="text-[#e8e8ed] truncate">{c.email}</dd>
+                      <dt className="text-[10px] uppercase tracking-wide text-[var(--text-muted)]">Email</dt>
+                      <dd className="text-[var(--text)] truncate">{c.email}</dd>
                     </div>
                   )}
                   {c.sector_focus && (
                     <div>
-                      <dt className="text-[10px] uppercase tracking-wide text-[#8888a0]">Sector</dt>
-                      <dd className="text-[#e8e8ed]">{c.sector_focus}</dd>
+                      <dt className="text-[10px] uppercase tracking-wide text-[var(--text-muted)]">Sector</dt>
+                      <dd className="text-[var(--text)]">{c.sector_focus}</dd>
                     </div>
                   )}
                   {c.stage_focus && (
                     <div>
-                      <dt className="text-[10px] uppercase tracking-wide text-[#8888a0]">Stage</dt>
-                      <dd className="text-[#e8e8ed]">{c.stage_focus}</dd>
+                      <dt className="text-[10px] uppercase tracking-wide text-[var(--text-muted)]">Stage</dt>
+                      <dd className="text-[var(--text)]">{c.stage_focus}</dd>
                     </div>
                   )}
                   {c.ticket_size && (
                     <div>
-                      <dt className="text-[10px] uppercase tracking-wide text-[#8888a0]">Ticket</dt>
-                      <dd className="text-[#e8e8ed]">{c.ticket_size}</dd>
+                      <dt className="text-[10px] uppercase tracking-wide text-[var(--text-muted)]">Ticket</dt>
+                      <dd className="text-[var(--text)]">{c.ticket_size}</dd>
                     </div>
                   )}
                   {c.geography && (
                     <div>
-                      <dt className="text-[10px] uppercase tracking-wide text-[#8888a0]">Location</dt>
-                      <dd className="text-[#e8e8ed]">{c.geography}</dd>
+                      <dt className="text-[10px] uppercase tracking-wide text-[var(--text-muted)]">Location</dt>
+                      <dd className="text-[var(--text)]">{c.geography}</dd>
                     </div>
                   )}
                   {c.website && (
                     <div>
-                      <dt className="text-[10px] uppercase tracking-wide text-[#8888a0]">Website</dt>
+                      <dt className="text-[10px] uppercase tracking-wide text-[var(--text-muted)]">Website</dt>
                       <dd>
                         <a
                           href={c.website}
@@ -1012,7 +1029,7 @@ export default function ConnectorNetworkPage() {
                   )}
                   {c.linkedin_url && (
                     <div>
-                      <dt className="text-[10px] uppercase tracking-wide text-[#8888a0]">LinkedIn</dt>
+                      <dt className="text-[10px] uppercase tracking-wide text-[var(--text-muted)]">LinkedIn</dt>
                       <dd>
                         <a
                           href={c.linkedin_url}
@@ -1028,9 +1045,9 @@ export default function ConnectorNetworkPage() {
                   )}
                 </dl>
                 {c.notes && (
-                  <div className="mt-2 pt-2 border-t border-[rgba(255,255,255,0.06)]">
-                    <p className="text-[10px] uppercase tracking-wide text-[#8888a0] mb-0.5">Notes</p>
-                    <p className="text-xs text-[#8888a0] line-clamp-3">{c.notes}</p>
+                  <div className="mt-2 pt-2 border-t border-[var(--border)]">
+                    <p className="text-[10px] uppercase tracking-wide text-[var(--text-muted)] mb-0.5">Notes</p>
+                    <p className="text-xs text-[var(--text-muted)] line-clamp-3">{c.notes}</p>
                   </div>
                 )}
                 {c.joined_user_id && (
@@ -1045,7 +1062,7 @@ export default function ConnectorNetworkPage() {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-[#8888a0] text-xs border-b border-[rgba(255,255,255,0.06)]">
+                <tr className="text-[var(--text-muted)] text-xs border-b border-[var(--border)]">
                   <th className="text-left pb-2 pr-3">Name / Firm</th>
                   <th className="text-left pb-2 pr-3">Email</th>
                   <th className="text-left pb-2 pr-3">Sector</th>
@@ -1061,19 +1078,19 @@ export default function ConnectorNetworkPage() {
                   <tr
                     key={c.id}
                     onClick={() => openContactModalView(c)}
-                    className="border-b border-[rgba(255,255,255,0.03)] hover:bg-[rgba(255,255,255,0.02)] cursor-pointer"
+                    className="border-b border-[rgba(255,255,255,0.03)] hover:bg-[var(--bg-card)] cursor-pointer"
                   >
                     <td className="py-2 pr-3">
-                      <p className="text-[#e8e8ed]">{c.name}</p>
+                      <p className="text-[var(--text)]">{c.name}</p>
                       {c.firm_or_company && c.firm_or_company !== c.name && (
-                        <p className="text-[#8888a0] text-xs">{c.firm_or_company}</p>
+                        <p className="text-[var(--text-muted)] text-xs">{c.firm_or_company}</p>
                       )}
                     </td>
-                    <td className="py-2 pr-3 text-[#8888a0] text-xs">{c.email ?? "—"}</td>
-                    <td className="py-2 pr-3 text-[#8888a0] text-xs max-w-[120px] truncate">{c.sector_focus ?? "—"}</td>
-                    <td className="py-2 pr-3 text-[#8888a0] text-xs">{c.stage_focus ?? "—"}</td>
-                    <td className="py-2 pr-3 text-[#8888a0] text-xs">{c.ticket_size ?? "—"}</td>
-                    <td className="py-2 pr-3 text-[#8888a0] text-xs">{c.geography ?? "—"}</td>
+                    <td className="py-2 pr-3 text-[var(--text-muted)] text-xs">{c.email ?? "—"}</td>
+                    <td className="py-2 pr-3 text-[var(--text-muted)] text-xs max-w-[120px] truncate">{c.sector_focus ?? "—"}</td>
+                    <td className="py-2 pr-3 text-[var(--text-muted)] text-xs">{c.stage_focus ?? "—"}</td>
+                    <td className="py-2 pr-3 text-[var(--text-muted)] text-xs">{c.ticket_size ?? "—"}</td>
+                    <td className="py-2 pr-3 text-[var(--text-muted)] text-xs">{c.geography ?? "—"}</td>
                     <td className="py-2 pr-3 text-xs flex gap-2">
                       {c.website && <a href={c.website} target="_blank" rel="noreferrer" className="text-[#6c5ce7] hover:underline">Web</a>}
                       {c.linkedin_url && <a href={c.linkedin_url} target="_blank" rel="noreferrer" className="text-[#6c5ce7] hover:underline">LI</a>}
@@ -1108,9 +1125,9 @@ export default function ConnectorNetworkPage() {
         )}
 
         {totalPages > 1 && (
-          <div className="flex items-center justify-between mt-4 text-xs text-[#8888a0]">
+          <div className="flex items-center justify-between mt-4 text-xs text-[var(--text-muted)]">
             <span>
-              Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, filtered.length)} of {filtered.length}
+              Showing {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, filtered.length)} of {filtered.length}
             </span>
             <div className="flex gap-2">
               <button
@@ -1134,11 +1151,11 @@ export default function ConnectorNetworkPage() {
         )}
       </div>
 
-      <div className="bg-[#16161f] border border-[rgba(255,255,255,0.06)] rounded-xl p-5 space-y-5">
+      <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-5 space-y-5">
         <div className="flex items-start justify-between">
           <div>
-            <h2 className="text-base font-semibold text-[#e8e8ed]">Enrichment Staging</h2>
-            <p className="text-xs text-[#8888a0] mt-0.5">
+            <h2 className="text-base font-semibold text-[var(--text)]">Enrichment Staging</h2>
+            <p className="text-xs text-[var(--text-muted)] mt-0.5">
               Upload a spreadsheet, Kevin enriches each contact with web data, then you import to your network.{" "}
               <a href="/connector/settings" className="text-[#6c5ce7] hover:underline">Use your own API key</a> to boost enrichment.
             </p>
@@ -1188,11 +1205,11 @@ export default function ConnectorNetworkPage() {
 
         {stagingMsg && <p className="text-xs text-[#6c5ce7]">{stagingMsg}</p>}
         {stagingLoading && stagingTotal === 0 && (
-          <p className="text-xs text-[#8888a0]">Loading staging…</p>
+          <p className="text-xs text-[var(--text-muted)]">Loading staging…</p>
         )}
         {stagingTotal > 0 && (
           <div className="space-y-2">
-            <div className="flex justify-between text-xs text-[#8888a0]">
+            <div className="flex justify-between text-xs text-[var(--text-muted)]">
               <span>
                 {stagingCounts.enriched} of {stagingTotal} enriched
                 {stagingCounts.enriching > 0 && (
@@ -1213,11 +1230,11 @@ export default function ConnectorNetworkPage() {
           </div>
         )}
 
-        <div className="border border-[rgba(255,255,255,0.06)] rounded-xl p-4 space-y-4">
+        <div className="border border-[var(--border)] rounded-xl p-4 space-y-4">
           <div className="flex items-center justify-between flex-wrap gap-3">
             <div>
-              <p className="text-sm font-medium text-[#e8e8ed]">Smart import from spreadsheet</p>
-              <p className="text-xs text-[#8888a0]">
+              <p className="text-sm font-medium text-[var(--text)]">Smart import from spreadsheet</p>
+              <p className="text-xs text-[var(--text-muted)]">
                 Upload any .xlsx, .xls, or .csv file. Kevin will detect columns and extract investors and founders.
               </p>
             </div>
@@ -1231,33 +1248,33 @@ export default function ConnectorNetworkPage() {
             <input ref={sheetInputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={onSheetFile} />
           </div>
 
-          {sheetMsg && <p className="text-xs text-[#8888a0]">{sheetMsg}</p>}
+          {sheetMsg && <p className="text-xs text-[var(--text-muted)]">{sheetMsg}</p>}
 
           {sheetPreview && (
-            <div className="border border-[rgba(255,255,255,0.06)] rounded-xl p-4 space-y-4">
-              <p className="text-sm font-medium text-[#e8e8ed]">Extraction preview</p>
+            <div className="border border-[var(--border)] rounded-xl p-4 space-y-4">
+              <p className="text-sm font-medium text-[var(--text)]">Extraction preview</p>
               <div className="grid grid-cols-2 gap-4">
-                <div className="bg-[#0a0a0f] rounded-xl p-3">
-                  <p className="text-xs text-[#8888a0] uppercase tracking-wide mb-1">Investors found</p>
+                <div className="bg-[var(--bg)] rounded-xl p-3">
+                  <p className="text-xs text-[var(--text-muted)] uppercase tracking-wide mb-1">Investors found</p>
                   <p className="text-2xl font-bold text-[#6c5ce7]">{sheetPreview.investors.length}</p>
-                  <p className="text-xs text-[#8888a0]">Unique firms extracted from investor column</p>
+                  <p className="text-xs text-[var(--text-muted)]">Unique firms extracted from investor column</p>
                 </div>
-                <div className="bg-[#0a0a0f] rounded-xl p-3">
-                  <p className="text-xs text-[#8888a0] uppercase tracking-wide mb-1">Founders found</p>
+                <div className="bg-[var(--bg)] rounded-xl p-3">
+                  <p className="text-xs text-[var(--text-muted)] uppercase tracking-wide mb-1">Founders found</p>
                   <p className="text-2xl font-bold text-[#6c5ce7]">{sheetPreview.founders.length}</p>
-                  <p className="text-xs text-[#8888a0]">Startups with sector, stage and location</p>
+                  <p className="text-xs text-[var(--text-muted)]">Startups with sector, stage and location</p>
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-4 text-xs text-[#8888a0]">
+              <div className="grid grid-cols-2 gap-4 text-xs text-[var(--text-muted)]">
                 <div>
-                  <p className="font-medium text-[#e8e8ed] mb-1">Sample investors:</p>
+                  <p className="font-medium text-[var(--text)] mb-1">Sample investors:</p>
                   {sheetPreview.investors.slice(0, 5).map((i, idx) => (
                     <p key={idx}>{i.name}</p>
                   ))}
                   {sheetPreview.investors.length > 5 && <p>…and {sheetPreview.investors.length - 5} more</p>}
                 </div>
                 <div>
-                  <p className="font-medium text-[#e8e8ed] mb-1">Sample founders:</p>
+                  <p className="font-medium text-[var(--text)] mb-1">Sample founders:</p>
                   {sheetPreview.founders.slice(0, 5).map((f, idx) => (
                     <p key={idx}>
                       {f.name}
@@ -1267,7 +1284,7 @@ export default function ConnectorNetworkPage() {
                   {sheetPreview.founders.length > 5 && <p>…and {sheetPreview.founders.length - 5} more</p>}
                 </div>
               </div>
-              <p className="text-xs text-[#8888a0]">
+              <p className="text-xs text-[var(--text-muted)]">
                 These will be staged for enrichment — Kevin will search the web to fill in contact details, sectors,
                 ticket sizes, and more before you import.
               </p>
@@ -1293,7 +1310,7 @@ export default function ConnectorNetworkPage() {
                 >
                   Founders only ({sheetPreview.founders.length})
                 </button>
-                <button type="button" onClick={() => setSheetPreview(null)} className="px-3 py-2 text-[#8888a0] text-sm">
+                <button type="button" onClick={() => setSheetPreview(null)} className="px-3 py-2 text-[var(--text-muted)] text-sm">
                   Cancel
                 </button>
               </div>
@@ -1313,7 +1330,7 @@ export default function ConnectorNetworkPage() {
                     className={`px-3 py-1 rounded-lg text-xs font-medium ${
                       stagingTab === t
                         ? "bg-[#6c5ce7] text-white"
-                        : "text-[#8888a0] hover:text-[#e8e8ed]"
+                        : "text-[var(--text-muted)] hover:text-[var(--text)]"
                     }`}
                   >
                     {t === "all" ? "All" : t === "investor" ? "Investors" : "Founders"}
@@ -1351,7 +1368,7 @@ export default function ConnectorNetworkPage() {
                     type="button"
                     onClick={() => setStagingView(v)}
                     className={`px-2 py-1 rounded text-xs ${
-                      stagingView === v ? "bg-[rgba(108,92,231,0.2)] text-[#6c5ce7]" : "text-[#8888a0]"
+                      stagingView === v ? "bg-[rgba(108,92,231,0.2)] text-[#6c5ce7]" : "text-[var(--text-muted)]"
                     }`}
                   >
                     {v === "table" ? "Table" : "Cards"}
@@ -1362,7 +1379,7 @@ export default function ConnectorNetworkPage() {
 
             {stagingTotal > 50 && (
               <div className="flex items-center justify-between pt-2">
-                <p className="text-xs text-[#8888a0]">
+                <p className="text-xs text-[var(--text-muted)]">
                   Showing {stagingPage * 50 + 1}–{Math.min((stagingPage + 1) * 50, stagingTotal)} of {stagingTotal}
                 </p>
                 <div className="flex items-center gap-2">
@@ -1370,18 +1387,18 @@ export default function ConnectorNetworkPage() {
                     type="button"
                     onClick={() => setStagingPage((p) => Math.max(0, p - 1))}
                     disabled={stagingPage === 0}
-                    className="px-3 py-1.5 text-xs rounded-xl bg-[rgba(255,255,255,0.04)] text-[#8888a0] hover:text-[#e8e8ed] disabled:opacity-30 disabled:cursor-not-allowed"
+                    className="px-3 py-1.5 text-xs rounded-xl bg-[rgba(255,255,255,0.04)] text-[var(--text-muted)] hover:text-[var(--text)] disabled:opacity-30 disabled:cursor-not-allowed"
                   >
                     ← Prev
                   </button>
-                  <span className="text-xs text-[#8888a0]">
+                  <span className="text-xs text-[var(--text-muted)]">
                     Page {stagingPage + 1} of {Math.ceil(stagingTotal / 50)}
                   </span>
                   <button
                     type="button"
                     onClick={() => setStagingPage((p) => Math.min(Math.ceil(stagingTotal / 50) - 1, p + 1))}
                     disabled={stagingPage >= Math.ceil(stagingTotal / 50) - 1}
-                    className="px-3 py-1.5 text-xs rounded-xl bg-[rgba(255,255,255,0.04)] text-[#8888a0] hover:text-[#e8e8ed] disabled:opacity-30 disabled:cursor-not-allowed"
+                    className="px-3 py-1.5 text-xs rounded-xl bg-[rgba(255,255,255,0.04)] text-[var(--text-muted)] hover:text-[var(--text)] disabled:opacity-30 disabled:cursor-not-allowed"
                   >
                     Next →
                   </button>
@@ -1390,10 +1407,10 @@ export default function ConnectorNetworkPage() {
             )}
 
             {(stagingCounts.enriching > 0 || stagingCounts.pending > 0) && recentFeed.length > 0 && (
-              <div className="overflow-hidden rounded-xl border border-[rgba(255,255,255,0.06)] bg-[#0a0a0f]">
-                <div className="border-b border-[rgba(255,255,255,0.06)] px-3 py-2">
+              <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--bg)]">
+                <div className="border-b border-[var(--border)] px-3 py-2">
                   <span className="text-[10px] uppercase tracking-wide text-[#6c5ce7]">Live feed</span>
-                  <p className="mt-0.5 text-[10px] text-[#8888a0]">Newest enriched first</p>
+                  <p className="mt-0.5 text-[10px] text-[var(--text-muted)]">Newest enriched first</p>
                 </div>
                 <ul className="divide-y divide-[rgba(255,255,255,0.06)]">
                   {recentFeed.map((r) => {
@@ -1406,8 +1423,8 @@ export default function ConnectorNetworkPage() {
                         }`}
                       >
                         <div className="min-w-0 flex-1">
-                          <p className="truncate text-xs font-medium text-[#e8e8ed]">{r.name}</p>
-                          <p className="truncate text-[10px] text-[#8888a0]">{r.sector_focus?.trim() || "—"}</p>
+                          <p className="truncate text-xs font-medium text-[var(--text)]">{r.name}</p>
+                          <p className="truncate text-[10px] text-[var(--text-muted)]">{r.sector_focus?.trim() || "—"}</p>
                         </div>
                         <span className="shrink-0 rounded-md bg-[rgba(0,200,100,0.12)] px-2 py-0.5 text-[10px] font-medium text-green-400">
                           enriched
@@ -1423,7 +1440,7 @@ export default function ConnectorNetworkPage() {
               <div className="overflow-x-auto">
                 <table className="w-full text-xs">
                   <thead>
-                    <tr className="text-[#8888a0] border-b border-[rgba(255,255,255,0.06)]">
+                    <tr className="text-[var(--text-muted)] border-b border-[var(--border)]">
                       <th className="text-left pb-2 pr-2">
                         <input
                           type="checkbox"
@@ -1473,20 +1490,20 @@ export default function ConnectorNetworkPage() {
                             />
                           </td>
                           <td className="py-2 pr-2">
-                            <p className="text-[#e8e8ed] font-medium">{s.name}</p>
+                            <p className="text-[var(--text)] font-medium">{s.name}</p>
                             {s.firm_or_company && s.firm_or_company !== s.name && (
-                              <p className="text-[#8888a0]">{s.firm_or_company}</p>
+                              <p className="text-[var(--text-muted)]">{s.firm_or_company}</p>
                             )}
                           </td>
-                          <td className="py-2 pr-2 text-[#8888a0]">
+                          <td className="py-2 pr-2 text-[var(--text-muted)]">
                             {s.contact_name && <p>{s.contact_name}</p>}
                             {s.email && <p>{s.email}</p>}
                           </td>
-                          <td className="py-2 pr-2 text-[#8888a0] max-w-[120px] truncate">{s.sector_focus ?? "—"}</td>
-                          <td className="py-2 pr-2 text-[#8888a0]">{s.stage_focus ?? "—"}</td>
-                          <td className="py-2 pr-2 text-[#8888a0]">{s.ticket_size ?? "—"}</td>
-                          <td className="py-2 pr-2 text-[#8888a0]">{s.geography ?? "—"}</td>
-                          <td className="py-2 pr-2 text-[#8888a0] max-w-[100px] truncate">
+                          <td className="py-2 pr-2 text-[var(--text-muted)] max-w-[120px] truncate">{s.sector_focus ?? "—"}</td>
+                          <td className="py-2 pr-2 text-[var(--text-muted)]">{s.stage_focus ?? "—"}</td>
+                          <td className="py-2 pr-2 text-[var(--text-muted)]">{s.ticket_size ?? "—"}</td>
+                          <td className="py-2 pr-2 text-[var(--text-muted)]">{s.geography ?? "—"}</td>
+                          <td className="py-2 pr-2 text-[var(--text-muted)] max-w-[100px] truncate">
                             {s.website ? (
                               <a href={s.website} target="_blank" rel="noreferrer" className="text-[#6c5ce7] hover:underline">
                                 link
@@ -1543,11 +1560,11 @@ export default function ConnectorNetworkPage() {
                                   ] as [keyof typeof editStagedForm, string][]
                                 ).map(([f, label]) => (
                                   <div key={f}>
-                                    <label className="block text-[10px] text-[#8888a0] mb-0.5">{label}</label>
+                                    <label className="block text-[10px] text-[var(--text-muted)] mb-0.5">{label}</label>
                                     <input
                                       value={(editStagedForm[f] as string) ?? ""}
                                       onChange={(e) => setEditStagedForm((ef) => ({ ...ef, [f]: e.target.value }))}
-                                      className="w-full bg-[#0a0a0f] border border-[rgba(255,255,255,0.06)] rounded-lg px-2 py-1 text-xs text-[#e8e8ed]"
+                                      className="w-full bg-[var(--bg)] border border-[var(--border)] rounded-lg px-2 py-1 text-xs text-[var(--text)]"
                                     />
                                   </div>
                                 ))}
@@ -1564,7 +1581,7 @@ export default function ConnectorNetworkPage() {
                                 <button
                                   type="button"
                                   onClick={() => setEditingStagedId(null)}
-                                  className="px-3 py-1 text-[#8888a0] text-xs"
+                                  className="px-3 py-1 text-[var(--text-muted)] text-xs"
                                 >
                                   Cancel
                                 </button>
@@ -1585,17 +1602,17 @@ export default function ConnectorNetworkPage() {
                     className={`rounded-xl p-4 space-y-2 ${
                       recentlyEnriched.has(s.id)
                         ? `border ${STAGING_RECENT_HIGHLIGHT}`
-                        : "border border-[rgba(255,255,255,0.06)] bg-[#0a0a0f]"
+                        : "border border-[var(--border)] bg-[var(--bg)]"
                     }`}
                   >
                     <div className="flex justify-between items-start">
                       <div>
-                        <p className="text-sm font-medium text-[#e8e8ed]">{s.name}</p>
-                        {s.one_liner && <p className="text-xs text-[#8888a0]">{s.one_liner}</p>}
+                        <p className="text-sm font-medium text-[var(--text)]">{s.name}</p>
+                        {s.one_liner && <p className="text-xs text-[var(--text-muted)]">{s.one_liner}</p>}
                       </div>
                       {statusBadge(s.status)}
                     </div>
-                    <div className="grid grid-cols-2 gap-1 text-xs text-[#8888a0]">
+                    <div className="grid grid-cols-2 gap-1 text-xs text-[var(--text-muted)]">
                       {s.contact_name && <span>Contact: {s.contact_name}</span>}
                       {s.email && <span>Email: {s.email}</span>}
                       {s.sector_focus && <span>Sector: {s.sector_focus}</span>}
@@ -1628,7 +1645,7 @@ export default function ConnectorNetworkPage() {
             )}
             {stagingTotal > 50 && (
               <div className="flex items-center justify-between pt-2">
-                <p className="text-xs text-[#8888a0]">
+                <p className="text-xs text-[var(--text-muted)]">
                   Showing {stagingPage * 50 + 1}–{Math.min((stagingPage + 1) * 50, stagingTotal)} of {stagingTotal}
                 </p>
                 <div className="flex items-center gap-2">
@@ -1636,18 +1653,18 @@ export default function ConnectorNetworkPage() {
                     type="button"
                     onClick={() => setStagingPage((p) => Math.max(0, p - 1))}
                     disabled={stagingPage === 0}
-                    className="px-3 py-1.5 text-xs rounded-xl bg-[rgba(255,255,255,0.04)] text-[#8888a0] hover:text-[#e8e8ed] disabled:opacity-30 disabled:cursor-not-allowed"
+                    className="px-3 py-1.5 text-xs rounded-xl bg-[rgba(255,255,255,0.04)] text-[var(--text-muted)] hover:text-[var(--text)] disabled:opacity-30 disabled:cursor-not-allowed"
                   >
                     ← Prev
                   </button>
-                  <span className="text-xs text-[#8888a0]">
+                  <span className="text-xs text-[var(--text-muted)]">
                     Page {stagingPage + 1} of {Math.ceil(stagingTotal / 50)}
                   </span>
                   <button
                     type="button"
                     onClick={() => setStagingPage((p) => Math.min(Math.ceil(stagingTotal / 50) - 1, p + 1))}
                     disabled={stagingPage >= Math.ceil(stagingTotal / 50) - 1}
-                    className="px-3 py-1.5 text-xs rounded-xl bg-[rgba(255,255,255,0.04)] text-[#8888a0] hover:text-[#e8e8ed] disabled:opacity-30 disabled:cursor-not-allowed"
+                    className="px-3 py-1.5 text-xs rounded-xl bg-[rgba(255,255,255,0.04)] text-[var(--text-muted)] hover:text-[var(--text)] disabled:opacity-30 disabled:cursor-not-allowed"
                   >
                     Next →
                   </button>
@@ -1658,9 +1675,9 @@ export default function ConnectorNetworkPage() {
         )}
       </div>
 
-      <div className="bg-[#16161f] border border-[rgba(255,255,255,0.06)] rounded-xl p-5 space-y-3">
-        <h2 className="text-sm font-semibold text-[#e8e8ed]">Bulk import via CSV</h2>
-        <p className="text-xs text-[#8888a0]">
+      <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-5 space-y-3">
+        <h2 className="text-sm font-semibold text-[var(--text)]">Bulk import via CSV</h2>
+        <p className="text-xs text-[var(--text-muted)]">
           Paste CSV with columns: <code className="text-[#6c5ce7]">role, name, email, firm, linkedin, website, sector, stage, ticket, geography, one_liner, notes</code>
           <br />
           First row is header (skipped). Role must be <code className="text-[#6c5ce7]">investor</code> or{" "}
@@ -1670,7 +1687,7 @@ export default function ConnectorNetworkPage() {
           value={csvText}
           onChange={(e) => setCsvText(e.target.value)}
           rows={5}
-          className="w-full bg-[#0a0a0f] border border-[rgba(255,255,255,0.06)] rounded-xl px-3 py-2 text-xs text-[#e8e8ed] font-mono"
+          className="w-full bg-[var(--bg)] border border-[var(--border)] rounded-xl px-3 py-2 text-xs text-[var(--text)] font-mono"
           placeholder={
             "role,name,email,firm,linkedin,notes\ninvestor,Jane Smith,jane@vc.com,Acme Ventures,,Invests in fintech\nfounder,John Doe,john@startup.com,Startup Inc,,Met at AfricArena"
           }
@@ -1693,26 +1710,26 @@ export default function ConnectorNetworkPage() {
             role="dialog"
             aria-modal="true"
             aria-labelledby="contact-modal-title"
-            className="relative z-10 flex w-full max-w-2xl max-h-[min(90vh,800px)] flex-col rounded-xl border border-[rgba(255,255,255,0.06)] bg-[#16161f]"
+            className="relative z-10 flex w-full max-w-2xl max-h-[min(90vh,800px)] flex-col rounded-xl border border-[var(--border)] bg-[var(--bg-card)]"
           >
-            <div className="flex shrink-0 items-start justify-between gap-3 border-b border-[rgba(255,255,255,0.06)] px-5 py-4">
+            <div className="flex shrink-0 items-start justify-between gap-3 border-b border-[var(--border)] px-5 py-4">
               <div className="min-w-0 pr-2">
                 {contactModalMode === "view" ? (
                   <>
-                    <h2 id="contact-modal-title" className="text-2xl font-semibold leading-tight text-[#e8e8ed]">
+                    <h2 id="contact-modal-title" className="text-2xl font-semibold leading-tight text-[var(--text)]">
                       {viewingContact.name}
                     </h2>
                     {viewingContact.firm_or_company && viewingContact.firm_or_company !== viewingContact.name && (
-                      <p className="mt-1 text-base text-[#8888a0]">{viewingContact.firm_or_company}</p>
+                      <p className="mt-1 text-base text-[var(--text-muted)]">{viewingContact.firm_or_company}</p>
                     )}
                     <p className="mt-2 text-[10px] uppercase tracking-wide text-[#6c5ce7]">{viewingContact.role}</p>
                   </>
                 ) : (
                   <>
-                    <h2 id="contact-modal-title" className="text-lg font-semibold leading-tight text-[#e8e8ed]">
+                    <h2 id="contact-modal-title" className="text-lg font-semibold leading-tight text-[var(--text)]">
                       Edit contact
                     </h2>
-                    <p className="mt-1 text-xs text-[#8888a0] truncate">{viewingContact.name}</p>
+                    <p className="mt-1 text-xs text-[var(--text-muted)] truncate">{viewingContact.name}</p>
                   </>
                 )}
               </div>
@@ -1733,7 +1750,7 @@ export default function ConnectorNetworkPage() {
                 <button
                   type="button"
                   onClick={closeContactModal}
-                  className="shrink-0 rounded-lg p-2 text-[#8888a0] transition-colors hover:bg-[rgba(255,255,255,0.06)] hover:text-[#e8e8ed]"
+                  className="shrink-0 rounded-lg p-2 text-[var(--text-muted)] transition-colors hover:bg-[rgba(255,255,255,0.06)] hover:text-[var(--text)]"
                   aria-label="Close"
                 >
                   <span className="block text-xl leading-none" aria-hidden>
@@ -1747,10 +1764,10 @@ export default function ConnectorNetworkPage() {
               {contactModalMode === "view" ? (
                 <>
                   {viewingContact.one_liner && (
-                    <p className="mb-5 text-sm italic leading-relaxed text-[#8888a0]">{viewingContact.one_liner}</p>
+                    <p className="mb-5 text-sm italic leading-relaxed text-[var(--text-muted)]">{viewingContact.one_liner}</p>
                   )}
 
-                  <div className="space-y-3 border-t border-[rgba(255,255,255,0.06)] pt-4">
+                  <div className="space-y-3 border-t border-[var(--border)] pt-4">
                     {(
                       [
                         ["Email", viewingContact.email] as const,
@@ -1763,10 +1780,10 @@ export default function ConnectorNetworkPage() {
                       ] as const
                     ).map(([label, val]) => (
                       <div key={label}>
-                        <p className="text-[10px] uppercase tracking-wide text-[#8888a0]">{label}</p>
-                        <div className="mt-0.5 text-sm text-[#e8e8ed]">
+                        <p className="text-[10px] uppercase tracking-wide text-[var(--text-muted)]">{label}</p>
+                        <div className="mt-0.5 text-sm text-[var(--text)]">
                           {!val ? (
-                            <span className="text-[#8888a0]">—</span>
+                            <span className="text-[var(--text-muted)]">—</span>
                           ) : label === "Website" ? (
                             <a
                               href={val}
@@ -1792,13 +1809,13 @@ export default function ConnectorNetworkPage() {
                     ))}
                   </div>
 
-                  <div className="mt-5 border-t border-[rgba(255,255,255,0.06)] pt-4">
-                    <p className="text-[10px] uppercase tracking-wide text-[#8888a0]">Notes</p>
-                    <div className="mt-2 max-h-40 overflow-y-auto rounded-lg border border-[rgba(255,255,255,0.06)] bg-[#0a0a0f] px-3 py-2">
+                  <div className="mt-5 border-t border-[var(--border)] pt-4">
+                    <p className="text-[10px] uppercase tracking-wide text-[var(--text-muted)]">Notes</p>
+                    <div className="mt-2 max-h-40 overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-2">
                       {viewingContact.notes ? (
-                        <p className="whitespace-pre-wrap text-xs leading-relaxed text-[#8888a0]">{viewingContact.notes}</p>
+                        <p className="whitespace-pre-wrap text-xs leading-relaxed text-[var(--text-muted)]">{viewingContact.notes}</p>
                       ) : (
-                        <span className="text-xs text-[#8888a0]">—</span>
+                        <span className="text-xs text-[var(--text-muted)]">—</span>
                       )}
                     </div>
                   </div>
@@ -1823,31 +1840,31 @@ export default function ConnectorNetworkPage() {
                     ] as const
                   ).map(([key, label, kind]) => (
                     <div key={key}>
-                      <label className="block text-xs text-[#8888a0] mb-1">{label}</label>
+                      <label className="block text-xs text-[var(--text-muted)] mb-1">{label}</label>
                       <input
                         type={kind}
                         value={editForm[key]}
                         onChange={(e) => setEditForm((ef) => ({ ...ef, [key]: e.target.value }))}
-                        className="w-full bg-[#0a0a0f] border border-[rgba(255,255,255,0.06)] rounded-xl px-3 py-2 text-sm text-[#e8e8ed]"
+                        className="w-full bg-[var(--bg)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm text-[var(--text)]"
                       />
                     </div>
                   ))}
                   <div>
-                    <label className="block text-xs text-[#8888a0] mb-1">One-liner</label>
+                    <label className="block text-xs text-[var(--text-muted)] mb-1">One-liner</label>
                     <textarea
                       value={editForm.one_liner}
                       onChange={(e) => setEditForm((ef) => ({ ...ef, one_liner: e.target.value }))}
                       rows={3}
-                      className="w-full bg-[#0a0a0f] border border-[rgba(255,255,255,0.06)] rounded-xl px-3 py-2 text-sm text-[#e8e8ed] resize-y min-h-[4rem]"
+                      className="w-full bg-[var(--bg)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm text-[var(--text)] resize-y min-h-[4rem]"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-[#8888a0] mb-1">Notes</label>
+                    <label className="block text-xs text-[var(--text-muted)] mb-1">Notes</label>
                     <textarea
                       value={editForm.notes}
                       onChange={(e) => setEditForm((ef) => ({ ...ef, notes: e.target.value }))}
                       rows={4}
-                      className="w-full bg-[#0a0a0f] border border-[rgba(255,255,255,0.06)] rounded-xl px-3 py-2 text-sm text-[#e8e8ed] resize-y min-h-[5rem]"
+                      className="w-full bg-[var(--bg)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm text-[var(--text)] resize-y min-h-[5rem]"
                     />
                   </div>
                 </div>
@@ -1855,7 +1872,7 @@ export default function ConnectorNetworkPage() {
             </div>
 
             {contactModalMode === "edit" && (
-              <div className="shrink-0 border-t border-[rgba(255,255,255,0.06)] px-5 py-3 space-y-2">
+              <div className="shrink-0 border-t border-[var(--border)] px-5 py-3 space-y-2">
                 {editMsg && <p className="text-xs text-red-400">{editMsg}</p>}
                 <div className="flex flex-wrap gap-2">
                   <button
@@ -1870,7 +1887,7 @@ export default function ConnectorNetworkPage() {
                     type="button"
                     onClick={cancelContactModalEdit}
                     disabled={savingEdit}
-                    className="px-4 py-2 text-sm text-[#8888a0] rounded-xl hover:bg-[rgba(255,255,255,0.06)] hover:text-[#e8e8ed] disabled:opacity-50"
+                    className="px-4 py-2 text-sm text-[var(--text-muted)] rounded-xl hover:bg-[rgba(255,255,255,0.06)] hover:text-[var(--text)] disabled:opacity-50"
                   >
                     Cancel
                   </button>
@@ -1880,6 +1897,7 @@ export default function ConnectorNetworkPage() {
           </div>
         </div>
       )}
-    </div>
+      </div>
+    </main>
   );
 }

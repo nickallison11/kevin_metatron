@@ -99,6 +99,7 @@ pub fn router() -> Router<Arc<AppState>> {
             "/network/:id",
             put(update_network_contact).delete(delete_network_contact),
         )
+        .route("/network/:id/archive", post(archive_network_contact))
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -397,7 +398,9 @@ async fn list_network(
     let rows = sqlx::query_as::<_, NetworkContactRow>(
         r#"SELECT id, role, name, email, firm_or_company, linkedin_url, website, sector_focus, stage_focus, ticket_size, geography, one_liner, notes,
                     invited_at, joined_user_id, created_at
-             FROM connector_network_contacts WHERE connector_user_id = $1 ORDER BY created_at DESC"#,
+             FROM connector_network_contacts
+             WHERE connector_user_id = $1 AND NOT is_archived
+             ORDER BY created_at DESC"#,
     )
     .bind(user_id)
     .fetch_all(&state.db)
@@ -528,6 +531,24 @@ async fn delete_network_contact(
         .execute(&state.db)
         .await
         .map_err(internal)?;
+    Ok(axum::http::StatusCode::NO_CONTENT)
+}
+
+async fn archive_network_contact(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+    Query(as_user): Query<AsUserQuery>,
+    Path(contact_id): Path<Uuid>,
+) -> Result<axum::http::StatusCode, (axum::http::StatusCode, String)> {
+    let user_id = resolve_connector_user(&state, bearer.token(), as_user.as_user).await?;
+    sqlx::query(
+        "UPDATE connector_network_contacts SET is_archived=true WHERE id=$1 AND connector_user_id=$2",
+    )
+    .bind(contact_id)
+    .bind(user_id)
+    .execute(&state.db)
+    .await
+    .map_err(internal)?;
     Ok(axum::http::StatusCode::NO_CONTENT)
 }
 

@@ -39,6 +39,8 @@ pub struct AppState {
     pub paystack_currency: String,
     pub paystack_plan_basic_monthly: String,
     pub paystack_plan_basic_annual: String,
+    pub paystack_connector_plan_basic_monthly: String,
+    pub paystack_connector_plan_basic_annual: String,
     pub whatsapp_verify_token: Option<String>,
     pub whatsapp_access_token: Option<String>,
     pub whatsapp_phone_number_id: Option<String>,
@@ -99,6 +101,12 @@ impl AppState {
             paystack_currency: settings.paystack_currency.clone(),
             paystack_plan_basic_monthly: settings.paystack_plan_basic_monthly.clone(),
             paystack_plan_basic_annual: settings.paystack_plan_basic_annual.clone(),
+            paystack_connector_plan_basic_monthly: settings
+                .paystack_connector_plan_basic_monthly
+                .clone(),
+            paystack_connector_plan_basic_annual: settings
+                .paystack_connector_plan_basic_annual
+                .clone(),
             whatsapp_verify_token: settings.whatsapp_verify_token.clone(),
             whatsapp_access_token: settings.whatsapp_access_token.clone(),
             whatsapp_phone_number_id: settings.whatsapp_phone_number_id.clone(),

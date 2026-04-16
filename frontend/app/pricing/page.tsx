@@ -684,6 +684,68 @@ function PricingPageInner() {
           </section>
         </div>
 
+        <section className="mt-10">
+          <h2 className="text-xl font-semibold text-[var(--text)]">
+            For Connectors & Ecosystem Partners
+          </h2>
+          <div className="mt-4 grid grid-cols-1 gap-6 md:grid-cols-2">
+            <section className={`${cardBase} border-[var(--border)]`}>
+              <p className="font-mono text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
+                Free
+              </p>
+              <p className="mt-1 text-sm text-[var(--text-muted)]">R0/month</p>
+              <p className="mt-4 text-4xl font-bold tracking-tight text-[var(--text)]">
+                R0
+                <span className="text-lg font-semibold text-[var(--text-muted)]">
+                  {" "}
+                  / mo
+                </span>
+              </p>
+              <div className="my-6 border-t border-[var(--border)]" />
+              <ul className="flex flex-col gap-3">
+                <FeatureCheck>Upload 50 contacts</FeatureCheck>
+                <FeatureCheck>No enrichment</FeatureCheck>
+              </ul>
+            </section>
+
+            <section
+              className={`${cardBase} border-metatron-accent/40 shadow-[0_0_40px_rgba(108,92,231,0.12)]`}
+            >
+              <p className="font-mono text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
+                Connector Basic
+              </p>
+              <p className="mt-1 text-sm text-[var(--text-muted)]">
+                R169.99/month or R1,699.99/year
+              </p>
+              <p className="mt-4 text-4xl font-bold tracking-tight text-[var(--text)]">
+                R169.99
+                <span className="text-lg font-semibold text-[var(--text-muted)]">
+                  {" "}
+                  / mo
+                </span>
+              </p>
+              <Link
+                href="/connector/settings/subscription"
+                className="mt-6 inline-flex w-full items-center justify-center rounded-[12px] bg-metatron-accent px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-metatron-accent-hover"
+              >
+                Subscribe
+              </Link>
+              <div className="my-6 border-t border-[var(--border)]" />
+              <ul className="flex flex-col gap-3">
+                <FeatureCheck>50 enrichment credits/month</FeatureCheck>
+                <FeatureCheck>IPFS network storage</FeatureCheck>
+                <FeatureCheck>Unlimited contacts</FeatureCheck>
+              </ul>
+            </section>
+          </div>
+
+          <div className="mt-4 rounded-[12px] border border-[var(--border)] bg-[var(--bg-card)] p-4">
+            <p className="text-sm text-[var(--text-muted)]">
+              Need more enrichments? Buy credit packs from R10 for 100 credits. Available in your dashboard after upgrading.
+            </p>
+          </div>
+        </section>
+
         {currency === "USD" && insufficientBalance && (
           <div className="mb-6 mt-8 rounded-[12px] border border-[var(--border)] bg-[var(--bg-card)] p-4 text-center">
             <p className="mb-3 text-sm text-[var(--text-muted)]">

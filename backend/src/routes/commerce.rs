@@ -28,6 +28,8 @@ pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/subscribe", post(create_subscription))
         .route("/verify", post(verify_payment))
+        .route("/connector/subscribe", post(create_connector_subscription))
+        .route("/connector/verify", post(verify_connector_payment))
         .route("/webhook", post(webhook))
 }
 
@@ -36,6 +38,11 @@ struct SubscribeBody {
     tier: String,
     billing: String,
     currency: String,
+}
+
+#[derive(Deserialize)]
+struct ConnectorSubscribeBody {
+    billing: String,
 }
 
 async fn create_subscription(
@@ -176,6 +183,125 @@ async fn create_subscription(
     Ok(Json(json!({ "hosted_url": authorization_url })))
 }
 
+async fn create_connector_subscription(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+    Json(body): Json<ConnectorSubscribeBody>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let secret = state
+        .paystack_secret_key
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| {
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(json!({ "error": "Paystack not configured" })),
+            )
+        })?;
+
+    let authed = require_user(&state, bearer.token())
+        .await
+        .map_err(|(_, msg)| (StatusCode::UNAUTHORIZED, Json(json!({ "error": msg }))))?;
+    if authed.role != "INTERMEDIARY" {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(json!({ "error": "wrong role for this resource" })),
+        ));
+    }
+
+    let billing = body.billing.to_ascii_lowercase();
+    if billing != "monthly" && billing != "annual" {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "billing must be monthly or annual" })),
+        ));
+    }
+
+    let plan_code = match billing.as_str() {
+        "annual" => state.paystack_connector_plan_basic_annual.as_str(),
+        _ => state.paystack_connector_plan_basic_monthly.as_str(),
+    };
+    if plan_code.is_empty() {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({ "error": "Connector Paystack plan codes not configured" })),
+        ));
+    }
+
+    let (user_id, user_email): (Uuid, String) = sqlx::query_as(
+        "SELECT id, email FROM users WHERE id = $1",
+    )
+    .bind(authed.id)
+    .fetch_one(&state.db)
+    .await
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": "internal error" })),
+        )
+    })?;
+
+    let amount_kobo: i64 = if billing == "annual" { 169_999 } else { 16_999 };
+    let reference = Uuid::new_v4().to_string();
+    let payload = json!({
+        "email": user_email,
+        "amount": amount_kobo,
+        "currency": "ZAR",
+        "plan": plan_code,
+        "reference": reference,
+        "callback_url": format!(
+            "{}/connector/settings/subscription?success=1&reference={}",
+            state.frontend_url, reference
+        ),
+        "metadata": {
+            "user_id": user_id.to_string(),
+            "tier": "connector_basic",
+            "billing": billing,
+            "currency": "ZAR"
+        }
+    });
+
+    let res = state
+        .http_client
+        .post("https://api.paystack.co/transaction/initialize")
+        .header("Authorization", format!("Bearer {}", secret))
+        .header("Content-Type", "application/json")
+        .json(&payload)
+        .send()
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::BAD_GATEWAY,
+                Json(json!({ "error": "paystack request failed" })),
+            )
+        })?;
+    let json: Value = res.json().await.map_err(|_| {
+        (
+            StatusCode::BAD_GATEWAY,
+            Json(json!({ "error": "paystack parse failed" })),
+        )
+    })?;
+    if !json.get("status").and_then(|s| s.as_bool()).unwrap_or(false) {
+        let msg = json
+            .get("message")
+            .and_then(|m| m.as_str())
+            .unwrap_or("paystack error");
+        return Err((StatusCode::BAD_GATEWAY, Json(json!({ "error": msg }))));
+    }
+
+    let authorization_url = json
+        .get("data")
+        .and_then(|d| d.get("authorization_url"))
+        .and_then(|u| u.as_str())
+        .ok_or_else(|| {
+            (
+                StatusCode::BAD_GATEWAY,
+                Json(json!({ "error": "missing authorization_url" })),
+            )
+        })?;
+    Ok(Json(json!({ "hosted_url": authorization_url })))
+}
+
 #[derive(Deserialize)]
 struct VerifyBody {
     reference: String,
@@ -184,6 +310,113 @@ struct VerifyBody {
 #[derive(Serialize)]
 struct VerifyResponse {
     status: &'static str,
+}
+
+fn connector_plan_code_to_billing(state: &AppState, plan_code: &str) -> Option<&'static str> {
+    if !state.paystack_connector_plan_basic_monthly.is_empty()
+        && plan_code == state.paystack_connector_plan_basic_monthly
+    {
+        return Some("monthly");
+    }
+    if !state.paystack_connector_plan_basic_annual.is_empty()
+        && plan_code == state.paystack_connector_plan_basic_annual
+    {
+        return Some("annual");
+    }
+    None
+}
+
+async fn finalize_connector_subscription(
+    state: &AppState,
+    user_id: Uuid,
+    billing: &str,
+    payment_method: &str,
+    reference: Option<&str>,
+) -> Result<(), (StatusCode, Json<Value>)> {
+    let credits_to_add = if billing == "annual" { 600 } else { 50 };
+    let (period_end, period_start): (String, String) = if billing == "annual" {
+        sqlx::query_as(
+            r#"
+            SELECT
+                (NOW() + INTERVAL '365 days')::text AS period_end,
+                NOW()::text AS period_start
+            "#,
+        )
+        .fetch_one(&state.db)
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "internal error" })),
+            )
+        })?
+    } else {
+        sqlx::query_as(
+            r#"
+            SELECT
+                (NOW() + INTERVAL '30 days')::text AS period_end,
+                NOW()::text AS period_start
+            "#,
+        )
+        .fetch_one(&state.db)
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "internal error" })),
+            )
+        })?
+    };
+
+    sqlx::query(
+        r#"
+        INSERT INTO connector_profiles (user_id, connector_tier, enrichment_credits)
+        VALUES ($1, 'paid', $2)
+        ON CONFLICT (user_id) DO UPDATE
+        SET connector_tier='paid',
+            enrichment_credits = connector_profiles.enrichment_credits + $2,
+            updated_at = now()
+        "#,
+    )
+    .bind(user_id)
+    .bind(credits_to_add)
+    .execute(&state.db)
+    .await
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": "internal error" })),
+        )
+    })?;
+
+    sqlx::query(
+        r#"
+        INSERT INTO subscription_invoices (user_id, amount, currency, payment_method, tier, period_start, period_end, reference)
+        VALUES ($1, $2, $3, $4, $5, $6::timestamptz, $7::timestamptz, $8)
+        "#,
+    )
+    .bind(user_id)
+    .bind(if billing == "annual" {
+        Decimal::from_str("1699.99").unwrap()
+    } else {
+        Decimal::from_str("169.99").unwrap()
+    })
+    .bind("ZAR")
+    .bind(payment_method)
+    .bind("connector_basic")
+    .bind(&period_start)
+    .bind(&period_end)
+    .bind(reference)
+    .execute(&state.db)
+    .await
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": "internal error" })),
+        )
+    })?;
+
+    Ok(())
 }
 
 fn plan_code_to_billing(state: &AppState, plan_code: &str) -> Option<&'static str> {
@@ -390,6 +623,143 @@ async fn verify_payment(
     Ok(Json(VerifyResponse { status: "active" }))
 }
 
+async fn verify_connector_payment(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+    Json(body): Json<VerifyBody>,
+) -> Result<Json<VerifyResponse>, (StatusCode, Json<Value>)> {
+    let secret = state
+        .paystack_secret_key
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| {
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(json!({ "error": "Paystack not configured" })),
+            )
+        })?;
+
+    let authed = require_user(&state, bearer.token())
+        .await
+        .map_err(|(_, msg)| (StatusCode::UNAUTHORIZED, Json(json!({ "error": msg }))))?;
+    if authed.role != "INTERMEDIARY" {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(json!({ "error": "wrong role for this resource" })),
+        ));
+    }
+
+    let ref_trim = body.reference.trim();
+    if ref_trim.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "reference required" })),
+        ));
+    }
+
+    let existing: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*)::bigint FROM subscription_invoices WHERE reference = $1",
+    )
+    .bind(ref_trim)
+    .fetch_one(&state.db)
+    .await
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": "internal error" })),
+        )
+    })?;
+    if existing > 0 {
+        return Ok(Json(VerifyResponse { status: "active" }));
+    }
+
+    let url = format!("https://api.paystack.co/transaction/verify/{}", ref_trim);
+    let res = state
+        .http_client
+        .get(&url)
+        .header("Authorization", format!("Bearer {}", secret))
+        .send()
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::BAD_GATEWAY,
+                Json(json!({ "error": "paystack request failed" })),
+            )
+        })?;
+    let verify_json: Value = res.json().await.map_err(|_| {
+        (
+            StatusCode::BAD_GATEWAY,
+            Json(json!({ "error": "paystack parse failed" })),
+        )
+    })?;
+    if !verify_json
+        .get("status")
+        .and_then(|s| s.as_bool())
+        .unwrap_or(false)
+    {
+        let msg = verify_json
+            .get("message")
+            .and_then(|m| m.as_str())
+            .unwrap_or("verification failed");
+        return Err((StatusCode::BAD_REQUEST, Json(json!({ "error": msg }))));
+    }
+    let data = verify_json.get("data").cloned().unwrap_or(Value::Null);
+    if data.get("status").and_then(|s| s.as_str()).unwrap_or("") != "success" {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "payment not successful" })),
+        ));
+    }
+
+    let metadata = data.get("metadata").cloned().unwrap_or(Value::Null);
+    let user_id = Uuid::parse_str(
+        metadata
+            .get("user_id")
+            .and_then(|u| u.as_str())
+            .ok_or_else(|| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({ "error": "missing user_id in metadata" })),
+                )
+            })?,
+    )
+    .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({ "error": "invalid user_id" }))))?;
+    if user_id != authed.id {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(json!({ "error": "payment does not belong to this user" })),
+        ));
+    }
+
+    if metadata
+        .get("tier")
+        .and_then(|t| t.as_str())
+        .unwrap_or("")
+        .to_ascii_lowercase()
+        != "connector_basic"
+    {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "invalid connector subscription metadata" })),
+        ));
+    }
+
+    let billing = metadata
+        .get("billing")
+        .and_then(|b| b.as_str())
+        .unwrap_or("monthly")
+        .to_ascii_lowercase();
+    if billing != "monthly" && billing != "annual" {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "invalid billing metadata" })),
+        ));
+    }
+
+    finalize_connector_subscription(&state, user_id, &billing, "card", Some(ref_trim)).await?;
+    Ok(Json(VerifyResponse { status: "active" }))
+}
+
 async fn store_paystack_subscription_if_present(
     state: &AppState,
     user_id: Uuid,
@@ -498,10 +868,12 @@ async fn handle_invoice_payment_success(
             StatusCode::BAD_REQUEST
         })?;
 
-    let billing = plan_code_to_billing(state, plan_code).ok_or_else(|| {
+    let founder_billing = plan_code_to_billing(state, plan_code);
+    let connector_billing = connector_plan_code_to_billing(state, plan_code);
+    if founder_billing.is_none() && connector_billing.is_none() {
         tracing::warn!("invoice.payment_success: unknown plan_code {}", plan_code);
-        StatusCode::BAD_REQUEST
-    })?;
+        return Err(StatusCode::BAD_REQUEST);
+    }
 
     let email = data
         .get("customer")
@@ -550,20 +922,25 @@ async fn handle_invoice_payment_success(
         return Ok(());
     }
 
-    let (amount_paid, invoice_amount) = zar_amounts_for_billing(billing);
-
-    finalize_pro_subscription(
-        state,
-        user_id,
-        billing,
-        amount_paid,
-        "card",
-        Some(paystack_ref),
-        "ZAR",
-        invoice_amount,
-    )
-    .await
-    .map_err(|(s, _)| s)?;
+    if let Some(billing) = connector_billing {
+        finalize_connector_subscription(state, user_id, billing, "card", Some(paystack_ref))
+            .await
+            .map_err(|(s, _)| s)?;
+    } else if let Some(billing) = founder_billing {
+        let (amount_paid, invoice_amount) = zar_amounts_for_billing(billing);
+        finalize_pro_subscription(
+            state,
+            user_id,
+            billing,
+            amount_paid,
+            "card",
+            Some(paystack_ref),
+            "ZAR",
+            invoice_amount,
+        )
+        .await
+        .map_err(|(s, _)| s)?;
+    }
 
     store_paystack_subscription_if_present(state, user_id, data).await;
 

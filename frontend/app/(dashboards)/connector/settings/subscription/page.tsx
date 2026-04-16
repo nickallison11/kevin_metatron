@@ -1,162 +1,176 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { API_BASE, authJsonHeaders } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
-const TIERS = [
-  {
-    id: "free",
-    name: "Free",
-    price: "$0",
-    period: "",
-    features: [
-      "Up to 100 staged contacts",
-      "5 enrichments per batch",
-      "Basic network management",
-      "Manual import only",
-    ],
-    cta: null,
-  },
-  {
-    id: "basic",
-    name: "Basic",
-    price: "$49.99",
-    period: "/month",
-    features: [
-      "Unlimited staged contacts",
-      "Full AI enrichment (all contacts)",
-      "Spreadsheet export (XLSX)",
-      "IPFS network snapshots",
-      "Email notification on enrichment complete",
-      "Priority support",
-    ],
-    cta: "Upgrade to Basic",
-  },
-  {
-    id: "pro",
-    name: "Pro",
-    price: "$99.99",
-    period: "/month",
-    features: [
-      "Everything in Basic",
-      "Custom subdomain (yourname.metatron.id)",
-      "White-label network portal",
-      "Unlimited IPFS snapshots — linked to your NFT",
-      "API access for CRM integration",
-      "Dedicated onboarding",
-    ],
-    cta: "Upgrade to Pro",
-  },
-];
+type ConnectorProfile = {
+  connector_tier?: string | null;
+  enrichment_credits?: number | null;
+};
 
 export default function ConnectorSubscriptionPage() {
   const { token, loading } = useAuth("INTERMEDIARY");
-  const [profile, setProfile] = useState<{ connector_tier?: string; ipfs_cid?: string } | null>(null);
+  const searchParams = useSearchParams();
+  const [profile, setProfile] = useState<ConnectorProfile | null>(null);
+  const [submitting, setSubmitting] = useState<"monthly" | "annual" | null>(null);
+  const [verifying, setVerifying] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
+  const loadProfile = useCallback(async () => {
     if (!token) return;
     const res = await fetch(`${API_BASE}/connector-profile`, { headers: authJsonHeaders(token) });
-    if (res.ok) setProfile(await res.json());
+    if (res.ok) setProfile((await res.json()) as ConnectorProfile);
   }, [token]);
 
   useEffect(() => {
-    load();
-  }, [load]);
+    void loadProfile();
+  }, [loadProfile]);
 
-  if (loading)
+  useEffect(() => {
+    if (!token) return;
+    if (searchParams.get("success") !== "1") return;
+    const reference = searchParams.get("reference");
+    if (!reference) return;
+    let cancelled = false;
+    const run = async () => {
+      setVerifying(true);
+      setError(null);
+      try {
+        const res = await fetch(`${API_BASE}/commerce/connector/verify`, {
+          method: "POST",
+          headers: authJsonHeaders(token),
+          body: JSON.stringify({ reference }),
+        });
+        if (!res.ok) {
+          const data = (await res.json().catch(() => ({}))) as { error?: string };
+          throw new Error(data.error || "Could not verify payment.");
+        }
+        if (!cancelled) {
+          await loadProfile();
+          window.history.replaceState({}, "", "/connector/settings/subscription");
+        }
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : "Could not verify payment.");
+      } finally {
+        if (!cancelled) setVerifying(false);
+      }
+    };
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [searchParams, token, loadProfile]);
+
+  const onSubscribe = useCallback(
+    async (billing: "monthly" | "annual") => {
+      if (!token) return;
+      setSubmitting(billing);
+      setError(null);
+      try {
+        const res = await fetch(`${API_BASE}/commerce/connector/subscribe`, {
+          method: "POST",
+          headers: authJsonHeaders(token),
+          body: JSON.stringify({ billing }),
+        });
+        const data = (await res.json().catch(() => ({}))) as { hosted_url?: string; error?: string };
+        if (!res.ok) throw new Error(data.error || "Could not start checkout.");
+        if (!data.hosted_url) throw new Error("Missing checkout URL.");
+        window.location.href = data.hosted_url;
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Could not start checkout.");
+      } finally {
+        setSubmitting(null);
+      }
+    },
+    [token],
+  );
+
+  if (loading) {
     return (
       <div className="flex min-h-[calc(100vh-72px)] items-center justify-center">
-        <p className="text-sm text-[#8888a0]">Loading…</p>
+        <p className="text-sm text-[var(--text-muted)]">Loading…</p>
       </div>
     );
+  }
   if (!token) return null;
 
-  const currentTier = profile?.connector_tier ?? "free";
+  const connectorTier = profile?.connector_tier ?? "free";
+  const credits = profile?.enrichment_credits ?? 0;
 
   return (
-    <div className="flex-1 px-6 py-8 max-w-4xl">
-      <h1 className="text-xl font-semibold text-[#e8e8ed] mb-1">Subscription</h1>
-      <p className="text-sm text-[#8888a0] mb-8">
-        Current plan: <span className="text-[#6c5ce7] font-medium capitalize">{currentTier}</span>
-        {profile?.ipfs_cid && (
-          <span className="ml-4 text-xs font-mono text-[#8888a0]">
-            IPFS:{" "}
-            <a
-              href={`https://ipfs.io/ipfs/${profile.ipfs_cid}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-[#6c5ce7] hover:underline"
-            >
-              {profile.ipfs_cid.slice(0, 20)}…
-            </a>
-          </span>
+    <main className="flex-1 px-6 py-8 md:px-10">
+      <div className="mx-auto w-full max-w-5xl space-y-6">
+        <div>
+          <h1 className="text-2xl font-semibold text-[var(--text)]">Connector Subscription</h1>
+          <p className="mt-1 text-sm text-[var(--text-muted)]">
+            Upgrade to unlock unlimited network capacity, IPFS storage, and monthly enrichment credits.
+          </p>
+        </div>
+
+        {verifying && (
+          <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-4 py-3 text-sm text-[var(--text-muted)]">
+            Verifying payment...
+          </div>
         )}
-      </p>
+        {error && (
+          <div className="rounded-xl border border-red-400/30 bg-red-400/10 px-4 py-3 text-sm text-red-400">
+            {error}
+          </div>
+        )}
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {TIERS.map((tier) => {
-          const isCurrent = tier.id === currentTier;
-          return (
-            <div
-              key={tier.id}
-              className={[
-                "rounded-xl p-5 border flex flex-col gap-4",
-                isCurrent
-                  ? "border-[#6c5ce7] bg-[rgba(108,92,231,0.08)]"
-                  : "border-[rgba(255,255,255,0.06)] bg-[#16161f]",
-              ].join(" ")}
-            >
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <p className="text-sm font-semibold text-[#e8e8ed]">{tier.name}</p>
-                  {isCurrent && (
-                    <span className="text-[10px] font-mono uppercase tracking-wide text-[#6c5ce7] bg-[rgba(108,92,231,0.15)] px-2 py-0.5 rounded-full">
-                      Current
-                    </span>
-                  )}
-                </div>
-                <p className="text-2xl font-bold text-[#e8e8ed]">
-                  {tier.price}
-                  <span className="text-sm font-normal text-[#8888a0]">{tier.period}</span>
-                </p>
-              </div>
-              <ul className="space-y-2 flex-1">
-                {tier.features.map((f) => (
-                  <li key={f} className="flex items-start gap-2 text-xs text-[#8888a0]">
-                    <span className="text-[#6c5ce7] mt-0.5">✓</span>
-                    {f}
-                  </li>
-                ))}
+        {connectorTier === "free" ? (
+          <div className="grid gap-4 md:grid-cols-2">
+            <section className="rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-6">
+              <p className="font-mono text-[11px] uppercase tracking-[2px] text-[var(--text-muted)]">Monthly</p>
+              <p className="mt-2 text-3xl font-semibold text-[var(--text)]">R169.99/month</p>
+              <ul className="mt-4 space-y-2 text-sm text-[var(--text-muted)]">
+                <li>50 enrichment credits/month</li>
+                <li>IPFS network storage</li>
+                <li>Unlimited contacts</li>
               </ul>
-              {tier.cta && !isCurrent && (
-                <a
-                  href={`mailto:contact@metatron.id?subject=Connector ${tier.name} subscription request`}
-                  className="block w-full text-center px-4 py-2 bg-[#6c5ce7] hover:bg-[#7d6ff0] text-white rounded-xl text-sm font-medium"
-                >
-                  {tier.cta}
-                </a>
-              )}
-              {tier.cta && isCurrent && (
-                <a
-                  href="mailto:contact@metatron.id?subject=Manage my connector subscription"
-                  className="block w-full text-center px-4 py-2 bg-[rgba(255,255,255,0.04)] text-[#8888a0] rounded-xl text-sm"
-                >
-                  Manage subscription
-                </a>
-              )}
-            </div>
-          );
-        })}
-      </div>
+              <button
+                type="button"
+                onClick={() => void onSubscribe("monthly")}
+                disabled={submitting !== null}
+                className="mt-6 w-full rounded-xl bg-[#6c5ce7] px-4 py-2.5 text-sm font-medium text-white hover:bg-[#7d6ff0] disabled:opacity-60"
+              >
+                {submitting === "monthly" ? "Redirecting..." : "Subscribe monthly"}
+              </button>
+            </section>
 
-      <p className="mt-6 text-xs text-[#8888a0]">
-        Subscriptions are billed in USDC via Sphere Pay. To upgrade, email{" "}
-        <a href="mailto:contact@metatron.id" className="text-[#6c5ce7]">
-          contact@metatron.id
-        </a>{" "}
-        — payment links will be sent directly. Automated billing coming soon.
-      </p>
-    </div>
+            <section className="rounded-xl border border-[#6c5ce7]/35 bg-[var(--bg-card)] p-6 shadow-[0_0_32px_rgba(108,92,231,0.1)]">
+              <p className="font-mono text-[11px] uppercase tracking-[2px] text-[var(--text-muted)]">Annual</p>
+              <p className="mt-2 text-3xl font-semibold text-[var(--text)]">R1,699.99/year</p>
+              <ul className="mt-4 space-y-2 text-sm text-[var(--text-muted)]">
+                <li>50 enrichment credits/month</li>
+                <li>IPFS network storage</li>
+                <li>Unlimited contacts</li>
+              </ul>
+              <button
+                type="button"
+                onClick={() => void onSubscribe("annual")}
+                disabled={submitting !== null}
+                className="mt-6 w-full rounded-xl bg-[#6c5ce7] px-4 py-2.5 text-sm font-medium text-white hover:bg-[#7d6ff0] disabled:opacity-60"
+              >
+                {submitting === "annual" ? "Redirecting..." : "Subscribe annually"}
+              </button>
+            </section>
+          </div>
+        ) : (
+          <section className="rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-6">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-lg font-semibold text-[var(--text)]">Connector Basic — Active</p>
+              <span className="rounded-full bg-[#6c5ce7]/15 px-3 py-1 text-xs font-medium text-[#6c5ce7]">Active</span>
+            </div>
+            <p className="mt-2 text-sm text-[var(--text-muted)]">Credits remaining: {credits}</p>
+            <p className="mt-4 text-xs text-[var(--text-muted)]">
+              To manage or cancel your subscription, use your payment provider billing settings or contact support.
+            </p>
+          </section>
+        )}
+      </div>
+    </main>
   );
 }

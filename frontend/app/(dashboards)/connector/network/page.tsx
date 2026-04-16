@@ -1032,7 +1032,6 @@ export default function ConnectorNetworkPage() {
                   <th className="text-left pb-2 pr-3">Stage</th>
                   <th className="text-left pb-2 pr-3">Ticket</th>
                   <th className="text-left pb-2 pr-3">Location</th>
-                  <th className="text-left pb-2 pr-3">Links</th>
                 </tr>
               </thead>
               <tbody>
@@ -1053,30 +1052,6 @@ export default function ConnectorNetworkPage() {
                     <td className="py-2 pr-3 text-[var(--text-muted)] text-xs">{c.stage_focus ?? "—"}</td>
                     <td className="py-2 pr-3 text-[var(--text-muted)] text-xs">{c.ticket_size ?? "—"}</td>
                     <td className="py-2 pr-3 text-[var(--text-muted)] text-xs">{c.geography ?? "—"}</td>
-                    <td className="py-2 pr-3 text-xs flex gap-2">
-                      {c.website && (
-                        <a
-                          href={c.website}
-                          target="_blank"
-                          rel="noreferrer"
-                          onClick={(e) => e.stopPropagation()}
-                          className="text-[#6c5ce7] hover:underline"
-                        >
-                          Web
-                        </a>
-                      )}
-                      {c.linkedin_url && (
-                        <a
-                          href={c.linkedin_url}
-                          target="_blank"
-                          rel="noreferrer"
-                          onClick={(e) => e.stopPropagation()}
-                          className="text-[#6c5ce7] hover:underline"
-                        >
-                          LI
-                        </a>
-                      )}
-                    </td>
                   </tr>
                 ))}
               </tbody>

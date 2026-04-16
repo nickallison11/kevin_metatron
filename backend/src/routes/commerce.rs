@@ -822,6 +822,18 @@ async fn finalize_from_paystack_data(
         return Ok(());
     }
 
+    // Route connector payments separately
+    let tier_str = metadata.get("tier").and_then(|t| t.as_str()).unwrap_or("");
+    if tier_str.eq_ignore_ascii_case("connector_basic") {
+        let billing = metadata
+            .get("billing")
+            .and_then(|b| b.as_str())
+            .unwrap_or("monthly");
+        return finalize_connector_subscription(state, user_id, billing, "card", Some(paystack_ref))
+            .await
+            .map_err(|(s, _)| s);
+    }
+
     let tier_lower = resolve_finalize_tier(state, data, metadata).map_err(|(s, _)| s)?;
 
     let pay_currency = metadata

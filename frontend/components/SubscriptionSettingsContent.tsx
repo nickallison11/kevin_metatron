@@ -175,7 +175,7 @@ export default function SubscriptionSettingsContent({
               href={pricingPath}
               className="mt-4 inline-flex rounded-[12px] bg-metatron-accent px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-metatron-accent-hover"
             >
-              Upgrade to Pro →
+              Upgrade Plan →
             </Link>
           </>
         )}

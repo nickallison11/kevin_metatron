@@ -86,7 +86,7 @@ export default function StartupShell({ children }: { children: ReactNode }) {
             href="/pricing"
             className="mx-1 mt-4 rounded-[var(--radius)] border border-metatron-accent/20 bg-metatron-accent/10 px-3 py-2 text-center text-xs font-semibold text-metatron-accent transition-colors hover:bg-metatron-accent/20"
           >
-            Upgrade to Pro →
+            Upgrade Plan →
           </Link>
         )}
 

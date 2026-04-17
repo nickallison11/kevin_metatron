@@ -31,7 +31,7 @@ export default function ConnectorShell({ children }: { children: ReactNode }) {
     const active =
       href === "/connector" || href === "/connector/settings"
         ? pathname === href
-        : pathname.startsWith(href);
+        : pathname === href;
     return (
       <Link
         href={href}

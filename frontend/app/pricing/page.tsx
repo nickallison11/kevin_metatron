@@ -727,117 +727,6 @@ function PricingPageInner() {
 
         <section className="mt-10">
           <h2 className="text-xl font-semibold text-[var(--text)]">
-            For Investors
-          </h2>
-          <div className="mt-4 grid grid-cols-1 gap-6 md:grid-cols-3">
-            <section className={`${cardBase} border-[var(--border)]`}>
-              <p className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
-                Free
-              </p>
-              <p className="mt-1 text-sm text-[var(--text-muted)]">Forever free</p>
-              <p className="mt-4 text-4xl font-bold tracking-tight text-[var(--text)]">
-                {currency === "USD" ? (
-                  <>
-                    $0
-                    <span className="text-lg font-semibold text-[var(--text-muted)]">
-                      {" "}
-                      / mo
-                    </span>
-                  </>
-                ) : (
-                  <>
-                    R0
-                    <span className="text-lg font-semibold text-[var(--text-muted)]">
-                      {" "}
-                      / mo
-                    </span>
-                  </>
-                )}
-              </p>
-              <Link
-                href="/login"
-                className="mt-6 inline-flex w-full items-center justify-center rounded-[12px] border border-[var(--border)] px-4 py-2.5 text-sm font-semibold text-[var(--text)] transition-colors hover:border-metatron-accent/30"
-              >
-                Sign in
-              </Link>
-              <div className="my-6 border-t border-[var(--border)]" />
-              <ul className="flex flex-col gap-3">
-                {investorFreeFeatures.map((f) => (
-                  <FeatureCheck key={f}>{f}</FeatureCheck>
-                ))}
-              </ul>
-            </section>
-
-            <section
-              className={`${cardBase} border-metatron-accent/40 shadow-[0_0_40px_rgba(108,92,231,0.12)]`}
-            >
-              <p className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
-                Investor Basic
-              </p>
-              <p className="mt-1 text-sm text-[var(--text-muted)]">
-                {billing === "monthly"
-                  ? "Billed monthly"
-                  : "Billed annually · save vs monthly"}
-              </p>
-              <p className="mt-4 text-4xl font-bold tracking-tight text-[var(--text)]">
-                {basicDisplay.price}{" "}
-                <span className="text-lg font-semibold text-[var(--text-muted)]">
-                  {basicDisplay.unit}
-                </span>
-              </p>
-              <Link
-                href="/investor/settings/subscription"
-                className="mt-6 inline-flex w-full items-center justify-center rounded-[12px] bg-metatron-accent px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-metatron-accent-hover"
-              >
-                {currency === "USD" ? "Subscribe with wallet" : "Pay with card"}
-              </Link>
-              {currency === "ZAR" && (
-                <p className="mt-1.5 text-center text-[10px] text-[var(--text-muted)]">
-                  Visa & Mastercard · Powered by Paystack
-                </p>
-              )}
-              <div className="my-6 border-t border-[var(--border)]" />
-              <ul className="flex flex-col gap-3">
-                {investorBasicFeatures.map((f) => (
-                  <FeatureCheck key={f}>{f}</FeatureCheck>
-                ))}
-              </ul>
-            </section>
-
-            <section
-              className={`${cardBase} border-[var(--border)] opacity-50 cursor-not-allowed`}
-            >
-              <div className="flex items-start justify-between gap-2">
-                <p className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
-                  Investor Pro
-                </p>
-                <span className="rounded-full bg-[var(--border)] px-2.5 py-1 text-[10px] font-semibold text-[var(--text-muted)]">
-                  Coming Soon
-                </span>
-              </div>
-              <p className="mt-1 text-sm text-[var(--text-muted)]">
-                {billing === "monthly"
-                  ? "Billed monthly"
-                  : "Billed annually · save vs monthly"}
-              </p>
-              <p className="mt-4 text-4xl font-bold tracking-tight text-[var(--text)]">
-                {proComingSoonDisplay.price}{" "}
-                <span className="text-lg font-semibold text-[var(--text-muted)]">
-                  {proComingSoonDisplay.unit}
-                </span>
-              </p>
-              <div className="my-6 border-t border-[var(--border)]" />
-              <ul className="flex flex-col gap-3">
-                {investorProFeatures.map((f) => (
-                  <FeatureCheck key={f}>{f}</FeatureCheck>
-                ))}
-              </ul>
-            </section>
-          </div>
-        </section>
-
-        <section className="mt-10">
-          <h2 className="text-xl font-semibold text-[var(--text)]">
             For Connectors & Ecosystem Partners
           </h2>
           <div className="mt-4 grid grid-cols-1 gap-6 md:grid-cols-3">
@@ -950,6 +839,117 @@ function PricingPageInner() {
             <p className="text-sm text-[var(--text-muted)]">
               Need more enrichments? Buy credit packs from R10 for 100 credits. Available in your dashboard after upgrading.
             </p>
+          </div>
+        </section>
+
+        <section className="mt-10">
+          <h2 className="text-xl font-semibold text-[var(--text)]">
+            For Investors
+          </h2>
+          <div className="mt-4 grid grid-cols-1 gap-6 md:grid-cols-3">
+            <section className={`${cardBase} border-[var(--border)]`}>
+              <p className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
+                Free
+              </p>
+              <p className="mt-1 text-sm text-[var(--text-muted)]">Forever free</p>
+              <p className="mt-4 text-4xl font-bold tracking-tight text-[var(--text)]">
+                {currency === "USD" ? (
+                  <>
+                    $0
+                    <span className="text-lg font-semibold text-[var(--text-muted)]">
+                      {" "}
+                      / mo
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    R0
+                    <span className="text-lg font-semibold text-[var(--text-muted)]">
+                      {" "}
+                      / mo
+                    </span>
+                  </>
+                )}
+              </p>
+              <Link
+                href="/login"
+                className="mt-6 inline-flex w-full items-center justify-center rounded-[12px] border border-[var(--border)] px-4 py-2.5 text-sm font-semibold text-[var(--text)] transition-colors hover:border-metatron-accent/30"
+              >
+                Sign in
+              </Link>
+              <div className="my-6 border-t border-[var(--border)]" />
+              <ul className="flex flex-col gap-3">
+                {investorFreeFeatures.map((f) => (
+                  <FeatureCheck key={f}>{f}</FeatureCheck>
+                ))}
+              </ul>
+            </section>
+
+            <section
+              className={`${cardBase} border-metatron-accent/40 shadow-[0_0_40px_rgba(108,92,231,0.12)]`}
+            >
+              <p className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
+                Investor Basic
+              </p>
+              <p className="mt-1 text-sm text-[var(--text-muted)]">
+                {billing === "monthly"
+                  ? "Billed monthly"
+                  : "Billed annually · save vs monthly"}
+              </p>
+              <p className="mt-4 text-4xl font-bold tracking-tight text-[var(--text)]">
+                {basicDisplay.price}{" "}
+                <span className="text-lg font-semibold text-[var(--text-muted)]">
+                  {basicDisplay.unit}
+                </span>
+              </p>
+              <Link
+                href="/investor/settings/subscription"
+                className="mt-6 inline-flex w-full items-center justify-center rounded-[12px] bg-metatron-accent px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-metatron-accent-hover"
+              >
+                {currency === "USD" ? "Subscribe with wallet" : "Pay with card"}
+              </Link>
+              {currency === "ZAR" && (
+                <p className="mt-1.5 text-center text-[10px] text-[var(--text-muted)]">
+                  Visa & Mastercard · Powered by Paystack
+                </p>
+              )}
+              <div className="my-6 border-t border-[var(--border)]" />
+              <ul className="flex flex-col gap-3">
+                {investorBasicFeatures.map((f) => (
+                  <FeatureCheck key={f}>{f}</FeatureCheck>
+                ))}
+              </ul>
+            </section>
+
+            <section
+              className={`${cardBase} border-[var(--border)] opacity-50 cursor-not-allowed`}
+            >
+              <div className="flex items-start justify-between gap-2">
+                <p className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
+                  Investor Pro
+                </p>
+                <span className="rounded-full bg-[var(--border)] px-2.5 py-1 text-[10px] font-semibold text-[var(--text-muted)]">
+                  Coming Soon
+                </span>
+              </div>
+              <p className="mt-1 text-sm text-[var(--text-muted)]">
+                {billing === "monthly"
+                  ? "Billed monthly"
+                  : "Billed annually · save vs monthly"}
+              </p>
+              <p className="mt-4 text-4xl font-bold tracking-tight text-[var(--text)]">
+                {proComingSoonDisplay.price}{" "}
+                <span className="text-lg font-semibold text-[var(--text-muted)]">
+                  {proComingSoonDisplay.unit}
+                </span>
+              </p>
+              <div className="my-6 border-t border-[var(--border)]" />
+              <ul className="flex flex-col gap-3">
+                {investorProFeatures.map((f) => (
+                  <FeatureCheck key={f}>{f}</FeatureCheck>
+                ))}
+              </ul>
+            </section>
           </div>
         </section>
 

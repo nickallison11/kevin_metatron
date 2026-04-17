@@ -33,7 +33,7 @@ export default function InvestorWatchlistPage() {
   return (
     <main className="flex-1">
       <header className="border-b border-[var(--border)] px-6 py-4 md:px-10">
-        <p className="mb-1 font-mono text-[11px] font-medium uppercase tracking-[2px] text-[var(--text-muted)]">
+        <p className="mb-1 font-sans text-[11px] font-medium uppercase tracking-[2px] text-[var(--text-muted)]">
           Watchlist
         </p>
         <h1 className="text-lg font-semibold">Followed founders</h1>

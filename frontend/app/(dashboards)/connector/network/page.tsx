@@ -907,7 +907,7 @@ export default function ConnectorNetworkPage() {
                   href={ipfsResult.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-xs text-[#6c5ce7] hover:underline font-mono"
+                  className="text-xs text-[#6c5ce7] hover:underline font-sans"
                 >
                   {ipfsResult.cid.slice(0, 16)}… ({ipfsResult.count} contacts)
                 </a>

@@ -18,7 +18,7 @@ export default function StartupDashboardPage() {
   return (
     <main className="flex-1">
       <header className="border-b border-[var(--border)] px-6 py-4 md:px-10">
-        <p className="font-mono text-[11px] font-medium uppercase tracking-[2px] text-[var(--text-muted)] mb-1">
+        <p className="font-sans text-[11px] font-medium uppercase tracking-[2px] text-[var(--text-muted)] mb-1">
           Dashboard
         </p>
         <h1 className="text-lg font-semibold">Founder overview</h1>
@@ -73,7 +73,7 @@ export default function StartupDashboardPage() {
               >
                 <div className="mb-1 flex items-center gap-2">
                   <h2 className="text-sm font-semibold text-[var(--text-muted)]">Call intelligence</h2>
-                  <span className="rounded border border-metatron-accent/40 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider text-metatron-accent">
+                  <span className="rounded border border-metatron-accent/40 px-1.5 py-0.5 font-sans text-[9px] uppercase tracking-wider text-metatron-accent">
                     Pro
                   </span>
                 </div>

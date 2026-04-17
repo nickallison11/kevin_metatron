@@ -116,7 +116,7 @@ export default function StartupMatchesPage() {
   return (
     <main className="flex-1">
       <header className="border-b border-[var(--border)] px-6 py-4 md:px-10">
-        <p className="font-mono text-[11px] font-medium uppercase tracking-[2px] text-[var(--text-muted)] mb-1">
+        <p className="font-sans text-[11px] font-medium uppercase tracking-[2px] text-[var(--text-muted)] mb-1">
           Founder
         </p>
         <h1 className="text-lg font-semibold">Investor matches</h1>
@@ -127,7 +127,7 @@ export default function StartupMatchesPage() {
 
       <section className="max-w-4xl space-y-6 p-6 md:p-10">
         <div className="flex flex-wrap items-center gap-3">
-          <span className="inline-flex items-center rounded-full border border-[var(--border)] bg-[var(--bg-card)] px-3 py-1 font-mono text-xs text-[var(--text)]">
+          <span className="inline-flex items-center rounded-full border border-[var(--border)] bg-[var(--bg-card)] px-3 py-1 font-sans text-xs text-[var(--text)]">
             {matchesUsed} / {weekLimit} matches this week
           </span>
           {weekResetsAt && (
@@ -161,7 +161,7 @@ export default function StartupMatchesPage() {
                 {(m.sectors ?? []).slice(0, 6).map((s) => (
                   <span
                     key={s}
-                    className="rounded border border-[var(--border)] px-2 py-0.5 font-mono text-[10px] uppercase tracking-wide text-[var(--text-muted)]"
+                    className="rounded border border-[var(--border)] px-2 py-0.5 font-sans text-[10px] uppercase tracking-wide text-[var(--text-muted)]"
                   >
                     {s}
                   </span>
@@ -169,14 +169,14 @@ export default function StartupMatchesPage() {
                 {(m.stages ?? []).slice(0, 4).map((s) => (
                   <span
                     key={`st-${s}`}
-                    className="rounded border border-metatron-accent/25 bg-metatron-accent/10 px-2 py-0.5 font-mono text-[10px] uppercase tracking-wide text-metatron-accent"
+                    className="rounded border border-metatron-accent/25 bg-metatron-accent/10 px-2 py-0.5 font-sans text-[10px] uppercase tracking-wide text-metatron-accent"
                   >
                     {s}
                   </span>
                 ))}
               </div>
               {formatTicketRange(m.ticket_size_min, m.ticket_size_max) && (
-                <p className="font-mono text-[11px] text-[var(--text-muted)]">
+                <p className="font-sans text-[11px] text-[var(--text-muted)]">
                   {formatTicketRange(m.ticket_size_min, m.ticket_size_max)}
                 </p>
               )}

@@ -229,7 +229,7 @@ export function StartupKevinChatCard({
           <h2 className="text-sm font-semibold text-metatron-accent">
             Chat with Kevin
           </h2>
-          <p className="mt-0.5 font-mono text-[11px] text-[var(--text-muted)]">
+          <p className="mt-0.5 font-sans text-[11px] text-[var(--text-muted)]">
             AI co-pilot
           </p>
         </div>

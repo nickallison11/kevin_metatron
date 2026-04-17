@@ -36,7 +36,7 @@ export default function AdminShell({ children }: { children: ReactNode }) {
             alt="metatron"
             className="h-8 w-auto max-w-[140px] object-contain object-left"
           />
-          <span className="font-mono text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
+          <span className="font-sans text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
             Admin
           </span>
         </Link>

@@ -427,7 +427,7 @@ export default function ConnectorNetworkPage() {
     <>
       <div className="grid gap-4 sm:grid-cols-2">
         <label className="block space-y-1">
-          <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
+          <span className="font-sans text-[11px] uppercase text-[var(--text-muted)]">
             Name *
           </span>
           <input
@@ -441,7 +441,7 @@ export default function ConnectorNetworkPage() {
           />
         </label>
         <label className="block space-y-1">
-          <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
+          <span className="font-sans text-[11px] uppercase text-[var(--text-muted)]">
             {contact.role === "investor" ? "Firm" : "Company"}
           </span>
           <input
@@ -458,7 +458,7 @@ export default function ConnectorNetworkPage() {
           />
         </label>
         <label className="block space-y-1">
-          <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
+          <span className="font-sans text-[11px] uppercase text-[var(--text-muted)]">
             Email
           </span>
           <input
@@ -472,7 +472,7 @@ export default function ConnectorNetworkPage() {
           />
         </label>
         <label className="block space-y-1">
-          <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
+          <span className="font-sans text-[11px] uppercase text-[var(--text-muted)]">
             LinkedIn URL
           </span>
           <input
@@ -487,7 +487,7 @@ export default function ConnectorNetworkPage() {
         </label>
       </div>
       <label className="block space-y-1">
-        <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
+        <span className="font-sans text-[11px] uppercase text-[var(--text-muted)]">
           Notes
         </span>
         <textarea
@@ -523,7 +523,7 @@ export default function ConnectorNetworkPage() {
   return (
     <main className="flex-1">
       <header className="border-b border-[var(--border)] px-6 py-4 md:px-10">
-        <p className="mb-1 font-mono text-[11px] font-medium uppercase tracking-[2px] text-[var(--text-muted)]">
+        <p className="mb-1 font-sans text-[11px] font-medium uppercase tracking-[2px] text-[var(--text-muted)]">
           Connector
         </p>
         <h1 className="text-lg font-semibold">My Network</h1>
@@ -551,7 +551,7 @@ export default function ConnectorNetworkPage() {
               ].join(" ")}
             >
               {t === "investor" ? "Investors" : "Founders"}
-              <span className="ml-2 rounded-full bg-[var(--bg)] px-2 py-0.5 font-mono text-[10px] text-[var(--text-muted)]">
+              <span className="ml-2 rounded-full bg-[var(--bg)] px-2 py-0.5 font-sans text-[10px] text-[var(--text-muted)]">
                 {contacts.filter((c) => c.role === t).length}
               </span>
             </button>
@@ -575,7 +575,7 @@ export default function ConnectorNetworkPage() {
           >
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="block space-y-1">
-                <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
+                <span className="font-sans text-[11px] uppercase text-[var(--text-muted)]">
                   Name *
                 </span>
                 <input
@@ -589,7 +589,7 @@ export default function ConnectorNetworkPage() {
                 />
               </label>
               <label className="block space-y-1">
-                <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
+                <span className="font-sans text-[11px] uppercase text-[var(--text-muted)]">
                   {tab === "investor" ? "Firm" : "Company"}
                 </span>
                 <input
@@ -606,7 +606,7 @@ export default function ConnectorNetworkPage() {
                 />
               </label>
               <label className="block space-y-1">
-                <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
+                <span className="font-sans text-[11px] uppercase text-[var(--text-muted)]">
                   Email
                 </span>
                 <input
@@ -620,7 +620,7 @@ export default function ConnectorNetworkPage() {
                 />
               </label>
               <label className="block space-y-1">
-                <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
+                <span className="font-sans text-[11px] uppercase text-[var(--text-muted)]">
                   LinkedIn URL
                 </span>
                 <input
@@ -635,7 +635,7 @@ export default function ConnectorNetworkPage() {
               </label>
             </div>
             <label className="block space-y-1">
-              <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
+              <span className="font-sans text-[11px] uppercase text-[var(--text-muted)]">
                 Notes
               </span>
               <textarea
@@ -807,7 +807,7 @@ export default function ConnectorNetworkPage() {
                                 On platform
                               </span>
                             ) : (
-                              <span className="inline-flex items-center rounded-full border border-[var(--border)] px-2 py-0.5 font-mono text-[10px] text-[var(--text-muted)]">
+                              <span className="inline-flex items-center rounded-full border border-[var(--border)] px-2 py-0.5 font-sans text-[10px] text-[var(--text-muted)]">
                                 Not yet
                               </span>
                             )}
@@ -869,19 +869,19 @@ export default function ConnectorNetworkPage() {
                 <table className="w-full min-w-[640px] text-left text-sm">
                   <thead>
                     <tr className="border-b border-[var(--border)]">
-                      <th className="pb-3 pr-3 font-mono text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
+                      <th className="pb-3 pr-3 font-sans text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
                         Name
                       </th>
-                      <th className="pb-3 pr-3 font-mono text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
+                      <th className="pb-3 pr-3 font-sans text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
                         {tab === "investor" ? "Firm" : "Company"}
                       </th>
-                      <th className="pb-3 pr-3 font-mono text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
+                      <th className="pb-3 pr-3 font-sans text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
                         Email
                       </th>
-                      <th className="pb-3 pr-3 font-mono text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
+                      <th className="pb-3 pr-3 font-sans text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
                         Status
                       </th>
-                      <th className="pb-3 font-mono text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
+                      <th className="pb-3 font-sans text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
                         Actions
                       </th>
                     </tr>
@@ -912,7 +912,7 @@ export default function ConnectorNetworkPage() {
                                 On platform
                               </span>
                             ) : (
-                              <span className="inline-flex items-center rounded-full border border-[var(--border)] px-2 py-0.5 font-mono text-[10px] text-[var(--text-muted)]">
+                              <span className="inline-flex items-center rounded-full border border-[var(--border)] px-2 py-0.5 font-sans text-[10px] text-[var(--text-muted)]">
                                 Not yet
                               </span>
                             )}
@@ -1045,7 +1045,7 @@ export default function ConnectorNetworkPage() {
               </p>
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="rounded-lg border border-[var(--border)] bg-[var(--bg)] p-3">
-                  <p className="font-mono text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
+                  <p className="font-sans text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
                     Investors found
                   </p>
                   <p className="mt-1 text-2xl font-semibold text-metatron-accent">
@@ -1056,7 +1056,7 @@ export default function ConnectorNetworkPage() {
                   </p>
                 </div>
                 <div className="rounded-lg border border-[var(--border)] bg-[var(--bg)] p-3">
-                  <p className="font-mono text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
+                  <p className="font-sans text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
                     Founders found
                   </p>
                   <p className="mt-1 text-2xl font-semibold text-metatron-accent">
@@ -1153,7 +1153,7 @@ export default function ConnectorNetworkPage() {
           </p>
           <form onSubmit={onCsvImport} className="space-y-3">
             <textarea
-              className="input-metatron w-full resize-none font-mono text-xs"
+              className="input-metatron w-full resize-none font-sans text-xs"
               rows={6}
               value={csvText}
               onChange={(e) => setCsvText(e.target.value)}

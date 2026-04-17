@@ -90,7 +90,7 @@ function HomePageContent() {
           </p>
         </div>
 
-        <p className="mb-4 text-left font-mono text-[11px] font-medium uppercase tracking-[2px] text-[var(--text-muted)]">
+        <p className="mb-4 text-left font-sans text-[11px] font-medium uppercase tracking-[2px] text-[var(--text-muted)]">
           I am a
         </p>
         <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -112,7 +112,7 @@ function HomePageContent() {
               <div className="mb-1 text-[15px] font-semibold text-[var(--text)]">
                 {r.name}
               </div>
-              <div className="font-mono text-xs tracking-wide text-[var(--text-muted)]">
+              <div className="font-sans text-xs tracking-wide text-[var(--text-muted)]">
                 {r.desc}
               </div>
             </button>

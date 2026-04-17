@@ -117,7 +117,7 @@ export default function AdminUsersPage() {
     <main className="min-w-0">
       <header className="border-b border-[var(--border)] px-6 py-4 md:px-10 flex flex-wrap items-start justify-between gap-4">
         <div>
-          <p className="font-mono text-[11px] font-medium uppercase tracking-[2px] text-[var(--text-muted)] mb-1">
+          <p className="font-sans text-[11px] font-medium uppercase tracking-[2px] text-[var(--text-muted)] mb-1">
             Admin
           </p>
           <h1 className="text-lg font-semibold">Users</h1>
@@ -143,22 +143,22 @@ export default function AdminUsersPage() {
             <table className="w-full min-w-[720px] text-left text-sm">
               <thead>
                 <tr className="border-b border-[var(--border)] text-[var(--text-muted)]">
-                  <th className="px-4 py-3 font-mono text-[11px] uppercase tracking-wider">
+                  <th className="px-4 py-3 font-sans text-[11px] uppercase tracking-wider">
                     Email
                   </th>
-                  <th className="px-4 py-3 font-mono text-[11px] uppercase tracking-wider">
+                  <th className="px-4 py-3 font-sans text-[11px] uppercase tracking-wider">
                     Role
                   </th>
-                  <th className="px-4 py-3 font-mono text-[11px] uppercase tracking-wider">
+                  <th className="px-4 py-3 font-sans text-[11px] uppercase tracking-wider">
                     Tier
                   </th>
-                  <th className="px-4 py-3 font-mono text-[11px] uppercase tracking-wider">
+                  <th className="px-4 py-3 font-sans text-[11px] uppercase tracking-wider">
                     Telegram
                   </th>
-                  <th className="px-4 py-3 font-mono text-[11px] uppercase tracking-wider">
+                  <th className="px-4 py-3 font-sans text-[11px] uppercase tracking-wider">
                     Joined
                   </th>
-                  <th className="px-4 py-3 font-mono text-[11px] uppercase tracking-wider text-right">
+                  <th className="px-4 py-3 font-sans text-[11px] uppercase tracking-wider text-right">
                     Kevin today
                   </th>
                 </tr>
@@ -183,7 +183,7 @@ export default function AdminUsersPage() {
                     <td className="px-4 py-3">
                       <span
                         className={[
-                          "font-mono text-[10px] uppercase tracking-wider border px-2 py-0.5 rounded",
+                          "font-sans text-[10px] uppercase tracking-wider border px-2 py-0.5 rounded",
                           u.is_pro
                             ? "border-metatron-accent/40 text-metatron-accent"
                             : "border-[var(--border)] text-[var(--text-muted)]",
@@ -192,11 +192,11 @@ export default function AdminUsersPage() {
                         {u.is_pro ? "Pro" : "Free"}
                       </span>
                       {u.is_super_admin ? (
-                        <span className="ml-2 font-mono text-[10px] uppercase tracking-wider text-metatron-accent">
+                        <span className="ml-2 font-sans text-[10px] uppercase tracking-wider text-metatron-accent">
                           super admin
                         </span>
                       ) : u.is_admin ? (
-                        <span className="ml-2 font-mono text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
+                        <span className="ml-2 font-sans text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
                           admin
                         </span>
                       ) : null}
@@ -211,7 +211,7 @@ export default function AdminUsersPage() {
                     <td className="px-4 py-3 text-xs text-[var(--text-muted)]">
                       {formatJoined(u.created_at)}
                     </td>
-                    <td className="px-4 py-3 text-right font-mono text-xs">
+                    <td className="px-4 py-3 text-right font-sans text-xs">
                       {u.kevin_message_count}
                     </td>
                   </tr>

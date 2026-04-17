@@ -80,7 +80,7 @@ export default function StartupCallsPage() {
     <main className="flex-1">
       <header className="border-b border-[var(--border)] px-6 py-4 md:px-10 flex flex-wrap items-end justify-between gap-3">
         <div>
-          <p className="font-mono text-[11px] font-medium uppercase tracking-[2px] text-[var(--text-muted)] mb-1">
+          <p className="font-sans text-[11px] font-medium uppercase tracking-[2px] text-[var(--text-muted)] mb-1">
             Calls
           </p>
           <h1 className="text-lg font-semibold">Call intelligence</h1>
@@ -114,14 +114,14 @@ export default function StartupCallsPage() {
                   <h2 className="text-sm font-semibold text-[var(--text)]">
                     {c.original_filename}
                   </h2>
-                  <p className="text-[11px] text-[var(--text-muted)] font-mono">
+                  <p className="text-[11px] text-[var(--text-muted)] font-sans">
                     {new Date(c.created_at).toLocaleString()}
                   </p>
                 </div>
               </div>
               {c.transcript && (
                 <div className="px-4 py-3 border-b border-[var(--border)]">
-                  <p className="font-mono text-[10px] uppercase text-[var(--text-muted)] mb-1">
+                  <p className="font-sans text-[10px] uppercase text-[var(--text-muted)] mb-1">
                     Transcript
                   </p>
                   <p className="text-xs text-[var(--text-muted)] leading-relaxed whitespace-pre-wrap">
@@ -132,7 +132,7 @@ export default function StartupCallsPage() {
               {c.analysis && (
                 <div className="p-4 grid gap-4 sm:grid-cols-2">
                   <div className="sm:col-span-2 rounded-lg border border-[var(--border)] bg-[color-mix(in_srgb,var(--bg)_55%,transparent)] p-3">
-                    <p className="font-mono text-[10px] uppercase text-metatron-accent mb-1">
+                    <p className="font-sans text-[10px] uppercase text-metatron-accent mb-1">
                       Summary
                     </p>
                     <p className="text-sm text-[var(--text)] leading-relaxed">
@@ -140,7 +140,7 @@ export default function StartupCallsPage() {
                     </p>
                   </div>
                   <div className="rounded-lg border border-[var(--border)] p-3">
-                    <p className="font-mono text-[10px] uppercase text-[var(--text-muted)] mb-2">
+                    <p className="font-sans text-[10px] uppercase text-[var(--text-muted)] mb-2">
                       Key takeaways
                     </p>
                     <ul className="text-xs text-[var(--text-muted)] space-y-1 list-disc pl-4">
@@ -150,7 +150,7 @@ export default function StartupCallsPage() {
                     </ul>
                   </div>
                   <div className="rounded-lg border border-[var(--border)] p-3">
-                    <p className="font-mono text-[10px] uppercase text-[var(--text-muted)] mb-2">
+                    <p className="font-sans text-[10px] uppercase text-[var(--text-muted)] mb-2">
                       Action items
                     </p>
                     <ul className="text-xs text-[var(--text-muted)] space-y-1 list-disc pl-4">
@@ -160,7 +160,7 @@ export default function StartupCallsPage() {
                     </ul>
                   </div>
                   <div className="sm:col-span-2 rounded-lg border border-metatron-accent/20 bg-metatron-accent/5 p-3">
-                    <p className="font-mono text-[10px] uppercase text-[var(--text-muted)] mb-1">
+                    <p className="font-sans text-[10px] uppercase text-[var(--text-muted)] mb-1">
                       Investor sentiment
                     </p>
                     <p className="text-sm font-medium text-metatron-accent">

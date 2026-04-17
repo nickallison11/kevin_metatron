@@ -160,22 +160,22 @@ export default function ConnectorIntroductionsPage() {
             <table className="w-full min-w-[640px] text-left text-sm">
               <thead>
                 <tr className="border-b border-[var(--border)]">
-                  <th className="px-4 py-3 font-mono text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
+                  <th className="px-4 py-3 font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
                     Person A
                   </th>
-                  <th className="px-4 py-3 font-mono text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
+                  <th className="px-4 py-3 font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
                     Person B
                   </th>
-                  <th className="px-4 py-3 font-mono text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
+                  <th className="px-4 py-3 font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
                     Notes
                   </th>
-                  <th className="px-4 py-3 font-mono text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
+                  <th className="px-4 py-3 font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
                     Status
                   </th>
-                  <th className="px-4 py-3 font-mono text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
+                  <th className="px-4 py-3 font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
                     Date
                   </th>
-                  <th className="px-4 py-3 font-mono text-[11px] uppercase tracking-wider text-[var(--text-muted)]"></th>
+                  <th className="px-4 py-3 font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]"></th>
                 </tr>
               </thead>
               <tbody>
@@ -231,7 +231,7 @@ export default function ConnectorIntroductionsPage() {
               {error && <p className="text-xs text-red-400">{error}</p>}
               <div className="grid grid-cols-2 gap-3">
                 <label className="space-y-1">
-                  <span className="font-mono text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
+                  <span className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
                     Person A Name *
                   </span>
                   <input
@@ -241,7 +241,7 @@ export default function ConnectorIntroductionsPage() {
                   />
                 </label>
                 <label className="space-y-1">
-                  <span className="font-mono text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
+                  <span className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
                     Person A Email
                   </span>
                   <input
@@ -252,7 +252,7 @@ export default function ConnectorIntroductionsPage() {
                   />
                 </label>
                 <label className="space-y-1">
-                  <span className="font-mono text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
+                  <span className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
                     Person B Name *
                   </span>
                   <input
@@ -262,7 +262,7 @@ export default function ConnectorIntroductionsPage() {
                   />
                 </label>
                 <label className="space-y-1">
-                  <span className="font-mono text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
+                  <span className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
                     Person B Email
                   </span>
                   <input
@@ -274,7 +274,7 @@ export default function ConnectorIntroductionsPage() {
                 </label>
               </div>
               <label className="block space-y-1">
-                <span className="font-mono text-[11px] uppercase tracking-wider text-[var(--text-muted)]">Notes</span>
+                <span className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">Notes</span>
                 <textarea
                   className="input-metatron w-full resize-none"
                   rows={3}

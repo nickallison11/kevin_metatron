@@ -82,7 +82,7 @@ export function FounderCard({
         <h3 className="text-sm font-semibold text-[var(--text)]">
           {founder.company_name || "Unnamed company"}
         </h3>
-        <p className="mt-1 font-mono text-[11px] uppercase tracking-wide text-[var(--text-muted)]">
+        <p className="mt-1 font-sans text-[11px] uppercase tracking-wide text-[var(--text-muted)]">
           {(founder.stage || "—") +
             " · " +
             (founder.sector || "—") +

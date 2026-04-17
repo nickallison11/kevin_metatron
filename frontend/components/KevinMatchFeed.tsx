@@ -66,7 +66,7 @@ export default function KevinMatchFeed({
   if (loading && matches.length === 0) {
     return (
       <div className="rounded-[12px] border border-[var(--border)] bg-[var(--bg-card)] p-6">
-        <p className="font-mono text-[11px] uppercase tracking-[2px] text-[var(--text-muted)]">
+        <p className="font-sans text-[11px] uppercase tracking-[2px] text-[var(--text-muted)]">
           Kevin&apos;s Top Matches
         </p>
         <p className="mt-3 text-sm text-[var(--text-muted)]">Kevin is finding your best matches…</p>
@@ -77,7 +77,7 @@ export default function KevinMatchFeed({
   if (matches.length === 0) {
     return (
       <div className="rounded-[12px] border border-[var(--border)] bg-[var(--bg-card)] p-6">
-        <p className="font-mono text-[11px] uppercase tracking-[2px] text-[var(--text-muted)]">
+        <p className="font-sans text-[11px] uppercase tracking-[2px] text-[var(--text-muted)]">
           Kevin&apos;s Top Matches
         </p>
         <p className="mt-3 text-sm text-[var(--text-muted)]">
@@ -89,7 +89,7 @@ export default function KevinMatchFeed({
 
   return (
     <div className="rounded-[12px] border border-[var(--border)] bg-[var(--bg-card)] p-6">
-      <p className="font-mono text-[11px] uppercase tracking-[2px] text-[var(--text-muted)]">
+      <p className="font-sans text-[11px] uppercase tracking-[2px] text-[var(--text-muted)]">
         Kevin&apos;s Top {role === "founder" ? "Investor" : "Founder"} Matches
       </p>
       <div className="mt-4 space-y-3">
@@ -105,7 +105,7 @@ export default function KevinMatchFeed({
                 <div className="flex flex-wrap items-center gap-2">
                   <p className="font-semibold text-[var(--text)]">{name ?? "Unknown"}</p>
                   {role === "investor" && m.angel_score != null && (
-                    <span className="rounded-full bg-metatron-accent/10 px-2 py-0.5 text-[10px] font-mono text-metatron-accent">
+                    <span className="rounded-full bg-metatron-accent/10 px-2 py-0.5 text-[10px] font-sans text-metatron-accent">
                       AS {m.angel_score}
                     </span>
                   )}

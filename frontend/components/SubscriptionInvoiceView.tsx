@@ -144,7 +144,7 @@ export default function SubscriptionInvoiceView({
             className="h-[42px] w-auto"
           />
         </div>
-        <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-[var(--text-muted)]">
+        <p className="font-sans text-[11px] uppercase tracking-[0.2em] text-[var(--text-muted)]">
           INVOICE
         </p>
         <div className="my-4 border-t border-[var(--border)]" />
@@ -187,7 +187,7 @@ export default function SubscriptionInvoiceView({
             <span className="text-[var(--text)]">{paymentMethodLabel(inv.payment_method)}</span>
           </p>
           <p>
-            Reference: <span className="text-[var(--text)] font-mono text-xs">{refDisplay}</span>
+            Reference: <span className="text-[var(--text)] font-sans text-xs">{refDisplay}</span>
           </p>
         </div>
         <div className="my-6 border-t border-[var(--border)]" />

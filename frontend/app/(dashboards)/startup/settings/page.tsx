@@ -274,7 +274,7 @@ export default function StartupSettingsPage() {
   return (
     <main className="flex-1">
       <header className="border-b border-[var(--border)] px-6 py-4 md:px-10">
-        <p className="font-mono text-[11px] font-medium uppercase tracking-[2px] text-[var(--text-muted)] mb-1">
+        <p className="font-sans text-[11px] font-medium uppercase tracking-[2px] text-[var(--text-muted)] mb-1">
           Settings
         </p>
         <h1 className="text-lg font-semibold">Account & security</h1>
@@ -285,13 +285,13 @@ export default function StartupSettingsPage() {
               {me?.email}
             </p>
             {roleBadgeText ? (
-              <span className="font-mono text-[10px] uppercase tracking-wider border border-[var(--border)] text-[var(--text-muted)] px-2 py-0.5 rounded">
+              <span className="font-sans text-[10px] uppercase tracking-wider border border-[var(--border)] text-[var(--text-muted)] px-2 py-0.5 rounded">
                 {roleBadgeText}
               </span>
             ) : null}
             <span
               className={[
-                "font-mono text-[10px] uppercase tracking-wider border px-2 py-0.5 rounded",
+                "font-sans text-[10px] uppercase tracking-wider border px-2 py-0.5 rounded",
                 me?.is_pro
                   ? "border-metatron-accent/40 text-metatron-accent"
                   : "border-[var(--border)] text-[var(--text-muted)]",
@@ -312,7 +312,7 @@ export default function StartupSettingsPage() {
 
           <form onSubmit={onSavePersonalDetails} className="space-y-3 text-sm">
             <label className="block space-y-1">
-              <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
+              <span className="font-sans text-[11px] uppercase text-[var(--text-muted)]">
                 First name
               </span>
               <input
@@ -323,7 +323,7 @@ export default function StartupSettingsPage() {
               />
             </label>
             <label className="block space-y-1">
-              <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
+              <span className="font-sans text-[11px] uppercase text-[var(--text-muted)]">
                 Last name
               </span>
               <input
@@ -362,7 +362,7 @@ export default function StartupSettingsPage() {
               Change email
             </h3>
             <label className="block space-y-1">
-              <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
+              <span className="font-sans text-[11px] uppercase text-[var(--text-muted)]">
                 Current password
               </span>
               <input
@@ -374,7 +374,7 @@ export default function StartupSettingsPage() {
               />
             </label>
             <label className="block space-y-1">
-              <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
+              <span className="font-sans text-[11px] uppercase text-[var(--text-muted)]">
                 New email
               </span>
               <input
@@ -404,7 +404,7 @@ export default function StartupSettingsPage() {
               Change password
             </h3>
             <label className="block space-y-1">
-              <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
+              <span className="font-sans text-[11px] uppercase text-[var(--text-muted)]">
                 Current password
               </span>
               <input
@@ -416,7 +416,7 @@ export default function StartupSettingsPage() {
               />
             </label>
             <label className="block space-y-1">
-              <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
+              <span className="font-sans text-[11px] uppercase text-[var(--text-muted)]">
                 New password
               </span>
               <input
@@ -428,7 +428,7 @@ export default function StartupSettingsPage() {
               />
             </label>
             <label className="block space-y-1">
-              <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
+              <span className="font-sans text-[11px] uppercase text-[var(--text-muted)]">
                 Confirm new password
               </span>
               <input
@@ -478,7 +478,7 @@ export default function StartupSettingsPage() {
                   />
                   <form onSubmit={onConfirm2fa} className="flex-1 space-y-3 text-sm">
                     <label className="block space-y-1">
-                      <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
+                      <span className="font-sans text-[11px] uppercase text-[var(--text-muted)]">
                         6-digit code
                       </span>
                       <input
@@ -534,7 +534,7 @@ export default function StartupSettingsPage() {
               {disableMode && (
                 <form onSubmit={onDisable2fa} className="space-y-3 text-sm">
                   <label className="block space-y-1">
-                    <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
+                    <span className="font-sans text-[11px] uppercase text-[var(--text-muted)]">
                       Current 6-digit code
                     </span>
                     <input

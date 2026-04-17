@@ -272,7 +272,7 @@ export default function StartupPitchesPage() {
   return (
     <main className="flex-1">
       <header className="border-b border-[var(--border)] px-6 py-4 md:px-10">
-        <p className="font-mono text-[11px] font-medium uppercase tracking-[2px] text-[var(--text-muted)] mb-1">
+        <p className="font-sans text-[11px] font-medium uppercase tracking-[2px] text-[var(--text-muted)] mb-1">
           Pitch data
         </p>
         <h1 className="text-lg font-semibold">Your pitch data</h1>
@@ -638,7 +638,7 @@ export default function StartupPitchesPage() {
                     </div>
                     <div className="flex flex-wrap items-center justify-end gap-2 shrink-0">
                       {p.stage ? (
-                        <span className="rounded-md border border-[var(--border)] px-2 py-0.5 font-mono text-[10px] uppercase tracking-wide text-[var(--text-muted)]">
+                        <span className="rounded-md border border-[var(--border)] px-2 py-0.5 font-sans text-[10px] uppercase tracking-wide text-[var(--text-muted)]">
                           {p.stage}
                         </span>
                       ) : null}

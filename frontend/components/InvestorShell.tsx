@@ -50,7 +50,7 @@ export default function InvestorShell({ children }: { children: ReactNode }) {
   return (
     <div className="flex min-h-[calc(100vh-72px)] text-[var(--text)]">
       <aside className="hidden md:flex w-52 shrink-0 flex-col border-r border-[var(--border)] bg-[color-mix(in_srgb,var(--bg-card)_92%,transparent)] px-3 py-6 gap-1">
-        <p className="font-mono text-[10px] uppercase tracking-[2px] text-[var(--text-muted)] px-3 mb-3">
+        <p className="font-sans text-[10px] uppercase tracking-[2px] text-[var(--text-muted)] px-3 mb-3">
           Investor
         </p>
         {NAV.map((item) => (
@@ -63,7 +63,7 @@ export default function InvestorShell({ children }: { children: ReactNode }) {
             className="cursor-pointer rounded-[var(--radius)] px-3 py-2.5 text-sm font-medium text-left text-[var(--text-muted)] opacity-50 bg-transparent hover:opacity-50 hover:bg-transparent flex items-center justify-between"
           >
             Portfolio
-            <span className="font-mono text-[9px] uppercase tracking-wider border border-metatron-accent/40 text-metatron-accent px-1.5 py-0.5 rounded">
+            <span className="font-sans text-[9px] uppercase tracking-wider border border-metatron-accent/40 text-metatron-accent px-1.5 py-0.5 rounded">
               Pro
             </span>
           </button>

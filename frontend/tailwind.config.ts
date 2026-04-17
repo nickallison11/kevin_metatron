@@ -17,8 +17,7 @@ const config: Config = {
         }
       },
       fontFamily: {
-        sans: ["var(--font-dm-sans)", "DM Sans", "system-ui", "sans-serif"],
-        mono: ["var(--font-jetbrains-mono)", "JetBrains Mono", "monospace"]
+        sans: ["var(--font-dm-sans)", "DM Sans", "system-ui", "sans-serif"]
       },
       borderRadius: {
         metatron: "12px"

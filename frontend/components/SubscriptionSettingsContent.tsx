@@ -127,7 +127,7 @@ export default function SubscriptionSettingsContent({
       <h1 className="text-xl font-semibold text-[var(--text)]">Subscription</h1>
 
       <section className={card}>
-        <h2 className="font-mono text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
+        <h2 className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
           Current plan
         </h2>
         {active ? (
@@ -183,7 +183,7 @@ export default function SubscriptionSettingsContent({
 
       {active && (
         <section className={card}>
-          <h2 className="font-mono text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
+          <h2 className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
             Extend subscription
           </h2>
           <p className="mt-3 text-sm text-[var(--text-muted)]">
@@ -210,7 +210,7 @@ export default function SubscriptionSettingsContent({
       )}
 
       <section className={card}>
-        <h2 className="font-mono text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
+        <h2 className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
           Payment history
         </h2>
         {invoices.length === 0 ? (

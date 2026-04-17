@@ -31,6 +31,7 @@ pub struct InvestorProfileDto {
     pub ticket_size_min: Option<i64>,
     pub ticket_size_max: Option<i64>,
     pub country: Option<String>,
+    pub investor_tier: Option<String>,
     #[serde(default)]
     pub is_accredited: bool,
 }
@@ -57,6 +58,7 @@ struct InvestorRow {
     ticket_size_min: Option<i64>,
     ticket_size_max: Option<i64>,
     country: Option<String>,
+    investor_tier: Option<String>,
     is_accredited: bool,
 }
 
@@ -67,7 +69,7 @@ async fn fetch_dto(
     let row = sqlx::query_as::<_, InvestorRow>(
         r#"
         SELECT firm_name, bio, investment_thesis, sectors, stages,
-               ticket_size_min, ticket_size_max, country, is_accredited
+               ticket_size_min, ticket_size_max, country, investor_tier, is_accredited
         FROM investor_profiles WHERE user_id = $1
         "#,
     )
@@ -99,6 +101,7 @@ fn into_dto(r: InvestorRow) -> InvestorProfileDto {
         ticket_size_min: r.ticket_size_min,
         ticket_size_max: r.ticket_size_max,
         country: r.country,
+        investor_tier: r.investor_tier,
         is_accredited: r.is_accredited,
     }
 }

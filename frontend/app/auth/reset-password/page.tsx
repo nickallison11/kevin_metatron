@@ -73,7 +73,7 @@ function ResetPasswordForm() {
           ) : (
             <form onSubmit={onSubmit} className="space-y-4">
               <label className="block text-sm space-y-1 text-[var(--text)]">
-                <span className="font-mono text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
+                <span className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
                   New password
                 </span>
                 <input
@@ -87,7 +87,7 @@ function ResetPasswordForm() {
                 />
               </label>
               <label className="block text-sm space-y-1 text-[var(--text)]">
-                <span className="font-mono text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
+                <span className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
                   Confirm password
                 </span>
                 <input

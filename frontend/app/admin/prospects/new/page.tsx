@@ -67,7 +67,7 @@ export default function AdminAddProspectPage() {
         >
           ← Prospects
         </Link>
-        <p className="font-mono text-[11px] font-medium uppercase tracking-[2px] text-[var(--text-muted)] mb-1">
+        <p className="font-sans text-[11px] font-medium uppercase tracking-[2px] text-[var(--text-muted)] mb-1">
           Admin
         </p>
         <h1 className="text-lg font-semibold">Add prospect</h1>
@@ -81,7 +81,7 @@ export default function AdminAddProspectPage() {
         <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-6 space-y-4 max-w-xl">
           <form onSubmit={onCreate} className="space-y-3 text-sm">
             <label className="block space-y-1">
-              <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
+              <span className="font-sans text-[11px] uppercase text-[var(--text-muted)]">
                 Name
               </span>
               <input
@@ -92,7 +92,7 @@ export default function AdminAddProspectPage() {
               />
             </label>
             <label className="block space-y-1">
-              <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
+              <span className="font-sans text-[11px] uppercase text-[var(--text-muted)]">
                 Email
               </span>
               <input
@@ -104,7 +104,7 @@ export default function AdminAddProspectPage() {
               />
             </label>
             <label className="block space-y-1">
-              <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
+              <span className="font-sans text-[11px] uppercase text-[var(--text-muted)]">
                 LinkedIn URL
               </span>
               <input
@@ -116,7 +116,7 @@ export default function AdminAddProspectPage() {
               />
             </label>
             <label className="block space-y-1">
-              <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
+              <span className="font-sans text-[11px] uppercase text-[var(--text-muted)]">
                 PITCH DECK URL
               </span>
               <input
@@ -128,7 +128,7 @@ export default function AdminAddProspectPage() {
               />
             </label>
             <label className="block space-y-1">
-              <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
+              <span className="font-sans text-[11px] uppercase text-[var(--text-muted)]">
                 Role
               </span>
               <input
@@ -139,7 +139,7 @@ export default function AdminAddProspectPage() {
               />
             </label>
             <label className="block space-y-1">
-              <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
+              <span className="font-sans text-[11px] uppercase text-[var(--text-muted)]">
                 Notes
               </span>
               <textarea

@@ -24,7 +24,7 @@ function ScoreBar({ label, value, max = 25 }: { label: string; value: number | n
           style={{ width: `${pct}%` }}
         />
       </div>
-      <span className="w-8 text-right text-xs font-mono text-[var(--text)]">
+      <span className="w-8 text-right text-xs font-sans text-[var(--text)]">
         {value ?? "—"}/{max}
       </span>
     </div>
@@ -73,7 +73,7 @@ export default function AngelScoreCard({ token }: { token: string }) {
     <div className="rounded-[12px] border border-[var(--border)] bg-[var(--bg-card)] p-6">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="font-mono text-[11px] uppercase tracking-[2px] text-[var(--text-muted)]">Angel Score</p>
+          <p className="font-sans text-[11px] uppercase tracking-[2px] text-[var(--text-muted)]">Angel Score</p>
           <div className="mt-1 flex items-end gap-1">
             <span className="text-5xl font-bold text-[var(--text)]">{score?.score ?? "—"}</span>
             <span className="mb-1 text-lg text-[var(--text-muted)]">/100</span>

@@ -146,7 +146,7 @@ export default function ConnectorSubscriptionPage() {
       )}
 
       <section className={card}>
-        <h2 className="font-mono text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
+        <h2 className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
           Current plan
         </h2>
         {isPaid ? (
@@ -220,7 +220,7 @@ export default function ConnectorSubscriptionPage() {
       </section>
 
       <section className={card}>
-        <h2 className="font-mono text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
+        <h2 className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
           Payment history
         </h2>
         {invoices.length === 0 ? (

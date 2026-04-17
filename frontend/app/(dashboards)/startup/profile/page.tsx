@@ -366,7 +366,7 @@ export default function StartupProfilePage() {
   return (
     <main className="flex-1">
       <header className="border-b border-[var(--border)] px-6 py-4 md:px-10">
-        <p className="font-mono text-[11px] font-medium uppercase tracking-[2px] text-[var(--text-muted)] mb-1">
+        <p className="font-sans text-[11px] font-medium uppercase tracking-[2px] text-[var(--text-muted)] mb-1">
           Profile
         </p>
         <h1 className="text-lg font-semibold">Company & pitch deck</h1>
@@ -379,7 +379,7 @@ export default function StartupProfilePage() {
             ) : (
               <form onSubmit={onSave} className="space-y-4 text-sm">
             <label className="block space-y-1">
-              <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
+              <span className="font-sans text-[11px] uppercase text-[var(--text-muted)]">
                 Company name
               </span>
               <input
@@ -391,7 +391,7 @@ export default function StartupProfilePage() {
               />
             </label>
             <label className="block space-y-1">
-              <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
+              <span className="font-sans text-[11px] uppercase text-[var(--text-muted)]">
                 One-liner
               </span>
               <input
@@ -404,7 +404,7 @@ export default function StartupProfilePage() {
             </label>
             <div className="grid sm:grid-cols-2 gap-4">
               <label className="block space-y-1">
-                <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
+                <span className="font-sans text-[11px] uppercase text-[var(--text-muted)]">
                   Stage
                 </span>
                 <select
@@ -423,7 +423,7 @@ export default function StartupProfilePage() {
                 </select>
               </label>
               <label className="block space-y-1">
-                <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
+                <span className="font-sans text-[11px] uppercase text-[var(--text-muted)]">
                   Sector
                 </span>
                 <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-3 space-y-2">
@@ -476,7 +476,7 @@ export default function StartupProfilePage() {
             </div>
             <div className="grid sm:grid-cols-2 gap-4">
               <label className="block space-y-1">
-                <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
+                <span className="font-sans text-[11px] uppercase text-[var(--text-muted)]">
                   Country (ISO-2)
                 </span>
                 <select
@@ -493,7 +493,7 @@ export default function StartupProfilePage() {
                 </select>
               </label>
               <label className="block space-y-1">
-                <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
+                <span className="font-sans text-[11px] uppercase text-[var(--text-muted)]">
                   Website
                 </span>
                 <input
@@ -530,7 +530,7 @@ export default function StartupProfilePage() {
                     </p>
                   </div>
                   {!isPro && profile.deck_expires_at ? (
-                    <span className="shrink-0 rounded-lg border border-[var(--border)] bg-[rgba(108,92,231,0.12)] px-2.5 py-1 font-mono text-[10px] text-[var(--text)]">
+                    <span className="shrink-0 rounded-lg border border-[var(--border)] bg-[rgba(108,92,231,0.12)] px-2.5 py-1 font-sans text-[10px] text-[var(--text)]">
                       {deckExpiryLabel(profile.deck_expires_at)}
                     </span>
                   ) : null}
@@ -579,7 +579,7 @@ export default function StartupProfilePage() {
 
               <div className="space-y-2">
                 <label className="block space-y-1">
-                  <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
+                  <span className="font-sans text-[11px] uppercase text-[var(--text-muted)]">
                     Pitch deck link
                   </span>
                   <input
@@ -641,7 +641,7 @@ export default function StartupProfilePage() {
                 </p>
                 <form onSubmit={onSaveWhatsapp} className="space-y-3 text-sm">
                   <label className="block space-y-1">
-                    <span className="font-mono text-[11px] uppercase text-[var(--text-muted)]">
+                    <span className="font-sans text-[11px] uppercase text-[var(--text-muted)]">
                       WhatsApp number
                     </span>
                     <input
@@ -752,7 +752,7 @@ export default function StartupProfilePage() {
                             <span className="font-semibold text-[var(--text)]">@Kevinmetatron_bot</span>:
                           </p>
                           <div className="flex items-center gap-2">
-                            <code className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-2 font-mono text-sm text-metatron-accent select-all">
+                            <code className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-2 font-sans text-sm text-metatron-accent select-all">
                               /start {telegramLinkCode}
                             </code>
                             <button

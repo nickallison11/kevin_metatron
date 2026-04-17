@@ -126,7 +126,7 @@ function SignupForm() {
           Create account
         </h1>
         <label className="block text-sm space-y-1 text-[var(--text)]">
-          <span className="font-mono text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
+          <span className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
             Email
           </span>
           <input
@@ -138,7 +138,7 @@ function SignupForm() {
           />
         </label>
         <label className="block text-sm space-y-1 text-[var(--text)]">
-          <span className="font-mono text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
+          <span className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
             Password
           </span>
           <input

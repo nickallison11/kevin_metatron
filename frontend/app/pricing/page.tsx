@@ -570,7 +570,7 @@ function PricingPageInner() {
         <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
           {/* Free */}
           <section className={`${cardBase} border-[var(--border)]`}>
-            <p className="font-mono text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
+            <p className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
               Free
             </p>
             <p className="mt-1 text-sm text-[var(--text-muted)]">Forever free</p>
@@ -596,7 +596,7 @@ function PricingPageInner() {
             className={`${cardBase} border-metatron-accent/40 shadow-[0_0_40px_rgba(108,92,231,0.12)]`}
           >
             <div className="flex items-start justify-between gap-2">
-              <p className="font-mono text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
+              <p className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
                 Founder Basic
               </p>
               <span className="rounded-full bg-metatron-accent/15 px-2.5 py-1 text-[10px] font-semibold text-metatron-accent">
@@ -657,7 +657,7 @@ function PricingPageInner() {
             className={`${cardBase} border-[var(--border)] opacity-50 cursor-not-allowed`}
           >
             <div className="flex items-start justify-between gap-2">
-              <p className="font-mono text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
+              <p className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
                 Founder Pro
               </p>
               <span className="rounded-full bg-[var(--border)] px-2.5 py-1 text-[10px] font-semibold text-[var(--text-muted)]">
@@ -690,7 +690,7 @@ function PricingPageInner() {
           </h2>
           <div className="mt-4 grid grid-cols-1 gap-6 md:grid-cols-2">
             <section className={`${cardBase} border-[var(--border)]`}>
-              <p className="font-mono text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
+              <p className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
                 Free
               </p>
               <p className="mt-1 text-sm text-[var(--text-muted)]">R0/month</p>
@@ -711,7 +711,7 @@ function PricingPageInner() {
             <section
               className={`${cardBase} border-metatron-accent/40 shadow-[0_0_40px_rgba(108,92,231,0.12)]`}
             >
-              <p className="font-mono text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
+              <p className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
                 Connector Basic
               </p>
               <p className="mt-1 text-sm text-[var(--text-muted)]">
@@ -792,7 +792,7 @@ function PricingPageInner() {
               </span>
             </p>
             <div className="mt-4 rounded-[12px] border border-[var(--border)] bg-[#0a0a0f]/50 p-4">
-              <p className="font-mono text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
+              <p className="font-sans text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
                 {extendModalTier === "monthly" ? "Monthly extension" : "Annual extension"}
               </p>
               <p className="mt-2 text-sm text-[var(--text)]">

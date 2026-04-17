@@ -97,7 +97,7 @@ export default function InvestorDashboardPage() {
   return (
     <main className="flex-1">
       <header className="border-b border-[var(--border)] px-6 py-4 md:px-10">
-        <p className="mb-1 font-mono text-[11px] font-medium uppercase tracking-[2px] text-[var(--text-muted)]">
+        <p className="mb-1 font-sans text-[11px] font-medium uppercase tracking-[2px] text-[var(--text-muted)]">
           Dashboard
         </p>
         <h1 className="text-lg font-semibold">Investor</h1>
@@ -112,7 +112,7 @@ export default function InvestorDashboardPage() {
         />
 
         <div className="rounded-[12px] border border-[var(--border)] bg-[var(--bg-card)] p-6">
-          <p className="font-mono text-[11px] uppercase tracking-[2px] text-[var(--text-muted)]">My Pipeline</p>
+          <p className="font-sans text-[11px] uppercase tracking-[2px] text-[var(--text-muted)]">My Pipeline</p>
           {!pipelineLoaded ? (
             <p className="mt-4 text-sm text-[var(--text-muted)]">Loading…</p>
           ) : pipeline.length === 0 ? (
@@ -127,7 +127,7 @@ export default function InvestorDashboardPage() {
                     <div className="flex flex-wrap items-center gap-2">
                       <p className="font-medium text-[var(--text)]">{row.company_name ?? "Founder"}</p>
                       {row.angel_score != null && (
-                        <span className="rounded-full bg-metatron-accent/10 px-2 py-0.5 text-[10px] font-mono text-metatron-accent">
+                        <span className="rounded-full bg-metatron-accent/10 px-2 py-0.5 text-[10px] font-sans text-metatron-accent">
                           AS {row.angel_score}
                         </span>
                       )}

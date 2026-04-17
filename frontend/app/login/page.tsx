@@ -267,7 +267,7 @@ export default function LoginPage() {
 
               <form onSubmit={onSubmit} className="mt-4 space-y-4">
                 <label className="block text-sm space-y-1 text-[var(--text)]">
-                  <span className="font-mono text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
+                  <span className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
                     Email
                   </span>
                   <input
@@ -280,7 +280,7 @@ export default function LoginPage() {
                   />
                 </label>
                 <label className="block text-sm space-y-1 text-[var(--text)]">
-                  <span className="font-mono text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
+                  <span className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
                     Password
                   </span>
                   <input
@@ -330,7 +330,7 @@ export default function LoginPage() {
               </div>
 
               <label className="block text-sm space-y-1 text-[var(--text)]">
-                <span className="font-mono text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
+                <span className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
                   6-digit code
                 </span>
                 <input

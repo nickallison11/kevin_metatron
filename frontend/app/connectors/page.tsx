@@ -52,7 +52,7 @@ export default function ConnectorsDiscoveryPage() {
   return (
     <main className="min-h-[calc(100vh-72px)] text-[var(--text)]">
       <header className="border-b border-[var(--border)] px-6 py-4 md:px-10">
-        <p className="mb-1 font-mono text-[11px] font-medium uppercase tracking-[2px] text-[var(--text-muted)]">
+        <p className="mb-1 font-sans text-[11px] font-medium uppercase tracking-[2px] text-[var(--text-muted)]">
           Discovery
         </p>
         <h1 className="text-lg font-semibold">Connectors</h1>
@@ -70,7 +70,7 @@ export default function ConnectorsDiscoveryPage() {
                     <h3 className="text-sm font-semibold text-[var(--text)]">
                       {c.organisation || "Connector"}
                     </h3>
-                    <p className="mt-1 font-mono text-[11px] text-metatron-accent">
+                    <p className="mt-1 font-sans text-[11px] text-metatron-accent">
                       {c.speciality ?? "—"} · {c.country ?? "—"}
                     </p>
                     <p className="mt-2 text-xs leading-relaxed text-[var(--text-muted)]">

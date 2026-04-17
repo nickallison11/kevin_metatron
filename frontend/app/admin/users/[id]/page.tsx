@@ -272,7 +272,7 @@ export default function AdminUserDetailPage() {
         >
           ← Users
         </Link>
-        <p className="font-mono text-[11px] font-medium uppercase tracking-[2px] text-[var(--text-muted)] mb-1">
+        <p className="font-sans text-[11px] font-medium uppercase tracking-[2px] text-[var(--text-muted)] mb-1">
           Admin
         </p>
         <h1 className="text-lg font-semibold break-all">{u.email}</h1>
@@ -290,13 +290,13 @@ export default function AdminUserDetailPage() {
           <h2 className="text-sm font-semibold">Account</h2>
           <dl className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
             <div>
-              <dt className="font-mono text-[10px] uppercase text-[var(--text-muted)]">
+              <dt className="font-sans text-[10px] uppercase text-[var(--text-muted)]">
                 Tier
               </dt>
               <dd className="mt-1 flex flex-wrap items-center gap-2">
                 <span
                   className={[
-                    "font-mono text-[10px] uppercase tracking-wider border px-2 py-0.5 rounded",
+                    "font-sans text-[10px] uppercase tracking-wider border px-2 py-0.5 rounded",
                     u.is_pro
                       ? "border-metatron-accent/40 text-metatron-accent"
                       : "border-[var(--border)] text-[var(--text-muted)]",
@@ -319,13 +319,13 @@ export default function AdminUserDetailPage() {
               </dd>
             </div>
             <div>
-              <dt className="font-mono text-[10px] uppercase text-[var(--text-muted)]">
+              <dt className="font-sans text-[10px] uppercase text-[var(--text-muted)]">
                 Subscription
               </dt>
               <dd className="mt-1 text-[var(--text)]">{u.subscription_tier}</dd>
             </div>
             <div>
-              <dt className="font-mono text-[10px] uppercase text-[var(--text-muted)]">
+              <dt className="font-sans text-[10px] uppercase text-[var(--text-muted)]">
                 Telegram
               </dt>
               <dd className="mt-1 text-[var(--text)] break-all">
@@ -333,7 +333,7 @@ export default function AdminUserDetailPage() {
               </dd>
             </div>
             <div>
-              <dt className="font-mono text-[10px] uppercase text-[var(--text-muted)]">
+              <dt className="font-sans text-[10px] uppercase text-[var(--text-muted)]">
                 WhatsApp
               </dt>
               <dd className="mt-1 text-[var(--text)] break-all">
@@ -341,13 +341,13 @@ export default function AdminUserDetailPage() {
               </dd>
             </div>
             <div>
-              <dt className="font-mono text-[10px] uppercase text-[var(--text-muted)]">
+              <dt className="font-sans text-[10px] uppercase text-[var(--text-muted)]">
                 Admin
               </dt>
               <dd className="mt-1 text-[var(--text)]">{u.is_admin ? "Yes" : "No"}</dd>
             </div>
             <div>
-              <dt className="font-mono text-[10px] uppercase text-[var(--text-muted)]">
+              <dt className="font-sans text-[10px] uppercase text-[var(--text-muted)]">
                 Suspended
               </dt>
               <dd className="mt-1 text-[var(--text)]">
@@ -401,7 +401,7 @@ export default function AdminUserDetailPage() {
                 ["Deck URL", p.pitch_deck_url],
               ].map(([label, val]) => (
                 <div key={label as string} className="flex gap-2">
-                  <dt className="w-28 shrink-0 font-mono text-[10px] uppercase text-[var(--text-muted)]">
+                  <dt className="w-28 shrink-0 font-sans text-[10px] uppercase text-[var(--text-muted)]">
                     {label}
                   </dt>
                   <dd className="min-w-0 break-words text-[var(--text)]">
@@ -448,10 +448,10 @@ export default function AdminUserDetailPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-[var(--border)] text-[var(--text-muted)]">
-                    <th className="text-left py-2 font-mono text-[11px] uppercase">
+                    <th className="text-left py-2 font-sans text-[11px] uppercase">
                       Date
                     </th>
-                    <th className="text-right py-2 font-mono text-[11px] uppercase">
+                    <th className="text-right py-2 font-sans text-[11px] uppercase">
                       Messages
                     </th>
                   </tr>
@@ -463,7 +463,7 @@ export default function AdminUserDetailPage() {
                       className="border-b border-[var(--border)] last:border-0"
                     >
                       <td className="py-2 text-[var(--text)]">{row.usage_date}</td>
-                      <td className="py-2 text-right font-mono">
+                      <td className="py-2 text-right font-sans">
                         {row.message_count}
                       </td>
                     </tr>

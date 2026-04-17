@@ -112,14 +112,14 @@ export default function ConnectorReferralsPage() {
             { label: "Credits earned", value: info?.credits_awarded ?? 0 },
           ].map((stat) => (
             <div key={stat.label} className={card}>
-              <p className="font-mono text-[11px] uppercase tracking-wider text-[var(--text-muted)]">{stat.label}</p>
+              <p className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">{stat.label}</p>
               <p className="mt-2 text-3xl font-semibold text-[var(--text)]">{stat.value}</p>
             </div>
           ))}
         </div>
 
         <div className={card}>
-          <h2 className="font-mono text-[11px] uppercase tracking-wider text-[var(--text-muted)]">Your referral link</h2>
+          <h2 className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">Your referral link</h2>
           {info?.referral_code ? (
             <div className="mt-3 flex items-center gap-3">
               <code className="flex-1 rounded-[8px] border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-sm text-[var(--text)] truncate">
@@ -151,7 +151,7 @@ export default function ConnectorReferralsPage() {
         </div>
 
         <div className={card}>
-          <h2 className="font-mono text-[11px] uppercase tracking-wider text-[var(--text-muted)]">Referral history</h2>
+          <h2 className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">Referral history</h2>
           {!info?.rows.length ? (
             <p className="mt-4 text-sm text-[var(--text-muted)]">No referrals recorded yet.</p>
           ) : (

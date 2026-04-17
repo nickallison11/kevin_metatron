@@ -150,7 +150,7 @@ export default function AdminProspectsPage() {
   return (
     <main className="min-w-0">
       <header className="border-b border-[var(--border)] px-6 py-4 md:px-10">
-        <p className="font-mono text-[11px] font-medium uppercase tracking-[2px] text-[var(--text-muted)] mb-1">
+        <p className="font-sans text-[11px] font-medium uppercase tracking-[2px] text-[var(--text-muted)] mb-1">
           Admin
         </p>
         <h1 className="text-lg font-semibold">Prospects</h1>
@@ -167,7 +167,7 @@ export default function AdminProspectsPage() {
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-5 lg:grid-cols-3 md:grid-cols-2">
             {COLUMNS.map((col) => (
               <div key={col.status} className="space-y-3 min-h-[120px]">
-                <h3 className="font-mono text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
+                <h3 className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
                   {col.title}
                 </h3>
                 <div className="space-y-2">
@@ -235,7 +235,7 @@ function ProspectCard({
         <p className="text-xs text-[var(--text)]">{prospect.role}</p>
       ) : null}
       <label className="block space-y-1">
-        <span className="font-mono text-[10px] uppercase text-[var(--text-muted)]">
+        <span className="font-sans text-[10px] uppercase text-[var(--text-muted)]">
           Status
         </span>
         <select
@@ -253,7 +253,7 @@ function ProspectCard({
         </select>
       </label>
       <label className="block space-y-1">
-        <span className="font-mono text-[10px] uppercase text-[var(--text-muted)]">
+        <span className="font-sans text-[10px] uppercase text-[var(--text-muted)]">
           Notes
         </span>
         <textarea

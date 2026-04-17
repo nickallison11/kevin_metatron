@@ -1,5 +1,7 @@
 "use client";
 
+import AngelScoreCard from "@/components/AngelScoreCard";
+import KevinMatchFeed from "@/components/KevinMatchFeed";
 import { StartupKevinChatCard } from "@/components/StartupKevinChatCard";
 import { ThreeDCard } from "@/components/ui/3d-card";
 import Link from "next/link";
@@ -21,105 +23,67 @@ export default function StartupDashboardPage() {
         </p>
         <h1 className="text-lg font-semibold">Founder overview</h1>
       </header>
-      <section className="grid max-w-4xl gap-4 p-6 sm:grid-cols-2 md:p-10">
+      <section className="max-w-4xl space-y-4 p-6 md:p-10">
+        <AngelScoreCard token={token} />
+        <KevinMatchFeed token={token} role="founder" />
         <StartupKevinChatCard token={token} />
-        <ThreeDCard>
-          <Link
-            href="/startup/profile"
-            className="block rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-5 transition-colors hover:border-metatron-accent/30"
-          >
-            <h2 className="mb-1 text-sm font-semibold text-metatron-accent">
-              Profile & deck
-            </h2>
-            <p className="text-xs leading-relaxed text-[var(--text-muted)]">
-              Company details, stage, sector, and pitch deck link.
-            </p>
-          </Link>
-        </ThreeDCard>
 
-        <ThreeDCard>
-          <Link
-            href="/startup/pitches"
-            className="block rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-5 transition-colors hover:border-metatron-accent/30"
-          >
-            <h2 className="mb-1 text-sm font-semibold text-metatron-accent">
-              Pitch data
-            </h2>
-            <p className="text-xs leading-relaxed text-[var(--text-muted)]">
-              Create and manage your fundraising pitch data.
-            </p>
-          </Link>
-        </ThreeDCard>
-
-        {isPro ? (
-          <ThreeDCard className="sm:col-span-2">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <ThreeDCard>
             <Link
-              href="/startup/calls"
+              href="/startup/profile"
               className="block rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-5 transition-colors hover:border-metatron-accent/30"
             >
-              <h2 className="mb-1 text-sm font-semibold text-metatron-accent">
-                Call intelligence
-              </h2>
+              <h2 className="mb-1 text-sm font-semibold text-metatron-accent">Profile & deck</h2>
               <p className="text-xs leading-relaxed text-[var(--text-muted)]">
-                Upload recordings for transcription and AI analysis.
+                Company details, stage, sector, and pitch deck link.
               </p>
             </Link>
           </ThreeDCard>
-        ) : (
-          <ThreeDCard className="sm:col-span-2">
-            <div
-              onClick={() => router.push("/pricing")}
-              className="cursor-pointer rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-5 opacity-60"
-            >
-              <div className="mb-1 flex items-center gap-2">
-                <h2 className="text-sm font-semibold text-[var(--text-muted)]">
-                  Call intelligence
-                </h2>
-                <span className="rounded border border-metatron-accent/40 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider text-metatron-accent">
-                  Pro
-                </span>
-              </div>
-              <p className="text-xs leading-relaxed text-[var(--text-muted)]">
-                Upload recordings for transcription and AI analysis.
-              </p>
-            </div>
-          </ThreeDCard>
-        )}
 
-        {isPro ? (
-          <ThreeDCard className="sm:col-span-2">
+          <ThreeDCard>
             <Link
-              href="/startup/matches"
+              href="/startup/pitches"
               className="block rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-5 transition-colors hover:border-metatron-accent/30"
             >
-              <h2 className="mb-1 text-sm font-semibold text-metatron-accent">
-                Investor matches
-              </h2>
+              <h2 className="mb-1 text-sm font-semibold text-metatron-accent">Pitch data</h2>
               <p className="text-xs leading-relaxed text-[var(--text-muted)]">
-                Weekly investor matches based on your sector and stage.
+                Create and manage your fundraising pitch data.
               </p>
             </Link>
           </ThreeDCard>
-        ) : (
-          <ThreeDCard className="sm:col-span-2">
-            <div
-              onClick={() => router.push("/pricing")}
-              className="cursor-pointer rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-5 opacity-60"
-            >
-              <div className="mb-1 flex items-center gap-2">
-                <h2 className="text-sm font-semibold text-[var(--text-muted)]">
-                  Investor matches
-                </h2>
-                <span className="rounded border border-metatron-accent/40 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider text-metatron-accent">
-                  Pro
-                </span>
+
+          {isPro ? (
+            <ThreeDCard className="sm:col-span-2">
+              <Link
+                href="/startup/calls"
+                className="block rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-5 transition-colors hover:border-metatron-accent/30"
+              >
+                <h2 className="mb-1 text-sm font-semibold text-metatron-accent">Call intelligence</h2>
+                <p className="text-xs leading-relaxed text-[var(--text-muted)]">
+                  Upload recordings for transcription and AI analysis.
+                </p>
+              </Link>
+            </ThreeDCard>
+          ) : (
+            <ThreeDCard className="sm:col-span-2">
+              <div
+                onClick={() => router.push("/pricing")}
+                className="cursor-pointer rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-5 opacity-60"
+              >
+                <div className="mb-1 flex items-center gap-2">
+                  <h2 className="text-sm font-semibold text-[var(--text-muted)]">Call intelligence</h2>
+                  <span className="rounded border border-metatron-accent/40 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider text-metatron-accent">
+                    Pro
+                  </span>
+                </div>
+                <p className="text-xs leading-relaxed text-[var(--text-muted)]">
+                  Upload recordings for transcription and AI analysis.
+                </p>
               </div>
-              <p className="text-xs leading-relaxed text-[var(--text-muted)]">
-                Weekly investor matches based on your sector and stage.
-              </p>
-            </div>
-          </ThreeDCard>
-        )}
+            </ThreeDCard>
+          )}
+        </div>
       </section>
     </main>
   );

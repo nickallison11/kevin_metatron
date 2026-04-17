@@ -1,4 +1,5 @@
 pub mod admin;
+pub mod angel_score;
 pub mod auth;
 pub mod calls;
 pub mod commerce;
@@ -7,9 +8,11 @@ pub mod connector_profile;
 pub mod connections;
 pub mod deals;
 pub mod investments;
+pub mod investor_pipeline;
 pub mod investor_profile;
 pub mod introductions;
 pub mod kevin;
+pub mod kevin_matches;
 pub mod matches;
 pub mod oauth;
 pub mod pitches;

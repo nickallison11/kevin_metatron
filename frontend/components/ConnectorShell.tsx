@@ -29,8 +29,8 @@ export default function ConnectorShell({ children }: { children: ReactNode }) {
 
   function NavLink({ href, label }: { href: string; label: string }) {
     const active =
-      href === "/connector"
-        ? pathname === "/connector"
+      href === "/connector" || href === "/connector/settings"
+        ? pathname === href
         : pathname.startsWith(href);
     return (
       <Link

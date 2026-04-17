@@ -100,7 +100,7 @@ export default function InvestorDealFlowPage() {
             <div key={f.user_id} className="relative">
               <FounderCard founder={f} token={token} />
               {!isPro && i >= 2 ? (
-                <ProBlurOverlay label="Upgrade to Pro to see all founders" />
+                <ProBlurOverlay label="Upgrade Plan to see all founders" />
               ) : null}
             </div>
           ))}

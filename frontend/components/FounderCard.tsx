@@ -145,7 +145,7 @@ export function ProBlurOverlay({ label }: { label: string }) {
         href="/pricing"
         className="pointer-events-auto rounded-lg bg-metatron-accent px-4 py-2 text-xs font-semibold text-white hover:bg-metatron-accent-hover"
       >
-        Upgrade to Pro
+        Upgrade Plan
       </Link>
     </div>
   );

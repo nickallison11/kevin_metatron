@@ -19,7 +19,7 @@ use rust_decimal::Decimal;
 use std::str::FromStr;
 
 use crate::identity::require_user;
-use crate::routes::subscriptions::finalize_pro_subscription;
+use crate::routes::subscription_finalize::finalize_pro_subscription;
 use crate::state::AppState;
 
 type HmacSha512 = Hmac<Sha512>;
@@ -347,12 +347,14 @@ fn investor_plan_code_to_billing(state: &AppState, plan_code: &str) -> Option<&'
     None
 }
 
-async fn finalize_connector_subscription(
+pub async fn finalize_connector_subscription(
     state: &AppState,
     user_id: Uuid,
     billing: &str,
     payment_method: &str,
     reference: Option<&str>,
+    currency: &str,
+    invoice_amount: Decimal,
 ) -> Result<(), (StatusCode, Json<Value>)> {
     let credits_to_add = if billing == "annual" { 600 } else { 50 };
     let (period_end, period_start): (String, String) = if billing == "annual" {
@@ -417,12 +419,8 @@ async fn finalize_connector_subscription(
         "#,
     )
     .bind(user_id)
-    .bind(if billing == "annual" {
-        Decimal::from_str("1699.99").unwrap()
-    } else {
-        Decimal::from_str("169.99").unwrap()
-    })
-    .bind("ZAR")
+    .bind(invoice_amount)
+    .bind(currency)
     .bind(payment_method)
     .bind("connector_basic")
     .bind(&period_start)
@@ -437,15 +435,28 @@ async fn finalize_connector_subscription(
         )
     })?;
 
+    sqlx::query("UPDATE users SET pending_payment_nonce = NULL WHERE id = $1")
+        .bind(user_id)
+        .execute(&state.db)
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "internal error" })),
+            )
+        })?;
+
     Ok(())
 }
 
-async fn finalize_investor_subscription(
+pub async fn finalize_investor_subscription(
     state: &AppState,
     user_id: Uuid,
     billing: &str,
     payment_method: &str,
     reference: Option<&str>,
+    currency: &str,
+    invoice_amount: Decimal,
 ) -> Result<(), (StatusCode, Json<Value>)> {
     let (period_end, period_start): (String, String) = if billing == "annual" {
         sqlx::query_as(
@@ -478,12 +489,8 @@ async fn finalize_investor_subscription(
            VALUES ($1, $2, $3, $4, $5, $6::timestamptz, $7::timestamptz, $8)"#,
     )
     .bind(user_id)
-    .bind(if billing == "annual" {
-        Decimal::from_str("1699.99").unwrap()
-    } else {
-        Decimal::from_str("169.99").unwrap()
-    })
-    .bind("ZAR")
+    .bind(invoice_amount)
+    .bind(currency)
     .bind(payment_method)
     .bind("investor_basic")
     .bind(&period_start)
@@ -492,6 +499,12 @@ async fn finalize_investor_subscription(
     .execute(&state.db)
     .await
     .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": "internal error" }))))?;
+
+    sqlx::query("UPDATE users SET pending_payment_nonce = NULL WHERE id = $1")
+        .bind(user_id)
+        .execute(&state.db)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": "internal error" }))))?;
 
     Ok(())
 }
@@ -833,7 +846,17 @@ async fn verify_connector_payment(
         ));
     }
 
-    finalize_connector_subscription(&state, user_id, &billing, "card", Some(ref_trim)).await?;
+    let (_, invoice_amount) = zar_amounts_for_billing(billing.as_str());
+    finalize_connector_subscription(
+        &state,
+        user_id,
+        &billing,
+        "card",
+        Some(ref_trim),
+        "ZAR",
+        invoice_amount,
+    )
+    .await?;
     Ok(Json(VerifyResponse { status: "active" }))
 }
 
@@ -956,7 +979,17 @@ async fn verify_investor_payment(
     }
     let billing = metadata.get("billing").and_then(|b| b.as_str()).unwrap_or("monthly").to_ascii_lowercase();
 
-    finalize_investor_subscription(&state, user_id, &billing, "card", Some(ref_trim)).await?;
+    let (_, invoice_amount) = zar_amounts_for_billing(billing.as_str());
+    finalize_investor_subscription(
+        &state,
+        user_id,
+        &billing,
+        "card",
+        Some(ref_trim),
+        "ZAR",
+        invoice_amount,
+    )
+    .await?;
     Ok(Json(VerifyResponse { status: "active" }))
 }
 
@@ -1029,18 +1062,36 @@ async fn finalize_from_paystack_data(
             .get("billing")
             .and_then(|b| b.as_str())
             .unwrap_or("monthly");
-        return finalize_investor_subscription(state, user_id, billing, "card", Some(paystack_ref))
-            .await
-            .map_err(|(s, _)| s);
+        let (_, invoice_amount) = zar_amounts_for_billing(billing);
+        return finalize_investor_subscription(
+            state,
+            user_id,
+            billing,
+            "card",
+            Some(paystack_ref),
+            "ZAR",
+            invoice_amount,
+        )
+        .await
+        .map_err(|(s, _)| s);
     }
     if tier_str.eq_ignore_ascii_case("connector_basic") {
         let billing = metadata
             .get("billing")
             .and_then(|b| b.as_str())
             .unwrap_or("monthly");
-        return finalize_connector_subscription(state, user_id, billing, "card", Some(paystack_ref))
-            .await
-            .map_err(|(s, _)| s);
+        let (_, invoice_amount) = zar_amounts_for_billing(billing);
+        return finalize_connector_subscription(
+            state,
+            user_id,
+            billing,
+            "card",
+            Some(paystack_ref),
+            "ZAR",
+            invoice_amount,
+        )
+        .await
+        .map_err(|(s, _)| s);
     }
 
     let tier_lower = resolve_finalize_tier(state, data, metadata).map_err(|(s, _)| s)?;
@@ -1145,13 +1196,31 @@ async fn handle_invoice_payment_success(
     }
 
     if let Some(billing) = connector_billing {
-        finalize_connector_subscription(state, user_id, billing, "card", Some(paystack_ref))
-            .await
-            .map_err(|(s, _)| s)?;
+        let (_, invoice_amount) = zar_amounts_for_billing(billing);
+        finalize_connector_subscription(
+            state,
+            user_id,
+            billing,
+            "card",
+            Some(paystack_ref),
+            "ZAR",
+            invoice_amount,
+        )
+        .await
+        .map_err(|(s, _)| s)?;
     } else if let Some(billing) = investor_billing {
-        finalize_investor_subscription(state, user_id, billing, "card", Some(paystack_ref))
-            .await
-            .map_err(|(s, _)| s)?;
+        let (_, invoice_amount) = zar_amounts_for_billing(billing);
+        finalize_investor_subscription(
+            state,
+            user_id,
+            billing,
+            "card",
+            Some(paystack_ref),
+            "ZAR",
+            invoice_amount,
+        )
+        .await
+        .map_err(|(s, _)| s)?;
     } else if let Some(billing) = founder_billing {
         let (amount_paid, invoice_amount) = zar_amounts_for_billing(billing);
         finalize_pro_subscription(

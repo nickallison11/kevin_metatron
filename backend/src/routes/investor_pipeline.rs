@@ -99,7 +99,18 @@ async fn add_to_pipeline(
 ) -> Result<Json<PipelineRow>, (StatusCode, String)> {
     let user = require_user(&state, bearer.token()).await?;
     require_investor(user.role.as_str())?;
+    let investor_tier: String = sqlx::query_scalar(
+        "SELECT COALESCE(investor_tier, 'free') FROM investor_profiles WHERE user_id = $1",
+    )
+    .bind(user.id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(internal)?
+    .unwrap_or_else(|| "free".to_string());
     let stage = body.stage.unwrap_or_else(|| "watching".to_string());
+    if investor_tier == "free" && stage != "watching" {
+        return Err((StatusCode::PAYMENT_REQUIRED, "upgrade to use full pipeline stages".to_string()));
+    }
     let valid_stages = [
         "watching",
         "considering",
@@ -141,7 +152,18 @@ async fn update_pipeline(
 ) -> Result<Json<PipelineRow>, (StatusCode, String)> {
     let user = require_user(&state, bearer.token()).await?;
     require_investor(user.role.as_str())?;
+    let investor_tier: String = sqlx::query_scalar(
+        "SELECT COALESCE(investor_tier, 'free') FROM investor_profiles WHERE user_id = $1",
+    )
+    .bind(user.id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(internal)?
+    .unwrap_or_else(|| "free".to_string());
     if let Some(ref s) = body.stage {
+        if investor_tier == "free" && s != "watching" {
+            return Err((StatusCode::PAYMENT_REQUIRED, "upgrade to use full pipeline stages".to_string()));
+        }
         let valid_stages = [
             "watching",
             "considering",

@@ -42,6 +42,8 @@ pub struct Settings {
     pub paystack_plan_basic_annual: String,
     pub paystack_connector_plan_basic_monthly: String,
     pub paystack_connector_plan_basic_annual: String,
+    pub paystack_investor_plan_basic_monthly: String,
+    pub paystack_investor_plan_basic_annual: String,
     pub whatsapp_verify_token: Option<String>,
     pub whatsapp_access_token: Option<String>,
     pub whatsapp_phone_number_id: Option<String>,
@@ -165,6 +167,16 @@ impl Settings {
                 .unwrap_or_default()
                 .trim()
                 .to_string();
+        let paystack_investor_plan_basic_monthly =
+            env::var("PAYSTACK_INVESTOR_PLAN_BASIC_MONTHLY")
+                .unwrap_or_default()
+                .trim()
+                .to_string();
+        let paystack_investor_plan_basic_annual =
+            env::var("PAYSTACK_INVESTOR_PLAN_BASIC_ANNUAL")
+                .unwrap_or_default()
+                .trim()
+                .to_string();
 
         let whatsapp_verify_token = env::var("WHATSAPP_VERIFY_TOKEN")
             .ok()
@@ -235,6 +247,8 @@ impl Settings {
             paystack_plan_basic_annual,
             paystack_connector_plan_basic_monthly,
             paystack_connector_plan_basic_annual,
+            paystack_investor_plan_basic_monthly,
+            paystack_investor_plan_basic_annual,
             whatsapp_verify_token,
             whatsapp_access_token,
             whatsapp_phone_number_id,

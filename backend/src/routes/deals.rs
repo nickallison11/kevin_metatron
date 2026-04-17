@@ -10,6 +10,7 @@ use axum_extra::{
     TypedHeader,
 };
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use uuid::Uuid;
 
 use crate::identity::{require_role, AuthedUser};
@@ -46,7 +47,7 @@ pub struct IntroResponse {
 async fn list_startups(
     State(state): State<Arc<AppState>>,
     TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
-) -> Result<Json<Vec<StartupCard>>, (axum::http::StatusCode, String)> {
+) -> Result<Json<Value>, (axum::http::StatusCode, String)> {
     let AuthedUser { id: investor_id, .. } =
         require_role(&state, bearer.token(), &["INVESTOR"]).await?;
 
@@ -57,6 +58,15 @@ async fn list_startups(
     .fetch_optional(&state.db)
     .await
     .map_err(internal)?;
+
+    let investor_tier: String = sqlx::query_scalar(
+        "SELECT COALESCE(investor_tier, 'free') FROM investor_profiles WHERE user_id = $1",
+    )
+    .bind(investor_id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(internal)?
+    .unwrap_or_else(|| "free".to_string());
 
     let mut startups = sqlx::query_as::<_, StartupCard>(
         r#"
@@ -75,7 +85,12 @@ async fn list_startups(
         startups.retain(|s| matches_interests(s, f));
     }
 
-    Ok(Json(startups))
+    let total = startups.len();
+    if investor_tier == "free" {
+        startups.truncate(10);
+    }
+
+    Ok(Json(serde_json::json!({ "startups": startups, "total": total, "tier": investor_tier })))
 }
 
 #[derive(sqlx::FromRow)]

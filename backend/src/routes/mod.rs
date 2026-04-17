@@ -8,6 +8,7 @@ pub mod connector_profile;
 pub mod connections;
 pub mod deals;
 pub mod investments;
+pub mod investment_memos;
 pub mod investor_pipeline;
 pub mod investor_profile;
 pub mod introductions;

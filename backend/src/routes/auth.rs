@@ -79,6 +79,8 @@ pub struct SignupRequest {
     /// Shared secret from e.g. `?code=` — must match `INVITE_SECRET` when that env is set.
     #[serde(default)]
     pub invite_secret: Option<String>,
+    #[serde(default)]
+    pub referral_code: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -215,6 +217,25 @@ async fn signup(
                 "could not create user".to_string(),
             ),
         })?;
+
+    if let Some(ref code) = body.referral_code {
+        if let Ok(Some(connector_id)) = sqlx::query_scalar::<_, Uuid>(
+            "SELECT user_id FROM connector_profiles WHERE referral_code = $1",
+        )
+        .bind(code.trim())
+        .fetch_optional(&state.db)
+        .await
+        {
+            let _ = sqlx::query(
+                "INSERT INTO referrals (referrer_user_id, referred_email, referred_user_id, status) VALUES ($1, $2, $3, 'signed_up')",
+            )
+            .bind(connector_id)
+            .bind(&body.email)
+            .bind(user_id)
+            .execute(&state.db)
+            .await;
+        }
+    }
 
     let token = auth::issue_jwt(&state, user_id, db_role)
         .map_err(|_| {

@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use axum::{
     extract::{Path, Query, State},
-    routing::{get, post, put},
+    routing::{get, patch, post, put},
     Json, Router,
 };
 use axum_extra::{
@@ -80,8 +80,16 @@ pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/", get(get_own).put(put_own))
         .route("/all", get(list_all))
-        .route("/introductions", get(list_brokered_introductions))
-        .route("/referrals", get(list_referrals))
+        .route(
+            "/introductions",
+            get(list_introductions).post(create_introduction),
+        )
+        .route(
+            "/introductions/:id",
+            patch(update_introduction).delete(delete_introduction),
+        )
+        .route("/referrals", get(get_referral_info))
+        .route("/referral/generate", post(generate_referral_code))
         .route("/network/batch", post(batch_import_network))
         .route("/network/csv", post(import_network_csv))
         .route("/network/export", get(export_network))
@@ -134,23 +142,50 @@ struct ConnectorRow {
 }
 
 #[derive(Serialize, sqlx::FromRow)]
-pub struct BrokeredIntroduction {
+pub struct ConnectorIntroRow {
     pub id: Uuid,
-    pub startup_user_id: Uuid,
-    pub investor_user_id: Uuid,
+    pub person_a_name: String,
+    pub person_a_email: Option<String>,
+    pub person_b_name: String,
+    pub person_b_email: Option<String>,
+    pub notes: Option<String>,
     pub status: String,
-    pub founder_company: Option<String>,
-    pub investor_firm: Option<String>,
     pub created_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Deserialize)]
+struct CreateIntroBody {
+    person_a_name: String,
+    person_a_email: Option<String>,
+    person_b_name: String,
+    person_b_email: Option<String>,
+    notes: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct UpdateIntroBody {
+    status: Option<String>,
+    notes: Option<String>,
 }
 
 #[derive(Serialize, sqlx::FromRow)]
 pub struct ReferralRow {
     pub id: Uuid,
-    pub email: Option<String>,
+    pub referred_email: Option<String>,
     pub referred_user_id: Option<Uuid>,
     pub status: String,
+    pub credits_awarded: i32,
     pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Serialize)]
+struct ReferralInfo {
+    referral_code: Option<String>,
+    total_referrals: i64,
+    converted: i64,
+    credits_awarded: i64,
+    rows: Vec<ReferralRow>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -311,6 +346,27 @@ async fn connector_tier_and_active_count(
     Ok((tier, active_count))
 }
 
+async fn require_connector_paid(
+    state: &AppState,
+    user_id: Uuid,
+) -> Result<(), (axum::http::StatusCode, String)> {
+    let tier = sqlx::query_scalar::<_, Option<String>>(
+        "SELECT connector_tier FROM connector_profiles WHERE user_id = $1",
+    )
+    .bind(user_id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(internal)?
+    .flatten();
+    if tier.as_deref() != Some("paid") {
+        return Err((
+            axum::http::StatusCode::PAYMENT_REQUIRED,
+            "Connector Basic required".into(),
+        ));
+    }
+    Ok(())
+}
+
 async fn get_own(
     State(state): State<Arc<AppState>>,
     TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
@@ -378,19 +434,16 @@ async fn list_all(
     Ok(Json(rows))
 }
 
-async fn list_brokered_introductions(
+async fn list_introductions(
     State(state): State<Arc<AppState>>,
     TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
     Query(as_user): Query<AsUserQuery>,
-) -> Result<Json<Vec<BrokeredIntroduction>>, (axum::http::StatusCode, String)> {
+) -> Result<Json<Vec<ConnectorIntroRow>>, (axum::http::StatusCode, String)> {
     let user_id = resolve_connector_user(&state, bearer.token(), as_user.as_user).await?;
-    let rows = sqlx::query_as::<_, BrokeredIntroduction>(
-        r#"SELECT i.id, i.startup_user_id, i.investor_user_id, i.status,
-                    sf.company_name AS founder_company, inv.firm_name AS investor_firm, i.created_at
-             FROM introductions i
-             LEFT JOIN profiles sf ON sf.user_id = i.startup_user_id
-             LEFT JOIN investor_profiles inv ON inv.user_id = i.investor_user_id
-             WHERE i.broker_user_id = $1 ORDER BY i.created_at DESC"#,
+    require_connector_paid(&state, user_id).await?;
+    let rows = sqlx::query_as::<_, ConnectorIntroRow>(
+        "SELECT id, person_a_name, person_a_email, person_b_name, person_b_email, notes, status, created_at, updated_at \
+         FROM connector_introductions WHERE connector_user_id = $1 ORDER BY created_at DESC",
     )
     .bind(user_id)
     .fetch_all(&state.db)
@@ -399,20 +452,166 @@ async fn list_brokered_introductions(
     Ok(Json(rows))
 }
 
-async fn list_referrals(
+async fn create_introduction(
     State(state): State<Arc<AppState>>,
     TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
     Query(as_user): Query<AsUserQuery>,
-) -> Result<Json<Vec<ReferralRow>>, (axum::http::StatusCode, String)> {
+    Json(body): Json<CreateIntroBody>,
+) -> Result<Json<ConnectorIntroRow>, (axum::http::StatusCode, String)> {
     let user_id = resolve_connector_user(&state, bearer.token(), as_user.as_user).await?;
+    require_connector_paid(&state, user_id).await?;
+    if body.person_a_name.trim().is_empty() || body.person_b_name.trim().is_empty() {
+        return Err((axum::http::StatusCode::BAD_REQUEST, "names required".into()));
+    }
+    let row = sqlx::query_as::<_, ConnectorIntroRow>(
+        "INSERT INTO connector_introductions (connector_user_id, person_a_name, person_a_email, person_b_name, person_b_email, notes) \
+         VALUES ($1, $2, $3, $4, $5, $6) \
+         RETURNING id, person_a_name, person_a_email, person_b_name, person_b_email, notes, status, created_at, updated_at",
+    )
+    .bind(user_id)
+    .bind(body.person_a_name.trim())
+    .bind(body.person_a_email.as_deref().filter(|s| !s.trim().is_empty()))
+    .bind(body.person_b_name.trim())
+    .bind(body.person_b_email.as_deref().filter(|s| !s.trim().is_empty()))
+    .bind(body.notes.as_deref().filter(|s| !s.trim().is_empty()))
+    .fetch_one(&state.db)
+    .await
+    .map_err(internal)?;
+    Ok(Json(row))
+}
+
+async fn update_introduction(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+    Query(as_user): Query<AsUserQuery>,
+    Path(id): Path<Uuid>,
+    Json(body): Json<UpdateIntroBody>,
+) -> Result<Json<ConnectorIntroRow>, (axum::http::StatusCode, String)> {
+    let user_id = resolve_connector_user(&state, bearer.token(), as_user.as_user).await?;
+    require_connector_paid(&state, user_id).await?;
+    if let Some(ref s) = body.status {
+        if !["pending", "sent", "closed"].contains(&s.as_str()) {
+            return Err((axum::http::StatusCode::BAD_REQUEST, "invalid status".into()));
+        }
+    }
+    let row = sqlx::query_as::<_, ConnectorIntroRow>(
+        "UPDATE connector_introductions \
+         SET notes = COALESCE($3, notes), \
+             status = COALESCE($4, status), \
+             updated_at = NOW() \
+         WHERE id = $1 AND connector_user_id = $2 \
+         RETURNING id, person_a_name, person_a_email, person_b_name, person_b_email, notes, status, created_at, updated_at",
+    )
+    .bind(id)
+    .bind(user_id)
+    .bind(body.notes.as_deref().filter(|s| !s.trim().is_empty()))
+    .bind(body.status.as_deref())
+    .fetch_optional(&state.db)
+    .await
+    .map_err(internal)?
+    .ok_or_else(|| (axum::http::StatusCode::NOT_FOUND, "not found".into()))?;
+    Ok(Json(row))
+}
+
+async fn delete_introduction(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+    Query(as_user): Query<AsUserQuery>,
+    Path(id): Path<Uuid>,
+) -> Result<axum::http::StatusCode, (axum::http::StatusCode, String)> {
+    let user_id = resolve_connector_user(&state, bearer.token(), as_user.as_user).await?;
+    require_connector_paid(&state, user_id).await?;
+    let result = sqlx::query("DELETE FROM connector_introductions WHERE id = $1 AND connector_user_id = $2")
+        .bind(id)
+        .bind(user_id)
+        .execute(&state.db)
+        .await
+        .map_err(internal)?;
+    if result.rows_affected() == 0 {
+        return Err((axum::http::StatusCode::NOT_FOUND, "not found".into()));
+    }
+    Ok(axum::http::StatusCode::NO_CONTENT)
+}
+
+async fn get_referral_info(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+    Query(as_user): Query<AsUserQuery>,
+) -> Result<Json<ReferralInfo>, (axum::http::StatusCode, String)> {
+    let user_id = resolve_connector_user(&state, bearer.token(), as_user.as_user).await?;
+    require_connector_paid(&state, user_id).await?;
+    let referral_code: Option<String> = sqlx::query_scalar::<_, Option<String>>(
+        "SELECT referral_code FROM connector_profiles WHERE user_id = $1",
+    )
+    .bind(user_id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(internal)?
+    .flatten();
+    let total_referrals: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*)::bigint FROM referrals WHERE referrer_user_id = $1",
+    )
+    .bind(user_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap_or(0);
+    let converted: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*)::bigint FROM referrals WHERE referrer_user_id = $1 AND status = 'converted'",
+    )
+    .bind(user_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap_or(0);
+    let credits_awarded: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(credits_awarded), 0)::bigint FROM referrals WHERE referrer_user_id = $1",
+    )
+    .bind(user_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap_or(0);
     let rows = sqlx::query_as::<_, ReferralRow>(
-        "SELECT id, email, referred_user_id, status, created_at FROM referrals WHERE referrer_user_id = $1 ORDER BY created_at DESC",
+        "SELECT id, referred_email, referred_user_id, status, credits_awarded, created_at FROM referrals WHERE referrer_user_id = $1 ORDER BY created_at DESC",
     )
     .bind(user_id)
     .fetch_all(&state.db)
     .await
     .map_err(internal)?;
-    Ok(Json(rows))
+    Ok(Json(ReferralInfo {
+        referral_code,
+        total_referrals,
+        converted,
+        credits_awarded,
+        rows,
+    }))
+}
+
+async fn generate_referral_code(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+    Query(as_user): Query<AsUserQuery>,
+) -> Result<Json<serde_json::Value>, (axum::http::StatusCode, String)> {
+    let user_id = resolve_connector_user(&state, bearer.token(), as_user.as_user).await?;
+    require_connector_paid(&state, user_id).await?;
+    let existing: Option<String> = sqlx::query_scalar::<_, Option<String>>(
+        "SELECT referral_code FROM connector_profiles WHERE user_id = $1",
+    )
+    .bind(user_id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(internal)?
+    .flatten();
+    if let Some(code) = existing {
+        return Ok(Json(serde_json::json!({ "referral_code": code })));
+    }
+    let uuid_str = Uuid::new_v4().to_string();
+    let code = &uuid_str[..8];
+    sqlx::query("UPDATE connector_profiles SET referral_code = $2 WHERE user_id = $1")
+        .bind(user_id)
+        .bind(code)
+        .execute(&state.db)
+        .await
+        .map_err(internal)?;
+    Ok(Json(serde_json::json!({ "referral_code": code })))
 }
 
 async fn list_network(

@@ -69,6 +69,7 @@ function SignupForm() {
         : null;
     const inviteCode = searchParams.get("invite")?.trim() ?? "";
     const inviteSecret = searchParams.get("code")?.trim() ?? "";
+    const referralCode = searchParams.get("ref")?.trim() ?? null;
     if (!inviteCode || !inviteSecret) {
       setResult("Missing invitation link. Use the full URL you were sent.");
       return;
@@ -85,6 +86,7 @@ function SignupForm() {
             invite_code: inviteCode,
             invite_secret: inviteSecret,
             ...(selectedRole ? { role: selectedRole } : {}),
+            ...(referralCode ? { referral_code: referralCode } : {}),
           }),
         }
       );

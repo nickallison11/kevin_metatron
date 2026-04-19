@@ -110,7 +110,23 @@ async fn get_matches(
     TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
 ) -> Result<Json<Vec<KevinMatch>>, (StatusCode, String)> {
     let user = require_user(&state, bearer.token()).await?;
-    let rows = fetch_kevin_matches_for_user(&state, user.id, None, 10).await?;
+    let is_paid: bool = if user.role.as_str() == "STARTUP" {
+        sqlx::query_scalar::<_, bool>("SELECT COALESCE(is_pro, false) FROM users WHERE id = $1")
+            .bind(user.id)
+            .fetch_one(&state.db)
+            .await
+            .unwrap_or(false)
+    } else {
+        sqlx::query_scalar::<_, bool>(
+            "SELECT COALESCE(investor_tier = 'basic', false) FROM investor_profiles WHERE user_id = $1",
+        )
+        .bind(user.id)
+        .fetch_one(&state.db)
+        .await
+        .unwrap_or(false)
+    };
+    let match_limit: i64 = if is_paid { 5 } else { 1 };
+    let rows = fetch_kevin_matches_for_user(&state, user.id, None, match_limit).await?;
     Ok(Json(rows))
 }
 

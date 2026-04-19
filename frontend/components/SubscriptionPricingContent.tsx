@@ -229,7 +229,7 @@ export default function SubscriptionPricingContent(
           error?: string;
         };
         if (!res.ok) {
-          throw new Error(data.error || "Could not start crypto checkout.");
+          throw new Error(data.error || "Could not start checkout.");
         }
         if (data.invoice_url) {
           window.location.href = data.invoice_url;
@@ -238,7 +238,7 @@ export default function SubscriptionPricingContent(
         }
       } catch (e) {
         setError(
-          e instanceof Error ? e.message : "Could not start crypto checkout.",
+          e instanceof Error ? e.message : "Could not start checkout.",
         );
       } finally {
         setSubmitting(false);
@@ -345,13 +345,6 @@ export default function SubscriptionPricingContent(
           </button>
         ))}
       </div>
-
-      {currency === "USD" && (
-        <p className="text-center text-sm text-[var(--text-muted)]">
-          USD checkout uses NowPayments (crypto). You can change the asset on
-          the NowPayments payment page.
-        </p>
-      )}
 
       <section className={card}>
         <h2 className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">

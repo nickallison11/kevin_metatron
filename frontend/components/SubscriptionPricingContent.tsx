@@ -114,9 +114,7 @@ export default function SubscriptionPricingContent(
 
   const [currency, setCurrency] = useState<"ZAR" | "USD">("ZAR");
   const [billing, setBilling] = useState<"monthly" | "annual">("monthly");
-  const [submitting, setSubmitting] = useState<"monthly" | "annual" | null>(
-    null,
-  );
+  const [submitting, setSubmitting] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
@@ -183,7 +181,7 @@ export default function SubscriptionPricingContent(
 
   const handleZarSubscribe = useCallback(
     async (bill: "monthly" | "annual") => {
-      setSubmitting(bill);
+      setSubmitting(true);
       setError(null);
       try {
         const body =
@@ -207,7 +205,7 @@ export default function SubscriptionPricingContent(
           e instanceof Error ? e.message : "Could not start checkout.",
         );
       } finally {
-        setSubmitting(null);
+        setSubmitting(false);
       }
     },
     [token, zarSubscribeEndpoint, zarTier],
@@ -215,7 +213,7 @@ export default function SubscriptionPricingContent(
 
   const handleNowpaymentsSubscribe = useCallback(
     async (bill: "monthly" | "annual") => {
-      setSubmitting(bill);
+      setSubmitting(true);
       setError(null);
       try {
         const res = await fetch(`${API_BASE}/commerce/nowpayments/subscribe`, {
@@ -243,7 +241,7 @@ export default function SubscriptionPricingContent(
           e instanceof Error ? e.message : "Could not start crypto checkout.",
         );
       } finally {
-        setSubmitting(null);
+        setSubmitting(false);
       }
     },
     [token, zarTier],
@@ -292,6 +290,7 @@ export default function SubscriptionPricingContent(
   const cardBase =
     "flex flex-col rounded-[12px] border bg-[var(--bg-card)] p-6 text-left";
 
+  const basicDisplay = formatBasicDisplay(currency, billing);
   const proComingSoonDisplay = formatProComingSoonDisplay(currency, billing);
 
   const startupTier = (startupMeta?.subscriptionTier ?? "free").toLowerCase();
@@ -430,101 +429,91 @@ export default function SubscriptionPricingContent(
             Upgrade
           </h2>
           <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-            {(["monthly", "annual"] as const).map((bill) => {
-              const display = formatBasicDisplay(currency, bill);
-              return (
-                <section
-                  key={bill}
-                  className={`${cardBase} border-metatron-accent/40 shadow-[0_0_40px_rgba(108,92,231,0.12)]`}
-                >
-                  <p className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
-                    {planName} · {bill === "monthly" ? "Monthly" : "Annual"}
-                  </p>
-                  <p className="mt-1 text-sm text-[var(--text-muted)]">
-                    {bill === "monthly"
-                      ? "Billed monthly"
-                      : "Billed annually · save vs monthly"}
-                  </p>
-                  <p className="mt-4 text-4xl font-bold tracking-tight text-[var(--text)]">
-                    {display.price}{" "}
-                    <span className="text-lg font-semibold text-[var(--text-muted)]">
-                      {display.unit}
-                    </span>
-                  </p>
-                  {currency === "USD" && (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() => void handleNowpaymentsSubscribe(bill)}
-                        disabled={submitting !== null}
-                        className="mt-6 inline-flex w-full items-center justify-center rounded-[12px] bg-metatron-accent px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-metatron-accent-hover disabled:opacity-60"
-                      >
-                        {submitting === bill
-                          ? "Redirecting…"
-                          : "Pay with card"}
-                      </button>
-                      <p className="mt-1.5 text-center text-[10px] text-[var(--text-muted)]">
-                        Visa & Mastercard · Powered by NowPayments
-                      </p>
-                    </>
-                  )}
-                  {currency === "ZAR" && (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() => void handleZarSubscribe(bill)}
-                        disabled={submitting !== null}
-                        className="mt-6 inline-flex w-full items-center justify-center rounded-[12px] border border-[var(--border)] px-4 py-2.5 text-sm font-semibold text-[var(--text)] transition-colors hover:border-metatron-accent/30 disabled:opacity-60"
-                      >
-                        {submitting === bill
-                          ? "Redirecting…"
-                          : "Pay with card"}
-                      </button>
-                      <p className="mt-1.5 text-center text-[10px] text-[var(--text-muted)]">
-                        Visa & Mastercard · Powered by Paystack
-                      </p>
-                    </>
-                  )}
-                  <div className="my-6 border-t border-[var(--border)]" />
-                  <ul className="flex flex-col gap-3">
-                    {planFeatures.map((f) => (
-                      <FeatureCheck key={f}>{f}</FeatureCheck>
-                    ))}
-                  </ul>
-                </section>
-              );
-            })}
-          </div>
-
-          <section
-            className={`${cardBase} border-[var(--border)] opacity-50 cursor-not-allowed`}
-          >
-            <div className="flex items-start justify-between gap-2">
+            <section
+              className={`${cardBase} border-metatron-accent/40 shadow-[0_0_40px_rgba(108,92,231,0.12)]`}
+            >
               <p className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
-                {proName}
+                {planName}
               </p>
-              <span className="rounded-full bg-[var(--border)] px-2.5 py-1 text-[10px] font-semibold text-[var(--text-muted)]">
-                Coming Soon
-              </span>
-            </div>
-            <p className="mt-1 text-sm text-[var(--text-muted)]">
-              {billing === "monthly"
-                ? "Billed monthly"
-                : "Billed annually · save vs monthly"}
-            </p>
-            <p className="mt-4 text-4xl font-bold tracking-tight text-[var(--text)]">
-              {proComingSoonDisplay.price}{" "}
-              <span className="text-lg font-semibold text-[var(--text-muted)]">
-                {proComingSoonDisplay.unit}
-              </span>
-            </p>
-            <div className="my-6 border-t border-[var(--border)]" />
-            <ul className="flex flex-col gap-3">
-              {proFeatures.map((f) => (
-                <FeatureCheck key={f}>{f}</FeatureCheck>
-              ))}
-            </ul>
-          </section>
+              <p className="mt-1 text-sm text-[var(--text-muted)]">
+                {billing === "monthly"
+                  ? "Billed monthly"
+                  : "Billed annually · save vs monthly"}
+              </p>
+              <p className="mt-4 text-4xl font-bold tracking-tight text-[var(--text)]">
+                {basicDisplay.price}{" "}
+                <span className="text-lg font-semibold text-[var(--text-muted)]">
+                  {basicDisplay.unit}
+                </span>
+              </p>
+              {currency === "USD" && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => void handleNowpaymentsSubscribe(billing)}
+                    disabled={submitting}
+                    className="mt-6 inline-flex w-full items-center justify-center rounded-[12px] bg-metatron-accent px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-metatron-accent-hover disabled:opacity-60"
+                  >
+                    {submitting ? "Redirecting…" : "Pay with card"}
+                  </button>
+                  <p className="mt-1.5 text-center text-[10px] text-[var(--text-muted)]">
+                    Visa & Mastercard · Powered by NowPayments
+                  </p>
+                </>
+              )}
+              {currency === "ZAR" && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => void handleZarSubscribe(billing)}
+                    disabled={submitting}
+                    className="mt-6 inline-flex w-full items-center justify-center rounded-[12px] border border-[var(--border)] px-4 py-2.5 text-sm font-semibold text-[var(--text)] transition-colors hover:border-metatron-accent/30 disabled:opacity-60"
+                  >
+                    {submitting ? "Redirecting…" : "Pay with card"}
+                  </button>
+                  <p className="mt-1.5 text-center text-[10px] text-[var(--text-muted)]">
+                    Visa & Mastercard · Powered by Paystack
+                  </p>
+                </>
+              )}
+              <div className="my-6 border-t border-[var(--border)]" />
+              <ul className="flex flex-col gap-3">
+                {planFeatures.map((f) => (
+                  <FeatureCheck key={f}>{f}</FeatureCheck>
+                ))}
+              </ul>
+            </section>
+
+            <section
+              className={`${cardBase} border-[var(--border)] opacity-50 cursor-not-allowed`}
+            >
+              <div className="flex items-start justify-between gap-2">
+                <p className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
+                  {proName}
+                </p>
+                <span className="rounded-full bg-[var(--border)] px-2.5 py-1 text-[10px] font-semibold text-[var(--text-muted)]">
+                  Coming Soon
+                </span>
+              </div>
+              <p className="mt-1 text-sm text-[var(--text-muted)]">
+                {billing === "monthly"
+                  ? "Billed monthly"
+                  : "Billed annually · save vs monthly"}
+              </p>
+              <p className="mt-4 text-4xl font-bold tracking-tight text-[var(--text)]">
+                {proComingSoonDisplay.price}{" "}
+                <span className="text-lg font-semibold text-[var(--text-muted)]">
+                  {proComingSoonDisplay.unit}
+                </span>
+              </p>
+              <div className="my-6 border-t border-[var(--border)]" />
+              <ul className="flex flex-col gap-3">
+                {proFeatures.map((f) => (
+                  <FeatureCheck key={f}>{f}</FeatureCheck>
+                ))}
+              </ul>
+            </section>
+          </div>
         </div>
       )}
 

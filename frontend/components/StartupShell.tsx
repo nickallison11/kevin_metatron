@@ -6,13 +6,13 @@ import type { ReactNode } from "react";
 import { useAuth } from "@/lib/auth";
 
 const FREE_NAV = [
-  { href: "/startup", label: "Dashboard" },
+  { href: "/startup", label: "Matches" },
   { href: "/startup/profile", label: "Profile Settings" },
   { href: "/startup/pitches", label: "Pitch data" },
 ];
 
 const PRO_NAV = [
-  { href: "/startup", label: "Dashboard" },
+  { href: "/startup", label: "Matches" },
   { href: "/startup/profile", label: "Profile Settings" },
   { href: "/startup/pitches", label: "Pitch data" },
   { href: "/startup/matches", label: "Matches" },

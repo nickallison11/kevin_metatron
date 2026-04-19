@@ -77,18 +77,10 @@ export default function StartupShell({ children }: { children: ReactNode }) {
             >
               {item.label}
               <span className="font-sans text-[9px] uppercase tracking-wider border border-metatron-accent/40 text-metatron-accent px-1.5 py-0.5 rounded">
-                Pro
+                Upgrade
               </span>
             </button>
           ))}
-        {!isPro && (
-          <Link
-            href="/pricing"
-            className="mx-1 mt-4 rounded-[var(--radius)] border border-metatron-accent/20 bg-metatron-accent/10 px-3 py-2 text-center text-xs font-semibold text-metatron-accent transition-colors hover:bg-metatron-accent/20"
-          >
-            Upgrade Plan →
-          </Link>
-        )}
 
         <div className="mt-2 border-t border-[var(--border)] pt-2 space-y-1">
           <NavLink href="/startup/settings/subscription" label="Subscription" />

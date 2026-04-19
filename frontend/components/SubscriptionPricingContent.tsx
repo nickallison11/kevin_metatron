@@ -452,16 +452,21 @@ export default function SubscriptionPricingContent(
                     </span>
                   </p>
                   {currency === "USD" && (
-                    <button
-                      type="button"
-                      onClick={() => void handleNowpaymentsSubscribe(bill)}
-                      disabled={submitting !== null}
-                      className="mt-6 inline-flex w-full items-center justify-center rounded-[12px] bg-metatron-accent px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-metatron-accent-hover disabled:opacity-60"
-                    >
-                      {submitting === bill
-                        ? "Redirecting…"
-                        : "Pay with crypto"}
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => void handleNowpaymentsSubscribe(bill)}
+                        disabled={submitting !== null}
+                        className="mt-6 inline-flex w-full items-center justify-center rounded-[12px] bg-metatron-accent px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-metatron-accent-hover disabled:opacity-60"
+                      >
+                        {submitting === bill
+                          ? "Redirecting…"
+                          : "Pay with card"}
+                      </button>
+                      <p className="mt-1.5 text-center text-[10px] text-[var(--text-muted)]">
+                        Visa & Mastercard · Powered by NowPayments
+                      </p>
+                    </>
                   )}
                   {currency === "ZAR" && (
                     <>

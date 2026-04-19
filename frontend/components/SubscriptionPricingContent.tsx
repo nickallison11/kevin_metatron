@@ -1,17 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
-import { Suspense, useCallback, useEffect, useState } from "react";
-import ClientWalletProvider from "@/components/ClientWalletProvider";
-import { useConnection, useWallet } from "@solana/wallet-adapter-react";
-import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
+import { useCallback, useEffect, useState } from "react";
 import { API_BASE, authJsonHeaders } from "@/lib/api";
-import { getSplBalance } from "@/lib/usdc";
-import { sendSplPayment } from "@/lib/solana";
-
-const NEXT_PUBLIC_USDT_MINT_FALLBACK =
-  "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB";
 
 export type InvoiceRow = {
   id: string;
@@ -100,7 +91,9 @@ function FeatureCheck({ children }: { children: React.ReactNode }) {
   );
 }
 
-function SubscriptionPricingInner(props: SubscriptionPricingContentProps) {
+export default function SubscriptionPricingContent(
+  props: SubscriptionPricingContentProps,
+) {
   const {
     token,
     role,
@@ -119,44 +112,24 @@ function SubscriptionPricingInner(props: SubscriptionPricingContentProps) {
     startupMeta,
   } = props;
 
-  const searchParams = useSearchParams();
-  const { connection } = useConnection();
-  const { connected, publicKey, sendTransaction } = useWallet();
-
   const [currency, setCurrency] = useState<"ZAR" | "USD">("ZAR");
   const [billing, setBilling] = useState<"monthly" | "annual">("monthly");
-  const [splToken, setSplToken] = useState<"USDC" | "USDT">("USDC");
   const [submitting, setSubmitting] = useState<"monthly" | "annual" | null>(
     null,
   );
   const [verifying, setVerifying] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [insufficientBalance, setInsufficientBalance] = useState(false);
   const [actionBusy, setActionBusy] = useState(false);
 
-  const walletAddress = publicKey?.toString() ?? "";
-  const shortAddress =
-    walletAddress.length > 8
-      ? `${walletAddress.slice(0, 4)}...${walletAddress.slice(-4)}`
-      : walletAddress;
-
-  const selectedMint = useCallback(() => {
-    if (splToken === "USDC") {
-      const m = process.env.NEXT_PUBLIC_USDC_MINT;
-      if (!m) throw new Error("USDC mint not configured");
-      return m;
-    }
-    return (
-      process.env.NEXT_PUBLIC_USDT_MINT ?? NEXT_PUBLIC_USDT_MINT_FALLBACK
-    );
-  }, [splToken]);
-
   useEffect(() => {
-    if (searchParams.get("success") !== "1") return;
-    const reference = searchParams.get("reference");
-    if (!reference || !token) return;
+    if (typeof window === "undefined" || !token) return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("success") !== "1") return;
+    const reference = params.get("reference")?.trim() ?? "";
+
     let cancelled = false;
-    const run = async () => {
+
+    const runPaystackVerify = async (reference: string) => {
       setVerifying(true);
       setError(null);
       try {
@@ -185,11 +158,28 @@ function SubscriptionPricingInner(props: SubscriptionPricingContentProps) {
         if (!cancelled) setVerifying(false);
       }
     };
-    void run();
+
+    if (reference.length > 0) {
+      void runPaystackVerify(reference);
+    } else {
+      setVerifying(true);
+      setError(null);
+      void (async () => {
+        try {
+          if (!cancelled) {
+            onVerifySuccess();
+            window.history.replaceState({}, "", basePath);
+          }
+        } finally {
+          if (!cancelled) setVerifying(false);
+        }
+      })();
+    }
+
     return () => {
       cancelled = true;
     };
-  }, [searchParams, token, zarVerifyEndpoint, basePath, onVerifySuccess]);
+  }, [token, zarVerifyEndpoint, basePath, onVerifySuccess]);
 
   const handleZarSubscribe = useCallback(
     async (bill: "monthly" | "annual") => {
@@ -223,72 +213,40 @@ function SubscriptionPricingInner(props: SubscriptionPricingContentProps) {
     [token, zarSubscribeEndpoint, zarTier],
   );
 
-  const handleUsdSubscribe = useCallback(
+  const handleNowpaymentsSubscribe = useCallback(
     async (bill: "monthly" | "annual") => {
-      if (!connected || !publicKey) return;
-      setError(null);
       setSubmitting(bill);
+      setError(null);
       try {
-        const requiredAmount = bill === "monthly" ? 9.99 : 99;
-        const mint = selectedMint();
-        const balance = await getSplBalance(connection, publicKey, mint);
-        if (balance < requiredAmount) {
-          setInsufficientBalance(true);
-          return;
-        }
-        setInsufficientBalance(false);
-
-        const nonceRes = await fetch(`${API_BASE}/subscriptions/nonce`, {
-          method: "GET",
-          headers: authJsonHeaders(token),
-        });
-        const nonceJson = await nonceRes.json().catch(() => ({}));
-        if (!nonceRes.ok || !nonceJson?.nonce) {
-          throw new Error(
-            nonceJson?.error || "Could not start payment. Please try again.",
-          );
-        }
-
-        const signature = await sendSplPayment({
-          connection,
-          senderPublicKey: publicKey,
-          amountUsdc: requiredAmount,
-          memo: String(nonceJson.nonce),
-          sendTransaction,
-          mintAddress: mint,
-        });
-
-        const confirmRes = await fetch(`${API_BASE}/subscriptions/confirm`, {
+        const res = await fetch(`${API_BASE}/commerce/nowpayments/subscribe`, {
           method: "POST",
           headers: authJsonHeaders(token),
-          body: JSON.stringify({ signature, tier: bill }),
+          body: JSON.stringify({
+            billing: bill,
+            role: zarTier.replace(/_basic$/, ""),
+          }),
         });
-        const confirmJson = await confirmRes.json().catch(() => ({}));
-        if (!confirmRes.ok) {
-          throw new Error(
-            confirmJson?.error || "Subscription confirmation failed.",
-          );
+        const data = (await res.json().catch(() => ({}))) as {
+          invoice_url?: string;
+          error?: string;
+        };
+        if (!res.ok) {
+          throw new Error(data.error || "Could not start crypto checkout.");
         }
-        onVerifySuccess();
+        if (data.invoice_url) {
+          window.location.href = data.invoice_url;
+        } else {
+          throw new Error("Missing checkout URL.");
+        }
       } catch (e) {
         setError(
-          e instanceof Error
-            ? e.message
-            : "Subscription failed. Please try again.",
+          e instanceof Error ? e.message : "Could not start crypto checkout.",
         );
       } finally {
         setSubmitting(null);
       }
     },
-    [
-      connected,
-      publicKey,
-      connection,
-      sendTransaction,
-      selectedMint,
-      token,
-      onVerifySuccess,
-    ],
+    [token, zarTier],
   );
 
   const onCancel = async () => {
@@ -334,28 +292,7 @@ function SubscriptionPricingInner(props: SubscriptionPricingContentProps) {
   const cardBase =
     "flex flex-col rounded-[12px] border bg-[var(--bg-card)] p-6 text-left";
 
-  const basicMonthly = formatBasicDisplay(currency, "monthly");
-  const basicAnnual = formatBasicDisplay(currency, "annual");
   const proComingSoonDisplay = formatProComingSoonDisplay(currency, billing);
-
-  const tokenToggleBtn = (t: "USDC" | "USDT") => (
-    <button
-      key={t}
-      type="button"
-      onClick={() => {
-        setSplToken(t);
-        setInsufficientBalance(false);
-      }}
-      className={[
-        "rounded-md px-3 py-1.5 text-xs font-semibold transition-colors",
-        splToken === t
-          ? "bg-metatron-accent text-white"
-          : "text-[var(--text-muted)] hover:text-[var(--text)]",
-      ].join(" ")}
-    >
-      {t}
-    </button>
-  );
 
   const startupTier = (startupMeta?.subscriptionTier ?? "free").toLowerCase();
 
@@ -381,10 +318,7 @@ function SubscriptionPricingInner(props: SubscriptionPricingContentProps) {
           <button
             key={c}
             type="button"
-            onClick={() => {
-              setCurrency(c);
-              if (c === "ZAR") setInsufficientBalance(false);
-            }}
+            onClick={() => setCurrency(c)}
             className={`rounded-lg border px-4 py-1.5 text-sm font-semibold transition-colors ${
               currency === c
                 ? "border-metatron-accent bg-metatron-accent/10 text-metatron-accent"
@@ -414,34 +348,10 @@ function SubscriptionPricingInner(props: SubscriptionPricingContentProps) {
       </div>
 
       {currency === "USD" && (
-        <div className="flex flex-col items-stretch justify-between gap-3 rounded-[12px] border border-[var(--border)] bg-[var(--bg-card)] px-4 py-3 text-sm md:flex-row md:items-center">
-          {connected ? (
-            <p className="text-sm text-[var(--text-muted)]">
-              <span className="mr-2 inline-block h-2 w-2 rounded-full bg-green-400" />
-              Wallet connected: {shortAddress}
-            </p>
-          ) : (
-            <p className="text-sm text-[var(--text-muted)]">
-              Connect your wallet to subscribe. We accept USDC and USDT on
-              Solana.
-            </p>
-          )}
-          <div className="flex justify-center md:justify-end">
-            <WalletMultiButton />
-          </div>
-        </div>
-      )}
-
-      {currency === "USD" && (
-        <div className="flex flex-wrap items-center justify-center gap-3">
-          <span className="text-xs text-[var(--text-muted)]">
-            Solana pay with:
-          </span>
-          <div className="inline-flex rounded-lg border border-[var(--border)] p-0.5">
-            {tokenToggleBtn("USDC")}
-            {tokenToggleBtn("USDT")}
-          </div>
-        </div>
+        <p className="text-center text-sm text-[var(--text-muted)]">
+          USD checkout uses NowPayments (crypto). You can change the asset on
+          the NowPayments payment page.
+        </p>
       )}
 
       <section className={card}>
@@ -544,11 +454,13 @@ function SubscriptionPricingInner(props: SubscriptionPricingContentProps) {
                   {currency === "USD" && (
                     <button
                       type="button"
-                      onClick={() => void handleUsdSubscribe(bill)}
-                      disabled={!connected || submitting !== null}
+                      onClick={() => void handleNowpaymentsSubscribe(bill)}
+                      disabled={submitting !== null}
                       className="mt-6 inline-flex w-full items-center justify-center rounded-[12px] bg-metatron-accent px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-metatron-accent-hover disabled:opacity-60"
                     >
-                      {submitting === bill ? "Processing…" : "Subscribe"}
+                      {submitting === bill
+                        ? "Redirecting…"
+                        : "Pay with crypto"}
                     </button>
                   )}
                   {currency === "ZAR" && (
@@ -611,16 +523,6 @@ function SubscriptionPricingInner(props: SubscriptionPricingContentProps) {
         </div>
       )}
 
-      {currency === "USD" && insufficientBalance && (
-        <div className="rounded-[12px] border border-[var(--border)] bg-[var(--bg-card)] p-4 text-center">
-          <p className="text-sm text-[var(--text-muted)]">
-            You don&apos;t have enough {splToken} in your wallet. You can
-            purchase {splToken} via any Solana-compatible exchange or wallet
-            (e.g. Phantom, Backpack, Solflare).
-          </p>
-        </div>
-      )}
-
       <section className={card}>
         <h2 className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
           Payment history
@@ -671,23 +573,5 @@ function SubscriptionPricingInner(props: SubscriptionPricingContentProps) {
         )}
       </section>
     </div>
-  );
-}
-
-export default function SubscriptionPricingContent(
-  props: SubscriptionPricingContentProps,
-) {
-  return (
-    <ClientWalletProvider>
-      <Suspense
-        fallback={
-          <div className="flex min-h-[200px] items-center justify-center px-5">
-            <p className="text-sm text-[var(--text-muted)]">Loading…</p>
-          </div>
-        }
-      >
-        <SubscriptionPricingInner {...props} />
-      </Suspense>
-    </ClientWalletProvider>
   );
 }

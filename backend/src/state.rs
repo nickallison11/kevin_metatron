@@ -43,6 +43,8 @@ pub struct AppState {
     pub paystack_connector_plan_basic_annual: String,
     pub paystack_investor_plan_basic_monthly: String,
     pub paystack_investor_plan_basic_annual: String,
+    pub nowpayments_api_key: Option<String>,
+    pub nowpayments_ipn_secret: Option<String>,
     pub whatsapp_verify_token: Option<String>,
     pub whatsapp_access_token: Option<String>,
     pub whatsapp_phone_number_id: Option<String>,
@@ -115,6 +117,8 @@ impl AppState {
             paystack_investor_plan_basic_annual: settings
                 .paystack_investor_plan_basic_annual
                 .clone(),
+            nowpayments_api_key: settings.nowpayments_api_key.clone(),
+            nowpayments_ipn_secret: settings.nowpayments_ipn_secret.clone(),
             whatsapp_verify_token: settings.whatsapp_verify_token.clone(),
             whatsapp_access_token: settings.whatsapp_access_token.clone(),
             whatsapp_phone_number_id: settings.whatsapp_phone_number_id.clone(),

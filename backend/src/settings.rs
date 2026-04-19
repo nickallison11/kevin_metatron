@@ -44,6 +44,8 @@ pub struct Settings {
     pub paystack_connector_plan_basic_annual: String,
     pub paystack_investor_plan_basic_monthly: String,
     pub paystack_investor_plan_basic_annual: String,
+    pub nowpayments_api_key: Option<String>,
+    pub nowpayments_ipn_secret: Option<String>,
     pub whatsapp_verify_token: Option<String>,
     pub whatsapp_access_token: Option<String>,
     pub whatsapp_phone_number_id: Option<String>,
@@ -178,6 +180,13 @@ impl Settings {
                 .trim()
                 .to_string();
 
+        let nowpayments_api_key = env::var("NOWPAYMENTS_API_KEY")
+            .ok()
+            .and_then(|s| (!s.trim().is_empty()).then_some(s.trim().to_string()));
+        let nowpayments_ipn_secret = env::var("NOWPAYMENTS_IPN_SECRET")
+            .ok()
+            .and_then(|s| (!s.trim().is_empty()).then_some(s.trim().to_string()));
+
         let whatsapp_verify_token = env::var("WHATSAPP_VERIFY_TOKEN")
             .ok()
             .and_then(|s| (!s.trim().is_empty()).then_some(s));
@@ -249,6 +258,8 @@ impl Settings {
             paystack_connector_plan_basic_annual,
             paystack_investor_plan_basic_monthly,
             paystack_investor_plan_basic_annual,
+            nowpayments_api_key,
+            nowpayments_ipn_secret,
             whatsapp_verify_token,
             whatsapp_access_token,
             whatsapp_phone_number_id,

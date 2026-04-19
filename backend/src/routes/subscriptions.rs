@@ -24,7 +24,8 @@ use crate::state::AppState;
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/nonce", get(get_nonce))
-        .route("/confirm", post(confirm_subscription))
+        // Solana USD path disabled — replaced by NowPayments (`/commerce/nowpayments/subscribe`).
+        // .route("/confirm", post(confirm_subscription))
         .route("/status", get(get_status))
         .route("/invoices/:id", get(get_invoice))
         .route("/invoices", get(get_invoices))
@@ -69,6 +70,7 @@ struct ConfirmResponse {
     period_end: String,
 }
 
+#[allow(dead_code)]
 async fn confirm_subscription(
     State(state): State<Arc<AppState>>,
     TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,

@@ -32,6 +32,8 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/connector/verify", post(verify_connector_payment))
         .route("/investor/subscribe", post(create_investor_subscription))
         .route("/investor/verify", post(verify_investor_payment))
+        .route("/nowpayments/subscribe", post(nowpayments_subscribe))
+        .route("/nowpayments/webhook", post(nowpayments_webhook))
         .route("/webhook", post(webhook))
 }
 
@@ -1323,6 +1325,391 @@ async fn webhook(
             tracing::warn!("paystack webhook: finalize failed");
             s
         })?;
+
+    Ok(StatusCode::OK)
+}
+
+fn sort_json_keys(v: &Value) -> Value {
+    match v {
+        Value::Object(map) => {
+            let mut keys: Vec<&String> = map.keys().collect();
+            keys.sort();
+            let mut out = serde_json::Map::new();
+            for k in keys {
+                if let Some(val) = map.get(k) {
+                    out.insert((*k).clone(), sort_json_keys(val));
+                }
+            }
+            Value::Object(out)
+        }
+        Value::Array(items) => Value::Array(items.iter().map(sort_json_keys).collect()),
+        _ => v.clone(),
+    }
+}
+
+fn nowpayments_sorted_body_string(parsed: &Value) -> Option<String> {
+    let sorted = sort_json_keys(parsed);
+    serde_json::to_string(&sorted).ok()
+}
+
+fn timing_safe_eq_hex(a: &str, b: &str) -> bool {
+    let a = a.as_bytes();
+    let b = b.as_bytes();
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
+fn verify_nowpayments_ipn(secret: &str, body: &[u8], sig_header: &str) -> bool {
+    let Ok(parsed) = serde_json::from_slice::<Value>(body) else {
+        return false;
+    };
+    let Some(signable) = nowpayments_sorted_body_string(&parsed) else {
+        return false;
+    };
+    let Ok(mut mac) = HmacSha512::new_from_slice(secret.as_bytes()) else {
+        return false;
+    };
+    mac.update(signable.as_bytes());
+    let expected = hex::encode(mac.finalize().into_bytes());
+    let sig = sig_header.trim();
+    let sig_l = sig.to_ascii_lowercase();
+    let exp_l = expected.to_ascii_lowercase();
+    timing_safe_eq_hex(&exp_l, &sig_l)
+}
+
+fn usd_nowpayments_invoice_amount(billing: &str) -> Decimal {
+    if billing == "annual" {
+        Decimal::from_str("99.99").unwrap()
+    } else {
+        Decimal::from_str("9.99").unwrap()
+    }
+}
+
+fn usd_nowpayments_amount_display(billing: &str) -> &'static str {
+    match billing {
+        "annual" => "$99.99 USD",
+        _ => "$9.99 USD",
+    }
+}
+
+fn settings_path_for_role(role: &str) -> &'static str {
+    match role {
+        "investor" => "/investor",
+        "connector" => "/connector",
+        _ => "/startup",
+    }
+}
+
+#[derive(Deserialize)]
+struct NowpaymentsSubscribeBody {
+    billing: String,
+    role: String,
+}
+
+async fn nowpayments_subscribe(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+    Json(body): Json<NowpaymentsSubscribeBody>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let api_key = state
+        .nowpayments_api_key
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| {
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(json!({ "error": "NowPayments not configured" })),
+            )
+        })?;
+
+    let authed = require_user(&state, bearer.token())
+        .await
+        .map_err(|(_, msg)| (StatusCode::UNAUTHORIZED, Json(json!({ "error": msg }))))?;
+
+    let billing = body.billing.to_ascii_lowercase();
+    if billing != "monthly" && billing != "annual" {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "billing must be monthly or annual" })),
+        ));
+    }
+
+    let role_norm = body.role.to_ascii_lowercase();
+    if role_norm != "founder" && role_norm != "investor" && role_norm != "connector" {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "invalid role" })),
+        ));
+    }
+
+    match role_norm.as_str() {
+        "founder" if authed.role != "STARTUP" => {
+            return Err((
+                StatusCode::FORBIDDEN,
+                Json(json!({ "error": "wrong role for this checkout" })),
+            ));
+        }
+        "investor" if authed.role != "INVESTOR" => {
+            return Err((
+                StatusCode::FORBIDDEN,
+                Json(json!({ "error": "wrong role for this checkout" })),
+            ));
+        }
+        "connector" if authed.role != "INTERMEDIARY" => {
+            return Err((
+                StatusCode::FORBIDDEN,
+                Json(json!({ "error": "wrong role for this checkout" })),
+            ));
+        }
+        _ => {}
+    }
+
+    let amount = if billing == "annual" { 99.99 } else { 9.99 };
+
+    let pending_id: Uuid = sqlx::query_scalar(
+        r#"INSERT INTO nowpayments_pending (user_id, role, billing) VALUES ($1, $2, $3) RETURNING id"#,
+    )
+    .bind(authed.id)
+    .bind(&role_norm)
+    .bind(&billing)
+    .fetch_one(&state.db)
+    .await
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": "internal error" })),
+        )
+    })?;
+
+    let base = state.frontend_url.trim_end_matches('/');
+    let path_prefix = settings_path_for_role(role_norm.as_str());
+    let success_url = format!("{base}{path_prefix}/settings/subscription?success=1");
+    let cancel_url = format!("{base}{path_prefix}/settings/subscription");
+
+    let ipn_callback_url = format!(
+        "{}/commerce/nowpayments/webhook",
+        state.public_base_url.trim_end_matches('/')
+    );
+
+    let order_description = format!("metatron {role_norm} basic {billing}");
+
+    let payload = json!({
+        "price_amount": amount,
+        "price_currency": "usd",
+        "pay_currency": "usdcsol",
+        "order_id": pending_id.to_string(),
+        "order_description": order_description,
+        "ipn_callback_url": ipn_callback_url,
+        "success_url": success_url,
+        "cancel_url": cancel_url,
+    });
+
+    let res = state
+        .http_client
+        .post("https://api.nowpayments.io/v1/invoice")
+        .header("x-api-key", api_key)
+        .header("Content-Type", "application/json")
+        .json(&payload)
+        .send()
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::BAD_GATEWAY,
+                Json(json!({ "error": "nowpayments request failed" })),
+            )
+        })?;
+
+    let status = res.status();
+    let resp_json: Value = res.json().await.map_err(|_| {
+        (
+            StatusCode::BAD_GATEWAY,
+            Json(json!({ "error": "nowpayments parse failed" })),
+        )
+    })?;
+
+    if !status.is_success() {
+        tracing::warn!("nowpayments invoice error: {:?}", resp_json);
+        return Err((
+            StatusCode::BAD_GATEWAY,
+            Json(json!({ "error": "nowpayments invoice failed" })),
+        ));
+    }
+
+    let invoice_url = resp_json
+        .get("invoice_url")
+        .and_then(|u| u.as_str())
+        .or_else(|| {
+            resp_json
+                .get("result")
+                .and_then(|r| r.get("invoice_url"))
+                .and_then(|u| u.as_str())
+        })
+        .ok_or_else(|| {
+            tracing::warn!("nowpayments invoice: missing invoice_url {:?}", resp_json);
+            (
+                StatusCode::BAD_GATEWAY,
+                Json(json!({ "error": "missing invoice_url" })),
+            )
+        })?;
+
+    Ok(Json(json!({ "invoice_url": invoice_url })))
+}
+
+async fn nowpayments_webhook(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<StatusCode, StatusCode> {
+    let secret = match state.nowpayments_ipn_secret.as_deref().filter(|s| !s.is_empty()) {
+        Some(s) => s,
+        None => {
+            tracing::warn!("nowpayments webhook: IPN secret not configured");
+            return Err(StatusCode::SERVICE_UNAVAILABLE);
+        }
+    };
+
+    let sig_header = headers
+        .get("x-nowpayments-sig")
+        .or_else(|| headers.get("X-Nowpayments-Sig"))
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+
+    if !verify_nowpayments_ipn(secret, &body, sig_header) {
+        tracing::warn!("nowpayments webhook: signature mismatch");
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+
+    let v: Value = serde_json::from_slice(&body).map_err(|e| {
+        tracing::warn!("nowpayments webhook: json parse: {e}");
+        StatusCode::BAD_REQUEST
+    })?;
+
+    let payment_status = v
+        .get("payment_status")
+        .and_then(|x| x.as_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+
+    if payment_status != "finished" {
+        return Ok(StatusCode::OK);
+    }
+
+    let order_id_str = match v.get("order_id") {
+        Some(Value::String(s)) => s.clone(),
+        Some(Value::Number(n)) => n.to_string(),
+        _ => {
+            tracing::warn!("nowpayments webhook: missing order_id");
+            return Ok(StatusCode::OK);
+        }
+    };
+
+    let order_uuid = match Uuid::parse_str(order_id_str.trim()) {
+        Ok(u) => u,
+        Err(_) => {
+            tracing::warn!("nowpayments webhook: invalid order_id");
+            return Ok(StatusCode::OK);
+        }
+    };
+
+    let ref_str = order_uuid.to_string();
+    let dup: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*)::bigint FROM subscription_invoices WHERE reference = $1",
+    )
+    .bind(&ref_str)
+    .fetch_one(&state.db)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    if dup > 0 {
+        let _ = sqlx::query("UPDATE nowpayments_pending SET fulfilled = TRUE WHERE id = $1")
+            .bind(order_uuid)
+            .execute(&state.db)
+            .await;
+        return Ok(StatusCode::OK);
+    }
+
+    let claimed: Option<(Uuid, String, String)> = sqlx::query_as(
+        r#"UPDATE nowpayments_pending SET fulfilled = TRUE WHERE id = $1 AND fulfilled = FALSE RETURNING user_id, role, billing"#,
+    )
+    .bind(order_uuid)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let Some((user_id, role, billing)) = claimed else {
+        return Ok(StatusCode::OK);
+    };
+
+    if !matches!(role.as_str(), "founder" | "investor" | "connector") {
+        let _ = sqlx::query(
+            "UPDATE nowpayments_pending SET fulfilled = FALSE WHERE id = $1",
+        )
+        .bind(order_uuid)
+        .execute(&state.db)
+        .await;
+        return Ok(StatusCode::OK);
+    }
+
+    let billing_lc = billing.to_ascii_lowercase();
+    let invoice_amount = usd_nowpayments_invoice_amount(billing_lc.as_str());
+    let reference_owned = order_uuid.to_string();
+
+    let finalize_res: Result<(), (StatusCode, Json<Value>)> = match role.as_str() {
+        "founder" => finalize_pro_subscription(
+            &state,
+            user_id,
+            billing_lc.as_str(),
+            usd_nowpayments_amount_display(billing_lc.as_str()),
+            "nowpayments",
+            Some(reference_owned.as_str()),
+            "USD",
+            invoice_amount,
+        )
+        .await
+        .map(|_| ()),
+        "investor" => {
+            finalize_investor_subscription(
+                &state,
+                user_id,
+                billing_lc.as_str(),
+                "nowpayments",
+                Some(reference_owned.as_str()),
+                "USD",
+                invoice_amount,
+            )
+            .await
+        }
+        "connector" => {
+            finalize_connector_subscription(
+                &state,
+                user_id,
+                billing_lc.as_str(),
+                "nowpayments",
+                Some(reference_owned.as_str()),
+                "USD",
+                invoice_amount,
+            )
+            .await
+        }
+        _ => unreachable!(),
+    };
+
+    if finalize_res.is_err() {
+        let _ = sqlx::query(
+            "UPDATE nowpayments_pending SET fulfilled = FALSE WHERE id = $1",
+        )
+        .bind(order_uuid)
+        .execute(&state.db)
+        .await;
+        tracing::warn!("nowpayments webhook: finalize failed");
+        return Err(StatusCode::INTERNAL_SERVER_ERROR);
+    }
 
     Ok(StatusCode::OK)
 }

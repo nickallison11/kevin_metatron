@@ -375,8 +375,14 @@ Return the top 5 matches only, ranked by score descending."#
         .trim_start_matches("```")
         .trim_end_matches("```")
         .trim();
-    let ranked: Vec<Value> = serde_json::from_str(clean).unwrap_or_default();
-    eprintln!("DBG ranked={} clean_len={}", ranked.len(), clean.len());
+    // Extract just the [...] block in case Gemini adds preamble/postamble text
+    let json_str = if let (Some(start), Some(end)) = (clean.find('['), clean.rfind(']')) {
+        &clean[start..=end]
+    } else {
+        clean
+    };
+    let ranked: Vec<Value> = serde_json::from_str(json_str).unwrap_or_default();
+    eprintln!("DBG ranked={} clean_len={} json_str_len={}", ranked.len(), clean.len(), json_str.len());
 
     sqlx::query("DELETE FROM kevin_matches WHERE for_user_id = $1 AND match_type = $2")
         .bind(user.id)

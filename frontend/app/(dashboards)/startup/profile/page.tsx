@@ -735,10 +735,9 @@ export default function StartupProfilePage() {
               </div>
 
               <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-6 space-y-5">
-                <h2 className="text-sm font-semibold">Telegram</h2>
-
-                {me?.telegram_id ? (
-                  <div className="flex flex-wrap items-center gap-3">
+                <div className="flex items-center gap-3">
+                  <h2 className="text-sm font-semibold">Telegram</h2>
+                  {me?.telegram_id && (
                     <span
                       className="inline-flex shrink-0 items-center whitespace-nowrap rounded-full border px-3 py-1 text-xs"
                       style={{
@@ -749,6 +748,11 @@ export default function StartupProfilePage() {
                     >
                       Telegram linked
                     </span>
+                  )}
+                </div>
+
+                {me?.telegram_id ? (
+                  <div className="flex flex-wrap items-center gap-3">
                     <a
                       href="https://t.me/Kevinmetatron_bot"
                       target="_blank"

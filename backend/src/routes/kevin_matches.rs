@@ -366,6 +366,7 @@ Return the top 5 matches only, ranked by score descending."#
     .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
 
     let body: Value = res.json().await.map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
+    eprintln!("DBG gemini_body={}", &body.to_string()[..body.to_string().len().min(500)]);
     let text = body["candidates"][0]["content"]["parts"][0]["text"]
         .as_str()
         .unwrap_or("[]");

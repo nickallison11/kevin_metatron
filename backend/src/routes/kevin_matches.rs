@@ -239,9 +239,12 @@ async fn generate_matches(
             }));
         }
 
-        for c in &contacts {
+        for c in contacts.iter().take(20) {
             let id = c.id.to_string();
             let display_name = c.firm_or_company.clone().unwrap_or_else(|| c.name.clone());
+            // Truncate long fields to keep prompt compact
+            let sector = c.sector_focus.as_deref().map(|s| &s[..s.len().min(60)]).map(str::to_owned);
+            let stage = c.stage_focus.as_deref().map(|s| &s[..s.len().min(40)]).map(str::to_owned);
             info.insert(id.clone(), CandidateInfo {
                 source: "contact",
                 display_name: Some(display_name.clone()),
@@ -252,12 +255,10 @@ async fn generate_matches(
             });
             all.push(serde_json::json!({
                 "id": id,
-                "source": "contact",
                 "name": display_name,
-                "one_liner": c.one_liner,
-                "sector_focus": c.sector_focus,
-                "stage_focus": c.stage_focus,
-                "geography": c.geography,
+                "sector": sector,
+                "stage": stage,
+                "country": c.geography,
             }));
         }
 
@@ -352,7 +353,7 @@ Return the top 5 matches only, ranked by score descending."#
     );
     let payload = serde_json::json!({
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-        "generationConfig": {"maxOutputTokens": 1024, "temperature": 0.2}
+        "generationConfig": {"maxOutputTokens": 4096, "temperature": 0.2}
     });
 
     let client = reqwest::Client::new();
@@ -375,7 +376,7 @@ Return the top 5 matches only, ranked by score descending."#
         .trim_end_matches("```")
         .trim();
     let ranked: Vec<Value> = serde_json::from_str(clean).unwrap_or_default();
-    eprintln!("DBG ranked={} clean_preview={}", ranked.len(), &clean[..clean.len().min(300)]);
+    eprintln!("DBG ranked={} clean_len={}", ranked.len(), clean.len());
 
     sqlx::query("DELETE FROM kevin_matches WHERE for_user_id = $1 AND match_type = $2")
         .bind(user.id)

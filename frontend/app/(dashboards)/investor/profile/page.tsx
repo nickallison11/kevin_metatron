@@ -35,9 +35,11 @@ export default function InvestorProfilePage() {
   const [telegramLinkCode, setTelegramLinkCode] = useState<string | null>(null);
   const [telegramLoading, setTelegramLoading] = useState(false);
   const [telegramMsg, setTelegramMsg] = useState<string | null>(null);
+  const [unlinkingTelegram, setUnlinkingTelegram] = useState(false);
   const [whatsappInput, setWhatsappInput] = useState("");
   const [whatsappSaving, setWhatsappSaving] = useState(false);
   const [whatsappMsg, setWhatsappMsg] = useState<string | null>(null);
+  const [unlinkingWhatsapp, setUnlinkingWhatsapp] = useState(false);
 
   useEffect(() => {
     if (!token) return;
@@ -122,6 +124,43 @@ export default function InvestorProfilePage() {
       );
     } finally {
       setTelegramLoading(false);
+    }
+  }
+
+  async function onUnlinkTelegram() {
+    if (!token) return;
+    setUnlinkingTelegram(true);
+    setTelegramMsg(null);
+    try {
+      const res = await fetch(`${API_BASE}/auth/telegram`, { method: "DELETE", headers: authHeaders(token) });
+      if (!res.ok) throw new Error(await res.text());
+      setMe((prev) => prev ? { ...prev, telegram_id: null } : prev);
+      setTelegramMsg("Telegram unlinked.");
+    } catch (err) {
+      setTelegramMsg(err instanceof Error ? err.message : "Could not unlink Telegram");
+    } finally {
+      setUnlinkingTelegram(false);
+    }
+  }
+
+  async function onUnlinkWhatsapp() {
+    if (!token) return;
+    setUnlinkingWhatsapp(true);
+    setWhatsappMsg(null);
+    try {
+      const res = await fetch(`${API_BASE}/auth/whatsapp-number`, {
+        method: "PUT",
+        headers: authJsonHeaders(token),
+        body: JSON.stringify({ whatsapp_number: null }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      setMe((prev) => prev ? { ...prev, whatsapp_number: null } : prev);
+      setWhatsappInput("");
+      setWhatsappMsg("WhatsApp unlinked.");
+    } catch (err) {
+      setWhatsappMsg(err instanceof Error ? err.message : "Could not unlink WhatsApp");
+    } finally {
+      setUnlinkingWhatsapp(false);
     }
   }
 
@@ -405,16 +444,26 @@ export default function InvestorProfilePage() {
                       {whatsappSaving ? "Saving…" : "Save number"}
                     </button>
                     {me?.whatsapp_number ? (
-                      <span
-                        className="inline-flex items-center rounded-full border px-3 py-1 text-xs"
-                        style={{
-                          borderColor: "rgba(34,197,94,0.35)",
-                          backgroundColor: "rgba(34,197,94,0.12)",
-                          color: "rgb(134,239,172)",
-                        }}
-                      >
-                        Number on file
-                      </span>
+                      <>
+                        <span
+                          className="inline-flex items-center rounded-full border px-3 py-1 text-xs"
+                          style={{
+                            borderColor: "rgba(34,197,94,0.35)",
+                            backgroundColor: "rgba(34,197,94,0.12)",
+                            color: "rgb(134,239,172)",
+                          }}
+                        >
+                          Number on file
+                        </span>
+                        <button
+                          type="button"
+                          onClick={onUnlinkWhatsapp}
+                          disabled={unlinkingWhatsapp}
+                          className="rounded-lg bg-[rgba(239,68,68,0.12)] border border-[rgba(239,68,68,0.3)] px-3 py-1.5 text-xs font-semibold text-[rgb(254,202,202)] hover:bg-[rgba(239,68,68,0.2)] disabled:opacity-60"
+                        >
+                          {unlinkingWhatsapp ? "Unlinking…" : "Unlink"}
+                        </button>
+                      </>
                     ) : (
                       <span className="text-xs text-[var(--text-muted)]">
                         Not saved yet
@@ -451,11 +500,19 @@ export default function InvestorProfilePage() {
                       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" className="h-4 w-4 shrink-0" aria-hidden>
                         <path
                           fill="#229ED9"
-                          d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"
+                          d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.277-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"
                         />
                       </svg>
                       Open Kevin
                     </a>
+                    <button
+                      type="button"
+                      onClick={onUnlinkTelegram}
+                      disabled={unlinkingTelegram}
+                      className="rounded-lg bg-[rgba(239,68,68,0.12)] border border-[rgba(239,68,68,0.3)] px-3 py-1.5 text-xs font-semibold text-[rgb(254,202,202)] hover:bg-[rgba(239,68,68,0.2)] disabled:opacity-60"
+                    >
+                      {unlinkingTelegram ? "Unlinking…" : "Unlink"}
+                    </button>
                   </div>
                 ) : (
                   <>

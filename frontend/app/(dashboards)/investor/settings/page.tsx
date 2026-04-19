@@ -30,9 +30,6 @@ export default function InvestorSettingsPage() {
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(false);
   const [twoFaMsg, setTwoFaMsg] = useState<string | null>(null);
 
-  const [channelsMsg, setChannelsMsg] = useState<string | null>(null);
-  const [unlinkingTelegram, setUnlinkingTelegram] = useState(false);
-  const [unlinkingWhatsapp, setUnlinkingWhatsapp] = useState(false);
 
   const [setupLoading, setSetupLoading] = useState(false);
   const [otpauthUri, setOtpauthUri] = useState<string | null>(null);
@@ -239,45 +236,6 @@ export default function InvestorSettingsPage() {
       setPersonalMsg(err instanceof Error ? err.message : "Could not save personal details");
     } finally {
       setPersonalSaving(false);
-    }
-  }
-
-  async function onUnlinkTelegram() {
-    if (!token) return;
-    setUnlinkingTelegram(true);
-    setChannelsMsg(null);
-    try {
-      const res = await fetch(`${API_BASE}/auth/telegram`, {
-        method: "DELETE",
-        headers: authHeaders(token),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      setMe((prev) => prev ? { ...prev, telegram_id: null } : prev);
-      setChannelsMsg("Telegram unlinked.");
-    } catch (err) {
-      setChannelsMsg(err instanceof Error ? err.message : "Could not unlink Telegram");
-    } finally {
-      setUnlinkingTelegram(false);
-    }
-  }
-
-  async function onUnlinkWhatsapp() {
-    if (!token) return;
-    setUnlinkingWhatsapp(true);
-    setChannelsMsg(null);
-    try {
-      const res = await fetch(`${API_BASE}/auth/whatsapp-number`, {
-        method: "PUT",
-        headers: authJsonHeaders(token),
-        body: JSON.stringify({ whatsapp_number: null }),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      setMe((prev) => prev ? { ...prev, whatsapp_number: null } : prev);
-      setChannelsMsg("WhatsApp unlinked.");
-    } catch (err) {
-      setChannelsMsg(err instanceof Error ? err.message : "Could not unlink WhatsApp");
-    } finally {
-      setUnlinkingWhatsapp(false);
     }
   }
 
@@ -614,67 +572,6 @@ export default function InvestorSettingsPage() {
                 </form>
               )}
             </div>
-          )}
-        </div>
-
-        <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-6 space-y-5">
-          <h2 className="text-sm font-semibold">Connected channels</h2>
-          <p className="text-xs text-[var(--text-muted)]">
-            Kevin uses these to notify you and send messages on your behalf.
-          </p>
-
-          <div className="space-y-3">
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <p className="text-sm font-medium">Telegram</p>
-                {me.telegram_id ? (
-                  <p className="text-xs text-[var(--text-muted)]">
-                    Linked · ID {me.telegram_id}
-                  </p>
-                ) : (
-                  <p className="text-xs text-[var(--text-muted)]">Not linked</p>
-                )}
-              </div>
-              {me.telegram_id && (
-                <button
-                  type="button"
-                  onClick={onUnlinkTelegram}
-                  disabled={unlinkingTelegram}
-                  className="rounded-lg bg-[rgba(239,68,68,0.12)] border border-[rgba(239,68,68,0.3)] px-3 py-1.5 text-xs font-semibold text-[rgb(254,202,202)] hover:bg-[rgba(239,68,68,0.2)] disabled:opacity-60 shrink-0"
-                >
-                  {unlinkingTelegram ? "Unlinking…" : "Unlink"}
-                </button>
-              )}
-            </div>
-
-            <div className="h-px bg-[var(--border)]" />
-
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <p className="text-sm font-medium">WhatsApp</p>
-                {me.whatsapp_number ? (
-                  <p className="text-xs text-[var(--text-muted)]">
-                    Linked · +{me.whatsapp_number}
-                  </p>
-                ) : (
-                  <p className="text-xs text-[var(--text-muted)]">Not linked</p>
-                )}
-              </div>
-              {me.whatsapp_number && (
-                <button
-                  type="button"
-                  onClick={onUnlinkWhatsapp}
-                  disabled={unlinkingWhatsapp}
-                  className="rounded-lg bg-[rgba(239,68,68,0.12)] border border-[rgba(239,68,68,0.3)] px-3 py-1.5 text-xs font-semibold text-[rgb(254,202,202)] hover:bg-[rgba(239,68,68,0.2)] disabled:opacity-60 shrink-0"
-                >
-                  {unlinkingWhatsapp ? "Unlinking…" : "Unlink"}
-                </button>
-              )}
-            </div>
-          </div>
-
-          {channelsMsg && (
-            <p className="text-xs text-[var(--text-muted)]">{channelsMsg}</p>
           )}
         </div>
 

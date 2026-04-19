@@ -33,9 +33,11 @@ export default function ConnectorProfilePage() {
   const [telegramLinkCode, setTelegramLinkCode] = useState<string | null>(null);
   const [telegramLoading, setTelegramLoading] = useState(false);
   const [telegramMsg, setTelegramMsg] = useState<string | null>(null);
+  const [unlinkingTelegram, setUnlinkingTelegram] = useState(false);
   const [whatsappInput, setWhatsappInput] = useState("");
   const [whatsappSaving, setWhatsappSaving] = useState(false);
   const [whatsappMsg, setWhatsappMsg] = useState<string | null>(null);
+  const [unlinkingWhatsapp, setUnlinkingWhatsapp] = useState(false);
 
   useEffect(() => {
     if (!token) return;
@@ -105,6 +107,43 @@ export default function ConnectorProfilePage() {
       );
     } finally {
       setTelegramLoading(false);
+    }
+  }
+
+  async function onUnlinkTelegram() {
+    if (!token) return;
+    setUnlinkingTelegram(true);
+    setTelegramMsg(null);
+    try {
+      const res = await fetch(`${API_BASE}/auth/telegram`, { method: "DELETE", headers: authHeaders(token) });
+      if (!res.ok) throw new Error(await res.text());
+      setMe((prev) => prev ? { ...prev, telegram_id: null } : prev);
+      setTelegramMsg("Telegram unlinked.");
+    } catch (err) {
+      setTelegramMsg(err instanceof Error ? err.message : "Could not unlink Telegram");
+    } finally {
+      setUnlinkingTelegram(false);
+    }
+  }
+
+  async function onUnlinkWhatsapp() {
+    if (!token) return;
+    setUnlinkingWhatsapp(true);
+    setWhatsappMsg(null);
+    try {
+      const res = await fetch(`${API_BASE}/auth/whatsapp-number`, {
+        method: "PUT",
+        headers: authJsonHeaders(token),
+        body: JSON.stringify({ whatsapp_number: null }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      setMe((prev) => prev ? { ...prev, whatsapp_number: null } : prev);
+      setWhatsappInput("");
+      setWhatsappMsg("WhatsApp unlinked.");
+    } catch (err) {
+      setWhatsappMsg(err instanceof Error ? err.message : "Could not unlink WhatsApp");
+    } finally {
+      setUnlinkingWhatsapp(false);
     }
   }
 
@@ -292,16 +331,26 @@ export default function ConnectorProfilePage() {
                       {whatsappSaving ? "Saving…" : "Save number"}
                     </button>
                     {me?.whatsapp_number ? (
-                      <span
-                        className="inline-flex items-center rounded-full border px-3 py-1 text-xs"
-                        style={{
-                          borderColor: "rgba(34,197,94,0.35)",
-                          backgroundColor: "rgba(34,197,94,0.12)",
-                          color: "rgb(134,239,172)",
-                        }}
-                      >
-                        Number on file
-                      </span>
+                      <>
+                        <span
+                          className="inline-flex items-center rounded-full border px-3 py-1 text-xs"
+                          style={{
+                            borderColor: "rgba(34,197,94,0.35)",
+                            backgroundColor: "rgba(34,197,94,0.12)",
+                            color: "rgb(134,239,172)",
+                          }}
+                        >
+                          Number on file
+                        </span>
+                        <button
+                          type="button"
+                          onClick={onUnlinkWhatsapp}
+                          disabled={unlinkingWhatsapp}
+                          className="rounded-lg bg-[rgba(239,68,68,0.12)] border border-[rgba(239,68,68,0.3)] px-3 py-1.5 text-xs font-semibold text-[rgb(254,202,202)] hover:bg-[rgba(239,68,68,0.2)] disabled:opacity-60"
+                        >
+                          {unlinkingWhatsapp ? "Unlinking…" : "Unlink"}
+                        </button>
+                      </>
                     ) : (
                       <span className="text-xs text-[var(--text-muted)]">
                         Not saved yet
@@ -343,6 +392,14 @@ export default function ConnectorProfilePage() {
                       </svg>
                       Open Kevin
                     </a>
+                    <button
+                      type="button"
+                      onClick={onUnlinkTelegram}
+                      disabled={unlinkingTelegram}
+                      className="rounded-lg bg-[rgba(239,68,68,0.12)] border border-[rgba(239,68,68,0.3)] px-3 py-1.5 text-xs font-semibold text-[rgb(254,202,202)] hover:bg-[rgba(239,68,68,0.2)] disabled:opacity-60"
+                    >
+                      {unlinkingTelegram ? "Unlinking…" : "Unlink"}
+                    </button>
                   </div>
                 ) : (
                   <>

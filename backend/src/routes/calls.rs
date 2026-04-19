@@ -18,8 +18,26 @@ use tokio::io::AsyncWriteExt;
 use uuid::Uuid;
 
 use crate::ai::{complete_json_object, mock_call_analysis_json};
-use crate::identity::require_role;
+use crate::identity::{require_role, AuthedUser};
 use crate::state::AppState;
+
+async fn calls_access_allowed(state: &AppState, user: &AuthedUser) -> bool {
+    if user.is_pro {
+        return true;
+    }
+    if user.role == "INVESTOR" {
+        return sqlx::query_scalar::<_, String>(
+            "SELECT investor_tier FROM investor_profiles WHERE user_id = $1",
+        )
+        .bind(user.id)
+        .fetch_optional(&state.db)
+        .await
+        .unwrap_or(None)
+        .map(|t| t == "basic")
+        .unwrap_or(false);
+    }
+    false
+}
 
 const MAX_AUDIO_BYTES: usize = 80 * 1024 * 1024;
 
@@ -64,11 +82,11 @@ async fn list_calls(
     State(state): State<Arc<AppState>>,
     TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
 ) -> Result<Json<Vec<CallDto>>, (axum::http::StatusCode, String)> {
-    let authed_user = require_role(&state, bearer.token(), &["STARTUP"]).await?;
-    if !authed_user.is_pro {
+    let authed_user = require_role(&state, bearer.token(), &["STARTUP", "INVESTOR"]).await?;
+    if !calls_access_allowed(&state, &authed_user).await {
         return Err((
             axum::http::StatusCode::FORBIDDEN,
-            "pro subscription required".to_string(),
+            "subscription required".to_string(),
         ));
     }
     let id = authed_user.id;
@@ -94,11 +112,11 @@ async fn upload_call(
     TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
     mut multipart: Multipart,
 ) -> Result<Json<CallDto>, (axum::http::StatusCode, String)> {
-    let authed_user = require_role(&state, bearer.token(), &["STARTUP"]).await?;
-    if !authed_user.is_pro {
+    let authed_user = require_role(&state, bearer.token(), &["STARTUP", "INVESTOR"]).await?;
+    if !calls_access_allowed(&state, &authed_user).await {
         return Err((
             axum::http::StatusCode::FORBIDDEN,
-            "pro subscription required".to_string(),
+            "subscription required".to_string(),
         ));
     }
     let id = authed_user.id;

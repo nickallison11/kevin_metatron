@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { API_BASE, authJsonHeaders } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
 const FREE_NAV = [
@@ -13,6 +14,7 @@ const FREE_NAV = [
 
 const LOCKED_NAV = [
   { href: "/investor/deal-flow", label: "Deal Flow" },
+  { href: "/investor/calls", label: "Call Intelligence" },
   { href: "/investor/portfolio", label: "Portfolio" },
 ];
 
@@ -20,6 +22,27 @@ export default function InvestorShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const { token, isPro, loading } = useAuth("INVESTOR");
+  const [isPaid, setIsPaid] = useState(false);
+
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/investor-profile`, {
+          headers: authJsonHeaders(token),
+        });
+        if (!res.ok) return;
+        const data = (await res.json()) as { investor_tier?: string | null };
+        if (!cancelled) setIsPaid(data.investor_tier === "basic");
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
 
   if (loading) {
     return (
@@ -33,10 +56,12 @@ export default function InvestorShell({ children }: { children: ReactNode }) {
 
   // Portfolio doesn't exist yet, so it's a hard lock for everyone (button, not navigable).
   // Deal Flow is "teased" for free users — still navigable, but shows the Upgrade badge.
+  // Call Intelligence is "teased" for non-paid investors (gated by investor_tier basic).
   type LockMode = "none" | "tease" | "hard";
   const lockMode = (href: string): LockMode => {
     if (href === "/investor/portfolio") return "hard";
     if (href === "/investor/deal-flow") return isPro ? "none" : "tease";
+    if (href === "/investor/calls") return isPaid ? "none" : "tease";
     return "none";
   };
 

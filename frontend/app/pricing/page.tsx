@@ -134,6 +134,7 @@ function PricingPageInner() {
   const [billing, setBilling] = useState<"monthly" | "annual">("monthly");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [userRole, setUserRole] = useState<string | null>(null);
 
   const decodeRoleFromJwt = useCallback((t: string): string | null => {
     try {
@@ -164,6 +165,16 @@ function PricingPageInner() {
     },
     [],
   );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const t = window.localStorage.getItem("metatron_token");
+    if (!t) {
+      setUserRole(null);
+      return;
+    }
+    setUserRole(decodeRoleFromJwt(t));
+  }, [decodeRoleFromJwt]);
 
   useEffect(() => {
     if (searchParams.get("success") !== "1") return;
@@ -344,6 +355,10 @@ function PricingPageInner() {
   const basicDisplay = formatBasicDisplay(currency, billing);
   const proComingSoonDisplay = formatProComingSoonDisplay(currency, billing);
 
+  const showFounder = !userRole || userRole === "STARTUP";
+  const showConnector = !userRole || userRole === "INTERMEDIARY";
+  const showInvestor = !userRole || userRole === "INVESTOR";
+
   return (
     <main className="min-h-[calc(100vh-72px)] px-5 py-10">
       <div className="mx-auto w-full max-w-5xl">
@@ -381,6 +396,7 @@ function PricingPageInner() {
           ))}
         </div>
 
+        {showFounder && (
         <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
           {/* Free */}
           <section className={`${cardBase} border-[var(--border)]`}>
@@ -500,7 +516,9 @@ function PricingPageInner() {
             </ul>
           </section>
         </div>
+        )}
 
+        {showConnector && (
         <section className="mt-10">
           <h2 className="text-xl font-semibold text-[var(--text)]">
             For Connectors & Ecosystem Partners
@@ -635,7 +653,9 @@ function PricingPageInner() {
             </p>
           </div>
         </section>
+        )}
 
+        {showInvestor && (
         <section className="mt-10">
           <h2 className="text-xl font-semibold text-[var(--text)]">
             For Investors
@@ -764,6 +784,7 @@ function PricingPageInner() {
             </section>
           </div>
         </section>
+        )}
 
         <p className="mt-8 text-center text-sm text-[var(--text-muted)]">
           {currency === "USD"

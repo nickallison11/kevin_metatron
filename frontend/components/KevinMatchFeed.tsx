@@ -16,6 +16,7 @@ type KevinMatch = {
   sector: string | null;
   country: string | null;
   angel_score: number | null;
+  intro_requested_at?: string | null;
 };
 
 function ScoreBadge({ score }: { score: number }) {
@@ -118,6 +119,15 @@ export default function KevinMatchFeed({
                     &ldquo;{m.reasoning}&rdquo;
                   </p>
                 )}
+                {role === "founder" && (
+                  <div className="mt-2">
+                    <IntroButton
+                      matchId={m.id}
+                      alreadyRequested={!!m.intro_requested_at}
+                      token={token}
+                    />
+                  </div>
+                )}
               </div>
               {role === "investor" && onAddToPipeline && (
                 <button
@@ -133,5 +143,51 @@ export default function KevinMatchFeed({
         })}
       </div>
     </div>
+  );
+}
+
+function IntroButton({
+  matchId,
+  alreadyRequested,
+  token,
+}: {
+  matchId: string;
+  alreadyRequested: boolean;
+  token: string;
+}) {
+  const [state, setState] = useState<"idle" | "loading" | "done" | "error">(
+    alreadyRequested ? "done" : "idle"
+  );
+
+  async function request() {
+    setState("loading");
+    try {
+      const res = await fetch(`${API_BASE}/kevin-matches/${matchId}/request-intro`, {
+        method: "POST",
+        headers: authJsonHeaders(token),
+      });
+      setState(res.ok ? "done" : "error");
+    } catch {
+      setState("error");
+    }
+  }
+
+  if (state === "done") {
+    return <span className="text-xs text-metatron-accent">Intro Requested ✓</span>;
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => void request()}
+      disabled={state === "loading"}
+      className="shrink-0 rounded-[8px] border border-metatron-accent/40 px-3 py-1.5 text-xs text-metatron-accent hover:bg-metatron-accent/10 disabled:opacity-50"
+    >
+      {state === "loading"
+        ? "Requesting…"
+        : state === "error"
+          ? "Try again"
+          : "Request Intro"}
+    </button>
   );
 }

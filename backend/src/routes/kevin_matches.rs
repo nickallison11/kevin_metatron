@@ -2,9 +2,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use axum::{
-    extract::State,
+    extract::{Path, State},
     http::StatusCode,
-    routing::get,
+    routing::{get, post},
     Json, Router,
 };
 use axum_extra::{
@@ -21,6 +21,7 @@ use crate::state::AppState;
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/", get(get_matches).post(generate_matches))
+        .route("/:id/request-intro", post(request_intro))
 }
 
 #[derive(Serialize, sqlx::FromRow)]
@@ -38,6 +39,7 @@ pub struct KevinMatch {
     pub sector: Option<String>,
     pub country: Option<String>,
     pub angel_score: Option<i32>,
+    pub intro_requested_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 fn internal(e: impl std::fmt::Display) -> (StatusCode, String) {
@@ -53,7 +55,8 @@ const FETCH_SQL: &str = r#"
         COALESCE(km.display_stage, p.stage) AS stage,
         COALESCE(km.display_sector, p.sector) AS sector,
         COALESCE(km.display_country, ip.country, p.country) AS country,
-        a.score AS angel_score
+        a.score AS angel_score,
+        km.intro_requested_at
     FROM kevin_matches km
     LEFT JOIN investor_profiles ip ON ip.user_id = km.matched_user_id
     LEFT JOIN profiles p ON p.user_id = km.matched_user_id
@@ -71,7 +74,8 @@ const FETCH_TYPED_SQL: &str = r#"
         COALESCE(km.display_stage, p.stage) AS stage,
         COALESCE(km.display_sector, p.sector) AS sector,
         COALESCE(km.display_country, ip.country, p.country) AS country,
-        a.score AS angel_score
+        a.score AS angel_score,
+        km.intro_requested_at
     FROM kevin_matches km
     LEFT JOIN investor_profiles ip ON ip.user_id = km.matched_user_id
     LEFT JOIN profiles p ON p.user_id = km.matched_user_id
@@ -420,7 +424,8 @@ Return the top 5 matches only, ranked by score descending."#
     };
     let ranked: Vec<Value> = serde_json::from_str(json_str).unwrap_or_default();
 
-    sqlx::query("DELETE FROM kevin_matches WHERE for_user_id = $1 AND match_type = $2")
+    // Only delete matches where no intro has been requested — preserve actioned rows
+    sqlx::query("DELETE FROM kevin_matches WHERE for_user_id = $1 AND match_type = $2 AND intro_requested_at IS NULL")
         .bind(user.id)
         .bind(match_type)
         .execute(&state.db)
@@ -485,4 +490,173 @@ Return the top 5 matches only, ranked by score descending."#
 
     let rows = fetch_kevin_matches_for_user(&state, user.id, Some(match_type), match_limit).await?;
     Ok(Json(rows))
+}
+
+async fn request_intro(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+    Path(match_id): Path<Uuid>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let user = require_user(&state, bearer.token()).await?;
+    if user.role.as_str() != "STARTUP" {
+        return Err((StatusCode::FORBIDDEN, "founders only".to_string()));
+    }
+
+    // Load the match (must belong to this user)
+    let row: Option<(Uuid, Option<Uuid>, Option<Uuid>, Option<chrono::DateTime<chrono::Utc>>)> =
+        sqlx::query_as(
+            r#"SELECT id, contact_id, matched_user_id, intro_requested_at
+               FROM kevin_matches
+               WHERE id = $1 AND for_user_id = $2"#,
+        )
+        .bind(match_id)
+        .bind(user.id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(internal)?;
+
+    let (_id, contact_id, _matched_user_id, intro_requested_at) =
+        row.ok_or((StatusCode::NOT_FOUND, "match not found".to_string()))?;
+
+    if intro_requested_at.is_some() {
+        return Err((StatusCode::CONFLICT, "introduction already requested".to_string()));
+    }
+
+    // Get founder details
+    let founder_email: String = sqlx::query_scalar("SELECT email FROM users WHERE id = $1")
+        .bind(user.id)
+        .fetch_one(&state.db)
+        .await
+        .map_err(internal)?;
+
+    let founder_profile: Option<(Option<String>, Option<String>, Option<String>, Option<String>)> =
+        sqlx::query_as(
+            "SELECT company_name, one_liner, stage, sector FROM profiles WHERE user_id = $1",
+        )
+        .bind(user.id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(internal)?;
+
+    let (fp_company, fp_one_liner, fp_stage, fp_sector) =
+        founder_profile.unwrap_or((None, None, None, None));
+
+    let company_name = fp_company.unwrap_or_else(|| "their company".to_string());
+    let founder_one_liner = fp_one_liner.unwrap_or_default();
+    let founder_stage = fp_stage.unwrap_or_default();
+    let founder_sector = fp_sector.unwrap_or_default();
+
+    if let Some(contact_id) = contact_id {
+        // Connector network contact
+        let contact: Option<(String, Option<String>, Option<String>, Uuid)> = sqlx::query_as(
+            r#"SELECT name, email, firm_or_company, connector_user_id
+               FROM connector_network_contacts WHERE id = $1"#,
+        )
+        .bind(contact_id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(internal)?;
+
+        let (contact_name, contact_email, contact_firm, connector_user_id) =
+            contact.ok_or((StatusCode::NOT_FOUND, "contact not found".to_string()))?;
+
+        // Is this a metatron connect contact? Check connector user's email domain
+        let connector_email: String = sqlx::query_scalar("SELECT email FROM users WHERE id = $1")
+            .bind(connector_user_id)
+            .fetch_one(&state.db)
+            .await
+            .map_err(internal)?;
+
+        let is_metatron_connect = connector_email.ends_with("@metatrondao.io");
+
+        let investor_name: String = contact_firm.clone().unwrap_or_else(|| contact_name.clone());
+
+        if is_metatron_connect {
+            // Direct email to investor (test override via env var)
+            let to_email = std::env::var("INTRO_TEST_EMAIL")
+                .unwrap_or_else(|_| contact_email.clone().unwrap_or_default());
+
+            if !to_email.is_empty() {
+                let resend_key = std::env::var("RESEND_API_KEY").unwrap_or_default();
+                let body = serde_json::json!({
+                    "from": "kevin@metatron.id",
+                    "to": [to_email],
+                    "subject": format!("Introduction Request: {} → {}", company_name, investor_name),
+                    "html": format!(
+                        "<p>Hi {},</p>\
+                        <p><strong>{}</strong> ({}) would like to connect with you via metatron.</p>\
+                        <p>{}</p>\
+                        <p>Stage: {} · Sector: {}</p>\
+                        <p>Reply to this email or reach them at: {}</p>\
+                        <hr/><p style='color:#888;font-size:12px'>Facilitated by <a href='https://metatron.id'>metatron</a> — The intelligence layer between founders and capital.</p>",
+                        investor_name,
+                        company_name,
+                        founder_email,
+                        founder_one_liner,
+                        founder_stage,
+                        founder_sector,
+                        founder_email,
+                    )
+                });
+                if let Err(e) = reqwest::Client::new()
+                    .post("https://api.resend.com/emails")
+                    .header("Authorization", format!("Bearer {}", resend_key))
+                    .json(&body)
+                    .send()
+                    .await
+                {
+                    tracing::warn!("intro email send failed: {e}");
+                }
+            }
+        } else {
+            // Create connector_introduction record and notify connector
+            let _ = sqlx::query(
+                "INSERT INTO connector_introductions (connector_user_id, person_a_name, person_a_email, person_b_name, person_b_email, notes) \
+                 VALUES ($1, $2, $3, $4, $5, $6)",
+            )
+            .bind(connector_user_id)
+            .bind(&company_name)
+            .bind(&founder_email)
+            .bind(contact_firm.as_deref().unwrap_or(contact_name.as_str()))
+            .bind(contact_email.as_deref().unwrap_or(""))
+            .bind(format!(
+                "Introduction requested via Kevin Matches. Founder: {} — {}",
+                company_name, founder_one_liner
+            ))
+            .execute(&state.db)
+            .await;
+
+            // Notify the connector by email
+            let resend_key = std::env::var("RESEND_API_KEY").unwrap_or_default();
+            let notif = serde_json::json!({
+                "from": "kevin@metatron.id",
+                "to": [connector_email],
+                "subject": format!("New intro request: {} → {}", company_name, investor_name),
+                "html": format!(
+                    "<p>A founder has requested an introduction via metatron.</p>\
+                    <p><strong>Founder:</strong> {} ({})<br/><strong>Investor:</strong> {}</p>\
+                    <p>Please facilitate this introduction via your connector dashboard.</p>",
+                    company_name, founder_email, investor_name
+                )
+            });
+            if let Err(e) = reqwest::Client::new()
+                .post("https://api.resend.com/emails")
+                .header("Authorization", format!("Bearer {}", resend_key))
+                .json(&notif)
+                .send()
+                .await
+            {
+                tracing::warn!("connector notification email send failed: {e}");
+            }
+        }
+    }
+
+    // Mark intro as requested
+    sqlx::query("UPDATE kevin_matches SET intro_requested_at = NOW() WHERE id = $1")
+        .bind(match_id)
+        .execute(&state.db)
+        .await
+        .map_err(internal)?;
+
+    Ok(Json(serde_json::json!({"ok": true})))
 }

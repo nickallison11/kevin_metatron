@@ -375,6 +375,7 @@ Return the top 5 matches only, ranked by score descending."#
         .trim_end_matches("```")
         .trim();
     let ranked: Vec<Value> = serde_json::from_str(clean).unwrap_or_default();
+    eprintln!("DBG ranked={} clean_preview={}", ranked.len(), &clean[..clean.len().min(300)]);
 
     sqlx::query("DELETE FROM kevin_matches WHERE for_user_id = $1 AND match_type = $2")
         .bind(user.id)

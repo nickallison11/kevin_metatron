@@ -658,5 +658,92 @@ async fn request_intro(
         .await
         .map_err(internal)?;
 
+    // Notify the founder across all their linked channels
+    let founder_channels: Option<(Option<String>, Option<String>)> = sqlx::query_as(
+        "SELECT telegram_id, whatsapp_number FROM users WHERE id = $1",
+    )
+    .bind(user.id)
+    .fetch_optional(&state.db)
+    .await
+    .unwrap_or(None);
+
+    let kevin_msg = format!(
+        "Your intro request for {} has been submitted. I'll let you know when they respond. Keep building! 🚀",
+        company_name
+    );
+
+    // Email confirmation to founder
+    let resend_key = std::env::var("RESEND_API_KEY").unwrap_or_default();
+    if !resend_key.is_empty() {
+        let confirmation = serde_json::json!({
+            "from": "kevin@metatron.id",
+            "to": [&founder_email],
+            "subject": format!("Intro request submitted — {}", company_name),
+            "html": format!(
+                "<p>Hi,</p>\
+                <p>Your introduction request for <strong>{}</strong> has been submitted via metatron.</p>\
+                <p>I'll notify you when they respond.</p>\
+                <p>Keep building!</p>\
+                <p>— Kevin</p>\
+                <hr/><p style='color:#888;font-size:12px'><a href='https://metatron.id'>metatron</a> — The intelligence layer between founders and capital.</p>",
+                company_name
+            )
+        });
+        if let Err(e) = reqwest::Client::new()
+            .post("https://api.resend.com/emails")
+            .header("Authorization", format!("Bearer {}", resend_key))
+            .json(&confirmation)
+            .send()
+            .await
+        {
+            tracing::warn!("founder confirmation email failed: {e}");
+        }
+    }
+
+    if let Some((telegram_id, whatsapp_number)) = founder_channels {
+        // Telegram notification
+        if let (Some(tg_id), Some(bot_token)) = (telegram_id, state.telegram_bot_token.as_deref()) {
+            let tg_url = format!("https://api.telegram.org/bot{}/sendMessage", bot_token);
+            let tg_payload = serde_json::json!({
+                "chat_id": tg_id,
+                "text": kevin_msg,
+                "parse_mode": "HTML"
+            });
+            if let Err(e) = reqwest::Client::new()
+                .post(&tg_url)
+                .json(&tg_payload)
+                .send()
+                .await
+            {
+                tracing::warn!("founder telegram notification failed: {e}");
+            }
+        }
+
+        // WhatsApp notification
+        if let (Some(wa_number), Some(wa_token), Some(phone_id)) = (
+            whatsapp_number,
+            state.whatsapp_access_token.as_deref(),
+            state.whatsapp_phone_number_id.as_deref(),
+        ) {
+            let wa_url = format!("https://graph.facebook.com/v18.0/{}/messages", phone_id);
+            let wa_payload = serde_json::json!({
+                "messaging_product": "whatsapp",
+                "recipient_type": "individual",
+                "to": wa_number,
+                "type": "text",
+                "text": { "body": kevin_msg }
+            });
+            if let Err(e) = reqwest::Client::new()
+                .post(&wa_url)
+                .bearer_auth(wa_token)
+                .json(&wa_payload)
+                .send()
+                .await
+            {
+                tracing::warn!("founder whatsapp notification failed: {e}");
+            }
+        }
+    }
+
     Ok(Json(serde_json::json!({"ok": true})))
 }

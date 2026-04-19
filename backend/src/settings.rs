@@ -25,6 +25,8 @@ pub struct Settings {
     pub oauth_linkedin: Option<OAuthProviderConfig>,
     pub oauth_github: Option<OAuthProviderConfig>,
     pub telegram_bot_secret: Option<String>,
+    /// Bot token used to send outbound Telegram messages. Env: `TELEGRAM_BOT_TOKEN`.
+    pub telegram_bot_token: Option<String>,
     /// Shared secret for platform services (e.g. Kevin Telegram bridge). Empty disables the check (all requests rejected).
     pub platform_bot_secret: String,
     pub pinata_jwt: Option<String>,
@@ -108,6 +110,9 @@ impl Settings {
         let frontend_url =
             env::var("FRONTEND_URL").unwrap_or_else(|_| "http://localhost:3000".into());
         let telegram_bot_secret = env::var("TELEGRAM_BOT_SECRET")
+            .ok()
+            .and_then(|s| (!s.trim().is_empty()).then_some(s));
+        let telegram_bot_token = env::var("TELEGRAM_BOT_TOKEN")
             .ok()
             .and_then(|s| (!s.trim().is_empty()).then_some(s));
         let platform_bot_secret = env::var("PLATFORM_BOT_SECRET").unwrap_or_default();
@@ -240,6 +245,7 @@ impl Settings {
                 "OAUTH_GITHUB_CLIENT_SECRET",
             ),
             telegram_bot_secret,
+            telegram_bot_token,
             platform_bot_secret,
             pinata_jwt,
             pinata_gateway,

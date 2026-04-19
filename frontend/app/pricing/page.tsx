@@ -25,7 +25,7 @@ const founderProFeatures = [
   "Everything in Basic",
   "Unlimited Kevin messages + matches",
   "Private encrypted IPFS deck",
-  "Angel Score + VDR",
+  "Full Virtual Data Room",
   "Custom AI backend",
   "Custom subdomain (startup.metatron.id)",
   "Embeddable widget",

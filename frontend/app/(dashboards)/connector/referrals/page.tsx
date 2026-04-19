@@ -3,9 +3,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { API_BASE, authJsonHeaders } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import ConnectorUpgradeGate from "@/components/ConnectorUpgradeGate";
-
-type Profile = { connector_tier?: string | null };
 
 type ReferralRow = {
   id: string;
@@ -35,7 +32,6 @@ function formatDate(iso: string) {
 
 export default function ConnectorReferralsPage() {
   const { token, loading } = useAuth("INTERMEDIARY");
-  const [profile, setProfile] = useState<Profile | null>(null);
   const [info, setInfo] = useState<ReferralInfo | null>(null);
   const [dataLoading, setDataLoading] = useState(true);
   const [copied, setCopied] = useState(false);
@@ -44,11 +40,9 @@ export default function ConnectorReferralsPage() {
   const loadData = useCallback(async () => {
     if (!token) return;
     try {
-      const [pRes, rRes] = await Promise.all([
-        fetch(`${API_BASE}/connector-profile`, { headers: authJsonHeaders(token) }),
-        fetch(`${API_BASE}/connector-profile/referrals`, { headers: authJsonHeaders(token) }),
-      ]);
-      if (pRes.ok) setProfile((await pRes.json()) as Profile);
+      const rRes = await fetch(`${API_BASE}/connector-profile/referrals`, {
+        headers: authJsonHeaders(token),
+      });
       if (rRes.ok) setInfo((await rRes.json()) as ReferralInfo);
     } finally {
       setDataLoading(false);
@@ -88,10 +82,6 @@ export default function ConnectorReferralsPage() {
     );
   }
   if (!token) return null;
-
-  if (profile?.connector_tier !== "paid") {
-    return <ConnectorUpgradeGate feature="Referrals" />;
-  }
 
   const card = "rounded-[12px] border border-[var(--border)] bg-[var(--bg-card)] p-6";
 

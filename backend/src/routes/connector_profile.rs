@@ -539,7 +539,6 @@ async fn get_referral_info(
     Query(as_user): Query<AsUserQuery>,
 ) -> Result<Json<ReferralInfo>, (axum::http::StatusCode, String)> {
     let user_id = resolve_connector_user(&state, bearer.token(), as_user.as_user).await?;
-    require_connector_paid(&state, user_id).await?;
     let referral_code: Option<String> = sqlx::query_scalar::<_, Option<String>>(
         "SELECT referral_code FROM connector_profiles WHERE user_id = $1",
     )
@@ -591,7 +590,6 @@ async fn generate_referral_code(
     Query(as_user): Query<AsUserQuery>,
 ) -> Result<Json<serde_json::Value>, (axum::http::StatusCode, String)> {
     let user_id = resolve_connector_user(&state, bearer.token(), as_user.as_user).await?;
-    require_connector_paid(&state, user_id).await?;
     let existing: Option<String> = sqlx::query_scalar::<_, Option<String>>(
         "SELECT referral_code FROM connector_profiles WHERE user_id = $1",
     )

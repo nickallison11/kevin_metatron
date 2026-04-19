@@ -37,7 +37,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/login", post(login))
         .route("/forgot-password", post(forgot_password))
         .route("/reset-password", post(reset_password))
-        .route("/telegram", post(telegram_auth))
+        .route("/telegram", post(telegram_auth).delete(unlink_telegram))
         .route("/telegram/link-token", post(telegram_link_token))
         .route("/telegram/confirm", post(telegram_confirm))
         .route("/change-email", put(change_email))
@@ -1301,6 +1301,22 @@ async fn telegram_confirm(
     })?;
 
     Ok(Json(TelegramConfirmResponse { ok: true }))
+}
+
+async fn unlink_telegram(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let user = require_user(&state, bearer.token()).await?;
+    sqlx::query("UPDATE users SET telegram_id = NULL WHERE id = $1")
+        .bind(user.id)
+        .execute(&state.db)
+        .await
+        .map_err(|e| {
+            tracing::error!("unlink_telegram: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "database error".to_string())
+        })?;
+    Ok(StatusCode::OK)
 }
 
 #[derive(Deserialize)]

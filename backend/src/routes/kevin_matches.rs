@@ -353,7 +353,7 @@ Return the top 5 matches only, ranked by score descending."#
     );
     let payload = serde_json::json!({
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-        "generationConfig": {"maxOutputTokens": 4096, "temperature": 0.2}
+        "generationConfig": {"maxOutputTokens": 8192, "temperature": 0.2, "thinkingConfig": {"thinkingBudget": 0}}
     });
 
     let client = reqwest::Client::new();

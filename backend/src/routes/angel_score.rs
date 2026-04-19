@@ -168,7 +168,7 @@ Return ONLY valid JSON, no markdown, no code fences:
     );
     let payload = serde_json::json!({
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-        "generationConfig": {"maxOutputTokens": 512, "temperature": 0.2}
+        "generationConfig": {"maxOutputTokens": 4096, "temperature": 0.2, "thinkingConfig": {"thinkingBudget": 0}}
     });
 
     let client = reqwest::Client::new();

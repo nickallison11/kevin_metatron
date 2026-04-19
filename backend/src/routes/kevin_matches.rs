@@ -130,15 +130,36 @@ async fn generate_matches(
 ) -> Result<Json<Vec<KevinMatch>>, (StatusCode, String)> {
     let user = require_user(&state, bearer.token()).await?;
 
+    // Determine tier: check is_pro flag for founders, investor_tier for investors
+    let is_paid: bool = if user.role.as_str() == "STARTUP" {
+        sqlx::query_scalar::<_, bool>("SELECT COALESCE(is_pro, false) FROM users WHERE id = $1")
+            .bind(user.id)
+            .fetch_one(&state.db)
+            .await
+            .unwrap_or(false)
+    } else {
+        sqlx::query_scalar::<_, bool>(
+            "SELECT COALESCE(investor_tier = 'basic', false) FROM investor_profiles WHERE user_id = $1",
+        )
+        .bind(user.id)
+        .fetch_one(&state.db)
+        .await
+        .unwrap_or(false)
+    };
+
+    // Free: 1 match, weekly refresh. Paid: 5 matches, 6-hour refresh.
+    let match_limit: i64 = if is_paid { 5 } else { 1 };
+    let cache_interval = if is_paid { "6 hours" } else { "7 days" };
+
     let fresh_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*)::bigint FROM kevin_matches WHERE for_user_id = $1 AND generated_at > NOW() - INTERVAL '6 hours'",
+        &format!("SELECT COUNT(*)::bigint FROM kevin_matches WHERE for_user_id = $1 AND generated_at > NOW() - INTERVAL '{cache_interval}'"),
     )
     .bind(user.id)
     .fetch_one(&state.db)
     .await
     .unwrap_or(0);
     if fresh_count > 0 {
-        let rows = fetch_kevin_matches_for_user(&state, user.id, None, 10).await?;
+        let rows = fetch_kevin_matches_for_user(&state, user.id, None, match_limit).await?;
         return Ok(Json(rows));
     }
 
@@ -366,7 +387,6 @@ Return the top 5 matches only, ranked by score descending."#
     .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
 
     let body: Value = res.json().await.map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
-    eprintln!("DBG gemini_body={}", &body.to_string()[..body.to_string().len().min(500)]);
     let text = body["candidates"][0]["content"]["parts"][0]["text"]
         .as_str()
         .unwrap_or("[]");
@@ -383,7 +403,6 @@ Return the top 5 matches only, ranked by score descending."#
         clean
     };
     let ranked: Vec<Value> = serde_json::from_str(json_str).unwrap_or_default();
-    eprintln!("DBG ranked={} clean_len={} json_str_len={}", ranked.len(), clean.len(), json_str.len());
 
     sqlx::query("DELETE FROM kevin_matches WHERE for_user_id = $1 AND match_type = $2")
         .bind(user.id)
@@ -448,6 +467,6 @@ Return the top 5 matches only, ranked by score descending."#
         }
     }
 
-    let rows = fetch_kevin_matches_for_user(&state, user.id, Some(match_type), 5).await?;
+    let rows = fetch_kevin_matches_for_user(&state, user.id, Some(match_type), match_limit).await?;
     Ok(Json(rows))
 }

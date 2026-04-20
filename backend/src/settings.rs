@@ -33,8 +33,8 @@ pub struct Settings {
     pub pinata_gateway: Option<String>,
     pub solana_rpc_url: String,
     pub solana_treasury: String,
-    pub usdc_mint: String,
-    pub usdt_mint: String,
+    pub usdc_mint: Option<String>,
+    pub usdt_mint: Option<String>,
     pub whisper_url: String,
     pub resend_api_key: Option<String>,
     pub email_from: String,
@@ -132,10 +132,12 @@ impl Settings {
             .map_err(|_| "SOLANA_RPC_URL must be set".to_string())?;
         let solana_treasury = env::var("SOLANA_TREASURY")
             .map_err(|_| "SOLANA_TREASURY must be set".to_string())?;
-        let usdc_mint =
-            env::var("USDC_MINT").map_err(|_| "USDC_MINT must be set".to_string())?;
-        let usdt_mint =
-            env::var("USDT_MINT").map_err(|_| "USDT_MINT must be set".to_string())?;
+        let usdc_mint = env::var("USDC_MINT")
+            .ok()
+            .and_then(|s| (!s.trim().is_empty()).then_some(s));
+        let usdt_mint = env::var("USDT_MINT")
+            .ok()
+            .and_then(|s| (!s.trim().is_empty()).then_some(s));
         let whisper_url =
             env::var("WHISPER_URL").unwrap_or_else(|_| "http://localhost:9000".to_string());
         let resend_api_key = env::var("RESEND_API_KEY")

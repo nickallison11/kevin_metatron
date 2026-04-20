@@ -184,7 +184,8 @@ async fn confirm_subscription(
             .and_then(|ta| ta.get("amount"))
             .and_then(|v| v.as_str())
             .unwrap_or("");
-        let mint_ok = mint == state.usdc_mint.as_str() || mint == state.usdt_mint.as_str();
+        let mint_ok = mint == state.usdc_mint.as_deref().unwrap_or("")
+            || mint == state.usdt_mint.as_deref().unwrap_or("");
         ix_type == "transferChecked" && mint_ok && amount == required_amount
     });
     if !has_matching_transfer {
@@ -203,7 +204,8 @@ async fn confirm_subscription(
     let treasury_received = post_balances.iter().any(|bal| {
         let owner = bal.get("owner").and_then(|v| v.as_str()).unwrap_or("");
         let mint = bal.get("mint").and_then(|v| v.as_str()).unwrap_or("");
-        let mint_ok = mint == state.usdc_mint.as_str() || mint == state.usdt_mint.as_str();
+        let mint_ok = mint == state.usdc_mint.as_deref().unwrap_or("")
+            || mint == state.usdt_mint.as_deref().unwrap_or("");
         owner == state.solana_treasury && mint_ok
     });
     if !treasury_received {
@@ -237,9 +239,10 @@ async fn confirm_subscription(
                 .get("tokenAmount")
                 .and_then(|ta| ta.get("amount"))
                 .and_then(|v| v.as_str())?;
-            let mint_ok = mint == state.usdc_mint.as_str() || mint == state.usdt_mint.as_str();
+            let mint_ok = mint == state.usdc_mint.as_deref().unwrap_or("")
+                || mint == state.usdt_mint.as_deref().unwrap_or("");
             if ix_type == "transferChecked" && mint_ok && amount == required_amount {
-                if mint == state.usdt_mint.as_str() {
+                if mint == state.usdt_mint.as_deref().unwrap_or("") {
                     return Some("usdt");
                 }
                 return Some("usdc");

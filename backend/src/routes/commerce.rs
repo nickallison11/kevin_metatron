@@ -1502,7 +1502,6 @@ async fn nowpayments_subscribe(
     let payload = json!({
         "price_amount": amount,
         "price_currency": "usd",
-        "pay_currency": "usdcerc20",
         "order_id": pending_id.to_string(),
         "order_description": order_description,
         "ipn_callback_url": ipn_callback_url,

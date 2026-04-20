@@ -1512,7 +1512,7 @@ async fn nowpayments_subscribe(
 
     let res = state
         .http_client
-        .post("https://api.nowpayments.io/v1/invoice")
+        .post(format!("{}/v1/invoice", state.nowpayments_api_base))
         .header("x-api-key", api_key)
         .header("Content-Type", "application/json")
         .json(&payload)

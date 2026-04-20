@@ -48,6 +48,7 @@ pub struct Settings {
     pub paystack_investor_plan_basic_annual: String,
     pub nowpayments_api_key: Option<String>,
     pub nowpayments_ipn_secret: Option<String>,
+    pub nowpayments_api_base: String,
     pub whatsapp_verify_token: Option<String>,
     pub whatsapp_access_token: Option<String>,
     pub whatsapp_phone_number_id: Option<String>,
@@ -193,6 +194,11 @@ impl Settings {
         let nowpayments_ipn_secret = env::var("NOWPAYMENTS_IPN_SECRET")
             .ok()
             .and_then(|s| (!s.trim().is_empty()).then_some(s.trim().to_string()));
+        let nowpayments_api_base = env::var("NOWPAYMENTS_API_BASE")
+            .ok()
+            .map(|s| s.trim_end_matches('/').to_string())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "https://api.nowpayments.io".to_string());
 
         let whatsapp_verify_token = env::var("WHATSAPP_VERIFY_TOKEN")
             .ok()
@@ -268,6 +274,7 @@ impl Settings {
             paystack_investor_plan_basic_annual,
             nowpayments_api_key,
             nowpayments_ipn_secret,
+            nowpayments_api_base,
             whatsapp_verify_token,
             whatsapp_access_token,
             whatsapp_phone_number_id,

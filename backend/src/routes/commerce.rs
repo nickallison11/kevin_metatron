@@ -361,36 +361,22 @@ pub async fn finalize_connector_subscription(
     let credits_to_add = if billing == "annual" { 600 } else { 50 };
     let (period_end, period_start): (String, String) = if billing == "annual" {
         sqlx::query_as(
-            r#"
-            SELECT
-                (NOW() + INTERVAL '365 days')::text AS period_end,
-                NOW()::text AS period_start
-            "#,
+            r#"UPDATE users SET pending_payment_nonce = NULL, subscription_tier = 'annual', subscription_status = 'active', cancel_at_period_end = FALSE, subscription_period_end = GREATEST(NOW(), COALESCE(subscription_period_end, NOW())) + INTERVAL '365 days' WHERE id = $1
+     RETURNING subscription_period_end::text, (subscription_period_end - INTERVAL '365 days')::text"#,
         )
+        .bind(user_id)
         .fetch_one(&state.db)
         .await
-        .map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": "internal error" })),
-            )
-        })?
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": "internal error" }))))?
     } else {
         sqlx::query_as(
-            r#"
-            SELECT
-                (NOW() + INTERVAL '30 days')::text AS period_end,
-                NOW()::text AS period_start
-            "#,
+            r#"UPDATE users SET pending_payment_nonce = NULL, subscription_tier = 'monthly', subscription_status = 'active', cancel_at_period_end = FALSE, subscription_period_end = GREATEST(NOW(), COALESCE(subscription_period_end, NOW())) + INTERVAL '30 days' WHERE id = $1
+     RETURNING subscription_period_end::text, (subscription_period_end - INTERVAL '30 days')::text"#,
         )
+        .bind(user_id)
         .fetch_one(&state.db)
         .await
-        .map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": "internal error" })),
-            )
-        })?
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": "internal error" }))))?
     };
 
     sqlx::query(
@@ -437,17 +423,6 @@ pub async fn finalize_connector_subscription(
         )
     })?;
 
-    sqlx::query("UPDATE users SET pending_payment_nonce = NULL WHERE id = $1")
-        .bind(user_id)
-        .execute(&state.db)
-        .await
-        .map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": "internal error" })),
-            )
-        })?;
-
     Ok(())
 }
 
@@ -462,15 +437,19 @@ pub async fn finalize_investor_subscription(
 ) -> Result<(), (StatusCode, Json<Value>)> {
     let (period_end, period_start): (String, String) = if billing == "annual" {
         sqlx::query_as(
-            "SELECT (NOW() + INTERVAL '365 days')::text AS period_end, NOW()::text AS period_start",
+            r#"UPDATE users SET pending_payment_nonce = NULL, subscription_tier = 'annual', subscription_status = 'active', cancel_at_period_end = FALSE, subscription_period_end = GREATEST(NOW(), COALESCE(subscription_period_end, NOW())) + INTERVAL '365 days' WHERE id = $1
+     RETURNING subscription_period_end::text, (subscription_period_end - INTERVAL '365 days')::text"#,
         )
+        .bind(user_id)
         .fetch_one(&state.db)
         .await
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": "internal error" }))))?
     } else {
         sqlx::query_as(
-            "SELECT (NOW() + INTERVAL '30 days')::text AS period_end, NOW()::text AS period_start",
+            r#"UPDATE users SET pending_payment_nonce = NULL, subscription_tier = 'monthly', subscription_status = 'active', cancel_at_period_end = FALSE, subscription_period_end = GREATEST(NOW(), COALESCE(subscription_period_end, NOW())) + INTERVAL '30 days' WHERE id = $1
+     RETURNING subscription_period_end::text, (subscription_period_end - INTERVAL '30 days')::text"#,
         )
+        .bind(user_id)
         .fetch_one(&state.db)
         .await
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": "internal error" }))))?
@@ -501,12 +480,6 @@ pub async fn finalize_investor_subscription(
     .execute(&state.db)
     .await
     .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": "internal error" }))))?;
-
-    sqlx::query("UPDATE users SET pending_payment_nonce = NULL WHERE id = $1")
-        .bind(user_id)
-        .execute(&state.db)
-        .await
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": "internal error" }))))?;
 
     Ok(())
 }

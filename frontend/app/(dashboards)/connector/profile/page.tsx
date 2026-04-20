@@ -115,7 +115,7 @@ export default function ConnectorProfilePage() {
     setUnlinkingTelegram(true);
     setTelegramMsg(null);
     try {
-      const res = await fetch(`${API_BASE}/auth/telegram`, { method: "DELETE", headers: authHeaders(token) });
+      const res = await fetch(`${API_BASE}/auth/telegram/unlink`, { method: "DELETE", headers: authHeaders(token) });
       if (!res.ok) throw new Error(await res.text());
       setMe((prev) => prev ? { ...prev, telegram_id: null } : prev);
       setTelegramMsg("Telegram unlinked.");

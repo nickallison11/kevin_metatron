@@ -13,11 +13,11 @@ const FREE_NAV = [
 const PRO_NAV = [
   { href: "/startup", label: "Matches" },
   { href: "/startup/pitches", label: "Pitch data" },
-  { href: "/startup/calls", label: "Calls" },
+  { href: "/startup/calls", label: "Call Intelligence" },
   { href: "/startup/profile", label: "Profile Settings" },
 ];
 
-const LOCKED_NAV = [{ label: "Calls" }];
+const LOCKED_NAV = [{ label: "Call Intelligence" }];
 
 export default function StartupShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();

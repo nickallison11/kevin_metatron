@@ -110,6 +110,7 @@ pub fn start_cleanup_task(state: Arc<AppState>) {
                 WHERE p.deck_expires_at BETWEEN NOW() + INTERVAL '6 days' AND NOW() + INTERVAL '7 days'
                 AND p.pitch_deck_url IS NOT NULL
                 AND u.is_pro = FALSE
+                AND p.deck_7day_email_sent = FALSE
                 "#,
             )
             .fetch_all(&state.db)
@@ -125,6 +126,12 @@ pub fn start_cleanup_task(state: Arc<AppState>) {
                             "Your metatron pitch deck expires in 7 days",
                             &email::deck_expiry_7_days_html(),
                         )
+                        .await;
+                        let _ = sqlx::query(
+                            "UPDATE profiles SET deck_7day_email_sent = TRUE WHERE user_id = $1",
+                        )
+                        .bind(id)
+                        .execute(&state.db)
                         .await;
                         tracing::info!("cleanup: deck expiry 7-day reminder sent for user {}", id);
                     }
@@ -145,6 +152,7 @@ pub fn start_cleanup_task(state: Arc<AppState>) {
                 WHERE p.deck_expires_at BETWEEN NOW() AND NOW() + INTERVAL '1 day'
                 AND p.pitch_deck_url IS NOT NULL
                 AND u.is_pro = FALSE
+                AND p.deck_1day_email_sent = FALSE
                 "#,
             )
             .fetch_all(&state.db)
@@ -157,15 +165,64 @@ pub fn start_cleanup_task(state: Arc<AppState>) {
                             state.resend_api_key.as_deref(),
                             &state.email_from,
                             &email_addr,
-                            "Your metatron pitch deck expires tomorrow",
+                            "Investors are looking — your deck goes dark tomorrow",
                             &email::deck_expiry_1_day_html(),
                         )
+                        .await;
+                        let _ = sqlx::query(
+                            "UPDATE profiles SET deck_1day_email_sent = TRUE WHERE user_id = $1",
+                        )
+                        .bind(id)
+                        .execute(&state.db)
                         .await;
                         tracing::info!("cleanup: deck expiry 1-day reminder sent for user {}", id);
                     }
                 }
                 Err(e) => {
                     tracing::error!("cleanup: failed loading deck expiry 1-day reminder users: {e}");
+                }
+            }
+
+            // ----------------------------------------------------------------
+            // Deck expiry: send expired email then clear flags on re-upload
+            // ----------------------------------------------------------------
+            match sqlx::query_as::<_, (sqlx::types::Uuid, String)>(
+                r#"
+                SELECT u.id, u.email
+                FROM profiles p
+                JOIN users u ON u.id = p.user_id
+                WHERE p.deck_expires_at IS NOT NULL
+                AND p.deck_expires_at < NOW()
+                AND p.pitch_deck_url IS NOT NULL
+                AND u.is_pro = FALSE
+                AND p.deck_expired_email_sent = FALSE
+                "#,
+            )
+            .fetch_all(&state.db)
+            .await
+            {
+                Ok(rows) => {
+                    for (id, email_addr) in rows {
+                        email::send_email(
+                            &state.http_client,
+                            state.resend_api_key.as_deref(),
+                            &state.email_from,
+                            &email_addr,
+                            "Your pitch deck has expired",
+                            &email::deck_expired_html(),
+                        )
+                        .await;
+                        let _ = sqlx::query(
+                            "UPDATE profiles SET deck_expired_email_sent = TRUE WHERE user_id = $1",
+                        )
+                        .bind(id)
+                        .execute(&state.db)
+                        .await;
+                        tracing::info!("cleanup: deck expired email sent for user {}", id);
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("cleanup: failed loading expired deck email users: {e}");
                 }
             }
 

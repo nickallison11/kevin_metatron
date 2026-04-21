@@ -229,14 +229,28 @@ pub fn deck_expiry_7_days_html() -> String {
 
 pub fn deck_expiry_1_day_html() -> String {
     shell_html(
-        "Your pitch deck expires tomorrow",
+        "Investors are looking — your deck goes dark tomorrow",
         r#"
-<p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">Your free pitch deck on metatron IPFS storage expires <strong>tomorrow</strong>.</p>
-<p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">After expiry, your deck link will be removed and investors will no longer be able to view it. To re-upload or edit your pitch fields, you will need to upgrade.</p>
+<p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">Kevin has been matching you with investors this week. Tomorrow your pitch deck link goes dead — and anyone Kevin sends your way will hit a blank page.</p>
+<p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">Upgrading to Basic keeps your deck live permanently, so every intro Kevin makes can actually land.</p>
 <p style="margin:0 0 16px 0;font-size:14px;">
-  <a href="https://platform.metatron.id/pricing" style="display:inline-block;background:#6c5ce7;color:#ffffff;text-decoration:none;padding:10px 18px;border-radius:12px;font-weight:600;">Upgrade now to keep your deck →</a>
+  <a href="https://platform.metatron.id/pricing" style="display:inline-block;background:#6c5ce7;color:#ffffff;text-decoration:none;padding:10px 18px;border-radius:12px;font-weight:600;">Upgrade Plan — keep your deck live →</a>
 </p>
-<p style="margin:0 0 0 0;font-size:13px;color:#8888a0;">Upgrade to Basic for permanent storage and unlimited re-uploads.</p>
+<p style="margin:0 0 0 0;font-size:13px;color:#8888a0;">Basic includes permanent IPFS storage, unlimited re-uploads, and Kevin re-extraction on every update.</p>
+"#,
+    )
+}
+
+pub fn deck_expired_html() -> String {
+    shell_html(
+        "Your pitch deck has expired",
+        r#"
+<p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">Your free pitch deck on metatron has expired and your deck link is no longer active.</p>
+<p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">Upgrade to Basic to re-upload your deck and keep it permanently live for investors.</p>
+<p style="margin:0 0 16px 0;font-size:14px;">
+  <a href="https://platform.metatron.id/pricing" style="display:inline-block;background:#6c5ce7;color:#ffffff;text-decoration:none;padding:10px 18px;border-radius:12px;font-weight:600;">Upgrade Plan →</a>
+</p>
+<p style="margin:0 0 0 0;font-size:13px;color:#8888a0;">Questions? Reply to this email — we're happy to help.</p>
 "#,
     )
 }

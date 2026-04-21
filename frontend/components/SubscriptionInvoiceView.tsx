@@ -139,7 +139,7 @@ export default function SubscriptionInvoiceView({
       >
         <div className="mb-6">
           <img
-            src="https://metatron.id/wp-content/uploads/2026/03/metatron-_Logo.png"
+            src="/metatron-logo.png"
             alt="metatron"
             className="h-[42px] w-auto"
           />

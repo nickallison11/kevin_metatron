@@ -7,19 +7,17 @@ import { useAuth } from "@/lib/auth";
 
 const FREE_NAV = [
   { href: "/startup", label: "Matches" },
-  { href: "/startup/profile", label: "Profile Settings" },
   { href: "/startup/pitches", label: "Pitch data" },
 ];
 
 const PRO_NAV = [
   { href: "/startup", label: "Matches" },
-  { href: "/startup/profile", label: "Profile Settings" },
   { href: "/startup/pitches", label: "Pitch data" },
-  { href: "/startup/matches", label: "Matches" },
   { href: "/startup/calls", label: "Calls" },
+  { href: "/startup/profile", label: "Profile Settings" },
 ];
 
-const LOCKED_NAV = [{ label: "Matches" }, { label: "Calls" }];
+const LOCKED_NAV = [{ label: "Calls" }];
 
 export default function StartupShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
@@ -81,6 +79,9 @@ export default function StartupShell({ children }: { children: ReactNode }) {
               </span>
             </button>
           ))}
+        {!isPro && (
+          <NavLink href="/startup/profile" label="Profile Settings" />
+        )}
 
         <div className="mt-2 border-t border-[var(--border)] pt-2 space-y-1">
           <NavLink href="/startup/settings/subscription" label="Subscription" />
@@ -99,12 +100,20 @@ export default function StartupShell({ children }: { children: ReactNode }) {
             </Link>
           ))}
           {!isPro && (
-            <Link
-              href="/pricing"
-              className="shrink-0 rounded-lg border border-metatron-accent/30 px-3 py-1.5 text-xs text-metatron-accent"
-            >
-              Upgrade →
-            </Link>
+            <>
+              <Link
+                href="/pricing"
+                className="shrink-0 rounded-lg border border-metatron-accent/30 px-3 py-1.5 text-xs text-metatron-accent"
+              >
+                Upgrade →
+              </Link>
+              <Link
+                href="/startup/profile"
+                className="shrink-0 rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--text-muted)]"
+              >
+                Profile Settings
+              </Link>
+            </>
           )}
 
           <Link

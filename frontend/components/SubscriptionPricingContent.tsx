@@ -312,39 +312,43 @@ export default function SubscriptionPricingContent(
         </div>
       )}
 
-      <div className="flex flex-wrap justify-center gap-2">
-        {(["ZAR", "USD"] as const).map((c) => (
-          <button
-            key={c}
-            type="button"
-            onClick={() => setCurrency(c)}
-            className={`rounded-lg border px-4 py-1.5 text-sm font-semibold transition-colors ${
-              currency === c
-                ? "border-metatron-accent bg-metatron-accent/10 text-metatron-accent"
-                : "border-[var(--border)] text-[var(--text-muted)] hover:border-metatron-accent/30"
-            }`}
-          >
-            {c === "USD" ? "USD ($)" : "ZAR (R)"}
-          </button>
-        ))}
-      </div>
+      {!isPaid && (
+        <>
+          <div className="flex flex-wrap justify-center gap-2">
+            {(["ZAR", "USD"] as const).map((c) => (
+              <button
+                key={c}
+                type="button"
+                onClick={() => setCurrency(c)}
+                className={`rounded-lg border px-4 py-1.5 text-sm font-semibold transition-colors ${
+                  currency === c
+                    ? "border-metatron-accent bg-metatron-accent/10 text-metatron-accent"
+                    : "border-[var(--border)] text-[var(--text-muted)] hover:border-metatron-accent/30"
+                }`}
+              >
+                {c === "USD" ? "USD ($)" : "ZAR (R)"}
+              </button>
+            ))}
+          </div>
 
-      <div className="flex flex-wrap justify-center gap-2">
-        {(["monthly", "annual"] as const).map((b) => (
-          <button
-            key={b}
-            type="button"
-            onClick={() => setBilling(b)}
-            className={`rounded-lg border px-4 py-1.5 text-sm font-semibold transition-colors ${
-              billing === b
-                ? "border-metatron-accent bg-metatron-accent/10 text-metatron-accent"
-                : "border-[var(--border)] text-[var(--text-muted)] hover:border-metatron-accent/30"
-            }`}
-          >
-            {b === "monthly" ? "Monthly" : "Annual · save 17%"}
-          </button>
-        ))}
-      </div>
+          <div className="flex flex-wrap justify-center gap-2">
+            {(["monthly", "annual"] as const).map((b) => (
+              <button
+                key={b}
+                type="button"
+                onClick={() => setBilling(b)}
+                className={`rounded-lg border px-4 py-1.5 text-sm font-semibold transition-colors ${
+                  billing === b
+                    ? "border-metatron-accent bg-metatron-accent/10 text-metatron-accent"
+                    : "border-[var(--border)] text-[var(--text-muted)] hover:border-metatron-accent/30"
+                }`}
+              >
+                {b === "monthly" ? "Monthly" : "Annual · save 17%"}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
 
       <section className={card}>
         <h2 className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">

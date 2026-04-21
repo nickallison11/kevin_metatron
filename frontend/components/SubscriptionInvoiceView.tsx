@@ -49,6 +49,13 @@ function tierLabel(tier: string) {
   return "Monthly";
 }
 
+function planLabel(settingsHref: string) {
+  if (settingsHref.includes("/startup/")) return "Founder Basic Subscription";
+  if (settingsHref.includes("/investor/")) return "Investor Basic Subscription";
+  if (settingsHref.includes("/connector/")) return "Connector Basic Subscription";
+  return "metatron Subscription";
+}
+
 export default function SubscriptionInvoiceView({
   token,
   invoiceId,
@@ -168,7 +175,7 @@ export default function SubscriptionInvoiceView({
         <div className="my-2 border-t border-[var(--border)]" />
         <div className="grid grid-cols-[1fr_auto] gap-x-4 text-sm">
           <div>
-            <p className="font-medium">metatron Pro</p>
+            <p className="font-medium">{planLabel(settingsHref)}</p>
             <p className="text-xs text-[var(--text-muted)]">
               ({tierLine} · {periodLine})
             </p>

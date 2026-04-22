@@ -818,13 +818,15 @@ async fn request_intro(
 
         if let Some((investor_email, investor_telegram_id, investor_whatsapp)) = investor_row {
             // Pull investor display name from investor_profiles
-            let investor_name: String = sqlx::query_scalar(
-                "SELECT COALESCE(firm_name, email) FROM investor_profiles WHERE user_id = $1",
+            let investor_name: String = sqlx::query_scalar::<_, Option<String>>(
+                "SELECT firm_name FROM investor_profiles WHERE user_id = $1",
             )
             .bind(investor_user_id)
             .fetch_optional(&state.db)
             .await
             .map_err(internal)?
+            .flatten()
+            .filter(|s| !s.trim().is_empty())
             .unwrap_or_else(|| investor_email.clone());
 
             let to_email = std::env::var("INTRO_TEST_EMAIL")

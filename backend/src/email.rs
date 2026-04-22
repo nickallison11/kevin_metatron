@@ -143,7 +143,7 @@ pub fn welcome_email_html() -> String {
 
 pub fn pro_activated_email_html(period_end: &str, amount_paid: &str) -> String {
     shell_html(
-        "Pro activated",
+        "Founder basic monthly subscription activated",
         &format!(
             r#"
 <p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">Thank you for subscribing. Here's what's now unlocked:</p>

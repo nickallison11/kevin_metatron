@@ -226,6 +226,9 @@ async fn upload_pitch_deck(
             pitch_deck_url = EXCLUDED.pitch_deck_url,
             deck_expires_at = EXCLUDED.deck_expires_at,
             deck_upload_count = COALESCE(profiles.deck_upload_count, 0) + 1,
+            deck_7day_email_sent = FALSE,
+            deck_1day_email_sent = FALSE,
+            deck_expired_email_sent = FALSE,
             updated_at = now()
         "#,
     )

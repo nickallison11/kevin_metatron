@@ -15,6 +15,7 @@ use serde::Serialize;
 use serde_json::Value;
 use uuid::Uuid;
 
+use crate::email;
 use crate::identity::require_user;
 use crate::state::AppState;
 
@@ -503,24 +504,31 @@ async fn request_intro(
     }
 
     // Load the match (must belong to this user)
-    let row: Option<(Uuid, Option<Uuid>, Option<Uuid>, Option<chrono::DateTime<chrono::Utc>>)> =
-        sqlx::query_as(
-            r#"SELECT id, contact_id, matched_user_id, intro_requested_at
-               FROM kevin_matches
-               WHERE id = $1 AND for_user_id = $2"#,
-        )
-        .bind(match_id)
-        .bind(user.id)
-        .fetch_optional(&state.db)
-        .await
-        .map_err(internal)?;
+    let row: Option<(
+        Uuid,
+        Option<Uuid>,
+        Option<Uuid>,
+        Option<chrono::DateTime<chrono::Utc>>,
+        Option<String>,
+    )> = sqlx::query_as(
+        r#"SELECT id, contact_id, matched_user_id, intro_requested_at, reasoning
+           FROM kevin_matches
+           WHERE id = $1 AND for_user_id = $2"#,
+    )
+    .bind(match_id)
+    .bind(user.id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(internal)?;
 
-    let (_id, contact_id, _matched_user_id, intro_requested_at) =
+    let (_id, contact_id, matched_user_id, intro_requested_at, reasoning_opt) =
         row.ok_or((StatusCode::NOT_FOUND, "match not found".to_string()))?;
 
     if intro_requested_at.is_some() {
         return Err((StatusCode::CONFLICT, "introduction already requested".to_string()));
     }
+
+    let reasoning = reasoning_opt.unwrap_or_default();
 
     // Get founder details
     let founder_email: String = sqlx::query_scalar("SELECT email FROM users WHERE id = $1")
@@ -529,22 +537,49 @@ async fn request_intro(
         .await
         .map_err(internal)?;
 
-    let founder_profile: Option<(Option<String>, Option<String>, Option<String>, Option<String>)> =
-        sqlx::query_as(
-            "SELECT company_name, one_liner, stage, sector FROM profiles WHERE user_id = $1",
-        )
-        .bind(user.id)
-        .fetch_optional(&state.db)
-        .await
-        .map_err(internal)?;
+    let founder_profile: Option<(
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    )> = sqlx::query_as(
+        "SELECT company_name, one_liner, stage, sector, pitch_deck_url FROM profiles WHERE user_id = $1",
+    )
+    .bind(user.id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(internal)?;
 
-    let (fp_company, fp_one_liner, fp_stage, fp_sector) =
-        founder_profile.unwrap_or((None, None, None, None));
+    let (fp_company, fp_one_liner, fp_stage, fp_sector, fp_deck_url) =
+        founder_profile.unwrap_or((None, None, None, None, None));
 
     let company_name = fp_company.unwrap_or_else(|| "their company".to_string());
     let founder_one_liner = fp_one_liner.unwrap_or_default();
     let founder_stage = fp_stage.unwrap_or_default();
     let founder_sector = fp_sector.unwrap_or_default();
+    let founder_deck_url = fp_deck_url
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+
+    // Default investor_channels reflects what we dispatched to the investor.
+    // For external-connector intros, the investor is reached via their connector (email).
+    let mut investor_channels = String::from("email");
+    let mut investor_display_name = String::from("the investor");
+
+    // Founder channels are fetched once here so branches that self-handle
+    // founder notifications (e.g. registered investor) can reference them.
+    let founder_channels: Option<(Option<String>, Option<String>)> = sqlx::query_as(
+        "SELECT telegram_id, whatsapp_number FROM users WHERE id = $1",
+    )
+    .bind(user.id)
+    .fetch_optional(&state.db)
+    .await
+    .unwrap_or(None);
+
+    // When a branch sends the founder-side confirmation + messaging itself,
+    // set this flag so the shared tail code doesn't duplicate the sends.
+    let mut founder_notified_in_branch = false;
 
     if let Some(contact_id) = contact_id {
         // Connector network contact
@@ -570,44 +605,161 @@ async fn request_intro(
         let is_metatron_connect = connector_email.ends_with("@metatrondao.io");
 
         let investor_name: String = contact_firm.clone().unwrap_or_else(|| contact_name.clone());
+        investor_display_name = investor_name.clone();
 
         if is_metatron_connect {
             // Direct email to investor (test override via env var)
             let to_email = std::env::var("INTRO_TEST_EMAIL")
                 .unwrap_or_else(|_| contact_email.clone().unwrap_or_default());
 
-            if !to_email.is_empty() {
-                let resend_key = std::env::var("RESEND_API_KEY").unwrap_or_default();
-                let body = serde_json::json!({
-                    "from": "kevin@metatron.id",
-                    "to": [to_email],
-                    "subject": format!("Introduction Request: {} → {}", company_name, investor_name),
-                    "html": format!(
-                        "<p>Hi {},</p>\
-                        <p><strong>{}</strong> ({}) would like to connect with you via metatron.</p>\
-                        <p>{}</p>\
-                        <p>Stage: {} · Sector: {}</p>\
-                        <p>Reply to this email or reach them at: {}</p>\
-                        <hr/><p style='color:#888;font-size:12px'>Facilitated by <a href='https://metatron.id'>metatron</a> — The intelligence layer between founders and capital.</p>",
-                        investor_name,
-                        company_name,
-                        founder_email,
-                        founder_one_liner,
-                        founder_stage,
-                        founder_sector,
-                        founder_email,
-                    )
+            let mut sent_email = false;
+            let mut sent_telegram = false;
+            let mut sent_whatsapp = false;
+
+            // Look up investor's Telegram and WhatsApp via their email
+            let investor_channels_row: Option<(Option<String>, Option<String>)> = if !to_email
+                .trim()
+                .is_empty()
+            {
+                sqlx::query_as(
+                    "SELECT telegram_id, whatsapp_number FROM users WHERE LOWER(email) = LOWER($1)",
+                )
+                .bind(&to_email)
+                .fetch_optional(&state.db)
+                .await
+                .unwrap_or(None)
+            } else {
+                None
+            };
+
+            let (investor_tg, investor_wa) =
+                investor_channels_row.unwrap_or((None, None));
+
+            // Send investor email using the new template — always include deck URL
+            if !to_email.trim().is_empty() {
+                let html = email::intro_investor_email_html(
+                    &investor_name,
+                    &company_name,
+                    &founder_one_liner,
+                    &founder_stage,
+                    &founder_sector,
+                    &reasoning,
+                    founder_deck_url.as_deref(),
+                );
+                email::send_email(
+                    &state.http_client,
+                    state.resend_api_key.as_deref(),
+                    &state.email_from,
+                    &to_email,
+                    &format!("Introduction request: {} → {}", company_name, investor_name),
+                    &html,
+                )
+                .await;
+                sent_email = true;
+            }
+
+            // Investor Telegram
+            if let (Some(tg_id), Some(bot_token)) = (
+                investor_tg.as_deref().filter(|s| !s.trim().is_empty()),
+                state.telegram_bot_token.as_deref(),
+            ) {
+                let deck_line = founder_deck_url
+                    .as_deref()
+                    .map(|u| format!("\nDeck: {u}"))
+                    .unwrap_or_default();
+                let tg_text = format!(
+                    "New intro request via metatron\n\n{} ({}) would like to connect.\nStage: {} · Sector: {}\n\nWhy Kevin matched you:\n{}{}\n\nReply via metatron or email {}.",
+                    company_name,
+                    founder_one_liner,
+                    founder_stage,
+                    founder_sector,
+                    reasoning,
+                    deck_line,
+                    founder_email,
+                );
+                let tg_url = format!("https://api.telegram.org/bot{}/sendMessage", bot_token);
+                let tg_payload = serde_json::json!({
+                    "chat_id": tg_id,
+                    "text": tg_text,
                 });
-                if let Err(e) = reqwest::Client::new()
-                    .post("https://api.resend.com/emails")
-                    .header("Authorization", format!("Bearer {}", resend_key))
-                    .json(&body)
+                match state.http_client.post(&tg_url).json(&tg_payload).send().await {
+                    Ok(resp) if resp.status().is_success() => {
+                        sent_telegram = true;
+                    }
+                    Ok(resp) => {
+                        tracing::warn!(
+                            "investor telegram notification failed status={}",
+                            resp.status()
+                        );
+                    }
+                    Err(e) => {
+                        tracing::warn!("investor telegram notification error: {e}");
+                    }
+                }
+            }
+
+            // Investor WhatsApp
+            if let (Some(wa_number), Some(wa_token), Some(phone_id)) = (
+                investor_wa.as_deref().filter(|s| !s.trim().is_empty()),
+                state.whatsapp_access_token.as_deref(),
+                state.whatsapp_phone_number_id.as_deref(),
+            ) {
+                let deck_line = founder_deck_url
+                    .as_deref()
+                    .map(|u| format!("\nDeck: {u}"))
+                    .unwrap_or_default();
+                let wa_text = format!(
+                    "metatron intro request\n\n{} ({}) would like to connect.\nStage: {} · Sector: {}\n\nWhy Kevin matched you:\n{}{}\n\nReply via metatron or email {}.",
+                    company_name,
+                    founder_one_liner,
+                    founder_stage,
+                    founder_sector,
+                    reasoning,
+                    deck_line,
+                    founder_email,
+                );
+                let wa_url = format!("https://graph.facebook.com/v18.0/{}/messages", phone_id);
+                let wa_payload = serde_json::json!({
+                    "messaging_product": "whatsapp",
+                    "recipient_type": "individual",
+                    "to": wa_number,
+                    "type": "text",
+                    "text": { "body": wa_text }
+                });
+                match state
+                    .http_client
+                    .post(&wa_url)
+                    .bearer_auth(wa_token)
+                    .json(&wa_payload)
                     .send()
                     .await
                 {
-                    tracing::warn!("intro email send failed: {e}");
+                    Ok(resp) if resp.status().is_success() => {
+                        sent_whatsapp = true;
+                    }
+                    Ok(resp) => {
+                        tracing::warn!(
+                            "investor whatsapp notification failed status={}",
+                            resp.status()
+                        );
+                    }
+                    Err(e) => {
+                        tracing::warn!("investor whatsapp notification error: {e}");
+                    }
                 }
             }
+
+            // Build human-readable channels string
+            investor_channels = match (sent_email, sent_telegram, sent_whatsapp) {
+                (true, true, true) => "email, Telegram and WhatsApp".to_string(),
+                (true, true, false) => "email and Telegram".to_string(),
+                (true, false, true) => "email and WhatsApp".to_string(),
+                (false, true, true) => "Telegram and WhatsApp".to_string(),
+                (true, false, false) => "email".to_string(),
+                (false, true, false) => "Telegram".to_string(),
+                (false, false, true) => "WhatsApp".to_string(),
+                (false, false, false) => "metatron".to_string(),
+            };
         } else {
             // Create connector_introduction record and notify connector
             let _ = sqlx::query(
@@ -620,8 +772,8 @@ async fn request_intro(
             .bind(contact_firm.as_deref().unwrap_or(contact_name.as_str()))
             .bind(contact_email.as_deref().unwrap_or(""))
             .bind(format!(
-                "Introduction requested via Kevin Matches. Founder: {} — {}",
-                company_name, founder_one_liner
+                "Introduction requested via Kevin Matches. Founder: {} — {}\n\nKevin's reasoning:\n{}",
+                company_name, founder_one_liner, reasoning
             ))
             .execute(&state.db)
             .await;
@@ -635,11 +787,13 @@ async fn request_intro(
                 "html": format!(
                     "<p>A founder has requested an introduction via metatron.</p>\
                     <p><strong>Founder:</strong> {} ({})<br/><strong>Investor:</strong> {}</p>\
+                    <p><strong>Why Kevin matched them:</strong><br/>{}</p>\
                     <p>Please facilitate this introduction via your connector dashboard.</p>",
-                    company_name, founder_email, investor_name
+                    company_name, founder_email, investor_name, reasoning
                 )
             });
-            if let Err(e) = reqwest::Client::new()
+            if let Err(e) = state
+                .http_client
                 .post("https://api.resend.com/emails")
                 .header("Authorization", format!("Bearer {}", resend_key))
                 .json(&notif)
@@ -648,6 +802,202 @@ async fn request_intro(
             {
                 tracing::warn!("connector notification email send failed: {e}");
             }
+
+            // Investor is reached through their connector.
+            investor_channels = "their connector".to_string();
+        }
+    } else if let Some(investor_user_id) = matched_user_id {
+        // Registered platform investor — look up their details directly
+        let investor_row: Option<(String, Option<String>, Option<String>)> = sqlx::query_as(
+            "SELECT email, telegram_id, whatsapp_number FROM users WHERE id = $1",
+        )
+        .bind(investor_user_id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(internal)?;
+
+        if let Some((investor_email, investor_telegram_id, investor_whatsapp)) = investor_row {
+            // Pull investor display name from investor_profiles
+            let investor_name: String = sqlx::query_scalar(
+                "SELECT COALESCE(firm_name, full_name, email) FROM investor_profiles WHERE user_id = $1",
+            )
+            .bind(investor_user_id)
+            .fetch_optional(&state.db)
+            .await
+            .map_err(internal)?
+            .unwrap_or_else(|| investor_email.clone());
+
+            let to_email = std::env::var("INTRO_TEST_EMAIL")
+                .unwrap_or_else(|_| investor_email.clone());
+
+            // Build investor_channels string
+            let mut channels: Vec<&str> = vec!["email"];
+            if investor_telegram_id.is_some() {
+                channels.push("Telegram");
+            }
+            if investor_whatsapp.is_some() {
+                channels.push("WhatsApp");
+            }
+            let investor_channels_local = match channels.as_slice() {
+                [a] => a.to_string(),
+                [a, b] => format!("{a} and {b}"),
+                [a, b, c] => format!("{a}, {b} and {c}"),
+                _ => "email".to_string(),
+            };
+
+            // Investor email
+            let deck_url = founder_deck_url.as_deref();
+            let reasoning_str: &str = if reasoning.trim().is_empty() {
+                "Strong alignment between your investment thesis and this founder's profile."
+            } else {
+                reasoning.as_str()
+            };
+            email::send_email(
+                &state.http_client,
+                state.resend_api_key.as_deref(),
+                &state.email_from,
+                &to_email,
+                &format!("{} — a founder Kevin thinks you should meet", company_name),
+                &email::intro_investor_email_html(
+                    &investor_name,
+                    &company_name,
+                    &founder_one_liner,
+                    &founder_stage,
+                    &founder_sector,
+                    reasoning_str,
+                    deck_url,
+                ),
+            )
+            .await;
+
+            // Investor Telegram — when INTRO_TEST_EMAIL is set, re-resolve to the
+            // test recipient's Telegram instead of the real investor's.
+            let effective_telegram = if std::env::var("INTRO_TEST_EMAIL").is_ok() {
+                sqlx::query_scalar::<_, Option<String>>(
+                    "SELECT telegram_id FROM users WHERE LOWER(email) = LOWER($1)",
+                )
+                .bind(&to_email)
+                .fetch_optional(&state.db)
+                .await
+                .unwrap_or(None)
+                .flatten()
+            } else {
+                investor_telegram_id.clone()
+            };
+
+            if let (Some(tg_id), Some(bot_token)) =
+                (effective_telegram, state.telegram_bot_token.as_deref())
+            {
+                let tg_msg = format!(
+                    "👋 {}, Kevin here.\n\nI've matched you with a founder I think you should meet.\n\nHere's why:\n{}\n\n🏢 {}\n💡 {}\n📍 Stage: {} · Sector: {}{}",
+                    investor_name,
+                    reasoning_str,
+                    company_name,
+                    founder_one_liner,
+                    founder_stage,
+                    founder_sector,
+                    deck_url.map(|u| format!("\n📄 Deck: {}", u)).unwrap_or_default()
+                );
+                let _ = state
+                    .http_client
+                    .post(format!(
+                        "https://api.telegram.org/bot{}/sendMessage",
+                        bot_token
+                    ))
+                    .json(&serde_json::json!({ "chat_id": tg_id, "text": tg_msg }))
+                    .send()
+                    .await;
+            }
+
+            // Investor WhatsApp
+            let effective_whatsapp = if std::env::var("INTRO_TEST_EMAIL").is_ok() {
+                sqlx::query_scalar::<_, Option<String>>(
+                    "SELECT whatsapp_number FROM users WHERE LOWER(email) = LOWER($1)",
+                )
+                .bind(&to_email)
+                .fetch_optional(&state.db)
+                .await
+                .unwrap_or(None)
+                .flatten()
+            } else {
+                investor_whatsapp
+            };
+
+            if let (Some(wa_number), Some(wa_token), Some(phone_id)) = (
+                effective_whatsapp,
+                state.whatsapp_access_token.as_deref(),
+                state.whatsapp_phone_number_id.as_deref(),
+            ) {
+                let wa_msg = format!(
+                    "👋 {}, Kevin here.\n\nI've matched you with a founder I think you should meet.\n\nHere's why:\n{}\n\n🏢 {}\n💡 {}\n📍 Stage: {} · Sector: {}{}",
+                    investor_name,
+                    reasoning_str,
+                    company_name,
+                    founder_one_liner,
+                    founder_stage,
+                    founder_sector,
+                    deck_url.map(|u| format!("\n📄 Deck: {}", u)).unwrap_or_default()
+                );
+                let _ = state
+                    .http_client
+                    .post(format!(
+                        "https://graph.facebook.com/v18.0/{}/messages",
+                        phone_id
+                    ))
+                    .bearer_auth(wa_token)
+                    .json(&serde_json::json!({
+                        "messaging_product": "whatsapp",
+                        "recipient_type": "individual",
+                        "to": wa_number,
+                        "type": "text",
+                        "text": { "body": wa_msg }
+                    }))
+                    .send()
+                    .await;
+            }
+
+            // Founder confirmation — same as metatron connect path
+            email::send_email(
+                &state.http_client,
+                state.resend_api_key.as_deref(),
+                &state.email_from,
+                &founder_email,
+                &format!("Kevin has introduced you to {}", investor_name),
+                &email::intro_founder_confirmation_html(
+                    &investor_name,
+                    &company_name,
+                    reasoning_str,
+                    &investor_channels_local,
+                ),
+            )
+            .await;
+
+            // Founder Telegram
+            if let Some((founder_tg, _)) = founder_channels.as_ref() {
+                if let (Some(tg_id), Some(bot_token)) =
+                    (founder_tg.as_deref(), state.telegram_bot_token.as_deref())
+                {
+                    let msg = format!(
+                        "✅ Done! I've introduced you to {}.\n\nHere's what I told them:\n{}\n\nThey've been notified via {} and will reach out if interested. Keep building! 🚀",
+                        investor_name, reasoning_str, investor_channels_local
+                    );
+                    let _ = state
+                        .http_client
+                        .post(format!(
+                            "https://api.telegram.org/bot{}/sendMessage",
+                            bot_token
+                        ))
+                        .json(&serde_json::json!({ "chat_id": tg_id, "text": msg }))
+                        .send()
+                        .await;
+                }
+            }
+
+            // Propagate for completeness (so subsequent reads reflect reality),
+            // then mark the founder-side as handled so tail code skips duplicates.
+            investor_display_name = investor_name;
+            investor_channels = investor_channels_local;
+            founder_notified_in_branch = true;
         }
     }
 
@@ -658,89 +1008,74 @@ async fn request_intro(
         .await
         .map_err(internal)?;
 
-    // Notify the founder across all their linked channels
-    let founder_channels: Option<(Option<String>, Option<String>)> = sqlx::query_as(
-        "SELECT telegram_id, whatsapp_number FROM users WHERE id = $1",
-    )
-    .bind(user.id)
-    .fetch_optional(&state.db)
-    .await
-    .unwrap_or(None);
+    if !founder_notified_in_branch {
+        // Email confirmation to founder — includes reasoning and channels used
+        let confirmation_html = email::intro_founder_confirmation_html(
+            &investor_display_name,
+            &company_name,
+            &reasoning,
+            &investor_channels,
+        );
+        email::send_email(
+            &state.http_client,
+            state.resend_api_key.as_deref(),
+            &state.email_from,
+            &founder_email,
+            &format!("Intro request sent — {}", company_name),
+            &confirmation_html,
+        )
+        .await;
 
-    let kevin_msg = format!(
-        "Your intro request for {} has been submitted. I'll let you know when they respond. Keep building! 🚀",
-        company_name
-    );
+        let kevin_msg = format!(
+            "Your intro request for {} has been submitted via {}.\n\nWhy Kevin matched you:\n{}\n\nI'll let you know when they respond. Keep building!",
+            company_name, investor_channels, reasoning
+        );
 
-    // Email confirmation to founder
-    let resend_key = std::env::var("RESEND_API_KEY").unwrap_or_default();
-    if !resend_key.is_empty() {
-        let confirmation = serde_json::json!({
-            "from": "kevin@metatron.id",
-            "to": [&founder_email],
-            "subject": format!("Intro request submitted — {}", company_name),
-            "html": format!(
-                "<p>Hi,</p>\
-                <p>Your introduction request for <strong>{}</strong> has been submitted via metatron.</p>\
-                <p>I'll notify you when they respond.</p>\
-                <p>Keep building!</p>\
-                <p>— Kevin</p>\
-                <hr/><p style='color:#888;font-size:12px'><a href='https://metatron.id'>metatron</a> — The intelligence layer between founders and capital.</p>",
-                company_name
-            )
-        });
-        if let Err(e) = reqwest::Client::new()
-            .post("https://api.resend.com/emails")
-            .header("Authorization", format!("Bearer {}", resend_key))
-            .json(&confirmation)
-            .send()
-            .await
-        {
-            tracing::warn!("founder confirmation email failed: {e}");
-        }
-    }
-
-    if let Some((telegram_id, whatsapp_number)) = founder_channels {
-        // Telegram notification
-        if let (Some(tg_id), Some(bot_token)) = (telegram_id, state.telegram_bot_token.as_deref()) {
-            let tg_url = format!("https://api.telegram.org/bot{}/sendMessage", bot_token);
-            let tg_payload = serde_json::json!({
-                "chat_id": tg_id,
-                "text": kevin_msg,
-                "parse_mode": "HTML"
-            });
-            if let Err(e) = reqwest::Client::new()
-                .post(&tg_url)
-                .json(&tg_payload)
-                .send()
-                .await
+        if let Some((telegram_id, whatsapp_number)) = founder_channels {
+            // Telegram notification
+            if let (Some(tg_id), Some(bot_token)) =
+                (telegram_id, state.telegram_bot_token.as_deref())
             {
-                tracing::warn!("founder telegram notification failed: {e}");
+                let tg_url = format!("https://api.telegram.org/bot{}/sendMessage", bot_token);
+                let tg_payload = serde_json::json!({
+                    "chat_id": tg_id,
+                    "text": kevin_msg,
+                });
+                if let Err(e) = state
+                    .http_client
+                    .post(&tg_url)
+                    .json(&tg_payload)
+                    .send()
+                    .await
+                {
+                    tracing::warn!("founder telegram notification failed: {e}");
+                }
             }
-        }
 
-        // WhatsApp notification
-        if let (Some(wa_number), Some(wa_token), Some(phone_id)) = (
-            whatsapp_number,
-            state.whatsapp_access_token.as_deref(),
-            state.whatsapp_phone_number_id.as_deref(),
-        ) {
-            let wa_url = format!("https://graph.facebook.com/v18.0/{}/messages", phone_id);
-            let wa_payload = serde_json::json!({
-                "messaging_product": "whatsapp",
-                "recipient_type": "individual",
-                "to": wa_number,
-                "type": "text",
-                "text": { "body": kevin_msg }
-            });
-            if let Err(e) = reqwest::Client::new()
-                .post(&wa_url)
-                .bearer_auth(wa_token)
-                .json(&wa_payload)
-                .send()
-                .await
-            {
-                tracing::warn!("founder whatsapp notification failed: {e}");
+            // WhatsApp notification
+            if let (Some(wa_number), Some(wa_token), Some(phone_id)) = (
+                whatsapp_number,
+                state.whatsapp_access_token.as_deref(),
+                state.whatsapp_phone_number_id.as_deref(),
+            ) {
+                let wa_url = format!("https://graph.facebook.com/v18.0/{}/messages", phone_id);
+                let wa_payload = serde_json::json!({
+                    "messaging_product": "whatsapp",
+                    "recipient_type": "individual",
+                    "to": wa_number,
+                    "type": "text",
+                    "text": { "body": kevin_msg }
+                });
+                if let Err(e) = state
+                    .http_client
+                    .post(&wa_url)
+                    .bearer_auth(wa_token)
+                    .json(&wa_payload)
+                    .send()
+                    .await
+                {
+                    tracing::warn!("founder whatsapp notification failed: {e}");
+                }
             }
         }
     }

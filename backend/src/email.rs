@@ -365,3 +365,82 @@ pub async fn send_password_reset_email(
     .await;
 }
 
+pub fn intro_investor_email_html(
+    investor_name: &str,
+    company_name: &str,
+    one_liner: &str,
+    stage: &str,
+    sector: &str,
+    reasoning: &str,
+    deck_url: Option<&str>,
+) -> String {
+    let deck_block = match deck_url {
+        Some(url) if !url.is_empty() => format!(
+            r#"<p style="margin:16px 0 0 0;">
+              <a href="{url}" style="display:inline-block;background:#6c5ce7;color:#ffffff;text-decoration:none;padding:10px 18px;border-radius:12px;font-weight:600;font-size:14px;">View pitch deck →</a>
+            </p>"#
+        ),
+        _ => String::new(),
+    };
+
+    shell_html(
+        &format!("{} — a founder Kevin thinks you should meet", company_name),
+        &format!(
+            r#"
+<p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">Hi {investor_name},</p>
+<p style="margin:0 0 16px 0;font-size:14px;color:#e8e8ed;">I've been tracking <strong>{company_name}</strong> and I think you two should connect.</p>
+
+<div style="margin:0 0 20px 0;padding:14px 18px;background:rgba(108,92,231,0.08);border-left:3px solid #6c5ce7;border-radius:0 8px 8px 0;">
+  <p style="margin:0 0 6px 0;font-size:11px;font-family:ui-monospace,monospace;text-transform:uppercase;letter-spacing:0.12em;color:#8888a0;">Why I made this match</p>
+  <p style="margin:0;font-size:14px;color:#e8e8ed;line-height:1.6;">{reasoning}</p>
+</div>
+
+<table style="width:100%;border-collapse:collapse;margin:0 0 16px 0;">
+  <tr><td style="padding:6px 14px 6px 0;font-size:12px;font-family:ui-monospace,monospace;color:#8888a0;white-space:nowrap;vertical-align:top;">Company</td><td style="font-size:14px;color:#e8e8ed;padding:6px 0;">{company_name}</td></tr>
+  <tr><td style="padding:6px 14px 6px 0;font-size:12px;font-family:ui-monospace,monospace;color:#8888a0;white-space:nowrap;vertical-align:top;">About</td><td style="font-size:14px;color:#e8e8ed;padding:6px 0;">{one_liner}</td></tr>
+  <tr><td style="padding:6px 14px 6px 0;font-size:12px;font-family:ui-monospace,monospace;color:#8888a0;white-space:nowrap;vertical-align:top;">Stage</td><td style="font-size:14px;color:#e8e8ed;padding:6px 0;">{stage}</td></tr>
+  <tr><td style="padding:6px 14px 6px 0;font-size:12px;font-family:ui-monospace,monospace;color:#8888a0;white-space:nowrap;vertical-align:top;">Sector</td><td style="font-size:14px;color:#e8e8ed;padding:6px 0;">{sector}</td></tr>
+</table>
+
+{deck_block}
+
+<div style="margin:24px 0 0 0;border-top:1px solid rgba(255,255,255,0.06);padding-top:16px;">
+  <p style="margin:0;font-size:14px;color:#e8e8ed;">Reply directly to this email to connect — I've already vetted this match.</p>
+  <p style="margin:12px 0 0 0;font-size:14px;color:#8888a0;">— Kevin<br/>metatron · The intelligence layer between founders and capital.</p>
+</div>
+"#
+        ),
+    )
+}
+
+pub fn intro_founder_confirmation_html(
+    investor_name: &str,
+    company_name: &str,
+    reasoning: &str,
+    investor_channels: &str,
+) -> String {
+    let _ = company_name;
+    shell_html(
+        &format!("Kevin has introduced you to {}", investor_name),
+        &format!(
+            r#"
+<p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">Your introduction to <strong>{investor_name}</strong> has been sent.</p>
+
+<div style="margin:0 0 20px 0;padding:14px 18px;background:rgba(108,92,231,0.08);border-left:3px solid #6c5ce7;border-radius:0 8px 8px 0;">
+  <p style="margin:0 0 6px 0;font-size:11px;font-family:ui-monospace,monospace;text-transform:uppercase;letter-spacing:0.12em;color:#8888a0;">What Kevin told them</p>
+  <p style="margin:0;font-size:14px;color:#e8e8ed;line-height:1.6;">{reasoning}</p>
+</div>
+
+<p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">They've been notified via {investor_channels} and will reach out if they're interested. I'll keep you posted.</p>
+<p style="margin:0 0 20px 0;font-size:14px;color:#e8e8ed;">In the meantime, make sure your profile and pitch deck are up to date so they have everything they need.</p>
+
+<p style="margin:0 0 24px 0;">
+  <a href="https://platform.metatron.id/startup/profile" style="display:inline-block;background:#6c5ce7;color:#ffffff;text-decoration:none;padding:10px 18px;border-radius:12px;font-weight:600;font-size:14px;">Update your profile →</a>
+</p>
+
+<p style="margin:0;font-size:14px;color:#8888a0;">— Kevin<br/>metatron · The intelligence layer between founders and capital.</p>
+"#
+        ),
+    )
+}
+

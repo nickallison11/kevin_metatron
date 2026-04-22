@@ -164,7 +164,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
           {token ? (
             <>
               <Link href={dashboardHref} className={navLinkClass}>
-                Matches
+                Dashboard
               </Link>
               <button
                 type="button"
@@ -291,7 +291,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
                   className={navLinkClass}
                   onClick={() => setMenuOpen(false)}
                 >
-                  Matches
+                  Dashboard
                 </Link>
                 <button
                   type="button"

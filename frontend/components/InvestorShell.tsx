@@ -7,7 +7,7 @@ import { API_BASE, authJsonHeaders } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
 const FREE_NAV = [
-  { href: "/investor", label: "Matches" },
+  { href: "/investor", label: "Dashboard" },
   { href: "/investor/profile", label: "Profile Settings" },
   { href: "/investor/watchlist", label: "Watchlist" },
 ];

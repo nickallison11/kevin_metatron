@@ -200,12 +200,17 @@ async fn generate_matches(
             .map_err(internal)?;
 
         let (company, one_liner, stage, sector) = profile.unwrap_or((None, None, None, None));
+        // Gate: require complete profile before generating matches
+        if company.is_none() || one_liner.is_none() || stage.is_none() || sector.is_none() {
+            return Ok(Json(vec![]));
+        }
+        let company = company.unwrap();
+        let one_liner = one_liner.unwrap();
+        let stage = stage.unwrap();
+        let sector = sector.unwrap();
         let ctx = format!(
             "Founder: {}, {}, Stage: {}, Sector: {}",
-            company.unwrap_or_default(),
-            one_liner.unwrap_or_default(),
-            stage.clone().unwrap_or_default(),
-            sector.clone().unwrap_or_default()
+            company, one_liner, stage, sector
         );
 
         // Registered investors
@@ -375,13 +380,16 @@ async fn generate_matches(
     }
 
     let prompt = format!(
-        r#"You are Kevin, an AI matchmaking engine for metatron. Rank these candidates for the user below.
-For each candidate return a match score 0–100 and a one-line reason (max 12 words, be specific).
+        r#"You are Kevin, metatron's AI matchmaking engine. Analyse each candidate investor and explain why this specific founder is a strong fit for them.
 
-User: {user_context}
+Founder: {user_context}
 
-Candidates (JSON array, each has an "id" and "source" field):
+Investor candidates (JSON array):
 {candidates_json}
+
+For each candidate, return:
+- score: 0–100 match score
+- reasoning: 2–3 sentences (max 40 words) written TO the investor explaining why THIS founder is right for THEIR portfolio. Be specific — reference the founder's stage, sector, problem, and how it connects to the investor's known thesis or focus. Never be generic.
 
 Return ONLY a valid JSON array, no markdown, no code fences:
 [{{"id":"...","score":0,"reasoning":"..."}}]
@@ -553,6 +561,14 @@ async fn request_intro(
 
     let (fp_company, fp_one_liner, fp_stage, fp_sector, fp_deck_url) =
         founder_profile.unwrap_or((None, None, None, None, None));
+
+    // Block intro request if founder profile is incomplete
+    if fp_company.is_none() || fp_one_liner.is_none() || fp_stage.is_none() || fp_sector.is_none() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Please complete your founder profile (company name, description, stage and sector) before requesting an introduction.".to_string(),
+        ));
+    }
 
     let company_name = fp_company.unwrap_or_else(|| "their company".to_string());
     let founder_one_liner = fp_one_liner.unwrap_or_default();

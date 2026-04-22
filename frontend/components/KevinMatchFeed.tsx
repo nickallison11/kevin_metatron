@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { API_BASE, authJsonHeaders } from "@/lib/api";
 
@@ -125,6 +126,9 @@ export default function KevinMatchFeed({
                       matchId={m.id}
                       alreadyRequested={!!m.intro_requested_at}
                       token={token}
+                      profileIncomplete={
+                        !m.company_name && !m.one_liner && !m.stage && !m.sector
+                      }
                     />
                   </div>
                 )}
@@ -150,24 +154,52 @@ function IntroButton({
   matchId,
   alreadyRequested,
   token,
+  profileIncomplete,
 }: {
   matchId: string;
   alreadyRequested: boolean;
   token: string;
+  profileIncomplete?: boolean;
 }) {
   const [state, setState] = useState<"idle" | "loading" | "done" | "error">(
     alreadyRequested ? "done" : "idle"
   );
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   async function request() {
     setState("loading");
+    setErrorMessage(null);
     try {
       const res = await fetch(`${API_BASE}/kevin-matches/${matchId}/request-intro`, {
         method: "POST",
         headers: authJsonHeaders(token),
       });
-      setState(res.ok ? "done" : "error");
+      if (res.ok) {
+        setState("done");
+        return;
+      }
+      let msg = "Something went wrong. Please try again.";
+      try {
+        const text = await res.text();
+        if (text) {
+          try {
+            const parsed = JSON.parse(text);
+            msg =
+              (typeof parsed === "string" && parsed) ||
+              parsed?.error ||
+              parsed?.message ||
+              text;
+          } catch {
+            msg = text;
+          }
+        }
+      } catch {
+        // ignore body-read failure, keep default msg
+      }
+      setErrorMessage(msg);
+      setState("error");
     } catch {
+      setErrorMessage("Network error. Please try again.");
       setState("error");
     }
   }
@@ -176,18 +208,60 @@ function IntroButton({
     return <span className="text-xs text-metatron-accent">Intro Requested ✓</span>;
   }
 
+  if (profileIncomplete) {
+    return (
+      <div className="flex flex-col gap-1.5">
+        <button
+          type="button"
+          disabled
+          title="Complete your profile first"
+          aria-label="Complete your profile first"
+          className="shrink-0 cursor-not-allowed rounded-[8px] border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--text-muted)] opacity-60"
+        >
+          Request Intro
+        </button>
+        <p className="text-[11px] text-[var(--text-muted)]">
+          <Link href="/startup/profile" className="text-metatron-accent hover:underline">
+            Complete your profile
+          </Link>{" "}
+          to request an intro.
+        </p>
+      </div>
+    );
+  }
+
+  const mentionsProfile = !!errorMessage?.toLowerCase().includes("complete your founder profile");
+
   return (
-    <button
-      type="button"
-      onClick={() => void request()}
-      disabled={state === "loading"}
-      className="shrink-0 rounded-[8px] border border-metatron-accent/40 px-3 py-1.5 text-xs text-metatron-accent hover:bg-metatron-accent/10 disabled:opacity-50"
-    >
-      {state === "loading"
-        ? "Requesting…"
-        : state === "error"
-          ? "Try again"
-          : "Request Intro"}
-    </button>
+    <div className="flex flex-col gap-1.5">
+      <button
+        type="button"
+        onClick={() => void request()}
+        disabled={state === "loading"}
+        className="shrink-0 rounded-[8px] border border-metatron-accent/40 px-3 py-1.5 text-xs text-metatron-accent hover:bg-metatron-accent/10 disabled:opacity-50"
+      >
+        {state === "loading"
+          ? "Requesting…"
+          : state === "error"
+            ? "Try again"
+            : "Request Intro"}
+      </button>
+      {state === "error" && errorMessage && (
+        <p className="text-[11px] text-red-400">
+          {errorMessage}
+          {mentionsProfile && (
+            <>
+              {" "}
+              <Link
+                href="/startup/profile"
+                className="text-metatron-accent hover:underline"
+              >
+                Go to profile →
+              </Link>
+            </>
+          )}
+        </p>
+      )}
+    </div>
   );
 }

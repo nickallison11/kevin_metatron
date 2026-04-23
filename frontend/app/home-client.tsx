@@ -82,7 +82,7 @@ function HomePageContent() {
         className="mb-3 text-[28px] font-bold leading-tight tracking-tight md:text-[36px]"
         style={{ color: "#e8e8ed" }}
       >
-        The investor intelligence layer
+        The intelligence layer between founders and capital
       </h1>
       <p
         className="mx-auto mb-10 max-w-[400px] text-[15px] leading-relaxed"

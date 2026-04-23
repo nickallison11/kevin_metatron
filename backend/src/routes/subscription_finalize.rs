@@ -11,6 +11,7 @@ use crate::state::AppState;
 pub async fn finalize_pro_subscription(
     state: &AppState,
     user_id: Uuid,
+    plan_name: &str,
     tier: &str,
     amount_paid_display: &str,
     payment_method: &str,
@@ -115,8 +116,8 @@ pub async fn finalize_pro_subscription(
         state.resend_api_key.as_deref(),
         &state.email_from,
         &user_email,
-        "You're now on metatron Pro 🚀",
-        &email::pro_activated_email_html(&period_end, amount_paid_display),
+        &format!("Your metatron {} subscription is active", plan_name),
+        &email::pro_activated_email_html(plan_name, &period_end, amount_paid_display),
     )
     .await;
 

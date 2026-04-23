@@ -141,12 +141,12 @@ pub fn welcome_email_html() -> String {
     )
 }
 
-pub fn pro_activated_email_html(period_end: &str, amount_paid: &str) -> String {
+pub fn pro_activated_email_html(plan_name: &str, period_end: &str, amount_paid: &str) -> String {
     shell_html(
-        "Founder basic monthly subscription activated",
+        &format!("{} activated", plan_name),
         &format!(
             r#"
-<p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">Thank you for subscribing. Here's what's now unlocked:</p>
+<p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">Thank you for subscribing to <strong>{plan_name}</strong>. Here's what's now unlocked:</p>
 <ul style="margin:0 0 14px 18px;padding:0;color:#e8e8ed;font-size:14px;line-height:1.6;">
   <li>IPFS pitch deck storage (public or private)</li>
   <li>Call intelligence - upload recordings for transcription and AI analysis</li>

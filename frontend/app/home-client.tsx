@@ -6,8 +6,6 @@ import { Suspense, useState } from "react";
 
 type Role = "founder" | "investor" | "connector";
 
-// ─── Role definitions ────────────────────────────────────────────────────────
-
 const ROLES: {
   id: Role;
   label: string;
@@ -118,10 +116,10 @@ function OAuthRoleSelector() {
   return (
     <div className="flex min-h-[calc(100vh-72px)] items-center justify-center px-5 py-12">
       <div className="w-full max-w-[480px] text-center">
-        <p className="mb-2 font-mono text-[10px] uppercase tracking-[3px]" style={{ color: "#8888a0" }}>
+        <p className="mb-2 font-mono text-[10px] uppercase tracking-[3px] text-[var(--text-muted)]">
           One last step
         </p>
-        <h1 className="mb-6 text-[24px] font-bold" style={{ color: "#e8e8ed" }}>
+        <h1 className="mb-6 text-[24px] font-bold text-[var(--text)]">
           Select your role
         </h1>
         <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -132,15 +130,17 @@ function OAuthRoleSelector() {
               onClick={() => setSelected(r.id)}
               className="rounded-[12px] px-4 py-5 text-center transition-all duration-200"
               style={{
-                background: "#16161f",
-                border: selected === r.id ? "1px solid rgba(108,92,231,0.6)" : "1px solid rgba(255,255,255,0.06)",
+                background: "var(--bg-card)",
+                border: selected === r.id
+                  ? "1px solid rgba(108,92,231,0.6)"
+                  : "1px solid var(--border)",
                 boxShadow: selected === r.id ? "0 0 32px rgba(108,92,231,0.15)" : "none",
               }}
             >
-              <div className="mb-1.5 font-mono text-[10px] uppercase tracking-[3px]" style={{ color: "#6c5ce7" }}>
+              <div className="mb-1.5 font-mono text-[10px] uppercase tracking-[3px] text-metatron-accent">
                 {r.label}
               </div>
-              <div className="text-[14px] font-semibold" style={{ color: "#e8e8ed" }}>
+              <div className="text-[14px] font-semibold text-[var(--text)]">
                 {r.label.charAt(0) + r.label.slice(1).toLowerCase()}
               </div>
             </button>
@@ -150,8 +150,7 @@ function OAuthRoleSelector() {
           type="button"
           disabled={!selected || loading}
           onClick={onContinue}
-          className="rounded-[12px] px-8 py-3 text-sm font-semibold text-white transition-colors disabled:opacity-40"
-          style={{ background: "#6c5ce7" }}
+          className="rounded-[12px] bg-metatron-accent px-8 py-3 text-sm font-semibold text-white transition-colors hover:bg-metatron-accent-hover disabled:opacity-40"
         >
           {loading ? "Saving…" : "Continue →"}
         </button>
@@ -175,27 +174,20 @@ function LandingPage() {
     <div>
       {/* ── Hero ─────────────────────────────────────────────────────────── */}
       <section className="flex min-h-[calc(100vh-72px)] flex-col items-center justify-center px-5 py-20 text-center">
-        <p className="mb-4 font-mono text-[11px] uppercase tracking-[4px]" style={{ color: "#6c5ce7" }}>
+        <p className="mb-4 font-mono text-[11px] uppercase tracking-[4px] text-metatron-accent">
           Kevin · AI matchmaker
         </p>
-        <h1
-          className="mx-auto mb-5 max-w-[720px] text-[36px] font-bold leading-[1.15] tracking-tight md:text-[52px]"
-          style={{ color: "#e8e8ed" }}
-        >
+        <h1 className="mx-auto mb-5 max-w-[720px] text-[36px] font-bold leading-[1.15] tracking-tight text-[var(--text)] md:text-[52px]">
           The intelligence layer between founders and capital
         </h1>
-        <p
-          className="mx-auto mb-10 max-w-[540px] text-[16px] leading-relaxed"
-          style={{ color: "#8888a0" }}
-        >
+        <p className="mx-auto mb-10 max-w-[540px] text-[16px] leading-relaxed text-[var(--text-muted)]">
           Kevin uses AI to match founders with aligned investors and facilitate
           warm introductions — across emerging markets and globally.
         </p>
         <div className="flex flex-wrap items-center justify-center gap-3">
           <Link
             href="/login"
-            className="rounded-[12px] border px-7 py-3 text-sm font-semibold transition-colors"
-            style={{ borderColor: "rgba(255,255,255,0.1)", color: "#e8e8ed" }}
+            className="rounded-[12px] border border-[var(--border)] px-7 py-3 text-sm font-semibold text-[var(--text)] transition-colors hover:border-metatron-accent/30"
           >
             Sign in
           </Link>
@@ -205,8 +197,7 @@ function LandingPage() {
               const el = document.getElementById("roles");
               el?.scrollIntoView({ behavior: "smooth" });
             }}
-            className="rounded-[12px] px-7 py-3 text-sm font-semibold text-white transition-colors"
-            style={{ background: "#6c5ce7" }}
+            className="rounded-[12px] bg-metatron-accent px-7 py-3 text-sm font-semibold text-white transition-colors hover:bg-metatron-accent-hover"
           >
             Get started →
           </button>
@@ -215,10 +206,10 @@ function LandingPage() {
 
       {/* ── Role sections ────────────────────────────────────────────────── */}
       <section id="roles" className="mx-auto max-w-5xl px-5 pb-24">
-        <p className="mb-2 text-center font-mono text-[10px] uppercase tracking-[4px]" style={{ color: "#8888a0" }}>
+        <p className="mb-2 text-center font-mono text-[10px] uppercase tracking-[4px] text-[var(--text-muted)]">
           Built for every participant
         </p>
-        <h2 className="mb-12 text-center text-[28px] font-bold md:text-[36px]" style={{ color: "#e8e8ed" }}>
+        <h2 className="mb-12 text-center text-[28px] font-bold text-[var(--text)] md:text-[36px]">
           Choose your role
         </h2>
 
@@ -230,31 +221,30 @@ function LandingPage() {
                 key={r.id}
                 className="rounded-[16px] transition-all duration-300"
                 style={{
-                  background: "#16161f",
-                  border: isOpen ? "1px solid rgba(108,92,231,0.4)" : "1px solid rgba(255,255,255,0.06)",
+                  background: "var(--bg-card)",
+                  border: isOpen
+                    ? "1px solid rgba(108,92,231,0.4)"
+                    : "1px solid var(--border)",
                   boxShadow: isOpen ? "0 0 40px rgba(108,92,231,0.1)" : "none",
                 }}
               >
-                {/* Card header — always visible */}
+                {/* Card header */}
                 <button
                   type="button"
                   onClick={() => setActiveRole(isOpen ? null : r.id)}
                   className="flex w-full items-center justify-between px-6 py-5 text-left"
                 >
                   <div>
-                    <p className="mb-1 font-mono text-[10px] uppercase tracking-[3px]" style={{ color: "#6c5ce7" }}>
+                    <p className="mb-1 font-mono text-[10px] uppercase tracking-[3px] text-metatron-accent">
                       {r.label}
                     </p>
-                    <p className="text-[18px] font-semibold" style={{ color: "#e8e8ed" }}>
+                    <p className="text-[18px] font-semibold text-[var(--text)]">
                       {r.tagline}
                     </p>
                   </div>
                   <span
-                    className="ml-4 shrink-0 text-lg transition-transform duration-200"
-                    style={{
-                      color: "#6c5ce7",
-                      transform: isOpen ? "rotate(45deg)" : "none",
-                    }}
+                    className="ml-4 shrink-0 text-lg text-metatron-accent transition-transform duration-200"
+                    style={{ transform: isOpen ? "rotate(45deg)" : "none" }}
                   >
                     +
                   </span>
@@ -263,14 +253,14 @@ function LandingPage() {
                 {/* Expanded content */}
                 {isOpen && (
                   <div className="px-6 pb-6">
-                    <div className="mb-4 border-t" style={{ borderColor: "rgba(255,255,255,0.06)" }} />
-                    <p className="mb-5 text-[15px] leading-relaxed" style={{ color: "#8888a0" }}>
+                    <div className="mb-4 border-t border-[var(--border)]" />
+                    <p className="mb-5 text-[15px] leading-relaxed text-[var(--text-muted)]">
                       {r.description}
                     </p>
                     <ul className="mb-6 space-y-2.5">
                       {r.features.map((f) => (
-                        <li key={f} className="flex items-start gap-3 text-[14px]" style={{ color: "#e8e8ed" }}>
-                          <span className="mt-0.5 shrink-0 font-mono text-[11px]" style={{ color: "#6c5ce7" }}>
+                        <li key={f} className="flex items-start gap-3 text-[14px] text-[var(--text)]">
+                          <span className="mt-0.5 shrink-0 font-mono text-[11px] text-metatron-accent">
                             ✦
                           </span>
                           {f}
@@ -280,8 +270,7 @@ function LandingPage() {
                     <button
                       type="button"
                       onClick={() => startOnboarding(r.id)}
-                      className="rounded-[12px] px-6 py-2.5 text-sm font-semibold text-white transition-colors"
-                      style={{ background: "#6c5ce7" }}
+                      className="rounded-[12px] bg-metatron-accent px-6 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-metatron-accent-hover"
                     >
                       {r.cta} →
                     </button>
@@ -294,12 +283,12 @@ function LandingPage() {
       </section>
 
       {/* ── How Kevin works ──────────────────────────────────────────────── */}
-      <section className="border-t px-5 py-24" style={{ borderColor: "rgba(255,255,255,0.06)" }}>
+      <section className="border-t border-[var(--border)] px-5 py-24">
         <div className="mx-auto max-w-5xl">
-          <p className="mb-2 text-center font-mono text-[10px] uppercase tracking-[4px]" style={{ color: "#8888a0" }}>
+          <p className="mb-2 text-center font-mono text-[10px] uppercase tracking-[4px] text-[var(--text-muted)]">
             The process
           </p>
-          <h2 className="mb-14 text-center text-[28px] font-bold md:text-[36px]" style={{ color: "#e8e8ed" }}>
+          <h2 className="mb-14 text-center text-[28px] font-bold text-[var(--text)] md:text-[36px]">
             How Kevin works
           </h2>
           <div className="grid gap-6 md:grid-cols-3">
@@ -307,15 +296,18 @@ function LandingPage() {
               <div
                 key={s.step}
                 className="rounded-[16px] px-6 py-7"
-                style={{ background: "#16161f", border: "1px solid rgba(255,255,255,0.06)" }}
+                style={{
+                  background: "var(--bg-card)",
+                  border: "1px solid var(--border)",
+                }}
               >
-                <p className="mb-3 font-mono text-[11px] uppercase tracking-[3px]" style={{ color: "#6c5ce7" }}>
+                <p className="mb-3 font-mono text-[11px] uppercase tracking-[3px] text-metatron-accent">
                   {s.step}
                 </p>
-                <h3 className="mb-3 text-[17px] font-semibold" style={{ color: "#e8e8ed" }}>
+                <h3 className="mb-3 text-[17px] font-semibold text-[var(--text)]">
                   {s.title}
                 </h3>
-                <p className="text-[14px] leading-relaxed" style={{ color: "#8888a0" }}>
+                <p className="text-[14px] leading-relaxed text-[var(--text-muted)]">
                   {s.desc}
                 </p>
               </div>
@@ -325,31 +317,29 @@ function LandingPage() {
       </section>
 
       {/* ── Bottom CTA ───────────────────────────────────────────────────── */}
-      <section className="border-t px-5 py-20 text-center" style={{ borderColor: "rgba(255,255,255,0.06)" }}>
+      <section className="border-t border-[var(--border)] px-5 py-20 text-center">
         <div className="mx-auto max-w-[560px]">
-          <h2 className="mb-4 text-[28px] font-bold md:text-[36px]" style={{ color: "#e8e8ed" }}>
+          <h2 className="mb-4 text-[28px] font-bold text-[var(--text)] md:text-[36px]">
             Ready to connect?
           </h2>
-          <p className="mb-8 text-[15px] leading-relaxed" style={{ color: "#8888a0" }}>
-            metatron is currently invite-only. Use your invitation link to create an account, or sign in if you already have one.
+          <p className="mb-8 text-[15px] leading-relaxed text-[var(--text-muted)]">
+            metatron is currently invite-only. Use your invitation link to create an account,
+            or sign in if you already have one.
           </p>
-          <div className="flex flex-wrap items-center justify-center gap-3">
-            <Link
-              href="/login"
-              className="rounded-[12px] px-7 py-3 text-sm font-semibold text-white"
-              style={{ background: "#6c5ce7" }}
-            >
-              Sign in
-            </Link>
-          </div>
+          <Link
+            href="/login"
+            className="rounded-[12px] bg-metatron-accent px-7 py-3 text-sm font-semibold text-white transition-colors hover:bg-metatron-accent-hover"
+          >
+            Sign in
+          </Link>
         </div>
       </section>
 
       {/* ── Footer ───────────────────────────────────────────────────────── */}
-      <footer className="border-t px-5 py-8" style={{ borderColor: "rgba(255,255,255,0.06)" }}>
+      <footer className="border-t border-[var(--border)] px-5 py-8">
         <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-4">
           <img src="/metatron-logo.png" alt="metatron" className="h-[32px] w-auto opacity-70" />
-          <p className="text-[12px]" style={{ color: "#8888a0" }}>
+          <p className="text-[12px] text-[var(--text-muted)]">
             © {new Date().getFullYear()} Metatron DAO (Pty) Ltd · platform.metatron.id
           </p>
         </div>
@@ -373,9 +363,7 @@ export default function HomeClient() {
     <Suspense
       fallback={
         <div className="flex min-h-[calc(100vh-72px)] items-center justify-center">
-          <p className="text-[13px]" style={{ color: "rgba(136,136,160,0.6)" }}>
-            Loading…
-          </p>
+          <p className="text-[13px] text-[var(--text-muted)]">Loading…</p>
         </div>
       }
     >

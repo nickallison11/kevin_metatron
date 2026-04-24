@@ -676,6 +676,7 @@ async fn verify_payment(
     finalize_pro_subscription(
         &state,
         user_id,
+        "Founder Basic",
         tier_lower.as_str(),
         amount_paid,
         "card",
@@ -1085,6 +1086,7 @@ async fn finalize_from_paystack_data(
     finalize_pro_subscription(
         state,
         user_id,
+        "Founder Basic",
         tier_lower.as_str(),
         amount_paid,
         "card",
@@ -1201,6 +1203,7 @@ async fn handle_invoice_payment_success(
         finalize_pro_subscription(
             state,
             user_id,
+            "Founder Basic",
             billing,
             amount_paid,
             "card",
@@ -1636,6 +1639,7 @@ async fn nowpayments_webhook(
         "founder" => finalize_pro_subscription(
             &state,
             user_id,
+            "Founder Basic",
             billing_lc.as_str(),
             usd_nowpayments_amount_display(billing_lc.as_str()),
             "nowpayments",

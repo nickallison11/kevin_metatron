@@ -325,6 +325,7 @@ async fn confirm_subscription(
             finalize_pro_subscription(
                 &state,
                 authed.id,
+                "Founder Basic",
                 &tier,
                 amount_paid_display,
                 payment_method,

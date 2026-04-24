@@ -31,6 +31,20 @@ const ROLES: {
     cta: "Get started as a Founder",
   },
   {
+    id: "connector",
+    label: "CONNECTOR",
+    tagline: "Grow your network's impact",
+    description:
+      "Import your contact network and let Kevin identify introduction opportunities — tracking every connection you facilitate.",
+    features: [
+      "Network management — Import and manage your contact network",
+      "Intro facilitation — Connect founders with investors in your network",
+      "Referral tracking — Track every introduction you've made",
+      "metatron connect — Earn credits for enriching founder–investor connections",
+    ],
+    cta: "Get started as a Connector",
+  },
+  {
     id: "investor",
     label: "INVESTOR",
     tagline: "Kevin brings founders to you",
@@ -44,20 +58,6 @@ const ROLES: {
       "Call Intelligence — AI-powered notes from investor conversations",
     ],
     cta: "Get started as an Investor",
-  },
-  {
-    id: "connector",
-    label: "CONNECTOR",
-    tagline: "Grow your network's impact",
-    description:
-      "Import your contact network and let Kevin identify introduction opportunities — tracking every connection you facilitate.",
-    features: [
-      "Network management — Import and manage your contact network",
-      "Intro facilitation — Connect founders with investors in your network",
-      "Referral tracking — Track every introduction you've made",
-      "metatron connect — Earn credits for enriching founder–investor connections",
-    ],
-    cta: "Get started as a Connector",
   },
 ];
 
@@ -312,10 +312,10 @@ function LandingPage() {
 
       {/* ── Footer ───────────────────────────────────────────────────────── */}
       <footer className="px-5 py-8">
-        <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-4">
-          <img src="/metatron-logo.png" alt="metatron" className="h-[32px] w-auto opacity-70" />
+        <div className="mx-auto flex max-w-5xl items-center justify-center gap-3">
+          <img src="/metatron-logo.png" alt="metatron" className="h-[28px] w-auto opacity-70" />
           <p className="text-[12px] text-[var(--text-muted)]">
-            © {new Date().getFullYear()} Metatron DAO (Pty) Ltd · platform.metatron.id
+            © {new Date().getFullYear()} Metatron DAO (Pty) Ltd
           </p>
         </div>
       </footer>

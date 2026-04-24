@@ -173,7 +173,7 @@ function LandingPage() {
   return (
     <div>
       {/* ── Role sections ────────────────────────────────────────────────── */}
-      <section id="roles" className="mx-auto max-w-5xl px-5 pb-24">
+      <section id="roles" className="mx-auto max-w-5xl px-5 pt-16 pb-24">
         <p className="mb-2 text-center font-mono text-[10px] uppercase tracking-[4px] text-[var(--text-muted)]">
           Built for every participant
         </p>
@@ -251,7 +251,7 @@ function LandingPage() {
       </section>
 
       {/* ── How Kevin works ──────────────────────────────────────────────── */}
-      <section className="border-t border-[var(--border)] px-5 py-24">
+      <section className="px-5 py-24">
         <div className="mx-auto max-w-5xl">
           <p className="mb-2 text-center font-mono text-[10px] uppercase tracking-[4px] text-[var(--text-muted)]">
             The process
@@ -285,7 +285,7 @@ function LandingPage() {
       </section>
 
       {/* ── Bottom CTA ───────────────────────────────────────────────────── */}
-      <section className="border-t border-[var(--border)] px-5 py-20 text-center">
+      <section className="px-5 py-20 text-center">
         <div className="mx-auto max-w-[560px]">
           <h2 className="mb-4 text-[28px] font-bold text-[var(--text)] md:text-[36px]">
             Ready to connect?
@@ -304,7 +304,7 @@ function LandingPage() {
       </section>
 
       {/* ── Footer ───────────────────────────────────────────────────────── */}
-      <footer className="border-t border-[var(--border)] px-5 py-8">
+      <footer className="px-5 py-8">
         <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-4">
           <img src="/metatron-logo.png" alt="metatron" className="h-[32px] w-auto opacity-70" />
           <p className="text-[12px] text-[var(--text-muted)]">

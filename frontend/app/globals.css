@@ -42,13 +42,11 @@ body {
 /* Purple orb glow */
 .orb {
   position: fixed;
-  width: 1000px;
-  height: 1000px;
-  top: -500px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: radial-gradient(circle, var(--accent-glow) 0%, transparent 65%);
-  border-radius: 50%;
+  width: 100vw;
+  height: 70vh;
+  top: 0;
+  left: 0;
+  background: radial-gradient(ellipse 80% 100% at 50% 0%, var(--accent-glow) 0%, transparent 70%);
   z-index: 0;
   pointer-events: none;
   animation: orbPulse 8s ease-in-out infinite;

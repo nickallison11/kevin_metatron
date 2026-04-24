@@ -40,14 +40,16 @@ function dashboardPathForRole(role: string | null | undefined): string {
 }
 
 export default function AppShell({ children }: { children: ReactNode }) {
-  const [theme, setTheme] = useState<"dark" | "light">(() => {
-    if (typeof window === "undefined") return "dark";
+  const [theme, setTheme] = useState<"dark" | "light">("dark");
+
+  useEffect(() => {
     const stored = localStorage.getItem("metatron_theme");
-    if (stored === "light" || stored === "dark") return stored;
-    return window.matchMedia("(prefers-color-scheme: light)").matches
-      ? "light"
-      : "dark";
-  });
+    if (stored === "light" || stored === "dark") {
+      setTheme(stored);
+    } else if (window.matchMedia("(prefers-color-scheme: light)").matches) {
+      setTheme("light");
+    }
+  }, []);
   const [token, setToken] = useState<string | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -136,24 +138,16 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
         {/* Desktop nav links — hidden on mobile */}
         <div className="ml-6 hidden min-w-0 items-center gap-x-6 md:flex">
-          <Link href="/founders" className={navLinkClass}>
-            Founder
-          </Link>
-          <Link href="/connectors" className={navLinkClass}>
-            Connector
-          </Link>
-          <Link href="/investors" className={navLinkClass}>
-            Investor
-          </Link>
           {loggedIn && (
-            <Link href="/pricing" className={navLinkClass}>
-              Pricing
-            </Link>
+            <>
+              <Link href="/founders" className={navLinkClass}>Founder</Link>
+              <Link href="/connectors" className={navLinkClass}>Connector</Link>
+              <Link href="/investors" className={navLinkClass}>Investor</Link>
+              <Link href="/pricing" className={navLinkClass}>Pricing</Link>
+            </>
           )}
           {isAdmin && (
-            <Link href="/admin/users" className={navLinkClass}>
-              Admin
-            </Link>
+            <Link href="/admin/users" className={navLinkClass}>Admin</Link>
           )}
         </div>
 

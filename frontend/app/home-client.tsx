@@ -172,38 +172,6 @@ function LandingPage() {
 
   return (
     <div>
-      {/* ── Hero ─────────────────────────────────────────────────────────── */}
-      <section className="flex min-h-[calc(100vh-72px)] flex-col items-center justify-center px-5 py-20 text-center">
-        <p className="mb-4 font-mono text-[11px] uppercase tracking-[4px] text-metatron-accent">
-          Kevin · AI matchmaker
-        </p>
-        <h1 className="mx-auto mb-5 max-w-[720px] text-[36px] font-bold leading-[1.15] tracking-tight text-[var(--text)] md:text-[52px]">
-          The intelligence layer between founders and capital
-        </h1>
-        <p className="mx-auto mb-10 max-w-[540px] text-[16px] leading-relaxed text-[var(--text-muted)]">
-          Kevin uses AI to match founders with aligned investors and facilitate
-          warm introductions — across emerging markets and globally.
-        </p>
-        <div className="flex flex-wrap items-center justify-center gap-3">
-          <Link
-            href="/login"
-            className="rounded-[12px] border border-[var(--border)] px-7 py-3 text-sm font-semibold text-[var(--text)] transition-colors hover:border-metatron-accent/30"
-          >
-            Sign in
-          </Link>
-          <button
-            type="button"
-            onClick={() => {
-              const el = document.getElementById("roles");
-              el?.scrollIntoView({ behavior: "smooth" });
-            }}
-            className="rounded-[12px] bg-metatron-accent px-7 py-3 text-sm font-semibold text-white transition-colors hover:bg-metatron-accent-hover"
-          >
-            Get started →
-          </button>
-        </div>
-      </section>
-
       {/* ── Role sections ────────────────────────────────────────────────── */}
       <section id="roles" className="mx-auto max-w-5xl px-5 pb-24">
         <p className="mb-2 text-center font-mono text-[10px] uppercase tracking-[4px] text-[var(--text-muted)]">

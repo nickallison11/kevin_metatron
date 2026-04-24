@@ -176,11 +176,11 @@ function LandingPage() {
         className="pointer-events-none absolute inset-0 -z-10 opacity-90"
         style={{
           background:
-            "radial-gradient(ellipse 80% 50% at 50% 40%, rgba(108,92,231,0.18), transparent 55%)",
+            "radial-gradient(ellipse 80% 40% at 50% calc(8% + 250px), rgba(108,92,231,0.22), transparent 60%)",
         }}
       />
       {/* ── Role sections ────────────────────────────────────────────────── */}
-      <section id="roles" className="mx-auto max-w-5xl px-5 pt-[200px] pb-24">
+      <section id="roles" className="mx-auto max-w-5xl px-5 pt-[180px] pb-24">
         <p className="mb-2 text-center font-mono text-[10px] uppercase tracking-[4px] text-[var(--text-muted)]">
           Built for every participant
         </p>

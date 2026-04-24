@@ -163,10 +163,11 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const loggedIn = Boolean(token);
 
   return (
-    <div className="relative min-h-screen overflow-hidden">
+    <>
       <div className="grid-bg" aria-hidden />
       <div className="orb" aria-hidden />
 
+      <div className="relative min-h-screen">
       <nav className="nav-metatron">
         {/* Logo */}
         <Link href="/" className="flex shrink-0 items-center gap-2.5">
@@ -360,6 +361,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
       <div className="relative z-[1] min-h-[calc(100vh-72px)]">
         {children}
       </div>
-    </div>
+      </div>
+    </>
   );
 }

@@ -180,7 +180,7 @@ function LandingPage() {
         }}
       />
       {/* ── Role sections ────────────────────────────────────────────────── */}
-      <section id="roles" className="mx-auto max-w-5xl px-5 pt-16 pb-24">
+      <section id="roles" className="mx-auto max-w-5xl px-5 pt-[200px] pb-24">
         <p className="mb-2 text-center font-mono text-[10px] uppercase tracking-[4px] text-[var(--text-muted)]">
           Built for every participant
         </p>
@@ -292,7 +292,7 @@ function LandingPage() {
       </section>
 
       {/* ── Bottom CTA ───────────────────────────────────────────────────── */}
-      <section className="px-5 py-20 text-center">
+      <section className="px-5 pt-20 pb-[196px] text-center">
         <div className="mx-auto max-w-[560px]">
           <h2 className="mb-4 text-[28px] font-bold text-[var(--text)] md:text-[36px]">
             Ready to connect?

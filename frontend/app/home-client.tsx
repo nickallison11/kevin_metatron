@@ -180,7 +180,7 @@ function LandingPage() {
         }}
       />
       {/* ── Role sections ────────────────────────────────────────────────── */}
-      <section id="roles" className="mx-auto max-w-5xl px-5 pt-[180px] pb-24">
+      <section id="roles" className="mx-auto max-w-5xl px-5 pt-24 pb-24">
         <p className="mb-2 text-center font-mono text-[10px] uppercase tracking-[4px] text-[var(--text-muted)]">
           Built for every participant
         </p>

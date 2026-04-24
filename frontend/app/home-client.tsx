@@ -171,7 +171,14 @@ function LandingPage() {
   }
 
   return (
-    <div>
+    <div className="relative">
+      <div
+        className="pointer-events-none absolute inset-0 -z-10 opacity-90"
+        style={{
+          background:
+            "radial-gradient(ellipse 80% 50% at 50% 40%, rgba(108,92,231,0.18), transparent 55%)",
+        }}
+      />
       {/* ── Role sections ────────────────────────────────────────────────── */}
       <section id="roles" className="mx-auto max-w-5xl px-5 pt-16 pb-24">
         <p className="mb-2 text-center font-mono text-[10px] uppercase tracking-[4px] text-[var(--text-muted)]">

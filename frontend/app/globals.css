@@ -8,7 +8,7 @@
   --text: #e8e8ed;
   --text-muted: #8888a0;
   --accent: #6c5ce7;
-  --accent-glow: rgba(108, 92, 231, 0.35);
+  --accent-glow: rgba(108, 92, 231, 0.2);
   --border: rgba(255, 255, 255, 0.06);
   --radius: 12px;
 }
@@ -42,24 +42,15 @@ body {
 /* Purple orb glow */
 .orb {
   position: fixed;
-  width: 100vw;
-  height: 70vh;
-  top: 0;
-  left: 0;
-  background: radial-gradient(ellipse 80% 100% at 50% 0%, var(--accent-glow) 0%, transparent 70%);
+  width: 800px;
+  height: 800px;
+  top: -20vh;
+  left: 50%;
+  transform: translateX(-50%);
+  background: radial-gradient(circle, rgba(108, 92, 231, 0.12) 0%, transparent 70%);
+  border-radius: 50%;
   z-index: 0;
   pointer-events: none;
-  animation: orbPulse 8s ease-in-out infinite;
-}
-
-@keyframes orbPulse {
-  0%,
-  100% {
-    opacity: 0.6;
-  }
-  50% {
-    opacity: 0.85;
-  }
 }
 
 /* Sticky nav */

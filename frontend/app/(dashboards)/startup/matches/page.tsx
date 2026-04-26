@@ -268,7 +268,7 @@ export default function StartupMatchesPage() {
                             {m.score}%
                           </span>
                         </td>
-                        <td className="py-2">
+                        <td className="py-2 pr-4">
                           {m.intro_requested_at ? (
                             <span className="text-xs text-[var(--text-muted)]">Sent</span>
                           ) : (
@@ -279,7 +279,7 @@ export default function StartupMatchesPage() {
                                 void requestIntro(m.id);
                               }}
                               disabled={introBusy === m.id}
-                              className="px-3 py-1 bg-[#6c5ce7] text-white rounded-lg text-xs font-medium hover:bg-[#7d6ff0] disabled:opacity-50"
+                              className="px-3 py-1.5 bg-[#6c5ce7] text-white rounded-lg text-xs font-medium hover:bg-[#7d6ff0] disabled:opacity-50 whitespace-nowrap"
                             >
                               {introBusy === m.id ? "…" : "Request intro"}
                             </button>

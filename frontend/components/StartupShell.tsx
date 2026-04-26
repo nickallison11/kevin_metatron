@@ -8,11 +8,13 @@ import { useAuth } from "@/lib/auth";
 const FREE_NAV = [
   { href: "/startup", label: "Dashboard" },
   { href: "/startup/pitches", label: "Pitch data" },
+  { href: "/startup/matches", label: "Investor Matches" },
 ];
 
 const PRO_NAV = [
   { href: "/startup", label: "Dashboard" },
   { href: "/startup/pitches", label: "Pitch data" },
+  { href: "/startup/matches", label: "Investor Matches" },
   { href: "/startup/calls", label: "Call Intelligence" },
   { href: "/startup/profile", label: "Profile Settings" },
 ];

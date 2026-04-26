@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { API_BASE, authJsonHeaders } from "@/lib/api";
 
 type Conversation = {
@@ -29,6 +29,12 @@ type ChatPane = {
   input: string;
   sending: boolean;
 };
+
+function renderMarkdown(text: string): React.ReactNode[] {
+  return text.split(/\*\*(.+?)\*\*/g).map((part, i) =>
+    i % 2 === 1 ? <strong key={i}>{part}</strong> : (part as React.ReactNode)
+  );
+}
 
 function ChatPanel({
   pane,
@@ -136,7 +142,7 @@ function ChatPanel({
                   : "bg-[rgba(255,255,255,0.06)] text-[var(--text)]"
               }`}
             >
-              {m.body}
+              {renderMarkdown(m.body)}
             </div>
           </div>
         ))}

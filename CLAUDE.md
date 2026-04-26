@@ -174,3 +174,71 @@ Crossmint was evaluated for fiat-to-USDC checkout and embedded wallet creation. 
 ## White Paper
 
 A metatron white paper rewrite (from V1.3) is pending, targeting institutional partners, crypto-native investors, traditional investors, and founders.
+
+## Subscription Architecture
+
+### Columns on `users` table
+- `subscription_plan` — plan level: `'free'` | `'basic'` | `'pro'`
+- `subscription_tier` — billing period: `'monthly'` | `'annual'` (NOT the plan level)
+- `is_basic` — boolean, true when plan='basic' AND subscription active. Managed by `sync_is_basic` trigger.
+- `is_pro` — boolean, true when plan='pro' AND subscription active. Managed by `sync_is_pro` trigger.
+- **IMPORTANT:** `is_pro` is NOT true for basic subscribers. Basic subscribers have `is_basic=true`, `is_pro=false`.
+- The `/subscriptions/status` endpoint returns `subscription_plan` aliased as `subscription_tier` so the frontend reads the plan level, not the billing period.
+
+### Tier Feature Matrix (applies to ALL roles — founders, investors, connectors)
+
+| Feature | Free | Basic | Pro |
+|---|---|---|---|
+| Kevin messages/day | 20 (shared all channels) | 200 (shared all channels) | Unlimited |
+| Kevin matches/week | 1 | 10 | Unlimited (0 in env = unlimited) |
+| Match cache refresh | 7 days | 6 hours | 6 hours |
+| Pitch deck | External URL only | Permanent public IPFS | Permanent private IPFS |
+| Deck re-uploads | 1 (14-day pin) | Unlimited | Unlimited |
+| Call Intelligence | No | Yes | Yes |
+| Angel Score detail | Summary only | Full breakdown | Full breakdown |
+
+### Match Limits — Critical Rules
+- Match limits apply to **ALL roles equally** — founders AND investors see the same limits
+- Limits are configured via env vars: `FOUNDER_FREE_MATCH_LIMIT`, `FOUNDER_BASIC_MATCH_LIMIT`, `FOUNDER_PRO_MATCH_LIMIT`
+- `FOUNDER_PRO_MATCH_LIMIT=0` means unlimited (maps to `i64::MAX` in Rust)
+- Both `get_matches` and `generate_matches` handlers use `is_basic`/`is_pro` from `users` table for ALL roles (not role-specific queries)
+- Cache interval: `is_basic || is_pro_user` → 6 hours; else → 7 days
+
+### Kevin Daily Limits
+- Single counter per `user_id + usage_date` in `kevin_daily_usage` table
+- All channels (platform, email, Telegram, WhatsApp) draw from the same pool
+- Limit function: `kevin_daily_limit(is_pro, subscription_tier)` in `backend/src/routes/kevin.rs`
+
+### Pitch Deck Expiry
+- Free decks: 14-day Pinata pin. Emails sent at day 7 and day 13. After day 14, `pitch_deck_expires_at` is past.
+- **Do NOT unpin from Pinata** — IPFS is public network, unpinning only removes from our account. Just hide the URL.
+- Expired deck URL is hidden from investors by a CASE expression in SQL (returns NULL if expired).
+- This CASE is applied in: `deals.rs`, `connections.rs`, `kevin_matches.rs`
+- Deduplication flags: `deck_7day_email_sent`, `deck_1day_email_sent`, `deck_expired_email_sent` on `pitches` table
+
+### Payment Providers
+- **Paystack** — fiat/ZAR recurring subscriptions
+- **NowPayments** — crypto (USDC/USDT) payments
+- Sphere Pay: dropped. Do not reference.
+- When any subscription activates, set `subscription_plan = 'basic'` (Basic tier). Pro tier is future.
+
+## CSS & Light Mode Rules
+
+- **Always use CSS variables** for colours: `var(--text)`, `var(--bg-card)`, `var(--border)`, `var(--text-muted)`
+- **Never hardcode hex values** in component styles — they break in light mode
+- Tailwind `metatron-accent`, `metatron-accent-hover` tokens are dark-mode only — OK for interactive elements (buttons, badges) but not for text/backgrounds
+- `grid-bg` class: **always `display: none`** — never re-enable
+- `.orb` glow: 800px, `top: -20vh`, `rgba(108,92,231,0.12)`, fixed position — do not animate
+- Landing page inline glow: `radial-gradient(ellipse 80% 40% at 50% calc(8% + 250px), rgba(108,92,231,0.22), transparent 60%)`
+
+## Architect Rules (Claude workflow)
+
+- Claude is **architect and planner only** — all code edits go through Cursor
+- Always read the current file before writing Cursor instructions — never rely on memory alone
+- Always confirm the plan with Nick before taking any action
+- Only change exactly what was asked — never add unrequested changes
+- All shell commands must be single line (zsh executes line-by-line on paste)
+- Always end responses with Mac push + KVM2 deploy commands
+- Nick edits `.env` files directly with nano — never suggest echo/sed for env vars
+- Never create `.env.example`
+- Always build/test on Solana devnet; mainnet only at production deployment

@@ -394,11 +394,52 @@ export default function MessagingWidget({ token }: { token: string | null }) {
               <div className="min-w-0 flex-1">
                 <div className="flex items-center justify-between gap-2">
                   <p className="text-sm font-semibold text-[#6c5ce7]">Kevin AI</p>
-                  {(kevinConv?.unread_count ?? 0) > 0 && (
-                    <span className="shrink-0 rounded-full bg-[#6c5ce7] px-1.5 py-0.5 text-[10px] font-bold text-white">
-                      {kevinConv!.unread_count}
-                    </span>
-                  )}
+                  <div className="flex items-center gap-1 shrink-0">
+                    {(kevinConv?.unread_count ?? 0) > 0 && (
+                      <span className="rounded-full bg-[#6c5ce7] px-1.5 py-0.5 text-[10px] font-bold text-white">
+                        {kevinConv!.unread_count}
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      title="New Kevin chat"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setPanes((prev) => {
+                          const filtered = prev.filter((p) => p.type !== "kevin");
+                          const next = filtered.length >= 2 ? filtered.slice(1) : filtered;
+                          return [
+                            ...next,
+                            {
+                              id: `kevin-new-${Date.now()}`,
+                              type: "kevin",
+                              name: "Kevin AI",
+                              messages: [],
+                              input: "",
+                              sending: false,
+                            },
+                          ];
+                        });
+                        setListOpen(false);
+                      }}
+                      className="rounded p-1 text-[var(--text-muted)] hover:text-[#6c5ce7] hover:bg-[rgba(108,92,231,0.12)] transition-colors"
+                    >
+                      <svg
+                        width="13"
+                        height="13"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden
+                      >
+                        <path d="M12 20h9" />
+                        <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                      </svg>
+                    </button>
+                  </div>
                 </div>
                 <p className="text-xs text-[var(--text-muted)] truncate">
                   {kevinConv?.last_message ?? "Your AI co-pilot"}

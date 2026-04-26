@@ -155,7 +155,7 @@ async fn list_conversations(
 
     let rows: Vec<Row> = sqlx::query_as(
         "SELECT c.id, c.type, c.last_message_at, cp.unread_count, \
-         COALESCE(u.name, split_part(u.email, '@', 1)) as other_name, \
+         u.email as other_name, \
          lm.body as last_message \
          FROM conversations c \
          JOIN conversation_participants cp ON cp.conversation_id = c.id AND cp.user_id = $1 \
@@ -387,7 +387,7 @@ async fn send_direct_message(
     .ok();
 
     let sender_name: Option<String> =
-        sqlx::query_scalar("SELECT COALESCE(name, split_part(email, '@', 1)) FROM users WHERE id = $1")
+        sqlx::query_scalar("SELECT email FROM users WHERE id = $1")
             .bind(user_id)
             .fetch_optional(&state.db)
             .await

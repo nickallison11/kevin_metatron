@@ -402,7 +402,7 @@ export default function MessagingWidget({ token }: { token: string | null }) {
             setListOpen((o) => !o);
             if (!listOpen) void loadConversations();
           }}
-          className="flex w-full items-center justify-between rounded-t-xl border-x border-t border-[var(--border)] bg-[var(--bg-card)] px-4 py-3 transition-colors hover:bg-[rgba(255,255,255,0.02)]"
+          className="flex w-full items-center justify-between rounded-t-xl border-x border-t border-[var(--border)] bg-[var(--bg-card)] px-4 py-3 transition-colors hover:bg-[#1e1e2a]"
         >
           <div className="flex items-center gap-2">
             <svg
@@ -424,7 +424,21 @@ export default function MessagingWidget({ token }: { token: string | null }) {
               </span>
             )}
           </div>
-          <span className="text-[10px] text-[var(--text-muted)]">{listOpen ? "▾" : "▴"}</span>
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="text-[var(--text-muted)] transition-transform duration-200"
+            style={{ transform: listOpen ? "rotate(180deg)" : "none" }}
+            aria-hidden
+          >
+            <polyline points="18 15 12 9 6 15" />
+          </svg>
         </button>
       </div>
     </div>

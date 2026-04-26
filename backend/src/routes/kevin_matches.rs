@@ -115,22 +115,28 @@ async fn get_matches(
     TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
 ) -> Result<Json<Vec<KevinMatch>>, (StatusCode, String)> {
     let user = require_user(&state, bearer.token()).await?;
-    let is_paid: bool = if user.role.as_str() == "STARTUP" {
-        sqlx::query_scalar::<_, bool>("SELECT COALESCE(is_pro, false) FROM users WHERE id = $1")
-            .bind(user.id)
-            .fetch_one(&state.db)
-            .await
-            .unwrap_or(false)
-    } else {
-        sqlx::query_scalar::<_, bool>(
-            "SELECT COALESCE(investor_tier = 'basic', false) FROM investor_profiles WHERE user_id = $1",
+    let (is_basic, is_pro_user): (bool, bool) = if user.role.as_str() == "STARTUP" {
+        sqlx::query_as::<_, (bool, bool)>(
+            "SELECT COALESCE(is_basic, false), COALESCE(is_pro, false) FROM users WHERE id = $1",
         )
         .bind(user.id)
         .fetch_one(&state.db)
         .await
-        .unwrap_or(false)
+        .unwrap_or((false, false))
+    } else {
+        (false, false)
     };
-    let match_limit: i64 = if is_paid { 5 } else { 1 };
+    let match_limit: i64 = if is_pro_user {
+        if state.match_limit_pro == 0 {
+            i64::MAX
+        } else {
+            state.match_limit_pro
+        }
+    } else if is_basic {
+        state.match_limit_basic
+    } else {
+        state.match_limit_free
+    };
     let rows = fetch_kevin_matches_for_user(&state, user.id, None, match_limit).await?;
     Ok(Json(rows))
 }
@@ -151,26 +157,29 @@ async fn generate_matches(
 ) -> Result<Json<Vec<KevinMatch>>, (StatusCode, String)> {
     let user = require_user(&state, bearer.token()).await?;
 
-    // Determine tier: check is_pro flag for founders, investor_tier for investors
-    let is_paid: bool = if user.role.as_str() == "STARTUP" {
-        sqlx::query_scalar::<_, bool>("SELECT COALESCE(is_pro, false) FROM users WHERE id = $1")
-            .bind(user.id)
-            .fetch_one(&state.db)
-            .await
-            .unwrap_or(false)
-    } else {
-        sqlx::query_scalar::<_, bool>(
-            "SELECT COALESCE(investor_tier = 'basic', false) FROM investor_profiles WHERE user_id = $1",
+    let (is_basic, is_pro_user): (bool, bool) = if user.role.as_str() == "STARTUP" {
+        sqlx::query_as::<_, (bool, bool)>(
+            "SELECT COALESCE(is_basic, false), COALESCE(is_pro, false) FROM users WHERE id = $1",
         )
         .bind(user.id)
         .fetch_one(&state.db)
         .await
-        .unwrap_or(false)
+        .unwrap_or((false, false))
+    } else {
+        (false, false)
     };
-
-    // Free: 1 match, weekly refresh. Paid: 5 matches, 6-hour refresh.
-    let match_limit: i64 = if is_paid { 5 } else { 1 };
-    let cache_interval = if is_paid { "6 hours" } else { "7 days" };
+    let match_limit: i64 = if is_pro_user {
+        if state.match_limit_pro == 0 {
+            i64::MAX
+        } else {
+            state.match_limit_pro
+        }
+    } else if is_basic {
+        state.match_limit_basic
+    } else {
+        state.match_limit_free
+    };
+    let cache_interval = if is_basic || is_pro_user { "6 hours" } else { "7 days" };
 
     let fresh_count: i64 = sqlx::query_scalar(
         &format!("SELECT COUNT(*)::bigint FROM kevin_matches WHERE for_user_id = $1 AND generated_at > NOW() - INTERVAL '{cache_interval}'"),

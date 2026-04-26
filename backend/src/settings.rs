@@ -58,6 +58,9 @@ pub struct Settings {
     pub pinata_group_free: Option<String>,
     pub pinata_group_basic: Option<String>,
     pub pinata_group_pro: Option<String>,
+    pub match_limit_free: i64,
+    pub match_limit_basic: i64,
+    pub match_limit_pro: i64,
 }
 
 impl Settings {
@@ -228,6 +231,19 @@ impl Settings {
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty());
 
+        let match_limit_free = env::var("FOUNDER_FREE_MATCH_LIMIT")
+            .ok()
+            .and_then(|s| s.trim().parse::<i64>().ok())
+            .unwrap_or(1);
+        let match_limit_basic = env::var("FOUNDER_BASIC_MATCH_LIMIT")
+            .ok()
+            .and_then(|s| s.trim().parse::<i64>().ok())
+            .unwrap_or(10);
+        let match_limit_pro = env::var("FOUNDER_PRO_MATCH_LIMIT")
+            .ok()
+            .and_then(|s| s.trim().parse::<i64>().ok())
+            .unwrap_or(0);
+
         Ok(Self {
             database_url,
             port,
@@ -282,6 +298,9 @@ impl Settings {
             pinata_group_free,
             pinata_group_basic,
             pinata_group_pro,
+            match_limit_free,
+            match_limit_basic,
+            match_limit_pro,
         })
     }
 }

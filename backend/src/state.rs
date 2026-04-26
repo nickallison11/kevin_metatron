@@ -54,6 +54,9 @@ pub struct AppState {
     pub pinata_group_free: Option<String>,
     pub pinata_group_basic: Option<String>,
     pub pinata_group_pro: Option<String>,
+    pub match_limit_free: i64,
+    pub match_limit_basic: i64,
+    pub match_limit_pro: i64,
     pub http_client: Client,
 }
 
@@ -130,6 +133,9 @@ impl AppState {
             pinata_group_free: settings.pinata_group_free.clone(),
             pinata_group_basic: settings.pinata_group_basic.clone(),
             pinata_group_pro: settings.pinata_group_pro.clone(),
+            match_limit_free: settings.match_limit_free,
+            match_limit_basic: settings.match_limit_basic,
+            match_limit_pro: settings.match_limit_pro,
             http_client,
         }))
     }

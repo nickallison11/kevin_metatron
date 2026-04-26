@@ -213,6 +213,12 @@ export default function MessagingWidget({ token }: { token: string | null }) {
     return () => clearInterval(iv);
   }, [listOpen, token, loadConversations]);
 
+  // Load conversations on mount so Kevin history is ready immediately
+  useEffect(() => {
+    if (!token) return;
+    void loadConversations();
+  }, [token, loadConversations]);
+
   useEffect(() => {
     function handler(e: Event) {
       const { userId, name } = (e as CustomEvent<{ userId: string; name: string }>).detail;
@@ -254,7 +260,23 @@ export default function MessagingWidget({ token }: { token: string | null }) {
       setListOpen(false);
       return;
     }
-    const kevinConv = conversations.find((c) => c.type === "kevin");
+
+    let kevinConv = conversations.find((c) => c.type === "kevin");
+
+    // If not loaded yet, fetch directly
+    if (!kevinConv && token) {
+      try {
+        const res = await fetch(`${API_BASE}/messages/conversations`, {
+          headers: authJsonHeaders(token),
+        });
+        if (res.ok) {
+          const fresh: Conversation[] = await res.json();
+          setConversations(fresh);
+          kevinConv = fresh.find((c) => c.type === "kevin");
+        }
+      } catch {}
+    }
+
     const messages = kevinConv ? await fetchMessages(kevinConv.id) : [];
     setPanes((prev) => {
       const next = prev.length >= 2 ? prev.slice(1) : prev;

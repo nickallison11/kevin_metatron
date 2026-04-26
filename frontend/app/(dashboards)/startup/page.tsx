@@ -19,7 +19,7 @@ export default function StartupDashboardPage() {
         </p>
         <h1 className="text-lg font-semibold">Founder overview</h1>
       </header>
-      <section className="max-w-4xl space-y-4 p-6 md:p-10">
+      <section className="space-y-4 p-6 md:p-10">
         <AngelScoreCard token={token} />
         <KevinMatchFeed token={token} role="founder" />
         <StartupKevinChatCard token={token} />

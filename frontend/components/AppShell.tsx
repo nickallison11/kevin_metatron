@@ -6,6 +6,7 @@ import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 
 import { API_BASE } from "@/lib/api";
+import MessagingWidget from "@/components/MessagingWidget";
 
 const LOGO_URL = "/metatron-logo.png";
 
@@ -362,6 +363,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
         {children}
       </div>
       </div>
+      {loggedIn && <MessagingWidget token={token} />}
     </>
   );
 }

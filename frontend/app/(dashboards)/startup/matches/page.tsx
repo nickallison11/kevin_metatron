@@ -242,6 +242,25 @@ export default function StartupMatchesPage() {
                         {introBusy === m.id ? "Sending…" : "Request intro"}
                       </button>
                     )}
+                    {m.matched_user_id && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          window.dispatchEvent(
+                            new CustomEvent("metatron:open-chat", {
+                              detail: {
+                                userId: m.matched_user_id!,
+                                name: m.firm_name ?? "Investor",
+                              },
+                            })
+                          );
+                        }}
+                        className="mt-2 w-full rounded-lg border border-[var(--border)] py-1.5 text-xs text-[var(--text-muted)] hover:border-[rgba(108,92,231,0.4)] hover:text-[#6c5ce7] transition-colors"
+                      >
+                        Message
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>
@@ -292,21 +311,42 @@ export default function StartupMatchesPage() {
                           </span>
                         </td>
                         <td className="py-2 pr-4">
-                          {m.intro_requested_at ? (
-                            <span className="text-xs text-[var(--text-muted)]">Sent</span>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                void requestIntro(m.id);
-                              }}
-                              disabled={introBusy === m.id}
-                              className="px-3 py-1.5 bg-[#6c5ce7] text-white rounded-lg text-xs font-medium hover:bg-[#7d6ff0] disabled:opacity-50 whitespace-nowrap"
-                            >
-                              {introBusy === m.id ? "…" : "Request intro"}
-                            </button>
-                          )}
+                          <div className="flex items-center gap-2 whitespace-nowrap">
+                            {m.intro_requested_at ? (
+                              <span className="text-xs text-[var(--text-muted)]">Sent</span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  void requestIntro(m.id);
+                                }}
+                                disabled={introBusy === m.id}
+                                className="px-3 py-1.5 bg-[#6c5ce7] text-white rounded-lg text-xs font-medium hover:bg-[#7d6ff0] disabled:opacity-50"
+                              >
+                                {introBusy === m.id ? "…" : "Request intro"}
+                              </button>
+                            )}
+                            {m.matched_user_id && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  window.dispatchEvent(
+                                    new CustomEvent("metatron:open-chat", {
+                                      detail: {
+                                        userId: m.matched_user_id!,
+                                        name: m.firm_name ?? "Investor",
+                                      },
+                                    })
+                                  );
+                                }}
+                                className="px-3 py-1.5 border border-[var(--border)] text-[var(--text-muted)] rounded-lg text-xs hover:border-[rgba(108,92,231,0.4)] hover:text-[#6c5ce7] transition-colors"
+                              >
+                                Message
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))}

@@ -42,6 +42,7 @@ pub fn build_app(_settings: &Settings, state: Arc<AppState>) -> Router {
         .nest("/calls", routes::calls::router())
         .nest("/deals", routes::deals::router())
         .nest("/investment-memos", routes::investment_memos::router())
+        .nest("/messages", routes::messages::router())
         .layer(cors)
         .layer(DefaultBodyLimit::max(55 * 1024 * 1024))
         .with_state(state)

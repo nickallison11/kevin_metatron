@@ -115,17 +115,14 @@ async fn get_matches(
     TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
 ) -> Result<Json<Vec<KevinMatch>>, (StatusCode, String)> {
     let user = require_user(&state, bearer.token()).await?;
-    let (is_basic, is_pro_user): (bool, bool) = if user.role.as_str() == "STARTUP" {
+    let (is_basic, is_pro_user): (bool, bool) =
         sqlx::query_as::<_, (bool, bool)>(
             "SELECT COALESCE(is_basic, false), COALESCE(is_pro, false) FROM users WHERE id = $1",
         )
         .bind(user.id)
         .fetch_one(&state.db)
         .await
-        .unwrap_or((false, false))
-    } else {
-        (false, false)
-    };
+        .unwrap_or((false, false));
     let match_limit: i64 = if is_pro_user {
         if state.match_limit_pro == 0 {
             i64::MAX
@@ -157,17 +154,14 @@ async fn generate_matches(
 ) -> Result<Json<Vec<KevinMatch>>, (StatusCode, String)> {
     let user = require_user(&state, bearer.token()).await?;
 
-    let (is_basic, is_pro_user): (bool, bool) = if user.role.as_str() == "STARTUP" {
+    let (is_basic, is_pro_user): (bool, bool) =
         sqlx::query_as::<_, (bool, bool)>(
             "SELECT COALESCE(is_basic, false), COALESCE(is_pro, false) FROM users WHERE id = $1",
         )
         .bind(user.id)
         .fetch_one(&state.db)
         .await
-        .unwrap_or((false, false))
-    } else {
-        (false, false)
-    };
+        .unwrap_or((false, false));
     let match_limit: i64 = if is_pro_user {
         if state.match_limit_pro == 0 {
             i64::MAX

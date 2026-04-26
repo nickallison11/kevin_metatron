@@ -32,6 +32,7 @@ export default function StartupMatchesPage() {
   const [view, setView] = useState<"list" | "card">("list");
   const [page, setPage] = useState(1);
   const [viewingMatch, setViewingMatch] = useState<KevinMatch | null>(null);
+  const [tab, setTab] = useState<"pending" | "sent">("pending");
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -60,8 +61,9 @@ export default function StartupMatchesPage() {
   const pending = useMemo(() => matches.filter((m) => !m.intro_requested_at), [matches]);
   const requested = useMemo(() => matches.filter((m) => m.intro_requested_at), [matches]);
   const allMatches = useMemo(() => [...pending, ...requested], [pending, requested]);
-  const totalPages = Math.max(1, Math.ceil(allMatches.length / PAGE_SIZE));
-  const paginated = allMatches.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const activeMatches = useMemo(() => (tab === "pending" ? pending : requested), [tab, pending, requested]);
+  const totalPages = Math.max(1, Math.ceil(activeMatches.length / PAGE_SIZE));
+  const paginated = activeMatches.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   async function requestIntro(matchId: string) {
     if (!token) return;
@@ -105,7 +107,7 @@ export default function StartupMatchesPage() {
   return (
     <main className="flex-1 text-[var(--text)]">
       <div className="space-y-6 px-6 py-6 md:px-10">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-2xl font-semibold text-[var(--text)]">Kevin's Investor Matches</h1>
             <p className="text-sm text-[var(--text-muted)] mt-1">
@@ -113,24 +115,45 @@ export default function StartupMatchesPage() {
               · refreshes weekly
             </p>
           </div>
-          <div className="flex items-center gap-2">
-            {(["list", "card"] as const).map((v) => (
-              <button
-                key={v}
-                type="button"
-                onClick={() => {
-                  setView(v);
-                  setPage(1);
-                }}
-                className={`px-3 py-1 rounded-lg text-xs ${
-                  view === v
-                    ? "bg-[rgba(108,92,231,0.2)] text-[#6c5ce7]"
-                    : "text-[var(--text-muted)] hover:text-[var(--text)]"
-                }`}
-              >
-                {v === "card" ? "Cards" : "List"}
-              </button>
-            ))}
+          <div className="flex items-center gap-3">
+            <div className="flex gap-1">
+              {(["pending", "sent"] as const).map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => {
+                    setTab(t);
+                    setPage(1);
+                  }}
+                  className={`px-3 py-1 rounded-lg text-xs font-medium ${
+                    tab === t
+                      ? "bg-[rgba(108,92,231,0.2)] text-[#6c5ce7]"
+                      : "text-[var(--text-muted)] hover:text-[var(--text)]"
+                  }`}
+                >
+                  {t === "pending" ? "Pending" : "Sent"}
+                </button>
+              ))}
+            </div>
+            <div className="flex items-center gap-2">
+              {(["list", "card"] as const).map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  onClick={() => {
+                    setView(v);
+                    setPage(1);
+                  }}
+                  className={`px-3 py-1 rounded-lg text-xs ${
+                    view === v
+                      ? "bg-[rgba(108,92,231,0.2)] text-[#6c5ce7]"
+                      : "text-[var(--text-muted)] hover:text-[var(--text)]"
+                  }`}
+                >
+                  {v === "card" ? "Cards" : "List"}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
@@ -152,7 +175,7 @@ export default function StartupMatchesPage() {
           </div>
         )}
 
-        {allMatches.length > 0 && (
+        {activeMatches.length > 0 && (
           <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-5">
             {view === "card" ? (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -295,8 +318,8 @@ export default function StartupMatchesPage() {
             {totalPages > 1 && (
               <div className="flex items-center justify-between mt-4 text-xs text-[var(--text-muted)]">
                 <span>
-                  Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, allMatches.length)} of{" "}
-                  {allMatches.length}
+                  Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, activeMatches.length)} of{" "}
+                  {activeMatches.length}
                 </span>
                 <div className="flex gap-2">
                   <button
@@ -321,12 +344,20 @@ export default function StartupMatchesPage() {
           </div>
         )}
 
-        {pending.length === 0 && requested.length > 0 && (
+        {tab === "pending" && pending.length === 0 && requested.length > 0 && (
           <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-5 text-center">
             <p className="text-sm font-semibold text-[var(--text)] mb-1">
               You've reached out to all your matches this week
             </p>
             <p className="text-xs text-[var(--text-muted)]">Your next batch of matches drops in 7 days.</p>
+          </div>
+        )}
+
+        {tab === "sent" && requested.length === 0 && (
+          <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-6 text-center">
+            <p className="text-sm text-[var(--text-muted)]">
+              No introductions sent yet. Request your first intro from the Pending tab.
+            </p>
           </div>
         )}
       </div>

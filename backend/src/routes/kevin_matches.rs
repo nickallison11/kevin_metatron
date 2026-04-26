@@ -552,7 +552,11 @@ async fn request_intro(
         Option<String>,
         Option<String>,
     )> = sqlx::query_as(
-        "SELECT company_name, one_liner, stage, sector, pitch_deck_url FROM profiles WHERE user_id = $1",
+        r#"SELECT p.company_name, p.one_liner, p.stage, p.sector,
+            CASE WHEN u.is_basic = TRUE OR u.is_pro = TRUE OR p.deck_expires_at IS NULL OR p.deck_expires_at > NOW() THEN p.pitch_deck_url ELSE NULL END AS pitch_deck_url
+           FROM profiles p
+           JOIN users u ON u.id = p.user_id
+           WHERE p.user_id = $1"#,
     )
     .bind(user.id)
     .fetch_optional(&state.db)

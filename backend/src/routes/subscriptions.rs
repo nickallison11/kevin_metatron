@@ -375,7 +375,7 @@ async fn get_status(
     ) = sqlx::query_as(
         r#"
         SELECT
-            subscription_tier,
+            subscription_plan AS subscription_tier,
             subscription_status,
             subscription_period_end::text,
             cancel_at_period_end

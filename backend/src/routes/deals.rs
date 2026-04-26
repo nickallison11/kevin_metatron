@@ -70,7 +70,8 @@ async fn list_startups(
 
     let mut startups = sqlx::query_as::<_, StartupCard>(
         r#"
-        SELECT p.user_id, p.company_name, p.one_liner, p.stage, p.sector, p.pitch_deck_url
+        SELECT p.user_id, p.company_name, p.one_liner, p.stage, p.sector,
+          CASE WHEN u.is_basic = TRUE OR u.is_pro = TRUE OR p.deck_expires_at IS NULL OR p.deck_expires_at > NOW() THEN p.pitch_deck_url ELSE NULL END AS pitch_deck_url
         FROM profiles p
         INNER JOIN users u ON u.id = p.user_id
         WHERE u.role = 'STARTUP'

@@ -122,7 +122,7 @@ async fn list_following_founders(
             p.stage,
             p.sector,
             p.country::text AS country,
-            p.pitch_deck_url
+            CASE WHEN u.is_basic = TRUE OR u.is_pro = TRUE OR p.deck_expires_at IS NULL OR p.deck_expires_at > NOW() THEN p.pitch_deck_url ELSE NULL END AS pitch_deck_url
         FROM connections c
         INNER JOIN profiles p ON p.user_id = c.to_user_id
         INNER JOIN users u ON u.id = p.user_id AND u.role = 'STARTUP'

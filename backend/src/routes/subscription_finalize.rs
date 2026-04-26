@@ -44,6 +44,7 @@ pub async fn finalize_pro_subscription(
             UPDATE users
             SET pending_payment_nonce = NULL,
                 subscription_tier = 'monthly',
+                subscription_plan = 'basic',
                 subscription_status = 'active',
                 cancel_at_period_end = FALSE,
                 subscription_period_end = GREATEST(NOW(), COALESCE(subscription_period_end, NOW())) + INTERVAL '30 days'
@@ -68,6 +69,7 @@ pub async fn finalize_pro_subscription(
             UPDATE users
             SET pending_payment_nonce = NULL,
                 subscription_tier = 'annual',
+                subscription_plan = 'basic',
                 subscription_status = 'active',
                 cancel_at_period_end = FALSE,
                 subscription_period_end = GREATEST(NOW(), COALESCE(subscription_period_end, NOW())) + INTERVAL '365 days'

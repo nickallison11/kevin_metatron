@@ -63,8 +63,7 @@ const FETCH_SQL: &str = r#"
     LEFT JOIN profiles p ON p.user_id = km.matched_user_id
     LEFT JOIN angel_scores a ON a.founder_user_id = km.matched_user_id
     WHERE km.for_user_id = $1
-    ORDER BY km.score DESC, km.generated_at DESC
-    LIMIT $2
+    ORDER BY (km.intro_requested_at IS NOT NULL), km.score DESC, km.generated_at DESC
 "#;
 
 const FETCH_TYPED_SQL: &str = r#"
@@ -82,27 +81,23 @@ const FETCH_TYPED_SQL: &str = r#"
     LEFT JOIN profiles p ON p.user_id = km.matched_user_id
     LEFT JOIN angel_scores a ON a.founder_user_id = km.matched_user_id
     WHERE km.for_user_id = $1 AND km.match_type = $2
-    ORDER BY km.score DESC, km.generated_at DESC
-    LIMIT $3
+    ORDER BY (km.intro_requested_at IS NOT NULL), km.score DESC, km.generated_at DESC
 "#;
 
 async fn fetch_kevin_matches_for_user(
     state: &AppState,
     user_id: Uuid,
     match_type: Option<&str>,
-    limit: i64,
 ) -> Result<Vec<KevinMatch>, (StatusCode, String)> {
     let rows = if let Some(mt) = match_type {
         sqlx::query_as::<_, KevinMatch>(FETCH_TYPED_SQL)
             .bind(user_id)
             .bind(mt)
-            .bind(limit)
             .fetch_all(&state.db)
             .await
     } else {
         sqlx::query_as::<_, KevinMatch>(FETCH_SQL)
             .bind(user_id)
-            .bind(limit)
             .fetch_all(&state.db)
             .await
     }
@@ -115,26 +110,7 @@ async fn get_matches(
     TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
 ) -> Result<Json<Vec<KevinMatch>>, (StatusCode, String)> {
     let user = require_user(&state, bearer.token()).await?;
-    let (is_basic, is_pro_user): (bool, bool) =
-        sqlx::query_as::<_, (bool, bool)>(
-            "SELECT COALESCE(is_basic, false), COALESCE(is_pro, false) FROM users WHERE id = $1",
-        )
-        .bind(user.id)
-        .fetch_one(&state.db)
-        .await
-        .unwrap_or((false, false));
-    let match_limit: i64 = if is_pro_user {
-        if state.match_limit_pro == 0 {
-            i64::MAX
-        } else {
-            state.match_limit_pro
-        }
-    } else if is_basic {
-        state.match_limit_basic
-    } else {
-        state.match_limit_free
-    };
-    let rows = fetch_kevin_matches_for_user(&state, user.id, None, match_limit).await?;
+    let rows = fetch_kevin_matches_for_user(&state, user.id, None).await?;
     Ok(Json(rows))
 }
 
@@ -173,7 +149,7 @@ async fn generate_matches(
     } else {
         state.match_limit_free
     };
-    let cache_interval = if is_basic || is_pro_user { "6 hours" } else { "7 days" };
+    let cache_interval = "7 days";
 
     let fresh_count: i64 = sqlx::query_scalar(
         &format!("SELECT COUNT(*)::bigint FROM kevin_matches WHERE for_user_id = $1 AND generated_at > NOW() - INTERVAL '{cache_interval}'"),
@@ -183,7 +159,7 @@ async fn generate_matches(
     .await
     .unwrap_or(0);
     if fresh_count > 0 {
-        let rows = fetch_kevin_matches_for_user(&state, user.id, None, match_limit).await?;
+        let rows = fetch_kevin_matches_for_user(&state, user.id, None).await?;
         return Ok(Json(rows));
     }
 
@@ -236,10 +212,15 @@ async fn generate_matches(
                  JOIN users u ON u.id = ip.user_id
                  WHERE (ip.sectors IS NULL OR ip.sectors = '{}'::text[] OR $1::text IS NULL OR $1 = ANY(ip.sectors))
                    AND (ip.stages IS NULL OR ip.stages = '{}'::text[] OR $2::text IS NULL OR $2 = ANY(ip.stages))
-                 ORDER BY RANDOM() LIMIT 20"#,
+                   AND ip.user_id NOT IN (
+                     SELECT matched_user_id FROM kevin_matches
+                     WHERE for_user_id = $3 AND matched_user_id IS NOT NULL
+                   )
+                 ORDER BY RANDOM() LIMIT 30"#,
         )
         .bind(&sector)
         .bind(&stage)
+        .bind(user.id)
         .fetch_all(&state.db)
         .await
         .map_err(internal)?;
@@ -259,8 +240,13 @@ async fn generate_matches(
             r#"SELECT id, name, firm_or_company, one_liner, sector_focus, stage_focus, geography
                  FROM connector_network_contacts
                  WHERE role = 'investor' AND is_archived = false
-                 ORDER BY RANDOM() LIMIT 30"#,
+                   AND id NOT IN (
+                     SELECT contact_id FROM kevin_matches
+                     WHERE for_user_id = $1 AND contact_id IS NOT NULL
+                   )
+                 ORDER BY RANDOM() LIMIT 40"#,
         )
+        .bind(user.id)
         .fetch_all(&state.db)
         .await
         .map_err(internal)?;
@@ -397,7 +383,7 @@ For each candidate, return:
 Return ONLY a valid JSON array, no markdown, no code fences:
 [{{"id":"...","score":0,"reasoning":"..."}}]
 
-Return the top 5 matches only, ranked by score descending."#
+Return the top {match_limit} matches only, ranked by score descending."#
     );
 
     let url = format!(
@@ -435,14 +421,6 @@ Return the top 5 matches only, ranked by score descending."#
         clean
     };
     let ranked: Vec<Value> = serde_json::from_str(json_str).unwrap_or_default();
-
-    // Only delete matches where no intro has been requested — preserve actioned rows
-    sqlx::query("DELETE FROM kevin_matches WHERE for_user_id = $1 AND match_type = $2 AND intro_requested_at IS NULL")
-        .bind(user.id)
-        .bind(match_type)
-        .execute(&state.db)
-        .await
-        .map_err(internal)?;
 
     for item in &ranked {
         let id_str = item["id"].as_str().unwrap_or("");
@@ -500,7 +478,7 @@ Return the top 5 matches only, ranked by score descending."#
         }
     }
 
-    let rows = fetch_kevin_matches_for_user(&state, user.id, Some(match_type), match_limit).await?;
+    let rows = fetch_kevin_matches_for_user(&state, user.id, Some(match_type)).await?;
     Ok(Json(rows))
 }
 

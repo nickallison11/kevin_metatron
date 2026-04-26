@@ -1,67 +1,55 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
-import { API_BASE, authHeaders, authJsonHeaders } from "@/lib/api";
+import { API_BASE, authJsonHeaders } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
-type MatchItem = {
-  investor_user_id: string;
-  firm_name?: string | null;
-  bio?: string | null;
-  investment_thesis?: string | null;
-  ticket_size_min?: number | null;
-  ticket_size_max?: number | null;
-  sectors?: string[] | null;
-  stages?: string[] | null;
-  week_limit: number;
-  matches_used: number;
-  week_resets_at: string;
+type KevinMatch = {
+  id: string;
+  matched_user_id: string | null;
+  match_type: string;
+  score: number;
+  reasoning: string | null;
+  generated_at: string;
+  firm_name: string | null;
+  company_name: string | null;
+  one_liner: string | null;
+  stage: string | null;
+  sector: string | null;
+  country: string | null;
+  angel_score: number | null;
+  intro_requested_at: string | null;
 };
 
-function formatResetBadge(isoDate: string) {
-  const d = new Date(isoDate + "T12:00:00Z");
-  return d.toLocaleDateString("en-GB", {
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-  });
-}
-
-function formatTicketRange(min?: number | null, max?: number | null) {
-  if (min == null && max == null) return null;
-  const fmt = (n: number) =>
-    n >= 1_000_000
-      ? `$${(n / 1_000_000).toFixed(1)}M`
-      : n >= 1_000
-        ? `$${(n / 1_000).toFixed(0)}k`
-        : `$${n}`;
-  if (min != null && max != null) return `${fmt(min)} – ${fmt(max)}`;
-  if (min != null) return `${fmt(min)}+`;
-  if (max != null) return `Up to ${fmt(max)}`;
-  return null;
-}
+const PAGE_SIZE = 10;
 
 export default function StartupMatchesPage() {
-  const { token, isPro, loading } = useAuth();
-  const [matches, setMatches] = useState<MatchItem[]>([]);
+  const { token, loading } = useAuth();
+  const [matches, setMatches] = useState<KevinMatch[]>([]);
+  const [fetching, setFetching] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [introBusy, setIntroBusy] = useState<string | null>(null);
+  const [view, setView] = useState<"list" | "card">("list");
+  const [page, setPage] = useState(1);
+  const [viewingMatch, setViewingMatch] = useState<KevinMatch | null>(null);
 
   const load = useCallback(async () => {
     if (!token) return;
+    setFetching(true);
     try {
-      const res = await fetch(`${API_BASE}/startup/matches`, {
-        headers: authHeaders(token),
+      const res = await fetch(`${API_BASE}/kevin-matches`, {
+        method: "POST",
+        headers: authJsonHeaders(token),
       });
       if (!res.ok) {
         setMsg("Could not load matches.");
         return;
       }
-      const data = (await res.json()) as { matches: MatchItem[] };
-      setMatches(data.matches ?? []);
+      setMatches(await res.json());
     } catch {
       setMsg("Could not load matches.");
+    } finally {
+      setFetching(false);
     }
   }, [token]);
 
@@ -69,40 +57,35 @@ export default function StartupMatchesPage() {
     if (!loading && token) void load();
   }, [loading, token, load]);
 
-  const meta = matches[0];
-  const weekLimit = meta?.week_limit ?? 1;
-  const matchesUsed = meta?.matches_used ?? matches.length;
-  const weekResetsAt = meta?.week_resets_at ?? "";
+  const pending = useMemo(() => matches.filter((m) => !m.intro_requested_at), [matches]);
+  const requested = useMemo(() => matches.filter((m) => m.intro_requested_at), [matches]);
+  const allMatches = useMemo(() => [...pending, ...requested], [pending, requested]);
+  const totalPages = Math.max(1, Math.ceil(allMatches.length / PAGE_SIZE));
+  const paginated = allMatches.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
-  const visibleMatches = useMemo(() => {
-    if (isPro) return matches;
-    return matches.slice(0, 1);
-  }, [matches, isPro]);
-
-  const lockedMatches = useMemo(() => {
-    if (isPro) return [];
-    return matches.slice(1);
-  }, [matches, isPro]);
-
-  async function requestIntro(investorUserId: string) {
+  async function requestIntro(matchId: string) {
     if (!token) return;
-    setIntroBusy(investorUserId);
+    setIntroBusy(matchId);
     setMsg(null);
     try {
-      const res = await fetch(`${API_BASE}/introductions`, {
+      const res = await fetch(`${API_BASE}/kevin-matches/${matchId}/request-intro`, {
         method: "POST",
         headers: authJsonHeaders(token),
-        body: JSON.stringify({
-          investor_user_id: investorUserId,
-          note: "Request intro via Metatron.",
-        }),
       });
       if (!res.ok) {
         const t = await res.text();
         setMsg(t.trim() || "Request failed.");
         return;
       }
-      setMsg("Intro request sent.");
+      setMsg("Intro request sent!");
+      setMatches((prev) =>
+        prev.map((m) =>
+          m.id === matchId ? { ...m, intro_requested_at: new Date().toISOString() } : m
+        )
+      );
+      if (viewingMatch?.id === matchId) {
+        setViewingMatch((v) => (v ? { ...v, intro_requested_at: new Date().toISOString() } : v));
+      }
     } catch {
       setMsg("Request failed.");
     } finally {
@@ -113,138 +96,317 @@ export default function StartupMatchesPage() {
   if (loading) return null;
   if (!token) return null;
 
-  return (
-    <main className="flex-1">
-      <header className="border-b border-[var(--border)] px-6 py-4 md:px-10">
-        <p className="font-sans text-[11px] font-medium uppercase tracking-[2px] text-[var(--text-muted)] mb-1">
-          Founder
-        </p>
-        <h1 className="text-lg font-semibold">Investor matches</h1>
-        <p className="mt-1 text-sm text-[var(--text-muted)]">
-          Your matched investors refresh weekly
-        </p>
-      </header>
+  const scoreBadgeColor = (score: number) => {
+    if (score >= 85) return "bg-[rgba(0,200,100,0.12)] text-green-400";
+    if (score >= 70) return "bg-[rgba(108,92,231,0.15)] text-[#6c5ce7]";
+    return "bg-[rgba(255,255,255,0.06)] text-[var(--text-muted)]";
+  };
 
-      <section className="max-w-4xl space-y-6 p-6 md:p-10">
-        <div className="flex flex-wrap items-center gap-3">
-          <span className="inline-flex items-center rounded-full border border-[var(--border)] bg-[var(--bg-card)] px-3 py-1 font-sans text-xs text-[var(--text)]">
-            {matchesUsed} / {weekLimit} matches this week
-          </span>
-          {weekResetsAt && (
-            <span className="text-xs text-[var(--text-muted)]">
-              Resets {formatResetBadge(weekResetsAt)}
-            </span>
-          )}
+  return (
+    <main className="flex-1 text-[var(--text)]">
+      <div className="space-y-6 px-6 py-6 md:px-10">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold text-[var(--text)]">Kevin's Investor Matches</h1>
+            <p className="text-sm text-[var(--text-muted)] mt-1">
+              {pending.length} pending · {requested.length} intro{requested.length !== 1 ? "s" : ""} sent
+              · refreshes weekly
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            {(["list", "card"] as const).map((v) => (
+              <button
+                key={v}
+                type="button"
+                onClick={() => {
+                  setView(v);
+                  setPage(1);
+                }}
+                className={`px-3 py-1 rounded-lg text-xs ${
+                  view === v
+                    ? "bg-[rgba(108,92,231,0.2)] text-[#6c5ce7]"
+                    : "text-[var(--text-muted)] hover:text-[var(--text)]"
+                }`}
+              >
+                {v === "card" ? "Cards" : "List"}
+              </button>
+            ))}
+          </div>
         </div>
 
         {msg && (
-          <p className="text-xs text-[var(--text-muted)] border border-[var(--border)] rounded-[12px] px-3 py-2">
+          <p className="text-xs border border-[var(--border)] rounded-xl px-3 py-2 text-[var(--text-muted)]">
             {msg}
           </p>
         )}
 
-        <div className="grid gap-4 sm:grid-cols-2">
-          {visibleMatches.map((m) => (
-            <article
-              key={m.investor_user_id}
-              className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-4 flex flex-col gap-3"
-            >
-              <h2 className="text-sm font-semibold text-[var(--text)]">
-                {m.firm_name?.trim() || "Independent investor"}
-              </h2>
-              {m.investment_thesis && (
-                <p className="text-xs text-[var(--text-muted)] line-clamp-2 leading-relaxed">
-                  {m.investment_thesis}
-                </p>
-              )}
-              <div className="flex flex-wrap gap-1.5">
-                {(m.sectors ?? []).slice(0, 6).map((s) => (
-                  <span
-                    key={s}
-                    className="rounded border border-[var(--border)] px-2 py-0.5 font-sans text-[10px] uppercase tracking-wide text-[var(--text-muted)]"
+        {fetching && allMatches.length === 0 && (
+          <p className="text-sm text-[var(--text-muted)]">Kevin is finding your matches…</p>
+        )}
+
+        {!fetching && allMatches.length === 0 && (
+          <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-6 text-center">
+            <p className="text-sm text-[var(--text-muted)]">
+              No matches yet. Complete your profile (sector and stage) to get your first weekly batch.
+            </p>
+          </div>
+        )}
+
+        {allMatches.length > 0 && (
+          <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-5">
+            {view === "card" ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {paginated.map((m) => (
+                  <div
+                    key={m.id}
+                    onClick={() => setViewingMatch(m)}
+                    className={`rounded-xl p-4 cursor-pointer transition-colors border ${
+                      m.intro_requested_at
+                        ? "border-[var(--border)] bg-[var(--bg)] opacity-60"
+                        : "border-[var(--border)] bg-[var(--bg)] hover:bg-[var(--bg-card)] hover:border-[rgba(108,92,231,0.2)]"
+                    }`}
                   >
-                    {s}
-                  </span>
-                ))}
-                {(m.stages ?? []).slice(0, 4).map((s) => (
-                  <span
-                    key={`st-${s}`}
-                    className="rounded border border-metatron-accent/25 bg-metatron-accent/10 px-2 py-0.5 font-sans text-[10px] uppercase tracking-wide text-metatron-accent"
-                  >
-                    {s}
-                  </span>
+                    <div className="flex items-start justify-between gap-2 mb-2">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-[var(--text)] truncate">
+                          {m.firm_name ?? "Independent investor"}
+                        </p>
+                        {m.country && (
+                          <p className="text-xs text-[var(--text-muted)]">{m.country}</p>
+                        )}
+                      </div>
+                      <span
+                        className={`shrink-0 px-2 py-0.5 rounded text-xs font-medium ${scoreBadgeColor(
+                          m.score
+                        )}`}
+                      >
+                        {m.score}%
+                      </span>
+                    </div>
+                    {m.one_liner && (
+                      <p className="text-xs text-[var(--text-muted)] line-clamp-2 mb-2">{m.one_liner}</p>
+                    )}
+                    <dl className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs mb-3">
+                      {m.sector && (
+                        <div>
+                          <dt className="text-[10px] uppercase tracking-wide text-[var(--text-muted)]">
+                            Sector
+                          </dt>
+                          <dd className="text-[var(--text)] truncate">{m.sector}</dd>
+                        </div>
+                      )}
+                      {m.stage && (
+                        <div>
+                          <dt className="text-[10px] uppercase tracking-wide text-[var(--text-muted)]">
+                            Stage
+                          </dt>
+                          <dd className="text-[var(--text)]">{m.stage}</dd>
+                        </div>
+                      )}
+                    </dl>
+                    {m.intro_requested_at ? (
+                      <span className="text-xs text-[var(--text-muted)]">Intro sent</span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void requestIntro(m.id);
+                        }}
+                        disabled={introBusy === m.id}
+                        className="w-full rounded-lg bg-[#6c5ce7] py-2 text-sm font-semibold text-white hover:bg-[#7d6ff0] disabled:opacity-50"
+                      >
+                        {introBusy === m.id ? "Sending…" : "Request intro"}
+                      </button>
+                    )}
+                  </div>
                 ))}
               </div>
-              {formatTicketRange(m.ticket_size_min, m.ticket_size_max) && (
-                <p className="font-sans text-[11px] text-[var(--text-muted)]">
-                  {formatTicketRange(m.ticket_size_min, m.ticket_size_max)}
-                </p>
-              )}
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-[var(--text-muted)] text-xs border-b border-[var(--border)]">
+                      <th className="text-left pb-2 pr-3">Investor</th>
+                      <th className="text-left pb-2 pr-3">Sector</th>
+                      <th className="text-left pb-2 pr-3">Stage</th>
+                      <th className="text-left pb-2 pr-3">Location</th>
+                      <th className="text-left pb-2 pr-3">Fit</th>
+                      <th className="text-left pb-2" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {paginated.map((m) => (
+                      <tr
+                        key={m.id}
+                        onClick={() => setViewingMatch(m)}
+                        className={`border-b border-[rgba(255,255,255,0.03)] cursor-pointer transition-colors ${
+                          m.intro_requested_at ? "opacity-50" : "bg-[var(--bg)] hover:bg-[var(--bg-card)]"
+                        }`}
+                      >
+                        <td className="py-2 pr-3">
+                          <p className="text-[var(--text)] font-medium">
+                            {m.firm_name ?? "Independent investor"}
+                          </p>
+                          {m.one_liner && (
+                            <p className="text-[var(--text-muted)] text-xs truncate max-w-[200px]">
+                              {m.one_liner}
+                            </p>
+                          )}
+                        </td>
+                        <td className="py-2 pr-3 text-[var(--text-muted)] text-xs max-w-[120px] truncate">
+                          {m.sector ?? "—"}
+                        </td>
+                        <td className="py-2 pr-3 text-[var(--text-muted)] text-xs">{m.stage ?? "—"}</td>
+                        <td className="py-2 pr-3 text-[var(--text-muted)] text-xs">
+                          {m.country ?? "—"}
+                        </td>
+                        <td className="py-2 pr-3">
+                          <span
+                            className={`px-2 py-0.5 rounded text-xs font-medium ${scoreBadgeColor(m.score)}`}
+                          >
+                            {m.score}%
+                          </span>
+                        </td>
+                        <td className="py-2">
+                          {m.intro_requested_at ? (
+                            <span className="text-xs text-[var(--text-muted)]">Sent</span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                void requestIntro(m.id);
+                              }}
+                              disabled={introBusy === m.id}
+                              className="px-3 py-1 bg-[#6c5ce7] text-white rounded-lg text-xs font-medium hover:bg-[#7d6ff0] disabled:opacity-50"
+                            >
+                              {introBusy === m.id ? "…" : "Request intro"}
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between mt-4 text-xs text-[var(--text-muted)]">
+                <span>
+                  Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, allMatches.length)} of{" "}
+                  {allMatches.length}
+                </span>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    disabled={page === 1}
+                    className="px-3 py-1 bg-[rgba(255,255,255,0.06)] rounded-lg disabled:opacity-30"
+                  >
+                    Previous
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                    disabled={page === totalPages}
+                    className="px-3 py-1 bg-[rgba(255,255,255,0.06)] rounded-lg disabled:opacity-30"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {pending.length === 0 && requested.length > 0 && (
+          <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-5 text-center">
+            <p className="text-sm font-semibold text-[var(--text)] mb-1">
+              You've reached out to all your matches this week
+            </p>
+            <p className="text-xs text-[var(--text-muted)]">Your next batch of matches drops in 7 days.</p>
+          </div>
+        )}
+      </div>
+
+      {viewingMatch && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/60" onClick={() => setViewingMatch(null)} />
+          <div className="relative z-10 w-full max-w-lg max-h-[90vh] flex flex-col rounded-xl border border-[var(--border)] bg-[var(--bg-card)]">
+            <div className="flex items-start justify-between gap-3 border-b border-[var(--border)] px-5 py-4">
+              <div className="min-w-0">
+                <h2 className="text-xl font-semibold text-[var(--text)]">
+                  {viewingMatch.firm_name ?? "Independent investor"}
+                </h2>
+                {viewingMatch.country && (
+                  <p className="text-sm text-[var(--text-muted)] mt-0.5">{viewingMatch.country}</p>
+                )}
+                <span
+                  className={`mt-2 inline-block px-2 py-0.5 rounded text-xs font-medium ${scoreBadgeColor(
+                    viewingMatch.score
+                  )}`}
+                >
+                  {viewingMatch.score}% fit
+                </span>
+              </div>
               <button
                 type="button"
-                onClick={() => void requestIntro(m.investor_user_id)}
-                disabled={introBusy === m.investor_user_id}
-                className="mt-auto w-full rounded-lg bg-metatron-accent py-2.5 text-sm font-semibold text-white hover:bg-metatron-accent-hover transition-all disabled:opacity-60"
+                onClick={() => setViewingMatch(null)}
+                className="shrink-0 rounded-lg p-2 text-[var(--text-muted)] hover:bg-[rgba(255,255,255,0.06)] hover:text-[var(--text)]"
               >
-                {introBusy === m.investor_user_id
-                  ? "Sending…"
-                  : "Request intro"}
+                <span className="block text-xl leading-none">×</span>
               </button>
-            </article>
-          ))}
-        </div>
-
-        {!isPro && matches.length > 0 && (
-          <div className="relative rounded-[var(--radius)] border border-[var(--border)] overflow-hidden min-h-[200px]">
-            <div className="grid gap-4 sm:grid-cols-2 p-4 blur-sm pointer-events-none select-none opacity-60">
-              {(lockedMatches.length > 0
-                ? lockedMatches
-                : ([null, null] as const)
-              ).map((m, i) =>
-                m ? (
-                  <article
-                    key={m.investor_user_id}
-                    className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-4 h-40"
-                  />
-                ) : (
-                  <div
-                    key={`ph-${i}`}
-                    className="h-40 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)]"
-                  />
-                ),
-              )}
             </div>
-            <div className="absolute inset-0 flex items-center justify-center bg-[color-mix(in_srgb,var(--bg)_55%,transparent)] p-6">
-              <div className="max-w-sm rounded-[12px] border border-metatron-accent/30 bg-[var(--bg-card)] p-4 text-center">
-                <p className="text-sm font-semibold text-[var(--text)]">
-                  Upgrade to Founder Basic for 10 matches/week
-                </p>
-                <Link
-                  href="/pricing"
-                  className="mt-3 inline-block text-sm text-metatron-accent hover:underline"
-                >
-                  View pricing →
-                </Link>
+
+            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+              {viewingMatch.one_liner && (
+                <p className="text-sm italic text-[var(--text-muted)]">{viewingMatch.one_liner}</p>
+              )}
+              {viewingMatch.reasoning && (
+                <div>
+                  <p className="text-[10px] uppercase tracking-wide text-[var(--text-muted)] mb-1">
+                    Why Kevin matched you
+                  </p>
+                  <p className="text-sm text-[var(--text)] leading-relaxed">{viewingMatch.reasoning}</p>
+                </div>
+              )}
+              <div className="space-y-3 border-t border-[var(--border)] pt-4">
+                {(
+                  [
+                    ["Sector", viewingMatch.sector],
+                    ["Stage", viewingMatch.stage],
+                    ["Location", viewingMatch.country],
+                  ] as const
+                ).map(([label, val]) =>
+                  val ? (
+                    <div key={label}>
+                      <p className="text-[10px] uppercase tracking-wide text-[var(--text-muted)]">{label}</p>
+                      <p className="mt-0.5 text-sm text-[var(--text)]">{val}</p>
+                    </div>
+                  ) : null
+                )}
               </div>
             </div>
-          </div>
-        )}
 
-        {!isPro && matches.length === 0 && (
-          <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-6 text-center">
-            <p className="text-sm text-[var(--text-muted)] mb-3">
-              No matches yet this week. Complete your profile (sector and
-              stage) to get better matches.
-            </p>
-            <Link
-              href="/pricing"
-              className="text-sm text-metatron-accent font-semibold"
-            >
-              Upgrade for more weekly matches →
-            </Link>
+            <div className="shrink-0 border-t border-[var(--border)] px-5 py-3">
+              {viewingMatch.intro_requested_at ? (
+                <p className="text-sm text-[var(--text-muted)]">Intro already sent</p>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void requestIntro(viewingMatch.id)}
+                  disabled={introBusy === viewingMatch.id}
+                  className="w-full rounded-xl bg-[#6c5ce7] py-2.5 text-sm font-semibold text-white hover:bg-[#7d6ff0] disabled:opacity-50"
+                >
+                  {introBusy === viewingMatch.id ? "Sending…" : "Request intro →"}
+                </button>
+              )}
+            </div>
           </div>
-        )}
-      </section>
+        </div>
+      )}
     </main>
   );
 }

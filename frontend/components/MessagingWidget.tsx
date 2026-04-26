@@ -42,6 +42,7 @@ function ChatPanel({
   onSend: () => void;
 }) {
   const bottomRef = useRef<HTMLDivElement>(null);
+  const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -50,7 +51,7 @@ function ChatPanel({
   return (
     <div
       className="flex flex-col rounded-t-xl border-x border-t border-[var(--border)] bg-[var(--bg-card)]"
-      style={{ width: 320, height: 420 }}
+      style={{ width: expanded ? 560 : 320, height: expanded ? 600 : 420 }}
     >
       <div className="flex items-center justify-between border-b border-[var(--border)] px-3 py-2.5">
         <div className="flex items-center gap-2 min-w-0">
@@ -65,13 +66,57 @@ function ChatPanel({
           )}
           <span className="text-sm font-semibold text-[var(--text)] truncate">{pane.name}</span>
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="shrink-0 rounded p-1 text-lg leading-none text-[var(--text-muted)] hover:text-[var(--text)]"
-        >
-          ×
-        </button>
+        <div className="flex items-center gap-1 shrink-0">
+          <button
+            type="button"
+            onClick={() => setExpanded((e) => !e)}
+            title={expanded ? "Collapse" : "Expand"}
+            className="rounded p-1 text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"
+          >
+            {expanded ? (
+              <svg
+                width="13"
+                height="13"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+              >
+                <polyline points="4 14 10 14 10 20" />
+                <polyline points="20 10 14 10 14 4" />
+                <line x1="10" y1="14" x2="3" y2="21" />
+                <line x1="21" y1="3" x2="14" y2="10" />
+              </svg>
+            ) : (
+              <svg
+                width="13"
+                height="13"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+              >
+                <polyline points="15 3 21 3 21 9" />
+                <polyline points="9 21 3 21 3 15" />
+                <line x1="21" y1="3" x2="14" y2="10" />
+                <line x1="3" y1="21" x2="10" y2="14" />
+              </svg>
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded p-1 text-lg leading-none text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"
+          >
+            ×
+          </button>
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto p-3 space-y-2">

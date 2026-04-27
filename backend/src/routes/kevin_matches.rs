@@ -583,16 +583,30 @@ async fn generate_matches(
         .fetch_one(&state.db)
         .await
         .unwrap_or((false, false));
+    let role = user.role.as_str();
+    let (limit_free, limit_basic, limit_pro) = if role == "INVESTOR" {
+        (
+            state.investor_match_limit_free,
+            state.investor_match_limit_basic,
+            state.investor_match_limit_pro,
+        )
+    } else {
+        (
+            state.match_limit_free,
+            state.match_limit_basic,
+            state.match_limit_pro,
+        )
+    };
     let match_limit: i64 = if is_pro_user {
-        if state.match_limit_pro == 0 {
+        if limit_pro == 0 {
             i64::MAX
         } else {
-            state.match_limit_pro
+            limit_pro
         }
     } else if is_basic {
-        state.match_limit_basic
+        limit_basic
     } else {
-        state.match_limit_free
+        limit_free
     };
     let cache_interval = "7 days";
 
@@ -610,8 +624,6 @@ async fn generate_matches(
 
     let gemini_key = std::env::var("GEMINI_API_KEY")
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "GEMINI_API_KEY not set".to_string()))?;
-
-    let role = user.role.as_str();
 
     let (user_context, candidates_json, candidate_info, match_type) = if role == "STARTUP" {
         let profile: Option<(Option<String>, Option<String>, Option<String>, Option<String>)> =

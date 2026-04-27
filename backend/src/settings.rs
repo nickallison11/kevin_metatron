@@ -61,6 +61,9 @@ pub struct Settings {
     pub match_limit_free: i64,
     pub match_limit_basic: i64,
     pub match_limit_pro: i64,
+    pub investor_match_limit_free: i64,
+    pub investor_match_limit_basic: i64,
+    pub investor_match_limit_pro: i64,
 }
 
 impl Settings {
@@ -244,6 +247,19 @@ impl Settings {
             .and_then(|s| s.trim().parse::<i64>().ok())
             .unwrap_or(0);
 
+        let investor_match_limit_free = env::var("INVESTOR_FREE_MATCH_LIMIT")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(1);
+        let investor_match_limit_basic = env::var("INVESTOR_BASIC_MATCH_LIMIT")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(10);
+        let investor_match_limit_pro = env::var("INVESTOR_PRO_MATCH_LIMIT")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(0);
+
         Ok(Self {
             database_url,
             port,
@@ -301,6 +317,9 @@ impl Settings {
             match_limit_free,
             match_limit_basic,
             match_limit_pro,
+            investor_match_limit_free,
+            investor_match_limit_basic,
+            investor_match_limit_pro,
         })
     }
 }

@@ -57,6 +57,9 @@ pub struct AppState {
     pub match_limit_free: i64,
     pub match_limit_basic: i64,
     pub match_limit_pro: i64,
+    pub investor_match_limit_free: i64,
+    pub investor_match_limit_basic: i64,
+    pub investor_match_limit_pro: i64,
     pub http_client: Client,
 }
 
@@ -136,6 +139,9 @@ impl AppState {
             match_limit_free: settings.match_limit_free,
             match_limit_basic: settings.match_limit_basic,
             match_limit_pro: settings.match_limit_pro,
+            investor_match_limit_free: settings.investor_match_limit_free,
+            investor_match_limit_basic: settings.investor_match_limit_basic,
+            investor_match_limit_pro: settings.investor_match_limit_pro,
             http_client,
         }))
     }

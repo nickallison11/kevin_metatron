@@ -18,6 +18,7 @@ type InvestorProfile = {
   ticket_size_max?: number | null;
   country?: string | null;
   is_accredited?: boolean;
+  pass_message_template?: string | null;
 };
 
 export default function InvestorProfilePage() {
@@ -40,6 +41,7 @@ export default function InvestorProfilePage() {
   const [whatsappSaving, setWhatsappSaving] = useState(false);
   const [whatsappMsg, setWhatsappMsg] = useState<string | null>(null);
   const [unlinkingWhatsapp, setUnlinkingWhatsapp] = useState(false);
+  const [canEditTemplate, setCanEditTemplate] = useState(false);
 
   useEffect(() => {
     if (!token) return;
@@ -81,6 +83,16 @@ export default function InvestorProfilePage() {
         /* ignore */
       }
     })();
+  }, [token]);
+
+  useEffect(() => {
+    if (!token) return;
+    fetch(`${API_BASE}/subscriptions/status`, { headers: authJsonHeaders(token) })
+      .then((r) => r.json())
+      .then((d: { subscription_tier?: string }) => {
+        setCanEditTemplate(d.subscription_tier === "basic" || d.subscription_tier === "pro");
+      })
+      .catch(() => {});
   }, [token]);
 
   useEffect(() => {
@@ -234,6 +246,7 @@ export default function InvestorProfilePage() {
           ticket_size_max: p.ticket_size_max ?? null,
           country: p.country ?? null,
           is_accredited: p.is_accredited ?? false,
+          pass_message_template: p.pass_message_template ?? null,
         }),
       });
       if (!res.ok) throw new Error(await res.text());
@@ -397,6 +410,31 @@ export default function InvestorProfilePage() {
               />
               I confirm I am an accredited investor (jurisdiction-dependent)
             </label>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-xs text-[var(--text-muted)]">Pass message template</label>
+                {!canEditTemplate && (
+                  <span className="text-[10px] border border-metatron-accent/40 text-metatron-accent px-1.5 py-0.5 rounded uppercase tracking-wide">
+                    Basic
+                  </span>
+                )}
+              </div>
+              <textarea
+                className="input-metatron min-h-[100px] py-2.5 text-sm w-full disabled:opacity-40 disabled:cursor-not-allowed"
+                disabled={!canEditTemplate}
+                placeholder={`Thank you for sharing {company} with us. After careful review, this isn't the right fit for our current portfolio focus. We wish you the very best with your raise and hope our paths cross again.\n\n— {firm}`}
+                value={p.pass_message_template ?? ""}
+                onChange={(e) =>
+                  setP((x) => ({ ...x, pass_message_template: e.target.value }))
+                }
+              />
+              <p className="text-[11px] text-[var(--text-muted)]">
+                Use <code className="font-mono text-[10px]">{"{company}"}</code> and{" "}
+                <code className="font-mono text-[10px]">{"{firm}"}</code> as placeholders. Available on Basic and Pro
+                plans.
+              </p>
+            </div>
 
             {msg && (
               <p className="text-xs text-[var(--text-muted)]">{msg}</p>

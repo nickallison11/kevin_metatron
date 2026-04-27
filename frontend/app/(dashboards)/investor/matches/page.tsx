@@ -34,6 +34,10 @@ type ReceivedIntro = {
   country: string | null;
   angel_score: number | null;
   founder_email: string;
+  deck_url: string | null;
+  deck_viewed_at: string | null;
+  intro_accepted_at: string | null;
+  intro_passed_at: string | null;
 };
 
 const PAGE_SIZE = 10;
@@ -53,6 +57,7 @@ export default function InvestorMatchesPage() {
   const [page, setPage] = useState(1);
   const [viewingMatch, setViewingMatch] = useState<KevinMatch | null>(null);
   const [viewingIntro, setViewingIntro] = useState<ReceivedIntro | null>(null);
+  const [actionBusy, setActionBusy] = useState<string | null>(null);
 
   const loadMatches = useCallback(async () => {
     if (!token) return;
@@ -90,6 +95,61 @@ export default function InvestorMatchesPage() {
     void loadIntros();
     void loadMatches();
   }, [loading, token, loadIntros, loadMatches]);
+
+  async function viewDeck(r: ReceivedIntro) {
+    if (!token || !r.deck_url) return;
+    setActionBusy(r.id + "deck");
+    try {
+      const res = await fetch(`${API_BASE}/kevin-matches/${r.id}/view-deck`, {
+        method: "POST",
+        headers: authJsonHeaders(token),
+      });
+      if (res.ok) {
+        const ts = new Date().toISOString();
+        setIntros((prev) => prev.map((i) => (i.id === r.id ? { ...i, deck_viewed_at: ts } : i)));
+        setViewingIntro((prev) => (prev?.id === r.id ? { ...prev, deck_viewed_at: ts } : prev));
+      }
+    } finally {
+      setActionBusy(null);
+    }
+    window.open(r.deck_url, "_blank");
+  }
+
+  async function acceptIntro(r: ReceivedIntro) {
+    if (!token) return;
+    setActionBusy(r.id + "accept");
+    try {
+      const res = await fetch(`${API_BASE}/kevin-matches/${r.id}/accept-intro`, {
+        method: "POST",
+        headers: authJsonHeaders(token),
+      });
+      if (res.ok) {
+        const ts = new Date().toISOString();
+        setIntros((prev) => prev.map((i) => (i.id === r.id ? { ...i, intro_accepted_at: ts } : i)));
+        setViewingIntro((prev) => (prev?.id === r.id ? { ...prev, intro_accepted_at: ts } : prev));
+      }
+    } finally {
+      setActionBusy(null);
+    }
+  }
+
+  async function passIntro(r: ReceivedIntro) {
+    if (!token) return;
+    setActionBusy(r.id + "pass");
+    try {
+      const res = await fetch(`${API_BASE}/kevin-matches/${r.id}/pass-intro`, {
+        method: "POST",
+        headers: authJsonHeaders(token),
+      });
+      if (res.ok) {
+        const ts = new Date().toISOString();
+        setIntros((prev) => prev.map((i) => (i.id === r.id ? { ...i, intro_passed_at: ts } : i)));
+        setViewingIntro((prev) => (prev?.id === r.id ? { ...prev, intro_passed_at: ts } : prev));
+      }
+    } finally {
+      setActionBusy(null);
+    }
+  }
 
   const activeItems = tab === "intros" ? intros : matches;
   const totalPages = Math.max(1, Math.ceil(activeItems.length / PAGE_SIZE));
@@ -189,20 +249,53 @@ export default function InvestorMatchesPage() {
                         {new Date(r.intro_requested_at).toLocaleDateString()}
                       </td>
                       <td className="py-2.5">
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            window.dispatchEvent(
-                              new CustomEvent("metatron:open-chat", {
-                                detail: { userId: r.for_user_id, name: r.company_name ?? r.founder_email },
-                              })
-                            );
-                          }}
-                          className="px-3 py-1.5 border border-[var(--border)] text-[var(--text-muted)] rounded-lg text-xs hover:border-[rgba(108,92,231,0.4)] hover:text-[#6c5ce7] transition-colors whitespace-nowrap"
-                        >
-                          Message
-                        </button>
+                        {r.intro_accepted_at ? (
+                          <span className="px-2 py-0.5 rounded text-xs font-medium bg-[rgba(0,200,100,0.12)] text-green-400">
+                            Connected
+                          </span>
+                        ) : r.intro_passed_at ? (
+                          <span className="px-2 py-0.5 rounded text-xs font-medium bg-[rgba(255,255,255,0.06)] text-[var(--text-muted)]">
+                            Passed
+                          </span>
+                        ) : (
+                          <div className="flex items-center gap-1.5 whitespace-nowrap">
+                            {r.deck_url && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  void viewDeck(r);
+                                }}
+                                disabled={actionBusy === r.id + "deck"}
+                                className="px-2.5 py-1.5 border border-[var(--border)] text-[var(--text-muted)] rounded-lg text-xs hover:border-[rgba(108,92,231,0.4)] hover:text-[#6c5ce7] transition-colors disabled:opacity-50"
+                              >
+                                {r.deck_viewed_at ? "Deck ✓" : "View deck"}
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                void acceptIntro(r);
+                              }}
+                              disabled={actionBusy === r.id + "accept"}
+                              className="px-2.5 py-1.5 bg-[#6c5ce7] text-white rounded-lg text-xs font-medium hover:bg-[#7d6ff0] disabled:opacity-50"
+                            >
+                              {actionBusy === r.id + "accept" ? "…" : "I'm interested"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                void passIntro(r);
+                              }}
+                              disabled={actionBusy === r.id + "pass"}
+                              className="px-2.5 py-1.5 border border-[rgba(239,68,68,0.3)] text-[rgba(254,202,202,0.7)] rounded-lg text-xs hover:border-[rgba(239,68,68,0.5)] transition-colors disabled:opacity-50"
+                            >
+                              {actionBusy === r.id + "pass" ? "…" : "Pass"}
+                            </button>
+                          </div>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -386,23 +479,44 @@ export default function InvestorMatchesPage() {
               </div>
             </div>
             <div className="shrink-0 border-t border-[var(--border)] px-5 py-3">
-              <button
-                type="button"
-                onClick={() => {
-                  window.dispatchEvent(
-                    new CustomEvent("metatron:open-chat", {
-                      detail: {
-                        userId: viewingIntro.for_user_id,
-                        name: viewingIntro.company_name ?? viewingIntro.founder_email,
-                      },
-                    })
-                  );
-                  setViewingIntro(null);
-                }}
-                className="w-full rounded-xl bg-[#6c5ce7] py-2.5 text-sm font-semibold text-white hover:bg-[#7d6ff0]"
-              >
-                Message founder →
-              </button>
+              {viewingIntro.intro_accepted_at ? (
+                <span className="inline-flex w-full justify-center px-2 py-2 rounded-lg text-xs font-medium bg-[rgba(0,200,100,0.12)] text-green-400">
+                  Connected
+                </span>
+              ) : viewingIntro.intro_passed_at ? (
+                <span className="inline-flex w-full justify-center px-2 py-2 rounded-lg text-xs font-medium bg-[rgba(255,255,255,0.06)] text-[var(--text-muted)]">
+                  Passed
+                </span>
+              ) : (
+                <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                  {viewingIntro.deck_url && (
+                    <button
+                      type="button"
+                      onClick={() => void viewDeck(viewingIntro)}
+                      disabled={actionBusy === viewingIntro.id + "deck"}
+                      className="flex-1 min-w-[120px] px-2.5 py-2 border border-[var(--border)] text-[var(--text-muted)] rounded-lg text-xs hover:border-[rgba(108,92,231,0.4)] hover:text-[#6c5ce7] transition-colors disabled:opacity-50"
+                    >
+                      {viewingIntro.deck_viewed_at ? "Deck ✓" : "View deck"}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => void acceptIntro(viewingIntro)}
+                    disabled={actionBusy === viewingIntro.id + "accept"}
+                    className="flex-1 min-w-[120px] px-2.5 py-2 bg-[#6c5ce7] text-white rounded-lg text-xs font-medium hover:bg-[#7d6ff0] disabled:opacity-50"
+                  >
+                    {actionBusy === viewingIntro.id + "accept" ? "…" : "I'm interested"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void passIntro(viewingIntro)}
+                    disabled={actionBusy === viewingIntro.id + "pass"}
+                    className="flex-1 min-w-[120px] px-2.5 py-2 border border-[rgba(239,68,68,0.3)] text-[rgba(254,202,202,0.7)] rounded-lg text-xs hover:border-[rgba(239,68,68,0.5)] transition-colors disabled:opacity-50"
+                  >
+                    {actionBusy === viewingIntro.id + "pass" ? "…" : "Pass"}
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>

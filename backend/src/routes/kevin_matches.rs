@@ -23,6 +23,9 @@ pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/", get(get_matches).post(generate_matches))
         .route("/received-intros", get(get_received_intros))
+        .route("/:id/view-deck", post(view_deck))
+        .route("/:id/accept-intro", post(accept_intro))
+        .route("/:id/pass-intro", post(pass_intro))
         .route("/:id/request-intro", post(request_intro))
 }
 
@@ -58,6 +61,10 @@ pub struct ReceivedIntro {
     pub country: Option<String>,
     pub angel_score: Option<i32>,
     pub founder_email: String,
+    pub deck_url: Option<String>,
+    pub deck_viewed_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub intro_accepted_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub intro_passed_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 fn internal(e: impl std::fmt::Display) -> (StatusCode, String) {
@@ -144,7 +151,9 @@ async fn get_received_intros(
     let rows = sqlx::query_as::<_, ReceivedIntro>(
         r#"SELECT km.id, km.for_user_id, km.score, km.reasoning, km.intro_requested_at,
                     p.company_name, p.one_liner, p.stage, p.sector, p.country,
-                    a.score AS angel_score, u.email AS founder_email
+                    a.score AS angel_score, u.email AS founder_email,
+                    CASE WHEN u.is_basic OR u.is_pro OR p.deck_expires_at IS NULL OR p.deck_expires_at > NOW() THEN p.pitch_deck_url ELSE NULL END AS deck_url,
+                    km.deck_viewed_at, km.intro_accepted_at, km.intro_passed_at
              FROM kevin_matches km
              JOIN users u ON u.id = km.for_user_id
              LEFT JOIN profiles p ON p.user_id = km.for_user_id
@@ -155,7 +164,9 @@ async fn get_received_intros(
 
              SELECT km.id, km.for_user_id, km.score, km.reasoning, km.intro_requested_at,
                     p.company_name, p.one_liner, p.stage, p.sector, p.country,
-                    a.score AS angel_score, u.email AS founder_email
+                    a.score AS angel_score, u.email AS founder_email,
+                    CASE WHEN u.is_basic OR u.is_pro OR p.deck_expires_at IS NULL OR p.deck_expires_at > NOW() THEN p.pitch_deck_url ELSE NULL END AS deck_url,
+                    km.deck_viewed_at, km.intro_accepted_at, km.intro_passed_at
              FROM kevin_matches km
              JOIN connector_network_contacts cnc ON cnc.id = km.contact_id
              JOIN users u ON u.id = km.for_user_id
@@ -173,6 +184,396 @@ async fn get_received_intros(
     .await
     .map_err(internal)?;
     Ok(Json(rows))
+}
+
+const DEFAULT_PASS_TEMPLATE: &str = "Thank you for sharing {company} with us. After careful review, this isn't the right fit for our current portfolio focus. We wish you the very best with your raise and hope our paths cross again.\n\n— {firm}";
+
+async fn view_deck(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+    Path(match_id): Path<Uuid>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let user = require_user(&state, bearer.token()).await?;
+    let investor_email: String = sqlx::query_scalar("SELECT email FROM users WHERE id = $1")
+        .bind(user.id)
+        .fetch_one(&state.db)
+        .await
+        .map_err(internal)?;
+
+    let row: Option<(Uuid, Option<chrono::DateTime<chrono::Utc>>, Option<String>)> = sqlx::query_as(
+        r#"SELECT km.for_user_id, km.deck_viewed_at,
+                    CASE WHEN u.is_basic OR u.is_pro OR p.deck_expires_at IS NULL OR p.deck_expires_at > NOW() THEN p.pitch_deck_url ELSE NULL END AS deck_url
+             FROM kevin_matches km
+             JOIN users u ON u.id = km.for_user_id
+             LEFT JOIN profiles p ON p.user_id = km.for_user_id
+             WHERE km.id = $1
+               AND (km.matched_user_id = $2 OR EXISTS (
+                 SELECT 1 FROM connector_network_contacts cnc
+                 WHERE cnc.id = km.contact_id AND LOWER(cnc.email) = LOWER($3)
+               ))"#,
+    )
+    .bind(match_id)
+    .bind(user.id)
+    .bind(&investor_email)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(internal)?;
+
+    let (founder_id, deck_viewed_at, deck_url) =
+        row.ok_or((StatusCode::NOT_FOUND, "match not found".to_string()))?;
+
+    let firm_name: Option<String> = sqlx::query_scalar::<_, Option<String>>(
+        "SELECT firm_name FROM investor_profiles WHERE user_id = $1",
+    )
+    .bind(user.id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(internal)?
+    .flatten();
+    let investor_name = firm_name.unwrap_or_else(|| investor_email.clone());
+
+    if deck_viewed_at.is_none() {
+        sqlx::query("UPDATE kevin_matches SET deck_viewed_at = NOW() WHERE id = $1")
+            .bind(match_id)
+            .execute(&state.db)
+            .await
+            .map_err(internal)?;
+
+        let founder: Option<(String, Option<String>, Option<String>, Option<String>)> = sqlx::query_as(
+            "SELECT u.email, u.telegram_id, u.whatsapp_number, p.company_name FROM users u LEFT JOIN profiles p ON p.user_id = u.id WHERE u.id = $1",
+        )
+        .bind(founder_id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(internal)?;
+
+        if let Some((f_email, f_tg, f_wa, company_name)) = founder {
+            let company = company_name.unwrap_or_else(|| "your company".to_string());
+            let subject = format!("{} viewed your pitch deck", investor_name);
+            let html = format!(
+                "<p><strong>{}</strong> just viewed your pitch deck for <strong>{}</strong>.</p>\
+                 <p>They're actively reviewing your raise — keep up the momentum! If they're interested, you'll hear from them via metatron shortly.</p>",
+                investor_name, company
+            );
+            let msg = format!(
+                "👀 {} just viewed your pitch deck for {}! They're actively reviewing your raise — keep up the momentum!",
+                investor_name, company
+            );
+            email::send_email(
+                &state.http_client,
+                state.resend_api_key.as_deref(),
+                &state.email_from,
+                &f_email,
+                &subject,
+                &html,
+            )
+            .await;
+            if let (Some(tg), Some(bot)) = (f_tg.as_deref(), state.telegram_bot_token.as_deref()) {
+                let _ = state
+                    .http_client
+                    .post(format!("https://api.telegram.org/bot{bot}/sendMessage", bot = bot))
+                    .json(&serde_json::json!({"chat_id": tg, "text": msg}))
+                    .send()
+                    .await;
+            }
+            if let (Some(wa), Some(tok), Some(pid)) = (
+                f_wa.as_deref(),
+                state.whatsapp_access_token.as_deref(),
+                state.whatsapp_phone_number_id.as_deref(),
+            ) {
+                let _ = state
+                    .http_client
+                    .post(format!("https://graph.facebook.com/v18.0/{pid}/messages", pid = pid))
+                    .bearer_auth(tok)
+                    .json(&serde_json::json!({"messaging_product":"whatsapp","recipient_type":"individual","to":wa,"type":"text","text":{"body":msg}}))
+                    .send()
+                    .await;
+            }
+        }
+    }
+    Ok(Json(serde_json::json!({"ok": true, "deck_url": deck_url})))
+}
+
+async fn accept_intro(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+    Path(match_id): Path<Uuid>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let user = require_user(&state, bearer.token()).await?;
+    let investor_email: String = sqlx::query_scalar("SELECT email FROM users WHERE id = $1")
+        .bind(user.id)
+        .fetch_one(&state.db)
+        .await
+        .map_err(internal)?;
+
+    let row: Option<(
+        Uuid,
+        Option<chrono::DateTime<chrono::Utc>>,
+        Option<chrono::DateTime<chrono::Utc>>,
+    )> = sqlx::query_as(
+        r#"SELECT km.for_user_id, km.intro_accepted_at, km.intro_passed_at
+             FROM kevin_matches km
+             WHERE km.id = $1
+               AND (km.matched_user_id = $2 OR EXISTS (
+                 SELECT 1 FROM connector_network_contacts cnc
+                 WHERE cnc.id = km.contact_id AND LOWER(cnc.email) = LOWER($3)
+               ))"#,
+    )
+    .bind(match_id)
+    .bind(user.id)
+    .bind(&investor_email)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(internal)?;
+
+    let (founder_id, intro_accepted_at, intro_passed_at) =
+        row.ok_or((StatusCode::NOT_FOUND, "match not found".to_string()))?;
+    if intro_accepted_at.is_some() {
+        return Err((StatusCode::CONFLICT, "already accepted".to_string()));
+    }
+    if intro_passed_at.is_some() {
+        return Err((StatusCode::CONFLICT, "already passed".to_string()));
+    }
+
+    sqlx::query("UPDATE kevin_matches SET intro_accepted_at = NOW() WHERE id = $1")
+        .bind(match_id)
+        .execute(&state.db)
+        .await
+        .map_err(internal)?;
+
+    let firm_name: Option<String> = sqlx::query_scalar::<_, Option<String>>(
+        "SELECT firm_name FROM investor_profiles WHERE user_id = $1",
+    )
+    .bind(user.id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(internal)?
+    .flatten();
+    let investor_name = firm_name.unwrap_or_else(|| investor_email.clone());
+
+    let investor_notif: Option<(Option<String>, Option<String>)> = sqlx::query_as(
+        "SELECT telegram_id, whatsapp_number FROM users WHERE id = $1",
+    )
+    .bind(user.id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(internal)?;
+    let (inv_tg, inv_wa) = investor_notif.unwrap_or((None, None));
+
+    let founder: Option<(String, Option<String>, Option<String>, Option<String>, Option<String>)> =
+        sqlx::query_as(
+            r#"SELECT u.email, u.telegram_id, u.whatsapp_number, p.company_name,
+                    CASE WHEN u.is_basic OR u.is_pro OR p.deck_expires_at IS NULL OR p.deck_expires_at > NOW() THEN p.pitch_deck_url ELSE NULL END
+             FROM users u LEFT JOIN profiles p ON p.user_id = u.id WHERE u.id = $1"#,
+        )
+        .bind(founder_id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(internal)?;
+
+    if let Some((f_email, f_tg, f_wa, company_name, deck_url)) = founder {
+        let company = company_name.unwrap_or_else(|| "your company".to_string());
+
+        let f_subject = format!("{} is interested in {}!", investor_name, company);
+        let f_html = format!(
+            "<p>🎉 <strong>{}</strong> has reviewed your pitch and wants to connect.</p>\
+             <p><strong>Reach them at:</strong> {}</p>\
+             <p>They'll be in touch to set up a call. Keep building! 🚀</p>",
+            investor_name, investor_email
+        );
+        let f_msg = format!(
+            "🎉 {} wants to connect with {}! Reach them at: {}\n\nThey'll be in touch to arrange a call.",
+            investor_name, company, investor_email
+        );
+        email::send_email(
+            &state.http_client,
+            state.resend_api_key.as_deref(),
+            &state.email_from,
+            &f_email,
+            &f_subject,
+            &f_html,
+        )
+        .await;
+        if let (Some(tg), Some(bot)) = (f_tg.as_deref(), state.telegram_bot_token.as_deref()) {
+            let _ = state
+                .http_client
+                .post(format!("https://api.telegram.org/bot{bot}/sendMessage", bot = bot))
+                .json(&serde_json::json!({"chat_id": tg, "text": f_msg}))
+                .send()
+                .await;
+        }
+        if let (Some(wa), Some(tok), Some(pid)) = (
+            f_wa.as_deref(),
+            state.whatsapp_access_token.as_deref(),
+            state.whatsapp_phone_number_id.as_deref(),
+        ) {
+            let _ = state
+                .http_client
+                .post(format!("https://graph.facebook.com/v18.0/{pid}/messages", pid = pid))
+                .bearer_auth(tok)
+                .json(&serde_json::json!({"messaging_product":"whatsapp","recipient_type":"individual","to":wa,"type":"text","text":{"body":f_msg}}))
+                .send()
+                .await;
+        }
+
+        let deck_line = deck_url
+            .as_deref()
+            .map(|u| format!("<br>Deck: <a href=\"{}\">View pitch deck</a>", u))
+            .unwrap_or_default();
+        let deck_msg = deck_url
+            .as_deref()
+            .map(|u| format!("\nDeck: {}", u))
+            .unwrap_or_default();
+        let inv_subject = format!("You're connected with {}", company);
+        let inv_html = format!(
+            "<p>You expressed interest in <strong>{}</strong> via metatron.</p>\
+             <p><strong>Founder contact:</strong> {}{}</p>\
+             <p>Good luck with the conversation!</p>",
+            company, f_email, deck_line
+        );
+        let inv_msg = format!(
+            "✅ You're now connected with {}!\n\nFounder email: {}{}\n\nGood luck!",
+            company, f_email, deck_msg
+        );
+        email::send_email(
+            &state.http_client,
+            state.resend_api_key.as_deref(),
+            &state.email_from,
+            &investor_email,
+            &inv_subject,
+            &inv_html,
+        )
+        .await;
+        if let (Some(tg), Some(bot)) = (inv_tg.as_deref(), state.telegram_bot_token.as_deref()) {
+            let _ = state
+                .http_client
+                .post(format!("https://api.telegram.org/bot{bot}/sendMessage", bot = bot))
+                .json(&serde_json::json!({"chat_id": tg, "text": inv_msg}))
+                .send()
+                .await;
+        }
+        if let (Some(wa), Some(tok), Some(pid)) = (
+            inv_wa.as_deref(),
+            state.whatsapp_access_token.as_deref(),
+            state.whatsapp_phone_number_id.as_deref(),
+        ) {
+            let _ = state
+                .http_client
+                .post(format!("https://graph.facebook.com/v18.0/{pid}/messages", pid = pid))
+                .bearer_auth(tok)
+                .json(&serde_json::json!({"messaging_product":"whatsapp","recipient_type":"individual","to":wa,"type":"text","text":{"body":inv_msg}}))
+                .send()
+                .await;
+        }
+    }
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
+async fn pass_intro(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+    Path(match_id): Path<Uuid>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let user = require_user(&state, bearer.token()).await?;
+    let investor_email: String = sqlx::query_scalar("SELECT email FROM users WHERE id = $1")
+        .bind(user.id)
+        .fetch_one(&state.db)
+        .await
+        .map_err(internal)?;
+
+    let row: Option<(
+        Uuid,
+        Option<chrono::DateTime<chrono::Utc>>,
+        Option<chrono::DateTime<chrono::Utc>>,
+    )> = sqlx::query_as(
+        r#"SELECT km.for_user_id, km.intro_accepted_at, km.intro_passed_at
+             FROM kevin_matches km
+             WHERE km.id = $1
+               AND (km.matched_user_id = $2 OR EXISTS (
+                 SELECT 1 FROM connector_network_contacts cnc
+                 WHERE cnc.id = km.contact_id AND LOWER(cnc.email) = LOWER($3)
+               ))"#,
+    )
+    .bind(match_id)
+    .bind(user.id)
+    .bind(&investor_email)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(internal)?;
+
+    let (founder_id, intro_accepted_at, intro_passed_at) =
+        row.ok_or((StatusCode::NOT_FOUND, "match not found".to_string()))?;
+    if intro_accepted_at.is_some() {
+        return Err((StatusCode::CONFLICT, "already accepted".to_string()));
+    }
+    if intro_passed_at.is_some() {
+        return Err((StatusCode::CONFLICT, "already passed".to_string()));
+    }
+
+    let profile: Option<(Option<String>, Option<String>)> = sqlx::query_as(
+        "SELECT firm_name, pass_message_template FROM investor_profiles WHERE user_id = $1",
+    )
+    .bind(user.id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(internal)?;
+    let (firm_name, template_opt) = profile.unwrap_or((None, None));
+    let investor_name = firm_name.unwrap_or_else(|| investor_email.clone());
+
+    sqlx::query("UPDATE kevin_matches SET intro_passed_at = NOW() WHERE id = $1")
+        .bind(match_id)
+        .execute(&state.db)
+        .await
+        .map_err(internal)?;
+
+    let founder: Option<(String, Option<String>, Option<String>, Option<String>)> = sqlx::query_as(
+        "SELECT u.email, u.telegram_id, u.whatsapp_number, p.company_name FROM users u LEFT JOIN profiles p ON p.user_id = u.id WHERE u.id = $1",
+    )
+    .bind(founder_id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(internal)?;
+
+    if let Some((f_email, f_tg, f_wa, company_name)) = founder {
+        let company = company_name.unwrap_or_else(|| "your company".to_string());
+        let template = template_opt.as_deref().unwrap_or(DEFAULT_PASS_TEMPLATE);
+        let pass_msg = template
+            .replace("{company}", &company)
+            .replace("{firm}", &investor_name);
+        let subject = format!("An update from {}", investor_name);
+        let html = format!("<p>{}</p>", pass_msg.replace('\n', "<br>"));
+        email::send_email(
+            &state.http_client,
+            state.resend_api_key.as_deref(),
+            &state.email_from,
+            &f_email,
+            &subject,
+            &html,
+        )
+        .await;
+        if let (Some(tg), Some(bot)) = (f_tg.as_deref(), state.telegram_bot_token.as_deref()) {
+            let _ = state
+                .http_client
+                .post(format!("https://api.telegram.org/bot{bot}/sendMessage", bot = bot))
+                .json(&serde_json::json!({"chat_id": tg, "text": pass_msg}))
+                .send()
+                .await;
+        }
+        if let (Some(wa), Some(tok), Some(pid)) = (
+            f_wa.as_deref(),
+            state.whatsapp_access_token.as_deref(),
+            state.whatsapp_phone_number_id.as_deref(),
+        ) {
+            let _ = state
+                .http_client
+                .post(format!("https://graph.facebook.com/v18.0/{pid}/messages", pid = pid))
+                .bearer_auth(tok)
+                .json(&serde_json::json!({"messaging_product":"whatsapp","recipient_type":"individual","to":wa,"type":"text","text":{"body":pass_msg}}))
+                .send()
+                .await;
+        }
+    }
+    Ok(Json(serde_json::json!({"ok": true})))
 }
 
 // Display info tracked per candidate ID

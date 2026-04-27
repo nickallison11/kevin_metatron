@@ -34,6 +34,8 @@ pub struct InvestorProfileDto {
     pub investor_tier: Option<String>,
     #[serde(default)]
     pub is_accredited: bool,
+    #[serde(default)]
+    pub pass_message_template: Option<String>,
 }
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
@@ -60,6 +62,7 @@ struct InvestorRow {
     country: Option<String>,
     investor_tier: Option<String>,
     is_accredited: bool,
+    pass_message_template: Option<String>,
 }
 
 async fn fetch_dto(
@@ -69,7 +72,7 @@ async fn fetch_dto(
     let row = sqlx::query_as::<_, InvestorRow>(
         r#"
         SELECT firm_name, bio, investment_thesis, sectors, stages,
-               ticket_size_min, ticket_size_max, country, investor_tier, is_accredited
+               ticket_size_min, ticket_size_max, country, investor_tier, is_accredited, pass_message_template
         FROM investor_profiles WHERE user_id = $1
         "#,
     )
@@ -103,6 +106,7 @@ fn into_dto(r: InvestorRow) -> InvestorProfileDto {
         country: r.country,
         investor_tier: r.investor_tier,
         is_accredited: r.is_accredited,
+        pass_message_template: r.pass_message_template,
     }
 }
 
@@ -131,9 +135,9 @@ async fn put_own(
         r#"
         INSERT INTO investor_profiles (
             user_id, firm_name, bio, investment_thesis, sectors, stages,
-            ticket_size_min, ticket_size_max, country, is_accredited
+            ticket_size_min, ticket_size_max, country, is_accredited, pass_message_template
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
         ON CONFLICT (user_id) DO UPDATE SET
             firm_name = EXCLUDED.firm_name,
             bio = EXCLUDED.bio,
@@ -144,6 +148,7 @@ async fn put_own(
             ticket_size_max = EXCLUDED.ticket_size_max,
             country = EXCLUDED.country,
             is_accredited = EXCLUDED.is_accredited,
+            pass_message_template = EXCLUDED.pass_message_template,
             updated_at = now()
         "#,
     )
@@ -157,6 +162,7 @@ async fn put_own(
     .bind(body.ticket_size_max)
     .bind(&country)
     .bind(body.is_accredited)
+    .bind(&body.pass_message_template)
     .execute(&state.db)
     .await
     .map_err(internal)?;

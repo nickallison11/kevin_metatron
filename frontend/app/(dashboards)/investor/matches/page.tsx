@@ -19,6 +19,7 @@ type KevinMatch = {
   country: string | null;
   angel_score: number | null;
   intro_requested_at: string | null;
+  deck_url: string | null;
 };
 
 type ReceivedIntro = {
@@ -58,6 +59,9 @@ export default function InvestorMatchesPage() {
   const [viewingMatch, setViewingMatch] = useState<KevinMatch | null>(null);
   const [viewingIntro, setViewingIntro] = useState<ReceivedIntro | null>(null);
   const [actionBusy, setActionBusy] = useState<string | null>(null);
+  const [matchView, setMatchView] = useState<"list" | "card">("list");
+  const [followedIds, setFollowedIds] = useState<Set<string>>(new Set());
+  const [requestedIntroIds, setRequestedIntroIds] = useState<Set<string>>(new Set());
 
   const loadMatches = useCallback(async () => {
     if (!token) return;
@@ -145,6 +149,44 @@ export default function InvestorMatchesPage() {
         const ts = new Date().toISOString();
         setIntros((prev) => prev.map((i) => (i.id === r.id ? { ...i, intro_passed_at: ts } : i)));
         setViewingIntro((prev) => (prev?.id === r.id ? { ...prev, intro_passed_at: ts } : prev));
+      }
+    } finally {
+      setActionBusy(null);
+    }
+  }
+
+  async function followFounder(m: KevinMatch) {
+    if (!token || !m.matched_user_id) return;
+    setActionBusy(m.id + "follow");
+    try {
+      const res = await fetch(`${API_BASE}/connections`, {
+        method: "POST",
+        headers: authJsonHeaders(token),
+        body: JSON.stringify({ connection_type: "follow", to_user_id: m.matched_user_id }),
+      });
+      if (res.ok) {
+        setFollowedIds((prev) => new Set([...prev, m.id]));
+      }
+    } finally {
+      setActionBusy(null);
+    }
+  }
+
+  async function requestMatchIntro(m: KevinMatch) {
+    if (!token) return;
+    setActionBusy(m.id + "intro");
+    try {
+      const res = await fetch(`${API_BASE}/kevin-matches/${m.id}/request-intro`, {
+        method: "POST",
+        headers: authJsonHeaders(token),
+      });
+      if (res.ok) {
+        setRequestedIntroIds((prev) => new Set([...prev, m.id]));
+        setMatches((prev) =>
+          prev.map((x) =>
+            x.id === m.id ? { ...x, intro_requested_at: new Date().toISOString() } : x
+          )
+        );
       }
     } finally {
       setActionBusy(null);
@@ -333,65 +375,219 @@ export default function InvestorMatchesPage() {
 
         {tab === "matches" && matches.length > 0 && (
           <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-5">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-[var(--text-muted)] text-xs border-b border-[var(--border)]">
-                    <th className="text-left pb-2 pr-3">Company</th>
-                    <th className="text-left pb-2 pr-3">Sector</th>
-                    <th className="text-left pb-2 pr-3">Stage</th>
-                    <th className="text-left pb-2 pr-3">Location</th>
-                    <th className="text-left pb-2 pr-3">Fit</th>
-                    <th className="text-left pb-2" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {(paginated as KevinMatch[]).map((m) => (
-                    <tr
-                      key={m.id}
-                      onClick={() => setViewingMatch(m)}
-                      className="border-b border-[rgba(255,255,255,0.03)] cursor-pointer transition-colors hover:bg-[rgba(108,92,231,0.04)]"
-                    >
-                      <td className="py-2.5 pr-3">
-                        <p className="text-[var(--text)] font-medium">{m.company_name ?? m.firm_name ?? "Unknown"}</p>
-                        {m.one_liner && (
-                          <p className="text-[var(--text-muted)] text-xs truncate max-w-[220px]">{m.one_liner}</p>
-                        )}
-                      </td>
-                      <td className="py-2.5 pr-3 text-[var(--text-muted)] text-xs">{m.sector ?? "—"}</td>
-                      <td className="py-2.5 pr-3 text-[var(--text-muted)] text-xs">{m.stage ?? "—"}</td>
-                      <td className="py-2.5 pr-3 text-[var(--text-muted)] text-xs">{m.country ?? "—"}</td>
-                      <td className="py-2.5 pr-3">
-                        <span className={`px-2 py-0.5 rounded text-xs font-medium ${scoreBadgeColor(m.score)}`}>
-                          {m.score}%
-                        </span>
-                      </td>
-                      <td className="py-2.5">
-                        {m.matched_user_id && (
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              window.dispatchEvent(
-                                new CustomEvent("metatron:open-chat", {
-                                  detail: {
-                                    userId: m.matched_user_id!,
-                                    name: m.company_name ?? m.firm_name ?? "Founder",
-                                  },
-                                })
-                              );
-                            }}
-                            className="px-3 py-1.5 border border-[var(--border)] text-[var(--text-muted)] rounded-lg text-xs hover:border-[rgba(108,92,231,0.4)] hover:text-[#6c5ce7] transition-colors"
-                          >
-                            Message
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="flex items-center justify-between mb-4">
+              <p className="text-xs text-[var(--text-muted)]">
+                {matches.length} match{matches.length !== 1 ? "es" : ""}
+              </p>
+              <div className="flex gap-1 bg-[rgba(255,255,255,0.04)] rounded-lg p-0.5">
+                {(["list", "card"] as const).map((v) => (
+                  <button
+                    key={v}
+                    type="button"
+                    onClick={() => setMatchView(v)}
+                    className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
+                      matchView === v
+                        ? "bg-[rgba(108,92,231,0.2)] text-[#6c5ce7]"
+                        : "text-[var(--text-muted)] hover:text-[var(--text)]"
+                    }`}
+                  >
+                    {v === "list" ? "List" : "Card"}
+                  </button>
+                ))}
+              </div>
             </div>
+
+            {matchView === "list" && (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-[var(--text-muted)] text-xs border-b border-[var(--border)]">
+                      <th className="text-left pb-2 pr-3">Company</th>
+                      <th className="text-left pb-2 pr-3">Sector</th>
+                      <th className="text-left pb-2 pr-3">Stage</th>
+                      <th className="text-left pb-2 pr-3">Location</th>
+                      <th className="text-left pb-2 pr-3">Fit</th>
+                      <th className="text-left pb-2" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(paginated as KevinMatch[]).map((m) => (
+                      <tr
+                        key={m.id}
+                        onClick={() => setViewingMatch(m)}
+                        className="border-b border-[rgba(255,255,255,0.03)] cursor-pointer transition-colors hover:bg-[rgba(108,92,231,0.04)]"
+                      >
+                        <td className="py-2.5 pr-3">
+                          <p className="text-[var(--text)] font-medium">{m.company_name ?? m.firm_name ?? "Unknown"}</p>
+                          {m.one_liner && (
+                            <p className="text-[var(--text-muted)] text-xs truncate max-w-[220px]">{m.one_liner}</p>
+                          )}
+                        </td>
+                        <td className="py-2.5 pr-3 text-[var(--text-muted)] text-xs">{m.sector ?? "—"}</td>
+                        <td className="py-2.5 pr-3 text-[var(--text-muted)] text-xs">{m.stage ?? "—"}</td>
+                        <td className="py-2.5 pr-3 text-[var(--text-muted)] text-xs">{m.country ?? "—"}</td>
+                        <td className="py-2.5 pr-3">
+                          <span className={`px-2 py-0.5 rounded text-xs font-medium ${scoreBadgeColor(m.score)}`}>
+                            {m.score}%
+                          </span>
+                        </td>
+                        <td className="py-2.5">
+                          <div className="flex items-center gap-1.5 whitespace-nowrap">
+                            {m.matched_user_id && !followedIds.has(m.id) && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  void followFounder(m);
+                                }}
+                                disabled={actionBusy === m.id + "follow"}
+                                className="px-2.5 py-1.5 border border-[var(--border)] text-[var(--text-muted)] rounded-lg text-xs hover:border-[rgba(108,92,231,0.4)] hover:text-[#6c5ce7] transition-colors disabled:opacity-50"
+                              >
+                                {actionBusy === m.id + "follow" ? "…" : "Follow"}
+                              </button>
+                            )}
+                            {followedIds.has(m.id) && (
+                              <span className="px-2.5 py-1.5 text-xs text-green-400">Following ✓</span>
+                            )}
+                            {m.matched_user_id && !m.intro_requested_at && !requestedIntroIds.has(m.id) && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  void requestMatchIntro(m);
+                                }}
+                                disabled={actionBusy === m.id + "intro"}
+                                className="px-2.5 py-1.5 bg-[#6c5ce7] text-white rounded-lg text-xs font-medium hover:bg-[#7d6ff0] disabled:opacity-50"
+                              >
+                                {actionBusy === m.id + "intro" ? "…" : "Request intro"}
+                              </button>
+                            )}
+                            {(m.intro_requested_at || requestedIntroIds.has(m.id)) && (
+                              <span className="px-2 py-0.5 rounded text-xs font-medium bg-[rgba(108,92,231,0.15)] text-[#6c5ce7]">
+                                Intro sent
+                              </span>
+                            )}
+                            {m.matched_user_id && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  window.dispatchEvent(
+                                    new CustomEvent("metatron:open-chat", {
+                                      detail: {
+                                        userId: m.matched_user_id!,
+                                        name: m.company_name ?? m.firm_name ?? "Founder",
+                                      },
+                                    })
+                                  );
+                                }}
+                                className="px-2.5 py-1.5 border border-[var(--border)] text-[var(--text-muted)] rounded-lg text-xs hover:border-[rgba(108,92,231,0.4)] hover:text-[#6c5ce7] transition-colors"
+                              >
+                                Message
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {matchView === "card" && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {(paginated as KevinMatch[]).map((m) => (
+                  <div
+                    key={m.id}
+                    onClick={() => setViewingMatch(m)}
+                    className="cursor-pointer rounded-xl border border-[var(--border)] bg-[rgba(255,255,255,0.02)] p-4 hover:border-[rgba(108,92,231,0.3)] transition-colors"
+                  >
+                    <div className="flex items-start justify-between gap-2 mb-2">
+                      <div className="min-w-0">
+                        <p className="text-[var(--text)] font-semibold truncate">
+                          {m.company_name ?? m.firm_name ?? "Unknown"}
+                        </p>
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {m.stage && (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-[rgba(255,255,255,0.06)] text-[var(--text-muted)]">
+                              {m.stage}
+                            </span>
+                          )}
+                          {m.sector && (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-[rgba(108,92,231,0.12)] text-[#6c5ce7]">
+                              {m.sector}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <span className={`shrink-0 px-2 py-0.5 rounded text-xs font-medium ${scoreBadgeColor(m.score)}`}>
+                        {m.score}%
+                      </span>
+                    </div>
+                    {m.one_liner && (
+                      <p className="text-[var(--text-muted)] text-xs leading-relaxed mb-3 line-clamp-2">{m.one_liner}</p>
+                    )}
+                    <p className="text-[var(--text-muted)] text-xs mb-3">
+                      {m.deck_url ? (
+                        <span className="text-[#6c5ce7]">Deck available</span>
+                      ) : (
+                        <span>No deck on file</span>
+                      )}
+                    </p>
+                    <div className="flex flex-wrap gap-1.5" onClick={(e) => e.stopPropagation()}>
+                      {m.matched_user_id && !followedIds.has(m.id) && (
+                        <button
+                          type="button"
+                          onClick={() => void followFounder(m)}
+                          disabled={actionBusy === m.id + "follow"}
+                          className="px-2.5 py-1.5 border border-[var(--border)] text-[var(--text-muted)] rounded-lg text-xs hover:border-[rgba(108,92,231,0.4)] hover:text-[#6c5ce7] transition-colors disabled:opacity-50"
+                        >
+                          {actionBusy === m.id + "follow" ? "…" : "Follow"}
+                        </button>
+                      )}
+                      {followedIds.has(m.id) && (
+                        <span className="px-2.5 py-1.5 text-xs text-green-400">Following ✓</span>
+                      )}
+                      {m.matched_user_id && !m.intro_requested_at && !requestedIntroIds.has(m.id) && (
+                        <button
+                          type="button"
+                          onClick={() => void requestMatchIntro(m)}
+                          disabled={actionBusy === m.id + "intro"}
+                          className="px-2.5 py-1.5 bg-[#6c5ce7] text-white rounded-lg text-xs font-medium hover:bg-[#7d6ff0] disabled:opacity-50"
+                        >
+                          {actionBusy === m.id + "intro" ? "…" : "Request intro"}
+                        </button>
+                      )}
+                      {(m.intro_requested_at || requestedIntroIds.has(m.id)) && (
+                        <span className="px-2 py-0.5 rounded text-xs font-medium bg-[rgba(108,92,231,0.15)] text-[#6c5ce7]">
+                          Intro sent
+                        </span>
+                      )}
+                      {m.matched_user_id && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            window.dispatchEvent(
+                              new CustomEvent("metatron:open-chat", {
+                                detail: {
+                                  userId: m.matched_user_id!,
+                                  name: m.company_name ?? m.firm_name ?? "Founder",
+                                },
+                              })
+                            );
+                          }}
+                          className="px-2.5 py-1.5 border border-[var(--border)] text-[var(--text-muted)] rounded-lg text-xs hover:border-[rgba(108,92,231,0.4)] hover:text-[#6c5ce7] transition-colors"
+                        >
+                          Message
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
             {totalPages > 1 && (
               <div className="flex items-center justify-between mt-4 text-xs text-[var(--text-muted)]">
                 <span>
@@ -577,8 +773,40 @@ export default function InvestorMatchesPage() {
                 )}
               </div>
             </div>
-            {viewingMatch.matched_user_id && (
-              <div className="shrink-0 border-t border-[var(--border)] px-5 py-3">
+            <div className="shrink-0 border-t border-[var(--border)] px-5 py-3 flex flex-wrap gap-2">
+              {viewingMatch.matched_user_id && !followedIds.has(viewingMatch.id) && (
+                <button
+                  type="button"
+                  onClick={() => void followFounder(viewingMatch)}
+                  disabled={actionBusy === viewingMatch.id + "follow"}
+                  className="flex-1 min-w-[100px] rounded-xl border border-[var(--border)] py-2.5 text-sm text-[var(--text-muted)] hover:border-[rgba(108,92,231,0.4)] hover:text-[#6c5ce7] disabled:opacity-50"
+                >
+                  {actionBusy === viewingMatch.id + "follow" ? "…" : "Follow"}
+                </button>
+              )}
+              {followedIds.has(viewingMatch.id) && (
+                <span className="flex-1 min-w-[100px] flex items-center justify-center text-sm text-green-400">
+                  Following ✓
+                </span>
+              )}
+              {viewingMatch.matched_user_id &&
+                !viewingMatch.intro_requested_at &&
+                !requestedIntroIds.has(viewingMatch.id) && (
+                  <button
+                    type="button"
+                    onClick={() => void requestMatchIntro(viewingMatch)}
+                    disabled={actionBusy === viewingMatch.id + "intro"}
+                    className="flex-1 min-w-[100px] rounded-xl bg-[#6c5ce7] py-2.5 text-sm font-semibold text-white hover:bg-[#7d6ff0] disabled:opacity-50"
+                  >
+                    {actionBusy === viewingMatch.id + "intro" ? "…" : "Request intro"}
+                  </button>
+                )}
+              {(viewingMatch.intro_requested_at || requestedIntroIds.has(viewingMatch.id)) && (
+                <span className="flex-1 min-w-[100px] flex items-center justify-center px-2 py-2 rounded-lg text-sm font-medium bg-[rgba(108,92,231,0.15)] text-[#6c5ce7]">
+                  Intro sent
+                </span>
+              )}
+              {viewingMatch.matched_user_id && (
                 <button
                   type="button"
                   onClick={() => {
@@ -592,12 +820,12 @@ export default function InvestorMatchesPage() {
                     );
                     setViewingMatch(null);
                   }}
-                  className="w-full rounded-xl bg-[#6c5ce7] py-2.5 text-sm font-semibold text-white hover:bg-[#7d6ff0]"
+                  className="flex-1 min-w-[100px] rounded-xl border border-[var(--border)] py-2.5 text-sm text-[var(--text-muted)] hover:border-[rgba(108,92,231,0.4)] hover:text-[#6c5ce7]"
                 >
-                  Message founder →
+                  Message →
                 </button>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         </div>
       )}

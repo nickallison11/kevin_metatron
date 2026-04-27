@@ -45,6 +45,7 @@ pub struct KevinMatch {
     pub country: Option<String>,
     pub angel_score: Option<i32>,
     pub intro_requested_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub deck_url: Option<String>,
 }
 
 #[derive(Serialize, sqlx::FromRow)]
@@ -81,8 +82,10 @@ const FETCH_SQL: &str = r#"
         COALESCE(km.display_sector, p.sector) AS sector,
         COALESCE(km.display_country, ip.country, p.country) AS country,
         a.score AS angel_score,
-        km.intro_requested_at
+        km.intro_requested_at,
+        CASE WHEN u.is_basic OR u.is_pro OR p.deck_expires_at IS NULL OR p.deck_expires_at > NOW() THEN p.pitch_deck_url ELSE NULL END AS deck_url
     FROM kevin_matches km
+    LEFT JOIN users u ON u.id = km.matched_user_id
     LEFT JOIN investor_profiles ip ON ip.user_id = km.matched_user_id
     LEFT JOIN profiles p ON p.user_id = km.matched_user_id
     LEFT JOIN angel_scores a ON a.founder_user_id = km.matched_user_id
@@ -99,8 +102,10 @@ const FETCH_TYPED_SQL: &str = r#"
         COALESCE(km.display_sector, p.sector) AS sector,
         COALESCE(km.display_country, ip.country, p.country) AS country,
         a.score AS angel_score,
-        km.intro_requested_at
+        km.intro_requested_at,
+        CASE WHEN u.is_basic OR u.is_pro OR p.deck_expires_at IS NULL OR p.deck_expires_at > NOW() THEN p.pitch_deck_url ELSE NULL END AS deck_url
     FROM kevin_matches km
+    LEFT JOIN users u ON u.id = km.matched_user_id
     LEFT JOIN investor_profiles ip ON ip.user_id = km.matched_user_id
     LEFT JOIN profiles p ON p.user_id = km.matched_user_id
     LEFT JOIN angel_scores a ON a.founder_user_id = km.matched_user_id
@@ -945,10 +950,111 @@ async fn request_intro(
     Path(match_id): Path<Uuid>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let user = require_user(&state, bearer.token()).await?;
-    if user.role.as_str() != "STARTUP" {
-        return Err((StatusCode::FORBIDDEN, "founders only".to_string()));
+    let role = user.role.as_str();
+
+    if role != "STARTUP" && role != "INVESTOR" {
+        return Err((StatusCode::FORBIDDEN, "founders and investors only".to_string()));
     }
 
+    if role == "INVESTOR" {
+        let row: Option<(Option<Uuid>, Option<Uuid>, Option<chrono::DateTime<chrono::Utc>>)> =
+            sqlx::query_as(
+                "SELECT matched_user_id, contact_id, intro_requested_at FROM kevin_matches WHERE id = $1 AND for_user_id = $2",
+            )
+            .bind(match_id)
+            .bind(user.id)
+            .fetch_optional(&state.db)
+            .await
+            .map_err(internal)?;
+
+        let (matched_user_id, _contact_id, intro_requested_at) =
+            row.ok_or((StatusCode::NOT_FOUND, "match not found".to_string()))?;
+
+        if intro_requested_at.is_some() {
+            return Err((StatusCode::CONFLICT, "introduction already requested".to_string()));
+        }
+
+        let Some(founder_id) = matched_user_id else {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                "intro requests only available for platform founders".to_string(),
+            ));
+        };
+
+        let investor_email: String = sqlx::query_scalar("SELECT email FROM users WHERE id = $1")
+            .bind(user.id)
+            .fetch_one(&state.db)
+            .await
+            .map_err(internal)?;
+        let investor_name: String = sqlx::query_scalar::<_, Option<String>>(
+            "SELECT firm_name FROM investor_profiles WHERE user_id = $1",
+        )
+        .bind(user.id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(internal)?
+        .flatten()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| investor_email.clone());
+
+        let founder: Option<(String, Option<String>, Option<String>, Option<String>)> = sqlx::query_as(
+            "SELECT u.email, u.telegram_id, u.whatsapp_number, p.company_name FROM users u LEFT JOIN profiles p ON p.user_id = u.id WHERE u.id = $1",
+        )
+        .bind(founder_id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(internal)?;
+
+        if let Some((founder_email, founder_tg, founder_wa, company_name)) = founder {
+            let company = company_name.unwrap_or_else(|| "your company".to_string());
+            let subject = format!("{} wants to connect with {}", investor_name, company);
+            let html = email::deck_viewed_html(&investor_name, &company);
+            let msg = format!(
+                "🎉 {} is interested in connecting with {}! Log in to metatron to accept or pass.",
+                investor_name, company
+            );
+            email::send_email(
+                &state.http_client,
+                state.resend_api_key.as_deref(),
+                &state.email_from,
+                &founder_email,
+                &subject,
+                &html,
+            )
+            .await;
+            if let (Some(tg), Some(bot)) = (founder_tg.as_deref(), state.telegram_bot_token.as_deref()) {
+                let _ = state
+                    .http_client
+                    .post(format!("https://api.telegram.org/bot{bot}/sendMessage", bot = bot))
+                    .json(&serde_json::json!({"chat_id": tg, "text": msg}))
+                    .send()
+                    .await;
+            }
+            if let (Some(wa), Some(tok), Some(pid)) = (
+                founder_wa.as_deref(),
+                state.whatsapp_access_token.as_deref(),
+                state.whatsapp_phone_number_id.as_deref(),
+            ) {
+                let _ = state
+                    .http_client
+                    .post(format!("https://graph.facebook.com/v18.0/{pid}/messages", pid = pid))
+                    .bearer_auth(tok)
+                    .json(&serde_json::json!({"messaging_product":"whatsapp","recipient_type":"individual","to":wa,"type":"text","text":{"body":msg}}))
+                    .send()
+                    .await;
+            }
+        }
+
+        sqlx::query("UPDATE kevin_matches SET intro_requested_at = NOW() WHERE id = $1")
+            .bind(match_id)
+            .execute(&state.db)
+            .await
+            .map_err(internal)?;
+
+        return Ok(Json(serde_json::json!({"ok": true})));
+    }
+
+    // ── STARTUP PATH (original logic) ──────────────────────────────
     // Load the match (must belong to this user)
     let row: Option<(
         Uuid,
@@ -1542,3 +1648,4 @@ async fn request_intro(
 
     Ok(Json(serde_json::json!({"ok": true})))
 }
+

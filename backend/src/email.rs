@@ -444,3 +444,105 @@ pub fn intro_founder_confirmation_html(
     )
 }
 
+pub fn deck_viewed_html(investor_name: &str, company_name: &str) -> String {
+    shell_html(
+        &format!("{} viewed your pitch deck", investor_name),
+        &format!(
+            r#"
+<p style="margin:0 0 16px 0;font-size:14px;color:#e8e8ed;"><strong>{investor_name}</strong> just viewed your pitch deck for <strong>{company_name}</strong>.</p>
+
+<div style="margin:0 0 20px 0;padding:14px 18px;background:rgba(108,92,231,0.08);border-left:3px solid #6c5ce7;border-radius:0 8px 8px 0;">
+  <p style="margin:0;font-size:14px;color:#e8e8ed;line-height:1.6;">They're actively reviewing your raise — keep the momentum going. If they're interested, you'll hear from them via the metatron messaging centre shortly.</p>
+</div>
+
+<p style="margin:0 0 24px 0;">
+  <a href="https://platform.metatron.id/startup/matches" style="display:inline-block;background:#6c5ce7;color:#ffffff;text-decoration:none;padding:10px 18px;border-radius:12px;font-weight:600;font-size:14px;">View your matches →</a>
+</p>
+
+<p style="margin:0;font-size:14px;color:#8888a0;">— Kevin<br/>metatron · The intelligence layer between founders and capital.</p>
+"#
+        ),
+    )
+}
+
+pub fn intro_accepted_founder_html(
+    investor_name: &str,
+    company_name: &str,
+    investor_email: &str,
+) -> String {
+    shell_html(
+        &format!("{} is interested in {}!", investor_name, company_name),
+        &format!(
+            r#"
+<p style="margin:0 0 16px 0;font-size:14px;color:#e8e8ed;">Great news! <strong>{investor_name}</strong> has reviewed your pitch and wants to connect.</p>
+
+<div style="margin:0 0 20px 0;padding:14px 18px;background:rgba(108,92,231,0.08);border-left:3px solid #6c5ce7;border-radius:0 8px 8px 0;">
+  <p style="margin:0 0 6px 0;font-size:11px;font-family:ui-monospace,monospace;text-transform:uppercase;letter-spacing:0.12em;color:#8888a0;">Their contact</p>
+  <p style="margin:0;font-size:14px;color:#e8e8ed;">{investor_email}</p>
+</div>
+
+<p style="margin:0 0 20px 0;font-size:14px;color:#e8e8ed;">You can also message them directly via the metatron messaging centre.</p>
+
+<p style="margin:0 0 24px 0;">
+  <a href="https://platform.metatron.id/startup/matches" style="display:inline-block;background:#6c5ce7;color:#ffffff;text-decoration:none;padding:10px 18px;border-radius:12px;font-weight:600;font-size:14px;">Open messaging centre →</a>
+</p>
+
+<p style="margin:0;font-size:14px;color:#8888a0;">— Kevin<br/>metatron · The intelligence layer between founders and capital.</p>
+"#
+        ),
+    )
+}
+
+pub fn intro_accepted_investor_html(
+    investor_name: &str,
+    company_name: &str,
+    founder_email: &str,
+    deck_url: Option<&str>,
+) -> String {
+    let deck_block = match deck_url {
+        Some(url) if !url.is_empty() => format!(
+            r#"<p style="margin:10px 0 0 0;"><a href="{url}" style="display:inline-block;background:#6c5ce7;color:#ffffff;text-decoration:none;padding:8px 16px;border-radius:10px;font-weight:600;font-size:13px;">View pitch deck →</a></p>"#
+        ),
+        _ => String::new(),
+    };
+    shell_html(
+        &format!("You're connected with {}", company_name),
+        &format!(
+            r#"
+<p style="margin:0 0 16px 0;font-size:14px;color:#e8e8ed;">Hi {investor_name}, you expressed interest in <strong>{company_name}</strong> via metatron. Here are their contact details.</p>
+
+<div style="margin:0 0 20px 0;padding:14px 18px;background:rgba(108,92,231,0.08);border-left:3px solid #6c5ce7;border-radius:0 8px 8px 0;">
+  <p style="margin:0 0 6px 0;font-size:11px;font-family:ui-monospace,monospace;text-transform:uppercase;letter-spacing:0.12em;color:#8888a0;">Founder contact</p>
+  <p style="margin:0 0 2px 0;font-size:14px;color:#e8e8ed;">{founder_email}</p>
+  {deck_block}
+</div>
+
+<p style="margin:0 0 20px 0;font-size:14px;color:#e8e8ed;">You can also message them directly via the metatron messaging centre.</p>
+
+<p style="margin:0 0 24px 0;">
+  <a href="https://platform.metatron.id/investor/matches" style="display:inline-block;background:#6c5ce7;color:#ffffff;text-decoration:none;padding:10px 18px;border-radius:12px;font-weight:600;font-size:14px;">Open messaging centre →</a>
+</p>
+
+<p style="margin:0;font-size:14px;color:#8888a0;">— Kevin<br/>metatron · The intelligence layer between founders and capital.</p>
+"#
+        ),
+    )
+}
+
+pub fn intro_passed_html(investor_name: &str, pass_message: &str) -> String {
+    let escaped = pass_message.replace('\n', "<br>");
+    shell_html(
+        &format!("An update from {}", investor_name),
+        &format!(
+            r#"
+<p style="margin:0 0 20px 0;font-size:14px;color:#e8e8ed;line-height:1.7;">{escaped}</p>
+<p style="margin:0 0 20px 0;font-size:14px;color:#e8e8ed;">Kevin will keep working to find the right investors for your raise.</p>
+<p style="margin:0 0 24px 0;">
+  <a href="https://platform.metatron.id/startup/matches" style="display:inline-block;background:#6c5ce7;color:#ffffff;text-decoration:none;padding:10px 18px;border-radius:12px;font-weight:600;font-size:14px;">View your matches →</a>
+</p>
+<p style="margin:0;font-size:14px;color:#8888a0;">— Kevin<br/>metatron · The intelligence layer between founders and capital.</p>
+"#
+        ),
+    )
+}
+

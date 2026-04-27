@@ -250,11 +250,7 @@ async fn view_deck(
         if let Some((f_email, f_tg, f_wa, company_name)) = founder {
             let company = company_name.unwrap_or_else(|| "your company".to_string());
             let subject = format!("{} viewed your pitch deck", investor_name);
-            let html = format!(
-                "<p><strong>{}</strong> just viewed your pitch deck for <strong>{}</strong>.</p>\
-                 <p>They're actively reviewing your raise — keep up the momentum! If they're interested, you'll hear from them via metatron shortly.</p>",
-                investor_name, company
-            );
+            let html = email::deck_viewed_html(&investor_name, &company);
             let msg = format!(
                 "👀 {} just viewed your pitch deck for {}! They're actively reviewing your raise — keep up the momentum!",
                 investor_name, company
@@ -375,12 +371,7 @@ async fn accept_intro(
         let company = company_name.unwrap_or_else(|| "your company".to_string());
 
         let f_subject = format!("{} is interested in {}!", investor_name, company);
-        let f_html = format!(
-            "<p>🎉 <strong>{}</strong> has reviewed your pitch and wants to connect.</p>\
-             <p><strong>Reach them at:</strong> {}</p>\
-             <p>They'll be in touch to set up a call. Keep building! 🚀</p>",
-            investor_name, investor_email
-        );
+        let f_html = email::intro_accepted_founder_html(&investor_name, &company, &investor_email);
         let f_msg = format!(
             "🎉 {} wants to connect with {}! Reach them at: {}\n\nThey'll be in touch to arrange a call.",
             investor_name, company, investor_email
@@ -416,21 +407,13 @@ async fn accept_intro(
                 .await;
         }
 
-        let deck_line = deck_url
-            .as_deref()
-            .map(|u| format!("<br>Deck: <a href=\"{}\">View pitch deck</a>", u))
-            .unwrap_or_default();
         let deck_msg = deck_url
             .as_deref()
             .map(|u| format!("\nDeck: {}", u))
             .unwrap_or_default();
         let inv_subject = format!("You're connected with {}", company);
-        let inv_html = format!(
-            "<p>You expressed interest in <strong>{}</strong> via metatron.</p>\
-             <p><strong>Founder contact:</strong> {}{}</p>\
-             <p>Good luck with the conversation!</p>",
-            company, f_email, deck_line
-        );
+        let inv_html =
+            email::intro_accepted_investor_html(&investor_name, &company, &f_email, deck_url.as_deref());
         let inv_msg = format!(
             "✅ You're now connected with {}!\n\nFounder email: {}{}\n\nGood luck!",
             company, f_email, deck_msg
@@ -541,7 +524,7 @@ async fn pass_intro(
             .replace("{company}", &company)
             .replace("{firm}", &investor_name);
         let subject = format!("An update from {}", investor_name);
-        let html = format!("<p>{}</p>", pass_msg.replace('\n', "<br>"));
+        let html = email::intro_passed_html(&investor_name, &pass_msg);
         email::send_email(
             &state.http_client,
             state.resend_api_key.as_deref(),

@@ -10,11 +10,9 @@ const FREE_NAV = [
   { href: "/investor", label: "Dashboard" },
   { href: "/investor/profile", label: "Profile Settings" },
   { href: "/investor/matches", label: "Startup Matches" },
-  { href: "/investor/watchlist", label: "Watchlist" },
 ];
 
 const LOCKED_NAV = [
-  { href: "/investor/deal-flow", label: "Deal Flow" },
   { href: "/investor/calls", label: "Call Intelligence" },
   { href: "/investor/portfolio", label: "Portfolio" },
 ];
@@ -22,7 +20,7 @@ const LOCKED_NAV = [
 export default function InvestorShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { token, isPro, loading } = useAuth("INVESTOR");
+  const { token, loading } = useAuth("INVESTOR");
   const [isPaid, setIsPaid] = useState(false);
 
   useEffect(() => {
@@ -56,12 +54,10 @@ export default function InvestorShell({ children }: { children: ReactNode }) {
   if (!token) return null;
 
   // Portfolio doesn't exist yet, so it's a hard lock for everyone (button, not navigable).
-  // Deal Flow is "teased" for free users — still navigable, but shows the Upgrade badge.
   // Call Intelligence is "teased" for non-paid investors (gated by investor_tier basic).
   type LockMode = "none" | "tease" | "hard";
   const lockMode = (href: string): LockMode => {
     if (href === "/investor/portfolio") return "hard";
-    if (href === "/investor/deal-flow") return isPro ? "none" : "tease";
     if (href === "/investor/calls") return isPaid ? "none" : "tease";
     return "none";
   };

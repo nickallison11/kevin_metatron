@@ -136,19 +136,39 @@ async fn get_received_intros(
     TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
 ) -> Result<Json<Vec<ReceivedIntro>>, (StatusCode, String)> {
     let user = require_user(&state, bearer.token()).await?;
+    let investor_email: String = sqlx::query_scalar("SELECT email FROM users WHERE id = $1")
+        .bind(user.id)
+        .fetch_one(&state.db)
+        .await
+        .map_err(internal)?;
     let rows = sqlx::query_as::<_, ReceivedIntro>(
         r#"SELECT km.id, km.for_user_id, km.score, km.reasoning, km.intro_requested_at,
                     p.company_name, p.one_liner, p.stage, p.sector, p.country,
-                    a.score AS angel_score,
-                    u.email AS founder_email
+                    a.score AS angel_score, u.email AS founder_email
              FROM kevin_matches km
              JOIN users u ON u.id = km.for_user_id
              LEFT JOIN profiles p ON p.user_id = km.for_user_id
              LEFT JOIN angel_scores a ON a.founder_user_id = km.for_user_id
              WHERE km.matched_user_id = $1 AND km.intro_requested_at IS NOT NULL
-             ORDER BY km.intro_requested_at DESC"#,
+
+             UNION ALL
+
+             SELECT km.id, km.for_user_id, km.score, km.reasoning, km.intro_requested_at,
+                    p.company_name, p.one_liner, p.stage, p.sector, p.country,
+                    a.score AS angel_score, u.email AS founder_email
+             FROM kevin_matches km
+             JOIN connector_network_contacts cnc ON cnc.id = km.contact_id
+             JOIN users u ON u.id = km.for_user_id
+             LEFT JOIN profiles p ON p.user_id = km.for_user_id
+             LEFT JOIN angel_scores a ON a.founder_user_id = km.for_user_id
+             WHERE km.contact_id IS NOT NULL
+               AND km.intro_requested_at IS NOT NULL
+               AND LOWER(cnc.email) = LOWER($2)
+
+             ORDER BY intro_requested_at DESC"#,
     )
     .bind(user.id)
+    .bind(&investor_email)
     .fetch_all(&state.db)
     .await
     .map_err(internal)?;

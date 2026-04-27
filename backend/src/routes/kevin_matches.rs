@@ -823,7 +823,7 @@ Investor candidates (JSON array):
 
 For each candidate, return:
 - score: 0–100 match score
-- reasoning: 2–3 sentences (max 40 words) written TO the investor explaining why THIS founder is right for THEIR portfolio. Be specific — reference the founder's stage, sector, problem, and how it connects to the investor's known thesis or focus. Never be generic.
+- reasoning: 2–3 sentences (max 40 words) written TO the investor explaining why THIS founder is right for THEIR portfolio. Be specific — reference the founder's stage, sector, problem, and how it connects to the investor's known thesis or focus. Always include currency symbols when referencing monetary amounts (e.g. $100K, $1M). Never be generic.
 
 Return ONLY a valid JSON array, no markdown, no code fences:
 [{{"id":"...","score":0,"reasoning":"..."}}]

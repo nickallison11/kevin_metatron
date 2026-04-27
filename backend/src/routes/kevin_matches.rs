@@ -22,6 +22,7 @@ use crate::state::AppState;
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/", get(get_matches).post(generate_matches))
+        .route("/received-intros", get(get_received_intros))
         .route("/:id/request-intro", post(request_intro))
 }
 
@@ -41,6 +42,22 @@ pub struct KevinMatch {
     pub country: Option<String>,
     pub angel_score: Option<i32>,
     pub intro_requested_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+#[derive(Serialize, sqlx::FromRow)]
+pub struct ReceivedIntro {
+    pub id: Uuid,
+    pub for_user_id: Uuid,
+    pub score: i32,
+    pub reasoning: Option<String>,
+    pub intro_requested_at: chrono::DateTime<chrono::Utc>,
+    pub company_name: Option<String>,
+    pub one_liner: Option<String>,
+    pub stage: Option<String>,
+    pub sector: Option<String>,
+    pub country: Option<String>,
+    pub angel_score: Option<i32>,
+    pub founder_email: String,
 }
 
 fn internal(e: impl std::fmt::Display) -> (StatusCode, String) {
@@ -111,6 +128,30 @@ async fn get_matches(
 ) -> Result<Json<Vec<KevinMatch>>, (StatusCode, String)> {
     let user = require_user(&state, bearer.token()).await?;
     let rows = fetch_kevin_matches_for_user(&state, user.id, None).await?;
+    Ok(Json(rows))
+}
+
+async fn get_received_intros(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+) -> Result<Json<Vec<ReceivedIntro>>, (StatusCode, String)> {
+    let user = require_user(&state, bearer.token()).await?;
+    let rows = sqlx::query_as::<_, ReceivedIntro>(
+        r#"SELECT km.id, km.for_user_id, km.score, km.reasoning, km.intro_requested_at,
+                    p.company_name, p.one_liner, p.stage, p.sector, p.country,
+                    a.score AS angel_score,
+                    u.email AS founder_email
+             FROM kevin_matches km
+             JOIN users u ON u.id = km.for_user_id
+             LEFT JOIN profiles p ON p.user_id = km.for_user_id
+             LEFT JOIN angel_scores a ON a.founder_user_id = km.for_user_id
+             WHERE km.matched_user_id = $1 AND km.intro_requested_at IS NOT NULL
+             ORDER BY km.intro_requested_at DESC"#,
+    )
+    .bind(user.id)
+    .fetch_all(&state.db)
+    .await
+    .map_err(internal)?;
     Ok(Json(rows))
 }
 

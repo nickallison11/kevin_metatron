@@ -266,7 +266,11 @@ export default function StartupProfilePage() {
       setMe((prev) =>
         prev ? { ...prev, whatsapp_number: digits || null } : prev,
       );
-      setWhatsappMsg("Saved.");
+      if (digits) {
+        setWhatsappMsg("Saved. To activate WhatsApp notifications, send any message to Kevin first: https://wa.me/27818621473");
+      } else {
+        setWhatsappMsg("WhatsApp number removed.");
+      }
     } catch (err) {
       setWhatsappMsg(
         err instanceof Error ? err.message : "Could not save WhatsApp number",

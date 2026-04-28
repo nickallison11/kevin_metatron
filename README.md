@@ -1,4 +1,4 @@
-# Metatron Connect (Base44)
+# Metatron Connect
 
 Monorepo for the Metatron Connect MVP: a global matching platform for startups,
 investors, and intermediaries, with on-chain anchored pitch data, KYC/AML

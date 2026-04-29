@@ -122,6 +122,7 @@ export default function StartupProfilePage() {
   const [whatsappInput, setWhatsappInput] = useState("");
   const [whatsappSaving, setWhatsappSaving] = useState(false);
   const [whatsappMsg, setWhatsappMsg] = useState<string | null>(null);
+  const [whatsappSaved, setWhatsappSaved] = useState(false);
   const [unlinkingWhatsapp, setUnlinkingWhatsapp] = useState(false);
 
   const primaryDeckPdfRef = useRef<HTMLInputElement | null>(null);
@@ -230,6 +231,7 @@ export default function StartupProfilePage() {
     if (!token) return;
     setUnlinkingWhatsapp(true);
     setWhatsappMsg(null);
+    setWhatsappSaved(false);
     try {
       const res = await fetch(`${API_BASE}/auth/whatsapp-number`, {
         method: "PUT",
@@ -252,6 +254,7 @@ export default function StartupProfilePage() {
     if (!token) return;
     setWhatsappSaving(true);
     setWhatsappMsg(null);
+    setWhatsappSaved(false);
     try {
       const res = await fetch(`${API_BASE}/auth/whatsapp-number`, {
         method: "PUT",
@@ -267,9 +270,11 @@ export default function StartupProfilePage() {
         prev ? { ...prev, whatsapp_number: digits || null } : prev,
       );
       if (digits) {
-        setWhatsappMsg("Saved. To activate WhatsApp notifications, send any message to Kevin first: https://wa.me/27818621473");
+        setWhatsappMsg("Saved.");
+        setWhatsappSaved(true);
       } else {
         setWhatsappMsg("WhatsApp number removed.");
+        setWhatsappSaved(false);
       }
     } catch (err) {
       setWhatsappMsg(
@@ -699,11 +704,12 @@ export default function StartupProfilePage() {
                     <div className="flex flex-wrap items-center gap-3">
                       <button
                         type="button"
-                        onClick={() =>
+                        onClick={() => {
+                          setWhatsappSaved(false);
                           setMe((prev) =>
                             prev ? { ...prev, whatsapp_number: null } : prev
-                          )
-                        }
+                          );
+                        }}
                         className="rounded-lg border border-[var(--border)] px-4 py-2 text-xs font-semibold text-[var(--text)] hover:border-metatron-accent/40"
                       >
                         Change number
@@ -720,6 +726,22 @@ export default function StartupProfilePage() {
                     {whatsappMsg ? (
                       <p className="text-xs text-[var(--text-muted)]">{whatsappMsg}</p>
                     ) : null}
+                    {whatsappSaved && (
+                      <div className="mt-3 rounded-lg border border-[rgba(108,92,231,0.3)] bg-[rgba(108,92,231,0.08)] p-3">
+                        <p className="text-xs font-medium text-[#6c5ce7] mb-1">One last step to activate</p>
+                        <p className="text-xs text-[var(--text-muted)] mb-2">
+                          Send any message to Kevin on WhatsApp to open the notification channel.
+                        </p>
+                        <a
+                          href="https://wa.me/27818621473"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#25D366] text-white rounded-lg text-xs font-medium hover:bg-[#20bd5a] transition-colors"
+                        >
+                          Message Kevin on WhatsApp →
+                        </a>
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <>
@@ -757,6 +779,22 @@ export default function StartupProfilePage() {
                       {whatsappMsg ? (
                         <p className="text-xs text-[var(--text-muted)]">{whatsappMsg}</p>
                       ) : null}
+                      {whatsappSaved && (
+                        <div className="mt-3 rounded-lg border border-[rgba(108,92,231,0.3)] bg-[rgba(108,92,231,0.08)] p-3">
+                          <p className="text-xs font-medium text-[#6c5ce7] mb-1">One last step to activate</p>
+                          <p className="text-xs text-[var(--text-muted)] mb-2">
+                            Send any message to Kevin on WhatsApp to open the notification channel.
+                          </p>
+                          <a
+                            href="https://wa.me/27818621473"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#25D366] text-white rounded-lg text-xs font-medium hover:bg-[#20bd5a] transition-colors"
+                          >
+                            Message Kevin on WhatsApp →
+                          </a>
+                        </div>
+                      )}
                     </form>
                   </>
                 )}

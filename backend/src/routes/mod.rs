@@ -17,6 +17,7 @@ pub mod kevin_matches;
 pub mod matches;
 pub mod messages;
 pub mod oauth;
+pub mod onboarding;
 pub mod pitches;
 pub mod pools;
 pub mod profile;

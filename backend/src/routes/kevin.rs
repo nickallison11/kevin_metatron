@@ -24,6 +24,8 @@ use crate::identity::require_user;
 use crate::memory;
 use crate::state::AppState;
 
+use super::onboarding;
+
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/chat/sessions", get(chat_sessions))
@@ -696,14 +698,13 @@ async fn telegram_kevin(
     };
 
     let Some(user) = user_row else {
-        return (
-            StatusCode::NOT_FOUND,
-            Json(TelegramJsonError {
-                error: "not_registered".into(),
-                message: "You need a metatron account. Sign up free at platform.metatron.id".into(),
-            }),
-        )
-            .into_response();
+        let reply = onboarding::handle_messaging_onboarding(&state, "telegram", &tg_id, &message)
+            .await
+            .unwrap_or_else(|e| {
+                tracing::error!("telegram onboarding error: {e}");
+                "Something went wrong. Please try again.".to_string()
+            });
+        return Json(ChatResponse { reply }).into_response();
     };
 
     match kevin_reply_for_linked_user(&state, user, message).await {

@@ -11,6 +11,7 @@ use serde_json::{json, Value};
 use crate::state::AppState;
 
 use super::kevin::{kevin_reply_for_linked_user, KevinReplyError, UserForTelegram};
+use super::onboarding;
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new().route("/webhook", get(verify_webhook).post(webhook_post))
@@ -192,12 +193,13 @@ async fn handle_whatsapp_message(
     .map_err(|e| e.to_string())?;
 
     let Some(user) = user else {
-        send_whatsapp_text(
-            state,
-            from_wa_id,
-            "Link your WhatsApp number in Settings on platform.metatron.id, then message Kevin again.",
-        )
-        .await?;
+        let reply = onboarding::handle_messaging_onboarding(state, "whatsapp", &norm, &text)
+            .await
+            .unwrap_or_else(|e| {
+                tracing::error!("whatsapp onboarding error: {e}");
+                "Something went wrong. Please try again.".to_string()
+            });
+        send_whatsapp_text(state, from_wa_id, &reply).await?;
         return Ok(());
     };
 

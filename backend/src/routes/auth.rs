@@ -6,7 +6,7 @@ use argon2::{
     Argon2, PasswordVerifier,
 };
 use axum::{
-    extract::State,
+    extract::{Query, State},
     http::StatusCode,
     routing::{delete, get, post, put},
     Json, Router,
@@ -45,6 +45,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/change-password", put(change_password))
         .route("/profile", put(update_profile))
         .route("/me", get(get_me))
+        .route("/messaging-signup", get(messaging_signup))
         .route("/whatsapp-number", put(set_whatsapp_number))
         .route("/2fa/setup", post(two_fa_setup))
         .route("/2fa/confirm", post(two_fa_confirm))
@@ -92,6 +93,7 @@ pub struct ChangeEmailRequest {
 
 #[derive(Deserialize)]
 pub struct ChangePasswordRequest {
+    #[serde(default)]
     pub current_password: String,
     pub new_password: String,
 }
@@ -701,8 +703,10 @@ async fn change_password(
         "password not set for this account".to_string(),
     ))?;
 
-    verify_password_hash(&stored_hash, &body.current_password)
-        .map_err(|e| (StatusCode::UNAUTHORIZED, e))?;
+    if !stored_hash.trim().is_empty() {
+        verify_password_hash(&stored_hash, &body.current_password)
+            .map_err(|e| (StatusCode::UNAUTHORIZED, e))?;
+    }
 
     let new_hash =
         hash_password(&body.new_password).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
@@ -715,6 +719,45 @@ async fn change_password(
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string()))?;
 
     Ok(StatusCode::OK)
+}
+
+#[derive(Deserialize)]
+pub struct MessagingSignupQuery {
+    pub token: String,
+}
+
+async fn messaging_signup(
+    State(state): State<Arc<AppState>>,
+    Query(q): Query<MessagingSignupQuery>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let row: Option<(Uuid, String)> = sqlx::query_as(
+        r#"SELECT user_id, role::text FROM messaging_onboarding
+           WHERE token = $1 AND token_expires_at > NOW() AND state = 'complete'"#,
+    )
+    .bind(&q.token)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| {
+        tracing::error!("messaging_signup: {e}");
+        (StatusCode::INTERNAL_SERVER_ERROR, "database error".to_string())
+    })?;
+
+    let (user_id, role) =
+        row.ok_or((StatusCode::NOT_FOUND, "invalid or expired link".to_string()))?;
+
+    let jwt = auth::issue_jwt(&state, user_id, &role).map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "token error".to_string(),
+        )
+    })?;
+
+    let _ = sqlx::query("DELETE FROM messaging_onboarding WHERE token = $1")
+        .bind(&q.token)
+        .execute(&state.db)
+        .await;
+
+    Ok(Json(serde_json::json!({ "token": jwt, "role": role })))
 }
 
 #[derive(Serialize, sqlx::FromRow)]

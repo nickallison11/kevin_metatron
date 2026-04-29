@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { API_BASE } from "@/lib/api";
 
-export default function MessagingSignupPage() {
+function MessagingSignupInner() {
   const params = useSearchParams();
   const router = useRouter();
   const token = params.get("token");
@@ -138,5 +138,19 @@ export default function MessagingSignupPage() {
         )}
       </div>
     </main>
+  );
+}
+
+export default function MessagingSignupPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-[var(--bg)] flex items-center justify-center">
+          <p className="text-sm text-[var(--text-muted)]">Loading…</p>
+        </div>
+      }
+    >
+      <MessagingSignupInner />
+    </Suspense>
   );
 }

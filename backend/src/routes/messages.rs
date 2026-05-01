@@ -155,12 +155,16 @@ async fn list_conversations(
 
     let rows: Vec<Row> = sqlx::query_as(
         "SELECT c.id, c.type, c.last_message_at, cp.unread_count, \
-         u.email as other_name, \
+         COALESCE(o.name, ip.firm_name, cnp.organisation, u.email) as other_name, \
          lm.body as last_message \
          FROM conversations c \
          JOIN conversation_participants cp ON cp.conversation_id = c.id AND cp.user_id = $1 \
          LEFT JOIN conversation_participants cp2 ON cp2.conversation_id = c.id AND cp2.user_id != $1 \
          LEFT JOIN users u ON u.id = cp2.user_id \
+         LEFT JOIN startup_profiles sp ON sp.user_id = cp2.user_id \
+         LEFT JOIN organizations o ON o.id = sp.organization_id \
+         LEFT JOIN investor_profiles ip ON ip.user_id = cp2.user_id \
+         LEFT JOIN connector_profiles cnp ON cnp.user_id = cp2.user_id \
          LEFT JOIN LATERAL ( \
              SELECT body FROM messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1 \
          ) lm ON true \

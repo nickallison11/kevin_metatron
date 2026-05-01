@@ -268,14 +268,19 @@ export default function MessagingWidget({ token }: { token: string | null }) {
     } catch {}
   }, [panes, listOpen]);
 
-  const loadConversations = useCallback(async () => {
-    if (!token) return;
+  const loadConversations = useCallback(async (): Promise<Conversation[] | undefined> => {
+    if (!token) return undefined;
     try {
       const res = await fetch(`${API_BASE}/messages/conversations`, {
         headers: authJsonHeaders(token),
       });
-      if (res.ok) setConversations(await res.json());
+      if (res.ok) {
+        const data: Conversation[] = await res.json();
+        setConversations(data);
+        return data;
+      }
     } catch {}
+    return undefined;
   }, [token]);
 
   const fetchMessages = useCallback(async (convId: string): Promise<Message[]> => {
@@ -298,11 +303,25 @@ export default function MessagingWidget({ token }: { token: string | null }) {
     return () => clearInterval(iv);
   }, [listOpen, token, loadConversations]);
 
-  // Load conversations on mount so Kevin history is ready immediately
+  // Load conversations on mount so Kevin history is ready immediately; sync restored Kevin pane to real conversation id
   useEffect(() => {
     if (!token) return;
-    void loadConversations();
-  }, [token, loadConversations]);
+    void (async () => {
+      const convs = await loadConversations();
+      const kevinConv = convs?.find((c) => c.type === "kevin");
+      if (!kevinConv) return;
+      setPanes((prev) => {
+        const kevinPane = prev.find((p) => p.type === "kevin");
+        if (!kevinPane || kevinPane.id === kevinConv.id) return prev;
+        void fetchMessages(kevinConv.id).then((msgs) => {
+          setPanes((cur) =>
+            cur.map((p) => (p.type === "kevin" ? { ...p, id: kevinConv.id, messages: msgs } : p))
+          );
+        });
+        return prev;
+      });
+    })();
+  }, [token, loadConversations, fetchMessages]);
 
   // Re-fetch messages for panes restored from localStorage (separate from mount effect so loadConversations is not tied to panes/input updates)
   useEffect(() => {

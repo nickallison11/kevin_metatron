@@ -369,7 +369,6 @@ export default function MessagingWidget({ token }: { token: string | null }) {
           },
         ];
       });
-      setListOpen(false);
     }
     window.addEventListener("metatron:open-chat", handler);
     return () => window.removeEventListener("metatron:open-chat", handler);
@@ -377,7 +376,6 @@ export default function MessagingWidget({ token }: { token: string | null }) {
 
   async function openKevinChat() {
     if (panes.find((p) => p.type === "kevin")) {
-      setListOpen(false);
       return;
     }
 
@@ -412,7 +410,6 @@ export default function MessagingWidget({ token }: { token: string | null }) {
         },
       ];
     });
-    setListOpen(false);
   }
 
   async function openConversationChat(conv: Conversation) {
@@ -421,7 +418,6 @@ export default function MessagingWidget({ token }: { token: string | null }) {
       return;
     }
     if (panes.find((p) => p.id === conv.id)) {
-      setListOpen(false);
       return;
     }
     const messages = await fetchMessages(conv.id);
@@ -447,7 +443,6 @@ export default function MessagingWidget({ token }: { token: string | null }) {
         },
       ];
     });
-    setListOpen(false);
   }
 
   function closePane(paneId: string) {
@@ -516,15 +511,17 @@ export default function MessagingWidget({ token }: { token: string | null }) {
 
   return (
     <div className="fixed bottom-0 right-4 z-[200] flex items-end gap-2">
-      {panes.map((pane) => (
-        <ChatPanel
-          key={pane.id}
-          pane={pane}
-          onClose={() => closePane(pane.id)}
-          onInputChange={(val) => updatePane(pane.id, { input: val })}
-          onSend={() => void sendMessage(pane.id)}
-        />
-      ))}
+      {[...panes]
+        .sort((a, b) => (a.type === "kevin" ? 1 : b.type === "kevin" ? -1 : 0))
+        .map((pane) => (
+          <ChatPanel
+            key={pane.id}
+            pane={pane}
+            onClose={() => closePane(pane.id)}
+            onInputChange={(val) => updatePane(pane.id, { input: val })}
+            onSend={() => void sendMessage(pane.id)}
+          />
+        ))}
 
       <div style={{ width: 320 }}>
         <button
@@ -617,7 +614,6 @@ export default function MessagingWidget({ token }: { token: string | null }) {
                           },
                         ];
                       });
-                      setListOpen(false);
                     }}
                     className="rounded p-1 text-[var(--text-muted)] hover:text-[#6c5ce7] hover:bg-[rgba(108,92,231,0.12)] transition-colors"
                   >

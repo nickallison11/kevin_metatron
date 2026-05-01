@@ -9,6 +9,7 @@ type Conversation = {
   last_message_at: string;
   unread_count: number;
   other_name: string | null;
+  other_user_id: string | null;
   last_message: string | null;
 };
 
@@ -353,6 +354,7 @@ export default function MessagingWidget({ token }: { token: string | null }) {
           id: conv.id,
           type: "direct",
           name: conv.other_name ?? "User",
+          recipientId: conv.other_user_id ?? undefined,
           messages,
           input: "",
           sending: false,

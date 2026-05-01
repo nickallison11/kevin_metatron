@@ -23,6 +23,7 @@ struct ConversationSummary {
     last_message_at: String,
     unread_count: i64,
     other_name: Option<String>,
+    other_user_id: Option<String>,
     last_message: Option<String>,
 }
 
@@ -150,12 +151,13 @@ async fn list_conversations(
         last_message_at: DateTime<Utc>,
         unread_count: i32,
         other_name: Option<String>,
+        other_user_id: Option<Uuid>,
         last_message: Option<String>,
     }
 
     let rows: Vec<Row> = sqlx::query_as(
         "SELECT c.id, c.type, c.last_message_at, cp.unread_count, \
-         COALESCE(o.name, ip.firm_name, cnp.organisation, u.email) as other_name, \
+         COALESCE(o.name, ip.firm_name, cnp.organisation, u.email) as other_name, u.id as other_user_id, \
          lm.body as last_message \
          FROM conversations c \
          JOIN conversation_participants cp ON cp.conversation_id = c.id AND cp.user_id = $1 \
@@ -183,6 +185,7 @@ async fn list_conversations(
             last_message_at: r.last_message_at.to_rfc3339(),
             unread_count: r.unread_count as i64,
             other_name: r.other_name,
+            other_user_id: r.other_user_id.map(|u| u.to_string()),
             last_message: r.last_message,
         })
         .collect();

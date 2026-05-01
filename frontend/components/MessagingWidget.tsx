@@ -230,6 +230,44 @@ export default function MessagingWidget({ token }: { token: string | null }) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [panes, setPanes] = useState<ChatPane[]>([]);
 
+  // Restore state on mount
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("metatron_chat_state");
+      if (saved) {
+        const { savedPanes, savedListOpen } = JSON.parse(saved) as {
+          savedPanes: {
+            id: string;
+            type: "kevin" | "direct";
+            name: string;
+            recipientId?: string;
+          }[];
+          savedListOpen: boolean;
+        };
+        setPanes(
+          savedPanes.map((p) => ({ ...p, messages: [], input: "", sending: false }))
+        );
+        setListOpen(savedListOpen);
+      }
+    } catch {}
+  }, []);
+
+  // Persist state on change
+  useEffect(() => {
+    try {
+      const savedPanes = panes.map(({ id, type, name, recipientId }) => ({
+        id,
+        type,
+        name,
+        recipientId,
+      }));
+      localStorage.setItem(
+        "metatron_chat_state",
+        JSON.stringify({ savedPanes, savedListOpen: listOpen })
+      );
+    } catch {}
+  }, [panes, listOpen]);
+
   const loadConversations = useCallback(async () => {
     if (!token) return;
     try {
@@ -239,6 +277,19 @@ export default function MessagingWidget({ token }: { token: string | null }) {
       if (res.ok) setConversations(await res.json());
     } catch {}
   }, [token]);
+
+  const fetchMessages = useCallback(async (convId: string): Promise<Message[]> => {
+    if (!token) return [];
+    try {
+      const res = await fetch(`${API_BASE}/messages/conversations/${convId}`, {
+        headers: authJsonHeaders(token),
+      });
+      if (res.ok) return await res.json();
+    } catch {}
+    return [];
+  }, [token]);
+
+  const paneHydrateStartedRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (!listOpen || !token) return;
@@ -252,6 +303,33 @@ export default function MessagingWidget({ token }: { token: string | null }) {
     if (!token) return;
     void loadConversations();
   }, [token, loadConversations]);
+
+  // Re-fetch messages for panes restored from localStorage (separate from mount effect so loadConversations is not tied to panes/input updates)
+  useEffect(() => {
+    if (!token) {
+      paneHydrateStartedRef.current = new Set();
+      return;
+    }
+    setPanes((prev) => {
+      prev.forEach((p) => {
+        if (
+          p.messages.length === 0 &&
+          p.id &&
+          !p.id.startsWith("pending-") &&
+          !p.id.startsWith("kevin-new") &&
+          !paneHydrateStartedRef.current.has(p.id)
+        ) {
+          paneHydrateStartedRef.current.add(p.id);
+          void fetchMessages(p.id).then((msgs) => {
+            setPanes((cur) =>
+              cur.map((pp) => (pp.id === p.id ? { ...pp, messages: msgs } : pp))
+            );
+          });
+        }
+      });
+      return prev;
+    });
+  }, [token, panes, fetchMessages]);
 
   useEffect(() => {
     function handler(e: Event) {
@@ -277,17 +355,6 @@ export default function MessagingWidget({ token }: { token: string | null }) {
     window.addEventListener("metatron:open-chat", handler);
     return () => window.removeEventListener("metatron:open-chat", handler);
   }, []);
-
-  async function fetchMessages(convId: string): Promise<Message[]> {
-    if (!token) return [];
-    try {
-      const res = await fetch(`${API_BASE}/messages/conversations/${convId}`, {
-        headers: authJsonHeaders(token),
-      });
-      if (res.ok) return await res.json();
-    } catch {}
-    return [];
-  }
 
   async function openKevinChat() {
     if (panes.find((p) => p.type === "kevin")) {
@@ -441,110 +508,6 @@ export default function MessagingWidget({ token }: { token: string | null }) {
       ))}
 
       <div style={{ width: 320 }}>
-        {listOpen && (
-          <div
-            className="border-x border-t border-[var(--border)] bg-[var(--bg-card)] overflow-y-auto"
-            style={{ height: 400 }}
-          >
-            <button
-              type="button"
-              onClick={() => void openKevinChat()}
-              className="flex w-full items-center gap-3 border-b border-[var(--border)] px-4 py-3 text-left transition-colors hover:bg-[rgba(108,92,231,0.06)]"
-            >
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[rgba(108,92,231,0.2)] text-sm font-bold text-[#6c5ce7]">
-                K
-              </span>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-sm font-semibold text-[#6c5ce7]">Kevin AI</p>
-                  <div className="flex items-center gap-1 shrink-0">
-                    {(kevinConv?.unread_count ?? 0) > 0 && (
-                      <span className="rounded-full bg-[#6c5ce7] px-1.5 py-0.5 text-[10px] font-bold text-white">
-                        {kevinConv!.unread_count}
-                      </span>
-                    )}
-                    <button
-                      type="button"
-                      title="New Kevin chat"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setPanes((prev) => {
-                          const filtered = prev.filter((p) => p.type !== "kevin");
-                          const next = filtered.length >= 2 ? filtered.slice(1) : filtered;
-                          return [
-                            ...next,
-                            {
-                              id: `kevin-new-${Date.now()}`,
-                              type: "kevin",
-                              name: "Kevin AI",
-                              messages: [],
-                              input: "",
-                              sending: false,
-                            },
-                          ];
-                        });
-                        setListOpen(false);
-                      }}
-                      className="rounded p-1 text-[var(--text-muted)] hover:text-[#6c5ce7] hover:bg-[rgba(108,92,231,0.12)] transition-colors"
-                    >
-                      <svg
-                        width="13"
-                        height="13"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        aria-hidden
-                      >
-                        <path d="M12 20h9" />
-                        <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
-                      </svg>
-                    </button>
-                  </div>
-                </div>
-                <p className="text-xs text-[var(--text-muted)] truncate">
-                  {kevinConv?.last_message ?? "Your AI co-pilot"}
-                </p>
-              </div>
-            </button>
-
-            {directConvs.length === 0 && (
-              <p className="px-4 py-4 text-xs text-[var(--text-muted)]">
-                No direct messages yet. Message investors from your matches page.
-              </p>
-            )}
-            {directConvs.map((conv) => (
-              <button
-                key={conv.id}
-                type="button"
-                onClick={() => void openConversationChat(conv)}
-                className="flex w-full items-center gap-3 border-b border-[var(--border)] px-4 py-3 text-left transition-colors hover:bg-[rgba(255,255,255,0.03)]"
-              >
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[rgba(255,255,255,0.06)] text-sm font-semibold text-[var(--text-muted)]">
-                  {(conv.other_name ?? "U").charAt(0).toUpperCase()}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-sm font-medium text-[var(--text)] truncate">
-                      {conv.other_name ?? "User"}
-                    </p>
-                    {conv.unread_count > 0 && (
-                      <span className="shrink-0 rounded-full bg-[#6c5ce7] px-1.5 py-0.5 text-[10px] font-bold text-white">
-                        {conv.unread_count}
-                      </span>
-                    )}
-                  </div>
-                  {conv.last_message && (
-                    <p className="text-xs text-[var(--text-muted)] truncate">{conv.last_message}</p>
-                  )}
-                </div>
-              </button>
-            ))}
-          </div>
-        )}
-
         <button
           type="button"
           onClick={() => {
@@ -589,6 +552,112 @@ export default function MessagingWidget({ token }: { token: string | null }) {
             <polyline points="18 15 12 9 6 15" />
           </svg>
         </button>
+
+        <div
+          className="border-x border-b border-[var(--border)] bg-[var(--bg-card)] overflow-y-auto transition-all duration-200 ease-in-out"
+          style={{
+            height: listOpen ? 500 : 0,
+            opacity: listOpen ? 1 : 0,
+            overflow: "hidden",
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => void openKevinChat()}
+            className="flex w-full items-center gap-3 border-b border-[var(--border)] px-4 py-3 text-left transition-colors hover:bg-[rgba(108,92,231,0.06)]"
+          >
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[rgba(108,92,231,0.2)] text-sm font-bold text-[#6c5ce7]">
+              K
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-semibold text-[#6c5ce7]">Kevin AI</p>
+                <div className="flex items-center gap-1 shrink-0">
+                  {(kevinConv?.unread_count ?? 0) > 0 && (
+                    <span className="rounded-full bg-[#6c5ce7] px-1.5 py-0.5 text-[10px] font-bold text-white">
+                      {kevinConv!.unread_count}
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    title="New Kevin chat"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setPanes((prev) => {
+                        const filtered = prev.filter((p) => p.type !== "kevin");
+                        const next = filtered.length >= 2 ? filtered.slice(1) : filtered;
+                        return [
+                          ...next,
+                          {
+                            id: `kevin-new-${Date.now()}`,
+                            type: "kevin",
+                            name: "Kevin AI",
+                            messages: [],
+                            input: "",
+                            sending: false,
+                          },
+                        ];
+                      });
+                      setListOpen(false);
+                    }}
+                    className="rounded p-1 text-[var(--text-muted)] hover:text-[#6c5ce7] hover:bg-[rgba(108,92,231,0.12)] transition-colors"
+                  >
+                    <svg
+                      width="13"
+                      height="13"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden
+                    >
+                      <path d="M12 20h9" />
+                      <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+              <p className="text-xs text-[var(--text-muted)] truncate">
+                {kevinConv?.last_message ?? "Your AI co-pilot"}
+              </p>
+            </div>
+          </button>
+
+          {directConvs.length === 0 && (
+            <p className="px-4 py-4 text-xs text-[var(--text-muted)]">
+              No direct messages yet. Message investors from your matches page.
+            </p>
+          )}
+          {directConvs.map((conv) => (
+            <button
+              key={conv.id}
+              type="button"
+              onClick={() => void openConversationChat(conv)}
+              className="flex w-full items-center gap-3 border-b border-[var(--border)] px-4 py-3 text-left transition-colors hover:bg-[rgba(255,255,255,0.03)]"
+            >
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[rgba(255,255,255,0.06)] text-sm font-semibold text-[var(--text-muted)]">
+                {(conv.other_name ?? "U").charAt(0).toUpperCase()}
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-medium text-[var(--text)] truncate">
+                    {conv.other_name ?? "User"}
+                  </p>
+                  {conv.unread_count > 0 && (
+                    <span className="shrink-0 rounded-full bg-[#6c5ce7] px-1.5 py-0.5 text-[10px] font-bold text-white">
+                      {conv.unread_count}
+                    </span>
+                  )}
+                </div>
+                {conv.last_message && (
+                  <p className="text-xs text-[var(--text-muted)] truncate">{conv.last_message}</p>
+                )}
+              </div>
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   );

@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
-import { API_BASE, authJsonHeaders } from "@/lib/api";
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { API_BASE, authHeaders, authJsonHeaders } from "@/lib/api";
+import type { MeResponse } from "@/lib/me";
 
 type Conversation = {
   id: string;
@@ -229,11 +230,38 @@ export default function MessagingWidget({ token }: { token: string | null }) {
   const [listOpen, setListOpen] = useState(false);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [panes, setPanes] = useState<ChatPane[]>([]);
+  const [userId, setUserId] = useState<string | null>(null);
 
-  // Restore state on mount
   useEffect(() => {
+    if (!token) {
+      setUserId(null);
+      return;
+    }
+    let cancelled = false;
+    void fetch(`${API_BASE}/auth/me`, { headers: authHeaders(token) })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: MeResponse | null) => {
+        if (cancelled) return;
+        setUserId(data?.id ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setUserId(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
+  // Restore from localStorage once user id is known (layout so persist effect sees restored panes)
+  useLayoutEffect(() => {
+    if (!userId) {
+      setPanes([]);
+      setListOpen(false);
+      return;
+    }
+    const STORAGE_KEY = `metatron_chat_state_${userId}`;
     try {
-      const saved = localStorage.getItem("metatron_chat_state");
+      const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
         const { savedPanes, savedListOpen } = JSON.parse(saved) as {
           savedPanes: {
@@ -248,12 +276,20 @@ export default function MessagingWidget({ token }: { token: string | null }) {
           savedPanes.map((p) => ({ ...p, messages: [], input: "", sending: false }))
         );
         setListOpen(savedListOpen);
+      } else {
+        setPanes([]);
+        setListOpen(false);
       }
-    } catch {}
-  }, []);
+    } catch {
+      setPanes([]);
+      setListOpen(false);
+    }
+  }, [userId]);
 
-  // Persist state on change
+  // Persist state on change (only when user id is known)
   useEffect(() => {
+    if (!userId) return;
+    const STORAGE_KEY = `metatron_chat_state_${userId}`;
     try {
       const savedPanes = panes.map(({ id, type, name, recipientId }) => ({
         id,
@@ -262,11 +298,11 @@ export default function MessagingWidget({ token }: { token: string | null }) {
         recipientId,
       }));
       localStorage.setItem(
-        "metatron_chat_state",
+        STORAGE_KEY,
         JSON.stringify({ savedPanes, savedListOpen: listOpen })
       );
     } catch {}
-  }, [panes, listOpen]);
+  }, [panes, listOpen, userId]);
 
   const loadConversations = useCallback(async (): Promise<Conversation[] | undefined> => {
     if (!token) return undefined;

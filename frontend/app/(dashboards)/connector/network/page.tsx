@@ -116,6 +116,7 @@ export default function ConnectorNetworkPage() {
   const [view, setView] = useState<"card" | "list">("list");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+  const prevPageSize = useRef(pageSize);
   const [contactModalMode, setContactModalMode] = useState<"view" | "edit">("view");
   const [editForm, setEditForm] = useState({
     name: "",
@@ -312,7 +313,18 @@ export default function ConnectorNetworkPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [tab, pageSize]);
+  }, [tab]);
+
+  useEffect(() => {
+    setPage((prev) => {
+      const firstItem = (prev - 1) * prevPageSize.current + 1;
+      return Math.max(1, Math.ceil(firstItem / pageSize));
+    });
+  }, [pageSize]);
+
+  useEffect(() => {
+    prevPageSize.current = pageSize;
+  }, [pageSize]);
 
   const filteredStaged = useMemo(() => {
     const filtered = stagingTab === "all" ? staged : staged.filter((s) => s.role === stagingTab);

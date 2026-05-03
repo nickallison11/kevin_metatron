@@ -375,7 +375,17 @@ export default function MessagingWidget({ token }: { token: string | null }) {
   }, []);
 
   async function openKevinChat() {
-    if (panes.find((p) => p.type === "kevin")) {
+    const existingKevin = panes.find((p) => p.type === "kevin");
+    if (existingKevin) {
+      if (existingKevin.messages.length === 0) {
+        const kevinConv = conversations.find((c) => c.type === "kevin");
+        if (kevinConv) {
+          const msgs = await fetchMessages(kevinConv.id);
+          setPanes((prev) =>
+            prev.map((p) => (p.type === "kevin" ? { ...p, id: kevinConv.id, messages: msgs } : p))
+          );
+        }
+      }
       return;
     }
 
@@ -417,7 +427,12 @@ export default function MessagingWidget({ token }: { token: string | null }) {
       await openKevinChat();
       return;
     }
-    if (panes.find((p) => p.id === conv.id)) {
+    const existingPane = panes.find((p) => p.id === conv.id);
+    if (existingPane) {
+      if (existingPane.messages.length === 0) {
+        const msgs = await fetchMessages(conv.id);
+        updatePane(conv.id, { messages: msgs });
+      }
       return;
     }
     const messages = await fetchMessages(conv.id);

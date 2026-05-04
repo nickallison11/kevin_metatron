@@ -103,6 +103,15 @@ function compareStagedContacts(a: StagedContact, b: StagedContact): number {
 const STAGING_RECENT_HIGHLIGHT_BG = "bg-[rgba(0,200,100,0.05)] transition-all duration-1000";
 const STAGING_RECENT_HIGHLIGHT = `border-green-400/30 ${STAGING_RECENT_HIGHLIGHT_BG}`;
 
+const DEFAULT_COLUMNS = [
+  { key: "name", label: "Name / Firm", width: 180 },
+  { key: "email", label: "Email", width: 180 },
+  { key: "sector", label: "Sector", width: 140 },
+  { key: "stage", label: "Stage", width: 140 },
+  { key: "ticket", label: "Ticket", width: 180 },
+  { key: "location", label: "Location", width: 250 },
+] as const;
+
 export default function ConnectorNetworkPage() {
   const { token, loading } = useAuth("INTERMEDIARY");
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
@@ -117,6 +126,15 @@ export default function ConnectorNetworkPage() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const prevPageSize = useRef(pageSize);
+  const [colWidths, setColWidths] = useState<Record<string, number>>(() => {
+    if (typeof window === "undefined") return {};
+    try {
+      const saved = localStorage.getItem("metatron_network_col_widths");
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
   const [contactModalMode, setContactModalMode] = useState<"view" | "edit">("view");
   const [editForm, setEditForm] = useState({
     name: "",
@@ -325,6 +343,37 @@ export default function ConnectorNetworkPage() {
   useEffect(() => {
     prevPageSize.current = pageSize;
   }, [pageSize]);
+
+  useEffect(() => {
+    if (Object.keys(colWidths).length > 0) {
+      localStorage.setItem("metatron_network_col_widths", JSON.stringify(colWidths));
+    }
+  }, [colWidths]);
+
+  const onInvestorListColResizeStart = useCallback(
+    (colKey: string, e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const defaultW = DEFAULT_COLUMNS.find((c) => c.key === colKey)?.width ?? 120;
+      const startX = e.clientX;
+      const startWidth = colWidths[colKey] ?? defaultW;
+
+      const onMove = (moveEvent: MouseEvent) => {
+        const dx = moveEvent.clientX - startX;
+        const newW = Math.max(80, startWidth + dx);
+        setColWidths((prev) => ({ ...prev, [colKey]: newW }));
+      };
+
+      const onUp = () => {
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+      };
+
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    },
+    [colWidths],
+  );
 
   const filteredStaged = useMemo(() => {
     const filtered = stagingTab === "all" ? staged : staged.filter((s) => s.role === stagingTab);
@@ -1091,15 +1140,28 @@ export default function ConnectorNetworkPage() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full text-sm table-fixed">
               <thead>
                 <tr className="text-[var(--text-muted)] text-xs border-b border-[var(--border)]">
-                  <th className="text-left pb-2 pr-3">Name / Firm</th>
-                  <th className="text-left pb-2 pr-3">Email</th>
-                  <th className="text-left pb-2 pr-3">Sector</th>
-                  <th className="text-left pb-2 pr-3">Stage</th>
-                  <th className="text-left pb-2 pr-3">Ticket</th>
-                  <th className="text-left pb-2 pr-3">Location</th>
+                  {DEFAULT_COLUMNS.map((col) => {
+                    const w = colWidths[col.key] ?? col.width;
+                    return (
+                      <th
+                        key={col.key}
+                        className={`relative text-left pb-2 pr-3 ${col.key === "name" ? "pl-3" : ""}`}
+                        style={{ width: w, minWidth: 80 }}
+                      >
+                        {col.label}
+                        <div
+                          className="absolute right-0 top-0 bottom-0 cursor-col-resize z-10"
+                          style={{ width: 4 }}
+                          onMouseDown={(e) => onInvestorListColResizeStart(col.key, e)}
+                          onClick={(e) => e.stopPropagation()}
+                          aria-hidden
+                        />
+                      </th>
+                    );
+                  })}
                 </tr>
               </thead>
               <tbody>
@@ -1107,19 +1169,48 @@ export default function ConnectorNetworkPage() {
                   <tr
                     key={c.id}
                     onClick={() => openContactModalView(c)}
-                    className="border-b border-[rgba(255,255,255,0.03)] bg-[var(--bg)] hover:bg-[var(--bg-card)] cursor-pointer"
+                    className="border-b border-[rgba(255,255,255,0.03)] bg-[var(--bg)] hover:bg-[var(--bg-card)] cursor-pointer h-14"
                   >
-                    <td className="py-2 pr-3">
-                      <p className="text-[var(--text)]">{c.name}</p>
-                      {c.firm_or_company && c.firm_or_company !== c.name && (
-                        <p className="text-[var(--text-muted)] text-xs">{c.firm_or_company}</p>
-                      )}
-                    </td>
-                    <td className="py-2 pr-3 text-[var(--text-muted)] text-xs">{c.email ?? "—"}</td>
-                    <td className="py-2 pr-3 text-[var(--text-muted)] text-xs max-w-[120px] truncate">{c.sector_focus ?? "—"}</td>
-                    <td className="py-2 pr-3 text-[var(--text-muted)] text-xs">{c.stage_focus ?? "—"}</td>
-                    <td className="py-2 pr-3 text-[var(--text-muted)] text-xs">{c.ticket_size ?? "—"}</td>
-                    <td className="py-2 pr-3 text-[var(--text-muted)] text-xs">{c.geography ?? "—"}</td>
+                    {DEFAULT_COLUMNS.map((col) => {
+                      const w = colWidths[col.key] ?? col.width;
+                      const cellStyle: React.CSSProperties = {
+                        width: w,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      };
+                      const isName = col.key === "name";
+                      return (
+                        <td
+                          key={col.key}
+                          className={
+                            isName
+                              ? "py-2 pl-3 pr-3 align-top"
+                              : "py-2 pr-3 text-[var(--text-muted)] text-xs align-top"
+                          }
+                          style={cellStyle}
+                        >
+                          {isName ? (
+                            <>
+                              <p className="text-[var(--text)]">{c.name}</p>
+                              {c.firm_or_company && c.firm_or_company !== c.name && (
+                                <p className="text-[var(--text-muted)] text-xs">{c.firm_or_company}</p>
+                              )}
+                            </>
+                          ) : col.key === "email" ? (
+                            (c.email ?? "—")
+                          ) : col.key === "sector" ? (
+                            (c.sector_focus ?? "—")
+                          ) : col.key === "stage" ? (
+                            (c.stage_focus ?? "—")
+                          ) : col.key === "ticket" ? (
+                            (c.ticket_size ?? "—")
+                          ) : (
+                            (c.geography ?? "—")
+                          )}
+                        </td>
+                      );
+                    })}
                   </tr>
                 ))}
               </tbody>

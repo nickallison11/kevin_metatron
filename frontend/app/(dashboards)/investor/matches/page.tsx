@@ -1,7 +1,8 @@
 "use client";
 
 import type { CSSProperties } from "react";
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { API_BASE, authJsonHeaders } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
@@ -68,13 +69,21 @@ const scoreBadgeColor = (score: number) => {
   return "bg-[rgba(255,255,255,0.06)] text-[var(--text-muted)]";
 };
 
-export default function InvestorMatchesPage() {
+function InvestorMatchesPageInner() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
   const { token, loading } = useAuth();
-  const [tab, setTab] = useState<"matches" | "intros">("intros");
+  const [tab, setTab] = useState<"matches" | "intros">(() => {
+    const t = searchParams.get("tab");
+    return t === "matches" ? "matches" : "intros";
+  });
   const [matches, setMatches] = useState<KevinMatch[]>([]);
   const [intros, setIntros] = useState<ReceivedIntro[]>([]);
   const [fetching, setFetching] = useState(false);
-  const [page, setPage] = useState(1);
+  const [page, setPageRaw] = useState(() => {
+    const p = Number(searchParams.get("page"));
+    return p > 0 ? p : 1;
+  });
   const [viewingMatch, setViewingMatch] = useState<KevinMatch | null>(null);
   const [viewingIntro, setViewingIntro] = useState<ReceivedIntro | null>(null);
   const [actionBusy, setActionBusy] = useState<string | null>(null);
@@ -136,6 +145,13 @@ export default function InvestorMatchesPage() {
     void loadIntros();
     void loadMatches();
   }, [loading, token, loadIntros, loadMatches]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("page", String(page));
+    params.set("tab", tab);
+    router.replace(`?${params.toString()}`, { scroll: false });
+  }, [page, tab]);
 
   useEffect(() => {
     if (Object.keys(introColWidths).length > 0) {
@@ -316,7 +332,7 @@ export default function InvestorMatchesPage() {
                 type="button"
                 onClick={() => {
                   setTab(t);
-                  setPage(1);
+                  setPageRaw(1);
                 }}
                 className={`px-3 py-1 rounded-lg text-xs font-medium ${
                   tab === t
@@ -487,7 +503,7 @@ export default function InvestorMatchesPage() {
                 <div className="flex gap-2">
                   <button
                     type="button"
-                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    onClick={() => setPageRaw((p) => Math.max(1, p - 1))}
                     disabled={page === 1}
                     className="px-3 py-1 bg-[rgba(255,255,255,0.06)] rounded-lg disabled:opacity-30"
                   >
@@ -495,7 +511,7 @@ export default function InvestorMatchesPage() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                    onClick={() => setPageRaw((p) => Math.min(totalPages, p + 1))}
                     disabled={page === totalPages}
                     className="px-3 py-1 bg-[rgba(255,255,255,0.06)] rounded-lg disabled:opacity-30"
                   >
@@ -770,7 +786,7 @@ export default function InvestorMatchesPage() {
                 <div className="flex gap-2">
                   <button
                     type="button"
-                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    onClick={() => setPageRaw((p) => Math.max(1, p - 1))}
                     disabled={page === 1}
                     className="px-3 py-1 bg-[rgba(255,255,255,0.06)] rounded-lg disabled:opacity-30"
                   >
@@ -778,7 +794,7 @@ export default function InvestorMatchesPage() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                    onClick={() => setPageRaw((p) => Math.min(totalPages, p + 1))}
                     disabled={page === totalPages}
                     className="px-3 py-1 bg-[rgba(255,255,255,0.06)] rounded-lg disabled:opacity-30"
                   >
@@ -1003,5 +1019,13 @@ export default function InvestorMatchesPage() {
         </div>
       )}
     </main>
+  );
+}
+
+export default function InvestorMatchesPage() {
+  return (
+    <Suspense fallback={null}>
+      <InvestorMatchesPageInner />
+    </Suspense>
   );
 }

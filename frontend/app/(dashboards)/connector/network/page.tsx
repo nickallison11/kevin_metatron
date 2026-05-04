@@ -4,12 +4,14 @@ import {
   type ChangeEvent,
   FormEvent,
   Fragment,
+  Suspense,
   useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import * as XLSX from "xlsx";
 import { API_BASE, authHeaders, authJsonHeaders } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -112,7 +114,9 @@ const DEFAULT_COLUMNS = [
   { key: "location", label: "Location", width: 250 },
 ] as const;
 
-export default function ConnectorNetworkPage() {
+function ConnectorNetworkPageInner() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
   const { token, loading } = useAuth("INTERMEDIARY");
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const [actingAsUserId, setActingAsUserId] = useState("");
@@ -123,8 +127,15 @@ export default function ConnectorNetworkPage() {
   const [adding, setAdding] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [view, setView] = useState<"card" | "list">("list");
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
+  const [page, setPageRaw] = useState(() => {
+    const p = Number(searchParams.get("page"));
+    return p > 0 ? p : 1;
+  });
+  const [pageSize, setPageSizeRaw] = useState(() => {
+    const s = Number(searchParams.get("size"));
+    return [5, 10, 25, 50].includes(s) ? s : 10;
+  });
+  const setPage = setPageRaw;
   const prevPageSize = useRef(pageSize);
   const [colWidths, setColWidths] = useState<Record<string, number>>(() => {
     if (typeof window === "undefined") return {};
@@ -334,7 +345,7 @@ export default function ConnectorNetworkPage() {
   }, [tab]);
 
   useEffect(() => {
-    setPage((prev) => {
+    setPageRaw((prev) => {
       const firstItem = (prev - 1) * prevPageSize.current + 1;
       return Math.max(1, Math.ceil(firstItem / pageSize));
     });
@@ -343,6 +354,13 @@ export default function ConnectorNetworkPage() {
   useEffect(() => {
     prevPageSize.current = pageSize;
   }, [pageSize]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("page", String(page));
+    params.set("size", String(pageSize));
+    router.replace(`?${params.toString()}`, { scroll: false });
+  }, [page, pageSize]);
 
   useEffect(() => {
     if (Object.keys(colWidths).length > 0) {
@@ -978,7 +996,7 @@ export default function ConnectorNetworkPage() {
           <div className="flex items-center gap-2">
             <select
               value={pageSize}
-              onChange={(e) => setPageSize(Number(e.target.value))}
+              onChange={(e) => setPageSizeRaw(Number(e.target.value))}
               className="bg-[var(--bg)] border border-[var(--border)] rounded-lg px-2 py-1 text-xs text-[var(--text-muted)]"
             >
               {[5, 10, 20, 50, 100].map((n) => (
@@ -1987,5 +2005,13 @@ export default function ConnectorNetworkPage() {
       )}
       </div>
     </main>
+  );
+}
+
+export default function ConnectorNetworkPage() {
+  return (
+    <Suspense fallback={null}>
+      <ConnectorNetworkPageInner />
+    </Suspense>
   );
 }

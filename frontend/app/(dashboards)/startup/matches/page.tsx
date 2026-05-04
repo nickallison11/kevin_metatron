@@ -1,7 +1,8 @@
 "use client";
 
 import type { CSSProperties } from "react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { API_BASE, authJsonHeaders } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
@@ -33,14 +34,19 @@ const DEFAULT_MATCH_COLUMNS = [
   { key: "actions", label: "", width: 140 },
 ] as const;
 
-export default function StartupMatchesPage() {
+function StartupMatchesPageInner() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
   const { token, loading } = useAuth();
   const [matches, setMatches] = useState<KevinMatch[]>([]);
   const [fetching, setFetching] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [introBusy, setIntroBusy] = useState<string | null>(null);
   const [view, setView] = useState<"list" | "card">("list");
-  const [page, setPage] = useState(1);
+  const [page, setPageRaw] = useState(() => {
+    const p = Number(searchParams.get("page"));
+    return p > 0 ? p : 1;
+  });
   const [viewingMatch, setViewingMatch] = useState<KevinMatch | null>(null);
   const [tab, setTab] = useState<"pending" | "sent">("pending");
   const [colWidths, setColWidths] = useState<Record<string, number>>(() => {
@@ -76,6 +82,12 @@ export default function StartupMatchesPage() {
   useEffect(() => {
     if (!loading && token) void load();
   }, [loading, token, load]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("page", String(page));
+    router.replace(`?${params.toString()}`, { scroll: false });
+  }, [page]);
 
   useEffect(() => {
     if (Object.keys(colWidths).length > 0) {
@@ -173,7 +185,7 @@ export default function StartupMatchesPage() {
                   type="button"
                   onClick={() => {
                     setTab(t);
-                    setPage(1);
+                    setPageRaw(1);
                   }}
                   className={`px-3 py-1 rounded-lg text-xs font-medium ${
                     tab === t
@@ -192,7 +204,7 @@ export default function StartupMatchesPage() {
                   type="button"
                   onClick={() => {
                     setView(v);
-                    setPage(1);
+                    setPageRaw(1);
                   }}
                   className={`px-3 py-1 rounded-lg text-xs ${
                     view === v
@@ -447,7 +459,7 @@ export default function StartupMatchesPage() {
                 <div className="flex gap-2">
                   <button
                     type="button"
-                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    onClick={() => setPageRaw((p) => Math.max(1, p - 1))}
                     disabled={page === 1}
                     className="px-3 py-1 bg-[rgba(255,255,255,0.06)] rounded-lg disabled:opacity-30"
                   >
@@ -455,7 +467,7 @@ export default function StartupMatchesPage() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                    onClick={() => setPageRaw((p) => Math.min(totalPages, p + 1))}
                     disabled={page === totalPages}
                     className="px-3 py-1 bg-[rgba(255,255,255,0.06)] rounded-lg disabled:opacity-30"
                   >
@@ -562,5 +574,13 @@ export default function StartupMatchesPage() {
         </div>
       )}
     </main>
+  );
+}
+
+export default function StartupMatchesPage() {
+  return (
+    <Suspense fallback={null}>
+      <StartupMatchesPageInner />
+    </Suspense>
   );
 }

@@ -1,5 +1,6 @@
 "use client";
 
+import type { CSSProperties } from "react";
 import { useCallback, useEffect, useState } from "react";
 import { API_BASE, authJsonHeaders } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -43,6 +44,24 @@ type ReceivedIntro = {
 
 const PAGE_SIZE = 10;
 
+const DEFAULT_INTRO_COLUMNS = [
+  { key: "founder", label: "Founder / Company", width: 200 },
+  { key: "sector", label: "Sector", width: 140 },
+  { key: "stage", label: "Stage", width: 120 },
+  { key: "fit", label: "Fit", width: 80 },
+  { key: "requested", label: "Requested", width: 120 },
+  { key: "actions", label: "", width: 140 },
+] as const;
+
+const DEFAULT_INVESTOR_MATCH_COLUMNS = [
+  { key: "company", label: "Company", width: 200 },
+  { key: "sector", label: "Sector", width: 140 },
+  { key: "stage", label: "Stage", width: 120 },
+  { key: "location", label: "Location", width: 160 },
+  { key: "fit", label: "Fit", width: 80 },
+  { key: "actions", label: "", width: 140 },
+] as const;
+
 const scoreBadgeColor = (score: number) => {
   if (score >= 85) return "bg-[rgba(0,200,100,0.12)] text-green-400";
   if (score >= 70) return "bg-[rgba(108,92,231,0.15)] text-[#6c5ce7]";
@@ -62,6 +81,24 @@ export default function InvestorMatchesPage() {
   const [matchView, setMatchView] = useState<"list" | "card">("list");
   const [followedIds, setFollowedIds] = useState<Set<string>>(new Set());
   const [requestedIntroIds, setRequestedIntroIds] = useState<Set<string>>(new Set());
+  const [introColWidths, setIntroColWidths] = useState<Record<string, number>>(() => {
+    if (typeof window === "undefined") return {};
+    try {
+      const saved = localStorage.getItem("metatron_investor_intro_col_widths");
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
+  const [matchColWidths, setMatchColWidths] = useState<Record<string, number>>(() => {
+    if (typeof window === "undefined") return {};
+    try {
+      const saved = localStorage.getItem("metatron_investor_match_col_widths");
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
 
   const loadMatches = useCallback(async () => {
     if (!token) return;
@@ -99,6 +136,68 @@ export default function InvestorMatchesPage() {
     void loadIntros();
     void loadMatches();
   }, [loading, token, loadIntros, loadMatches]);
+
+  useEffect(() => {
+    if (Object.keys(introColWidths).length > 0) {
+      localStorage.setItem("metatron_investor_intro_col_widths", JSON.stringify(introColWidths));
+    }
+  }, [introColWidths]);
+
+  useEffect(() => {
+    if (Object.keys(matchColWidths).length > 0) {
+      localStorage.setItem("metatron_investor_match_col_widths", JSON.stringify(matchColWidths));
+    }
+  }, [matchColWidths]);
+
+  const onIntroColResizeStart = useCallback(
+    (colKey: string, e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const defaultW = DEFAULT_INTRO_COLUMNS.find((c) => c.key === colKey)?.width ?? 120;
+      const startX = e.clientX;
+      const startWidth = introColWidths[colKey] ?? defaultW;
+
+      const onMove = (moveEvent: MouseEvent) => {
+        const dx = moveEvent.clientX - startX;
+        const newW = Math.max(80, startWidth + dx);
+        setIntroColWidths((prev) => ({ ...prev, [colKey]: newW }));
+      };
+
+      const onUp = () => {
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+      };
+
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    },
+    [introColWidths],
+  );
+
+  const onMatchColResizeStart = useCallback(
+    (colKey: string, e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const defaultW = DEFAULT_INVESTOR_MATCH_COLUMNS.find((c) => c.key === colKey)?.width ?? 120;
+      const startX = e.clientX;
+      const startWidth = matchColWidths[colKey] ?? defaultW;
+
+      const onMove = (moveEvent: MouseEvent) => {
+        const dx = moveEvent.clientX - startX;
+        const newW = Math.max(80, startWidth + dx);
+        setMatchColWidths((prev) => ({ ...prev, [colKey]: newW }));
+      };
+
+      const onUp = () => {
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+      };
+
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    },
+    [matchColWidths],
+  );
 
   async function viewDeck(r: ReceivedIntro) {
     if (!token || !r.deck_url) return;
@@ -256,15 +355,28 @@ export default function InvestorMatchesPage() {
         {tab === "intros" && intros.length > 0 && (
           <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-5">
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="w-full text-sm table-fixed">
                 <thead>
                   <tr className="text-[var(--text-muted)] text-xs border-b border-[var(--border)]">
-                    <th className="text-left pb-2 pr-3">Founder / Company</th>
-                    <th className="text-left pb-2 pr-3">Sector</th>
-                    <th className="text-left pb-2 pr-3">Stage</th>
-                    <th className="text-left pb-2 pr-3">Fit</th>
-                    <th className="text-left pb-2 pr-3">Requested</th>
-                    <th className="text-left pb-2" />
+                    {DEFAULT_INTRO_COLUMNS.map((col) => {
+                      const w = introColWidths[col.key] ?? col.width;
+                      const isFirst = col.key === "founder";
+                      return (
+                        <th
+                          key={col.key}
+                          className={`relative cursor-default text-left pb-2 pr-3 ${isFirst ? "pl-3" : ""}`}
+                          style={{ width: w, minWidth: 80 }}
+                        >
+                          {col.label}
+                          <div
+                            className="absolute right-0 top-2 bottom-2 w-1 cursor-col-resize z-10 rounded-full transition-colors hover:bg-[#6c5ce7]"
+                            onMouseDown={(e) => onIntroColResizeStart(col.key, e)}
+                            onClick={(e) => e.stopPropagation()}
+                            aria-hidden
+                          />
+                        </th>
+                      );
+                    })}
                   </tr>
                 </thead>
                 <tbody>
@@ -272,73 +384,95 @@ export default function InvestorMatchesPage() {
                     <tr
                       key={r.id}
                       onClick={() => setViewingIntro(r)}
-                      className="border-b border-[rgba(255,255,255,0.03)] cursor-pointer transition-colors hover:bg-[rgba(108,92,231,0.04)]"
+                      className="border-b border-[rgba(255,255,255,0.03)] cursor-pointer transition-colors hover:bg-[rgba(108,92,231,0.04)] h-14"
                     >
-                      <td className="py-2.5 pr-3">
-                        <p className="text-[var(--text)] font-medium">{r.company_name ?? r.founder_email}</p>
-                        {r.one_liner && (
-                          <p className="text-[var(--text-muted)] text-xs truncate max-w-[220px]">{r.one_liner}</p>
-                        )}
-                      </td>
-                      <td className="py-2.5 pr-3 text-[var(--text-muted)] text-xs">{r.sector ?? "—"}</td>
-                      <td className="py-2.5 pr-3 text-[var(--text-muted)] text-xs">{r.stage ?? "—"}</td>
-                      <td className="py-2.5 pr-3">
-                        <span className={`px-2 py-0.5 rounded text-xs font-medium ${scoreBadgeColor(r.score)}`}>
-                          {r.score}%
-                        </span>
-                      </td>
-                      <td className="py-2.5 pr-3 text-[var(--text-muted)] text-xs whitespace-nowrap">
-                        {new Date(r.intro_requested_at).toLocaleDateString()}
-                      </td>
-                      <td className="py-2.5">
-                        {r.intro_accepted_at ? (
-                          <span className="px-2 py-0.5 rounded text-xs font-medium bg-[rgba(0,200,100,0.12)] text-green-400">
-                            Connected
-                          </span>
-                        ) : r.intro_passed_at ? (
-                          <span className="px-2 py-0.5 rounded text-xs font-medium bg-[rgba(255,255,255,0.06)] text-[var(--text-muted)]">
-                            Passed
-                          </span>
-                        ) : (
-                          <div className="flex items-center gap-1.5 whitespace-nowrap">
-                            {r.deck_url && (
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  void viewDeck(r);
-                                }}
-                                disabled={actionBusy === r.id + "deck"}
-                                className="px-2.5 py-1.5 border border-[var(--border)] text-[var(--text-muted)] rounded-lg text-xs hover:border-[rgba(108,92,231,0.4)] hover:text-[#6c5ce7] transition-colors disabled:opacity-50"
-                              >
-                                {r.deck_viewed_at ? "Deck ✓" : "View deck"}
-                              </button>
-                            )}
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                void acceptIntro(r);
-                              }}
-                              disabled={actionBusy === r.id + "accept"}
-                              className="px-2.5 py-1.5 bg-[#6c5ce7] text-white rounded-lg text-xs font-medium hover:bg-[#7d6ff0] disabled:opacity-50"
-                            >
-                              {actionBusy === r.id + "accept" ? "…" : "I'm interested"}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                void passIntro(r);
-                              }}
-                              disabled={actionBusy === r.id + "pass"}
-                              className="px-2.5 py-1.5 border border-[rgba(239,68,68,0.3)] text-[rgba(254,202,202,0.7)] rounded-lg text-xs hover:border-[rgba(239,68,68,0.5)] transition-colors disabled:opacity-50"
-                            >
-                              {actionBusy === r.id + "pass" ? "…" : "Pass"}
-                            </button>
-                          </div>
-                        )}
-                      </td>
+                      {DEFAULT_INTRO_COLUMNS.map((col) => {
+                        const w = introColWidths[col.key] ?? col.width;
+                        const cellStyle: CSSProperties = {
+                          width: w,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        };
+                        const isFirst = col.key === "founder";
+                        const baseTd = isFirst
+                          ? "py-2 pl-3 pr-3 align-top"
+                          : col.key === "fit"
+                            ? "py-2 pr-3 align-top"
+                            : col.key === "actions"
+                              ? "py-2 pr-3 align-top"
+                              : "py-2 pr-3 text-[var(--text-muted)] text-xs align-top";
+                        return (
+                          <td key={col.key} className={baseTd} style={cellStyle}>
+                            {col.key === "founder" ? (
+                              <>
+                                <p className="text-[var(--text)] font-medium">{r.company_name ?? r.founder_email}</p>
+                                {r.one_liner && (
+                                  <p className="text-[var(--text-muted)] text-xs truncate max-w-[220px]">{r.one_liner}</p>
+                                )}
+                              </>
+                            ) : col.key === "sector" ? (
+                              (r.sector ?? "—")
+                            ) : col.key === "stage" ? (
+                              (r.stage ?? "—")
+                            ) : col.key === "fit" ? (
+                              <span className={`px-2 py-0.5 rounded text-xs font-medium ${scoreBadgeColor(r.score)}`}>
+                                {r.score}%
+                              </span>
+                            ) : col.key === "requested" ? (
+                              new Date(r.intro_requested_at).toLocaleDateString()
+                            ) : col.key === "actions" ? (
+                              r.intro_accepted_at ? (
+                                <span className="px-2 py-0.5 rounded text-xs font-medium bg-[rgba(0,200,100,0.12)] text-green-400">
+                                  Connected
+                                </span>
+                              ) : r.intro_passed_at ? (
+                                <span className="px-2 py-0.5 rounded text-xs font-medium bg-[rgba(255,255,255,0.06)] text-[var(--text-muted)]">
+                                  Passed
+                                </span>
+                              ) : (
+                                <div className="flex items-center gap-1.5 whitespace-nowrap">
+                                  {r.deck_url && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        void viewDeck(r);
+                                      }}
+                                      disabled={actionBusy === r.id + "deck"}
+                                      className="px-2.5 py-1.5 border border-[var(--border)] text-[var(--text-muted)] rounded-lg text-xs hover:border-[rgba(108,92,231,0.4)] hover:text-[#6c5ce7] transition-colors disabled:opacity-50"
+                                    >
+                                      {r.deck_viewed_at ? "Deck ✓" : "View deck"}
+                                    </button>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      void acceptIntro(r);
+                                    }}
+                                    disabled={actionBusy === r.id + "accept"}
+                                    className="px-2.5 py-1.5 bg-[#6c5ce7] text-white rounded-lg text-xs font-medium hover:bg-[#7d6ff0] disabled:opacity-50"
+                                  >
+                                    {actionBusy === r.id + "accept" ? "…" : "I'm interested"}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      void passIntro(r);
+                                    }}
+                                    disabled={actionBusy === r.id + "pass"}
+                                    className="px-2.5 py-1.5 border border-[rgba(239,68,68,0.3)] text-[rgba(254,202,202,0.7)] rounded-lg text-xs hover:border-[rgba(239,68,68,0.5)] transition-colors disabled:opacity-50"
+                                  >
+                                    {actionBusy === r.id + "pass" ? "…" : "Pass"}
+                                  </button>
+                                </div>
+                              )
+                            ) : null}
+                          </td>
+                        );
+                      })}
                     </tr>
                   ))}
                 </tbody>
@@ -399,15 +533,28 @@ export default function InvestorMatchesPage() {
 
             {matchView === "list" && (
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+                <table className="w-full text-sm table-fixed">
                   <thead>
                     <tr className="text-[var(--text-muted)] text-xs border-b border-[var(--border)]">
-                      <th className="text-left pb-2 pr-3">Company</th>
-                      <th className="text-left pb-2 pr-3">Sector</th>
-                      <th className="text-left pb-2 pr-3">Stage</th>
-                      <th className="text-left pb-2 pr-3">Location</th>
-                      <th className="text-left pb-2 pr-3">Fit</th>
-                      <th className="text-left pb-2" />
+                      {DEFAULT_INVESTOR_MATCH_COLUMNS.map((col) => {
+                        const w = matchColWidths[col.key] ?? col.width;
+                        const isFirst = col.key === "company";
+                        return (
+                          <th
+                            key={col.key}
+                            className={`relative cursor-default text-left pb-2 pr-3 ${isFirst ? "pl-3" : ""}`}
+                            style={{ width: w, minWidth: 80 }}
+                          >
+                            {col.label}
+                            <div
+                              className="absolute right-0 top-2 bottom-2 w-1 cursor-col-resize z-10 rounded-full transition-colors hover:bg-[#6c5ce7]"
+                              onMouseDown={(e) => onMatchColResizeStart(col.key, e)}
+                              onClick={(e) => e.stopPropagation()}
+                              aria-hidden
+                            />
+                          </th>
+                        );
+                      })}
                     </tr>
                   </thead>
                   <tbody>
@@ -415,79 +562,105 @@ export default function InvestorMatchesPage() {
                       <tr
                         key={m.id}
                         onClick={() => setViewingMatch(m)}
-                        className="border-b border-[rgba(255,255,255,0.03)] cursor-pointer transition-colors hover:bg-[rgba(108,92,231,0.04)]"
+                        className="border-b border-[rgba(255,255,255,0.03)] cursor-pointer transition-colors hover:bg-[rgba(108,92,231,0.04)] h-14"
                       >
-                        <td className="py-2.5 pr-3">
-                          <p className="text-[var(--text)] font-medium">{m.company_name ?? m.firm_name ?? "Unknown"}</p>
-                          {m.one_liner && (
-                            <p className="text-[var(--text-muted)] text-xs truncate max-w-[220px]">{m.one_liner}</p>
-                          )}
-                        </td>
-                        <td className="py-2.5 pr-3 text-[var(--text-muted)] text-xs">{m.sector ?? "—"}</td>
-                        <td className="py-2.5 pr-3 text-[var(--text-muted)] text-xs">{m.stage ?? "—"}</td>
-                        <td className="py-2.5 pr-3 text-[var(--text-muted)] text-xs">{m.country ?? "—"}</td>
-                        <td className="py-2.5 pr-3">
-                          <span className={`px-2 py-0.5 rounded text-xs font-medium ${scoreBadgeColor(m.score)}`}>
-                            {m.score}%
-                          </span>
-                        </td>
-                        <td className="py-2.5">
-                          <div className="flex items-center gap-1.5 whitespace-nowrap">
-                            {m.matched_user_id && !followedIds.has(m.id) && (
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  void followFounder(m);
-                                }}
-                                disabled={actionBusy === m.id + "follow"}
-                                className="px-2.5 py-1.5 border border-[var(--border)] text-[var(--text-muted)] rounded-lg text-xs hover:border-[rgba(108,92,231,0.4)] hover:text-[#6c5ce7] transition-colors disabled:opacity-50"
-                              >
-                                {actionBusy === m.id + "follow" ? "…" : "Follow"}
-                              </button>
-                            )}
-                            {followedIds.has(m.id) && (
-                              <span className="px-2.5 py-1.5 text-xs text-green-400">Following ✓</span>
-                            )}
-                            {m.matched_user_id && !m.intro_requested_at && !requestedIntroIds.has(m.id) && (
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  void requestMatchIntro(m);
-                                }}
-                                disabled={actionBusy === m.id + "intro"}
-                                className="px-2.5 py-1.5 bg-[#6c5ce7] text-white rounded-lg text-xs font-medium hover:bg-[#7d6ff0] disabled:opacity-50"
-                              >
-                                {actionBusy === m.id + "intro" ? "…" : "Request intro"}
-                              </button>
-                            )}
-                            {(m.intro_requested_at || requestedIntroIds.has(m.id)) && (
-                              <span className="px-2 py-0.5 rounded text-xs font-medium bg-[rgba(108,92,231,0.15)] text-[#6c5ce7]">
-                                Intro sent
-                              </span>
-                            )}
-                            {m.matched_user_id && (
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  window.dispatchEvent(
-                                    new CustomEvent("metatron:open-chat", {
-                                      detail: {
-                                        userId: m.matched_user_id!,
-                                        name: m.company_name ?? m.firm_name ?? "Founder",
-                                      },
-                                    })
-                                  );
-                                }}
-                                className="px-2.5 py-1.5 border border-[var(--border)] text-[var(--text-muted)] rounded-lg text-xs hover:border-[rgba(108,92,231,0.4)] hover:text-[#6c5ce7] transition-colors"
-                              >
-                                Message
-                              </button>
-                            )}
-                          </div>
-                        </td>
+                        {DEFAULT_INVESTOR_MATCH_COLUMNS.map((col) => {
+                          const w = matchColWidths[col.key] ?? col.width;
+                          const cellStyle: CSSProperties = {
+                            width: w,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          };
+                          const isFirst = col.key === "company";
+                          const baseTd = isFirst
+                            ? "py-2 pl-3 pr-3 align-top"
+                            : col.key === "fit"
+                              ? "py-2 pr-3 align-top"
+                              : col.key === "actions"
+                                ? "py-2 pr-3 align-top"
+                                : "py-2 pr-3 text-[var(--text-muted)] text-xs align-top";
+                          return (
+                            <td key={col.key} className={baseTd} style={cellStyle}>
+                              {col.key === "company" ? (
+                                <>
+                                  <p className="text-[var(--text)] font-medium">
+                                    {m.company_name ?? m.firm_name ?? "Unknown"}
+                                  </p>
+                                  {m.one_liner && (
+                                    <p className="text-[var(--text-muted)] text-xs truncate max-w-[220px]">{m.one_liner}</p>
+                                  )}
+                                </>
+                              ) : col.key === "sector" ? (
+                                (m.sector ?? "—")
+                              ) : col.key === "stage" ? (
+                                (m.stage ?? "—")
+                              ) : col.key === "location" ? (
+                                (m.country ?? "—")
+                              ) : col.key === "fit" ? (
+                                <span className={`px-2 py-0.5 rounded text-xs font-medium ${scoreBadgeColor(m.score)}`}>
+                                  {m.score}%
+                                </span>
+                              ) : (
+                                <div className="flex items-center gap-1.5 whitespace-nowrap">
+                                  {m.matched_user_id && !followedIds.has(m.id) && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        void followFounder(m);
+                                      }}
+                                      disabled={actionBusy === m.id + "follow"}
+                                      className="px-2.5 py-1.5 border border-[var(--border)] text-[var(--text-muted)] rounded-lg text-xs hover:border-[rgba(108,92,231,0.4)] hover:text-[#6c5ce7] transition-colors disabled:opacity-50"
+                                    >
+                                      {actionBusy === m.id + "follow" ? "…" : "Follow"}
+                                    </button>
+                                  )}
+                                  {followedIds.has(m.id) && (
+                                    <span className="px-2.5 py-1.5 text-xs text-green-400">Following ✓</span>
+                                  )}
+                                  {m.matched_user_id && !m.intro_requested_at && !requestedIntroIds.has(m.id) && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        void requestMatchIntro(m);
+                                      }}
+                                      disabled={actionBusy === m.id + "intro"}
+                                      className="px-2.5 py-1.5 bg-[#6c5ce7] text-white rounded-lg text-xs font-medium hover:bg-[#7d6ff0] disabled:opacity-50"
+                                    >
+                                      {actionBusy === m.id + "intro" ? "…" : "Request intro"}
+                                    </button>
+                                  )}
+                                  {(m.intro_requested_at || requestedIntroIds.has(m.id)) && (
+                                    <span className="px-2 py-0.5 rounded text-xs font-medium bg-[rgba(108,92,231,0.15)] text-[#6c5ce7]">
+                                      Intro sent
+                                    </span>
+                                  )}
+                                  {m.matched_user_id && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        window.dispatchEvent(
+                                          new CustomEvent("metatron:open-chat", {
+                                            detail: {
+                                              userId: m.matched_user_id!,
+                                              name: m.company_name ?? m.firm_name ?? "Founder",
+                                            },
+                                          })
+                                        );
+                                      }}
+                                      className="px-2.5 py-1.5 border border-[var(--border)] text-[var(--text-muted)] rounded-lg text-xs hover:border-[rgba(108,92,231,0.4)] hover:text-[#6c5ce7] transition-colors"
+                                    >
+                                      Message
+                                    </button>
+                                  )}
+                                </div>
+                              )}
+                            </td>
+                          );
+                        })}
                       </tr>
                     ))}
                   </tbody>
@@ -619,9 +792,9 @@ export default function InvestorMatchesPage() {
       </div>
 
       {viewingIntro && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto pt-12 pb-4 px-4">
           <div className="absolute inset-0 bg-black/60" onClick={() => setViewingIntro(null)} />
-          <div className="relative z-10 w-full max-w-lg max-h-[90vh] flex flex-col rounded-xl border border-[var(--border)] bg-[var(--bg-card)]">
+          <div className="relative z-10 w-full max-w-lg max-h-[min(90vh,800px)] flex flex-col rounded-xl border border-[var(--border)] bg-[var(--bg-card)]">
             <div className="flex items-start justify-between gap-3 border-b border-[var(--border)] px-5 py-4">
               <div className="min-w-0">
                 <h2 className="text-xl font-semibold text-[var(--text)]">
@@ -719,9 +892,9 @@ export default function InvestorMatchesPage() {
       )}
 
       {viewingMatch && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto pt-12 pb-4 px-4">
           <div className="absolute inset-0 bg-black/60" onClick={() => setViewingMatch(null)} />
-          <div className="relative z-10 w-full max-w-lg max-h-[90vh] flex flex-col rounded-xl border border-[var(--border)] bg-[var(--bg-card)]">
+          <div className="relative z-10 w-full max-w-lg max-h-[min(90vh,800px)] flex flex-col rounded-xl border border-[var(--border)] bg-[var(--bg-card)]">
             <div className="flex items-start justify-between gap-3 border-b border-[var(--border)] px-5 py-4">
               <div className="min-w-0">
                 <h2 className="text-xl font-semibold text-[var(--text)]">

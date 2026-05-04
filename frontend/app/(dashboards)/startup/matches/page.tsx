@@ -1,5 +1,6 @@
 "use client";
 
+import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { API_BASE, authJsonHeaders } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -23,6 +24,15 @@ type KevinMatch = {
 
 const PAGE_SIZE = 10;
 
+const DEFAULT_MATCH_COLUMNS = [
+  { key: "investor", label: "Investor", width: 200 },
+  { key: "sector", label: "Sector", width: 140 },
+  { key: "stage", label: "Stage", width: 120 },
+  { key: "location", label: "Location", width: 160 },
+  { key: "fit", label: "Fit", width: 80 },
+  { key: "actions", label: "", width: 140 },
+] as const;
+
 export default function StartupMatchesPage() {
   const { token, loading } = useAuth();
   const [matches, setMatches] = useState<KevinMatch[]>([]);
@@ -33,6 +43,15 @@ export default function StartupMatchesPage() {
   const [page, setPage] = useState(1);
   const [viewingMatch, setViewingMatch] = useState<KevinMatch | null>(null);
   const [tab, setTab] = useState<"pending" | "sent">("pending");
+  const [colWidths, setColWidths] = useState<Record<string, number>>(() => {
+    if (typeof window === "undefined") return {};
+    try {
+      const saved = localStorage.getItem("metatron_startup_matches_col_widths");
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -57,6 +76,37 @@ export default function StartupMatchesPage() {
   useEffect(() => {
     if (!loading && token) void load();
   }, [loading, token, load]);
+
+  useEffect(() => {
+    if (Object.keys(colWidths).length > 0) {
+      localStorage.setItem("metatron_startup_matches_col_widths", JSON.stringify(colWidths));
+    }
+  }, [colWidths]);
+
+  const onColResizeStart = useCallback(
+    (colKey: string, e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const defaultW = DEFAULT_MATCH_COLUMNS.find((c) => c.key === colKey)?.width ?? 120;
+      const startX = e.clientX;
+      const startWidth = colWidths[colKey] ?? defaultW;
+
+      const onMove = (moveEvent: MouseEvent) => {
+        const dx = moveEvent.clientX - startX;
+        const newW = Math.max(80, startWidth + dx);
+        setColWidths((prev) => ({ ...prev, [colKey]: newW }));
+      };
+
+      const onUp = () => {
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+      };
+
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    },
+    [colWidths],
+  );
 
   const pending = useMemo(() => matches.filter((m) => !m.intro_requested_at), [matches]);
   const requested = useMemo(() => matches.filter((m) => m.intro_requested_at), [matches]);
@@ -266,15 +316,28 @@ export default function StartupMatchesPage() {
               </div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+                <table className="w-full text-sm table-fixed">
                   <thead>
                     <tr className="text-[var(--text-muted)] text-xs border-b border-[var(--border)]">
-                      <th className="text-left pb-2 pr-3">Investor</th>
-                      <th className="text-left pb-2 pr-3">Sector</th>
-                      <th className="text-left pb-2 pr-3">Stage</th>
-                      <th className="text-left pb-2 pr-3">Location</th>
-                      <th className="text-left pb-2 pr-3">Fit</th>
-                      <th className="text-left pb-2" />
+                      {DEFAULT_MATCH_COLUMNS.map((col) => {
+                        const w = colWidths[col.key] ?? col.width;
+                        const isFirst = col.key === "investor";
+                        return (
+                          <th
+                            key={col.key}
+                            className={`relative cursor-default text-left pb-2 pr-3 ${isFirst ? "pl-3" : ""}`}
+                            style={{ width: w, minWidth: 80 }}
+                          >
+                            {col.label}
+                            <div
+                              className="absolute right-0 top-2 bottom-2 w-1 cursor-col-resize z-10 rounded-full transition-colors hover:bg-[#6c5ce7]"
+                              onMouseDown={(e) => onColResizeStart(col.key, e)}
+                              onClick={(e) => e.stopPropagation()}
+                              aria-hidden
+                            />
+                          </th>
+                        );
+                      })}
                     </tr>
                   </thead>
                   <tbody>
@@ -282,72 +345,92 @@ export default function StartupMatchesPage() {
                       <tr
                         key={m.id}
                         onClick={() => setViewingMatch(m)}
-                        className={`border-b border-[rgba(255,255,255,0.03)] cursor-pointer transition-colors ${
+                        className={`border-b border-[rgba(255,255,255,0.03)] cursor-pointer transition-colors h-14 ${
                           m.intro_requested_at ? "opacity-50" : "bg-[var(--bg)] hover:bg-[var(--bg-card)]"
                         }`}
                       >
-                        <td className="py-2 pr-3">
-                          <p className="text-[var(--text)] font-medium">
-                            {m.firm_name ?? "Independent investor"}
-                          </p>
-                          {m.one_liner && (
-                            <p className="text-[var(--text-muted)] text-xs truncate max-w-[200px]">
-                              {m.one_liner}
-                            </p>
-                          )}
-                        </td>
-                        <td className="py-2 pr-3 text-[var(--text-muted)] text-xs max-w-[120px] truncate">
-                          {m.sector ?? "—"}
-                        </td>
-                        <td className="py-2 pr-3 text-[var(--text-muted)] text-xs">{m.stage ?? "—"}</td>
-                        <td className="py-2 pr-3 text-[var(--text-muted)] text-xs">
-                          {m.country ?? "—"}
-                        </td>
-                        <td className="py-2 pr-3">
-                          <span
-                            className={`px-2 py-0.5 rounded text-xs font-medium ${scoreBadgeColor(m.score)}`}
-                          >
-                            {m.score}%
-                          </span>
-                        </td>
-                        <td className="py-2 pr-4">
-                          <div className="flex items-center gap-2 whitespace-nowrap">
-                            {m.intro_requested_at ? (
-                              <span className="text-xs text-[var(--text-muted)]">Sent</span>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  void requestIntro(m.id);
-                                }}
-                                disabled={introBusy === m.id}
-                                className="px-3 py-1.5 bg-[#6c5ce7] text-white rounded-lg text-xs font-medium hover:bg-[#7d6ff0] disabled:opacity-50"
-                              >
-                                {introBusy === m.id ? "…" : "Request intro"}
-                              </button>
-                            )}
-                            {m.matched_user_id && (
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  window.dispatchEvent(
-                                    new CustomEvent("metatron:open-chat", {
-                                      detail: {
-                                        userId: m.matched_user_id!,
-                                        name: m.firm_name ?? "Investor",
-                                      },
-                                    })
-                                  );
-                                }}
-                                className="px-3 py-1.5 border border-[var(--border)] text-[var(--text-muted)] rounded-lg text-xs hover:border-[rgba(108,92,231,0.4)] hover:text-[#6c5ce7] transition-colors"
-                              >
-                                Message
-                              </button>
-                            )}
-                          </div>
-                        </td>
+                        {DEFAULT_MATCH_COLUMNS.map((col) => {
+                          const w = colWidths[col.key] ?? col.width;
+                          const cellStyle: CSSProperties = {
+                            width: w,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          };
+                          const isFirst = col.key === "investor";
+                          const baseTd = isFirst
+                            ? "py-2 pl-3 pr-3 align-top"
+                            : col.key === "fit"
+                              ? "py-2 pr-3 align-top"
+                              : col.key === "actions"
+                                ? "py-2 pr-3 align-top"
+                                : "py-2 pr-3 text-[var(--text-muted)] text-xs align-top";
+                          return (
+                            <td key={col.key} className={baseTd} style={cellStyle}>
+                              {col.key === "investor" ? (
+                                <>
+                                  <p className="text-[var(--text)] font-medium">
+                                    {m.firm_name ?? "Independent investor"}
+                                  </p>
+                                  {m.one_liner && (
+                                    <p className="text-[var(--text-muted)] text-xs truncate max-w-[200px]">
+                                      {m.one_liner}
+                                    </p>
+                                  )}
+                                </>
+                              ) : col.key === "sector" ? (
+                                (m.sector ?? "—")
+                              ) : col.key === "stage" ? (
+                                (m.stage ?? "—")
+                              ) : col.key === "location" ? (
+                                (m.country ?? "—")
+                              ) : col.key === "fit" ? (
+                                <span
+                                  className={`px-2 py-0.5 rounded text-xs font-medium ${scoreBadgeColor(m.score)}`}
+                                >
+                                  {m.score}%
+                                </span>
+                              ) : (
+                                <div className="flex items-center gap-2 whitespace-nowrap">
+                                  {m.intro_requested_at ? (
+                                    <span className="text-xs text-[var(--text-muted)]">Sent</span>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        void requestIntro(m.id);
+                                      }}
+                                      disabled={introBusy === m.id}
+                                      className="px-3 py-1.5 bg-[#6c5ce7] text-white rounded-lg text-xs font-medium hover:bg-[#7d6ff0] disabled:opacity-50"
+                                    >
+                                      {introBusy === m.id ? "…" : "Request intro"}
+                                    </button>
+                                  )}
+                                  {m.matched_user_id && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        window.dispatchEvent(
+                                          new CustomEvent("metatron:open-chat", {
+                                            detail: {
+                                              userId: m.matched_user_id!,
+                                              name: m.firm_name ?? "Investor",
+                                            },
+                                          })
+                                        );
+                                      }}
+                                      className="px-3 py-1.5 border border-[var(--border)] text-[var(--text-muted)] rounded-lg text-xs hover:border-[rgba(108,92,231,0.4)] hover:text-[#6c5ce7] transition-colors"
+                                    >
+                                      Message
+                                    </button>
+                                  )}
+                                </div>
+                              )}
+                            </td>
+                          );
+                        })}
                       </tr>
                     ))}
                   </tbody>
@@ -403,9 +486,9 @@ export default function StartupMatchesPage() {
       </div>
 
       {viewingMatch && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto pt-12 pb-4 px-4">
           <div className="absolute inset-0 bg-black/60" onClick={() => setViewingMatch(null)} />
-          <div className="relative z-10 w-full max-w-lg max-h-[90vh] flex flex-col rounded-xl border border-[var(--border)] bg-[var(--bg-card)]">
+          <div className="relative z-10 w-full max-w-lg max-h-[min(90vh,800px)] flex flex-col rounded-xl border border-[var(--border)] bg-[var(--bg-card)]">
             <div className="flex items-start justify-between gap-3 border-b border-[var(--border)] px-5 py-4">
               <div className="min-w-0">
                 <h2 className="text-xl font-semibold text-[var(--text)]">

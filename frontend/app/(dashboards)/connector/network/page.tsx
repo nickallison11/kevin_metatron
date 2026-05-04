@@ -1148,13 +1148,12 @@ export default function ConnectorNetworkPage() {
                     return (
                       <th
                         key={col.key}
-                        className={`relative text-left pb-2 pr-3 ${col.key === "name" ? "pl-3" : ""}`}
+                        className={`relative cursor-default text-left pb-2 pr-3 ${col.key === "name" ? "pl-3" : ""}`}
                         style={{ width: w, minWidth: 80 }}
                       >
                         {col.label}
                         <div
-                          className="absolute right-0 top-0 bottom-0 cursor-col-resize z-10"
-                          style={{ width: 4 }}
+                          className="absolute right-0 top-2 bottom-2 w-1 cursor-col-resize z-10 rounded-full transition-colors hover:bg-[#6c5ce7]"
                           onMouseDown={(e) => onInvestorListColResizeStart(col.key, e)}
                           onClick={(e) => e.stopPropagation()}
                           aria-hidden
@@ -1774,7 +1773,7 @@ export default function ConnectorNetworkPage() {
       </div>
 
       {viewingContact && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto pt-12 pb-4 px-4">
           <div className="absolute inset-0 bg-black/60" aria-hidden onClick={closeContactModal} />
           <div
             role="dialog"

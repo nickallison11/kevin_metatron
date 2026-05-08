@@ -574,6 +574,32 @@ struct CandidateInfo {
     display_country: Option<String>,
 }
 
+fn repair_double_encoded_utf8(input: &str) -> String {
+    // Recover common mojibake sequences like "EntrÃ©e" -> "Entrée" when UTF-8
+    // bytes were interpreted as Latin-1 and re-encoded.
+    if !input.contains('Ã') && !input.contains('Â') {
+        return input.to_string();
+    }
+    let mut latin1_bytes = Vec::with_capacity(input.len());
+    for ch in input.chars() {
+        let cp = ch as u32;
+        if cp > 0xFF {
+            return input.to_string();
+        }
+        latin1_bytes.push(cp as u8);
+    }
+    let Ok(repaired) = String::from_utf8(latin1_bytes) else {
+        return input.to_string();
+    };
+    let repaired_markers = repaired.matches('Ã').count() + repaired.matches('Â').count();
+    let original_markers = input.matches('Ã').count() + input.matches('Â').count();
+    if repaired_markers < original_markers {
+        repaired
+    } else {
+        input.to_string()
+    }
+}
+
 async fn generate_matches(
     State(state): State<Arc<AppState>>,
     TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
@@ -739,7 +765,11 @@ async fn generate_matches(
 
         for c in contacts.iter().take(20) {
             let id = c.id.to_string();
-            let display_name = c.firm_or_company.clone().unwrap_or_else(|| c.name.clone());
+            let display_name = repair_double_encoded_utf8(
+                c.firm_or_company
+                    .as_deref()
+                    .unwrap_or(c.name.as_str()),
+            );
             // Truncate long fields to keep prompt compact
             let sector = c.sector_focus.as_deref().map(|s| &s[..s.len().min(60)]).map(str::to_owned);
             let stage = c.stage_focus.as_deref().map(|s| &s[..s.len().min(40)]).map(str::to_owned);

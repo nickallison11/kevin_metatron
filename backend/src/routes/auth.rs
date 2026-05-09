@@ -254,7 +254,7 @@ async fn signup(
         &state.email_from,
         &body.email,
         "Welcome to metatron",
-        &email::welcome_email_html(),
+        &email::welcome_email_html(db_role),
     )
     .await;
 

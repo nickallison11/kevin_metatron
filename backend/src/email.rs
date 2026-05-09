@@ -117,10 +117,46 @@ pub fn founder_invite_signup_notification_html(
     )
 }
 
-pub fn welcome_email_html() -> String {
-    shell_html(
-        "Welcome to metatron",
-        r#"
+pub fn welcome_email_html(role: &str) -> String {
+    let body = match role {
+        "INVESTOR" => r#"
+<p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">Your account is ready. Here's what you can do as a free investor:</p>
+<ul style="margin:0 0 14px 18px;padding:0;color:#e8e8ed;font-size:14px;line-height:1.6;">
+  <li>Build your investor profile with thesis, sectors, stages, and ticket size</li>
+  <li>Browse Kevin-matched founders aligned with your thesis</li>
+  <li>Request warm intros to founders you want to meet</li>
+  <li>Chat with Kevin, your AI deal-flow co-pilot</li>
+</ul>
+<p style="margin:0 0 8px 0;font-size:14px;color:#e8e8ed;">Ready to unlock more?</p>
+<p style="margin:0 0 14px 0;font-size:14px;">
+  <a href="https://platform.metatron.id/pricing" style="color:#6c5ce7;text-decoration:none;">View Free → Basic plans</a>
+</p>
+<ul style="margin:0 0 0 18px;padding:0;color:#e8e8ed;font-size:14px;line-height:1.6;">
+  <li>Unlimited match feed (vs. 1/week on Free)</li>
+  <li>Pipeline stage management</li>
+  <li>Investment memo generation</li>
+  <li>Public investor profile on metatron</li>
+</ul>
+"#,
+        "INTERMEDIARY" => r#"
+<p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">Your account is ready. Here's what you can do as a free connector:</p>
+<ul style="margin:0 0 14px 18px;padding:0;color:#e8e8ed;font-size:14px;line-height:1.6;">
+  <li>Import your founder & investor network via CSV</li>
+  <li>Enrich contacts with AI to surface intro opportunities</li>
+  <li>Get credited for warm intros that lead to deals</li>
+  <li>Chat with Kevin, your AI network co-pilot</li>
+</ul>
+<p style="margin:0 0 8px 0;font-size:14px;color:#e8e8ed;">Ready to unlock more?</p>
+<p style="margin:0 0 14px 0;font-size:14px;">
+  <a href="https://platform.metatron.id/pricing" style="color:#6c5ce7;text-decoration:none;">View Free → Basic plans</a>
+</p>
+<ul style="margin:0 0 0 18px;padding:0;color:#e8e8ed;font-size:14px;line-height:1.6;">
+  <li>Unlimited contact imports & enrichments</li>
+  <li>Referral and introduction tracking</li>
+  <li>IPFS-anchored network ownership</li>
+</ul>
+"#,
+        _ => r#"
 <p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">Your account is ready. Here's what you can do as a free founder:</p>
 <ul style="margin:0 0 14px 18px;padding:0;color:#e8e8ed;font-size:14px;line-height:1.6;">
   <li>Build your founder profile with company details, stage, and sector</li>
@@ -129,7 +165,7 @@ pub fn welcome_email_html() -> String {
 </ul>
 <p style="margin:0 0 8px 0;font-size:14px;color:#e8e8ed;">Ready to unlock more?</p>
 <p style="margin:0 0 14px 0;font-size:14px;">
-  <a href="https://platform.metatron.id/pricing" style="color:#6c5ce7;text-decoration:none;">View Free → Pro plans</a>
+  <a href="https://platform.metatron.id/pricing" style="color:#6c5ce7;text-decoration:none;">View Free → Basic plans</a>
 </p>
 <ul style="margin:0 0 0 18px;padding:0;color:#e8e8ed;font-size:14px;line-height:1.6;">
   <li>Private &amp; public IPFS pitch deck storage</li>
@@ -138,7 +174,8 @@ pub fn welcome_email_html() -> String {
   <li>Pitches management</li>
 </ul>
 "#,
-    )
+    };
+    shell_html("Welcome to metatron", body)
 }
 
 pub fn pro_activated_email_html(plan_name: &str, period_end: &str, amount_paid: &str) -> String {

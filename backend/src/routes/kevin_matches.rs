@@ -698,8 +698,12 @@ async fn generate_matches(
                       ip.ticket_size_min, ip.ticket_size_max, ip.country
                  FROM investor_profiles ip
                  JOIN users u ON u.id = ip.user_id
-                 WHERE (ip.sectors IS NULL OR ip.sectors = '{}'::text[] OR $1::text IS NULL OR $1 = ANY(ip.sectors))
-                   AND (ip.stages IS NULL OR ip.stages = '{}'::text[] OR $2::text IS NULL OR $2 = ANY(ip.stages))
+                 WHERE (ip.sectors IS NULL OR ip.sectors = '{}'::text[] OR $1::text IS NULL OR EXISTS (
+                         SELECT 1 FROM unnest(string_to_array($1, ',')) AS fsec
+                         CROSS JOIN unnest(ip.sectors) AS isec
+                         WHERE TRIM(LOWER(fsec)) = TRIM(LOWER(isec))
+                       ))
+                   AND (ip.stages IS NULL OR ip.stages = '{}'::text[] OR $2::text IS NULL OR LOWER($2) = ANY(SELECT LOWER(s) FROM unnest(ip.stages) AS s))
                    AND ip.user_id NOT IN (
                      SELECT matched_user_id FROM kevin_matches
                      WHERE for_user_id = $3 AND matched_user_id IS NOT NULL
@@ -828,8 +832,12 @@ async fn generate_matches(
                  FROM profiles p
                  JOIN users u ON u.id = p.user_id
                  LEFT JOIN angel_scores a ON a.founder_user_id = p.user_id
-                 WHERE ($1::text[] IS NULL OR p.sector = ANY($1))
-                   AND ($2::text[] IS NULL OR p.stage = ANY($2))
+                 WHERE ($1::text[] IS NULL OR COALESCE(array_length($1, 1), 0) = 0 OR p.sector IS NULL OR EXISTS (
+                         SELECT 1 FROM unnest(string_to_array(p.sector, ',')) AS fsec
+                         CROSS JOIN unnest($1) AS isec
+                         WHERE TRIM(LOWER(fsec)) = TRIM(LOWER(isec))
+                       ))
+                   AND ($2::text[] IS NULL OR COALESCE(array_length($2, 1), 0) = 0 OR p.stage IS NULL OR LOWER(p.stage) = ANY(SELECT LOWER(s) FROM unnest($2) AS s))
                  ORDER BY COALESCE(a.score, 0) DESC
                  LIMIT 20"#,
         )

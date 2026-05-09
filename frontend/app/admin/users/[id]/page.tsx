@@ -11,6 +11,7 @@ type AdminUserCore = {
   id: string;
   email: string;
   role: string;
+  is_basic: boolean;
   is_pro: boolean;
   is_admin: boolean;
   is_suspended: boolean;
@@ -302,7 +303,7 @@ export default function AdminUserDetailPage() {
                       : "border-[var(--border)] text-[var(--text-muted)]",
                   ].join(" ")}
                 >
-                  {u.is_pro ? "Pro" : "Free"}
+                  {u.is_pro ? "Pro" : u.is_basic ? "Basic" : "Free"}
                 </span>
                 <button
                   type="button"

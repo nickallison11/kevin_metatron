@@ -3,6 +3,7 @@ export type MeResponse = {
   id: string;
   email: string;
   role: string;
+  is_basic: boolean;
   is_pro: boolean;
   is_admin: boolean;
   is_super_admin: boolean;

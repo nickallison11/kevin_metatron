@@ -56,7 +56,7 @@ export default function InvestorSettingsPage() {
         : me?.role === "INTERMEDIARY"
           ? "Connector"
           : "";
-  const tierBadgeText = me?.is_pro ? "Pro" : "Free";
+  const tierBadgeText = me?.is_pro ? "Pro" : me?.is_basic ? "Basic" : "Free";
 
   useEffect(() => {
     if (!token) return;
@@ -293,7 +293,7 @@ export default function InvestorSettingsPage() {
             <span
               className={[
                 "font-sans text-[10px] uppercase tracking-wider border px-2 py-0.5 rounded",
-                me?.is_pro
+                (me?.is_pro || me?.is_basic)
                   ? "border-metatron-accent/40 text-metatron-accent"
                   : "border-[var(--border)] text-[var(--text-muted)]",
               ].join(" ")}

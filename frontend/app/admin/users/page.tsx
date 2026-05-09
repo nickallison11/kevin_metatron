@@ -9,6 +9,7 @@ type AdminUserRow = {
   id: string;
   email: string;
   role: string;
+  is_basic: boolean;
   is_pro: boolean;
   is_admin: boolean;
   is_super_admin: boolean;
@@ -189,7 +190,7 @@ export default function AdminUsersPage() {
                             : "border-[var(--border)] text-[var(--text-muted)]",
                         ].join(" ")}
                       >
-                        {u.is_pro ? "Pro" : "Free"}
+                        {u.is_pro ? "Pro" : u.is_basic ? "Basic" : "Free"}
                       </span>
                       {u.is_super_admin ? (
                         <span className="ml-2 font-sans text-[10px] uppercase tracking-wider text-metatron-accent">

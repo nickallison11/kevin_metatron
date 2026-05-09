@@ -110,12 +110,19 @@ function SignupForm() {
       );
       return;
     }
-    const selectedRole =
+    const inviteCode = searchParams.get("invite")?.trim() ?? "";
+    const inviteSecret = searchParams.get("code")?.trim() ?? "";
+    const inviteRoleMap: Record<string, string> = {
+      founder: "founder",
+      investor: "investor",
+      connector: "connector",
+    };
+    const sessionRole =
       typeof window !== "undefined"
         ? window.sessionStorage.getItem("metatron_role")
         : null;
-    const inviteCode = searchParams.get("invite")?.trim() ?? "";
-    const inviteSecret = searchParams.get("code")?.trim() ?? "";
+    const selectedRole =
+      sessionRole ?? inviteRoleMap[inviteCode.toLowerCase()] ?? null;
     const referralCode = searchParams.get("ref")?.trim() ?? null;
     if (!inviteCode || !inviteSecret) {
       setResult("Missing invitation link. Use the full URL you were sent.");

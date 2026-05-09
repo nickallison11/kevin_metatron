@@ -10,7 +10,6 @@ const FREE_NAV = [
   { href: "/connector", label: "Dashboard" },
   { href: "/connector/profile", label: "Profile Settings" },
   { href: "/connector/network", label: "My Network" },
-  { href: "/connector/referrals", label: "Referrals" },
 ];
 
 const LOCKED_NAV = [{ label: "Introductions" }];

@@ -2,8 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState, type ReactNode } from "react";
-import { API_BASE, authJsonHeaders } from "@/lib/api";
+import { type ReactNode } from "react";
 import { useAuth } from "@/lib/auth";
 
 const FREE_NAV = [
@@ -13,7 +12,6 @@ const FREE_NAV = [
 ];
 
 const LOCKED_NAV = [
-  { href: "/investor/calls", label: "Call Intelligence" },
   { href: "/investor/portfolio", label: "Portfolio" },
 ];
 
@@ -21,27 +19,6 @@ export default function InvestorShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const { token, loading } = useAuth("INVESTOR");
-  const [isPaid, setIsPaid] = useState(false);
-
-  useEffect(() => {
-    if (!token) return;
-    let cancelled = false;
-    void (async () => {
-      try {
-        const res = await fetch(`${API_BASE}/investor-profile`, {
-          headers: authJsonHeaders(token),
-        });
-        if (!res.ok) return;
-        const data = (await res.json()) as { investor_tier?: string | null };
-        if (!cancelled) setIsPaid(data.investor_tier === "basic");
-      } catch {
-        /* ignore */
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [token]);
 
   if (loading) {
     return (
@@ -58,7 +35,6 @@ export default function InvestorShell({ children }: { children: ReactNode }) {
   type LockMode = "none" | "tease" | "hard";
   const lockMode = (href: string): LockMode => {
     if (href === "/investor/portfolio") return "hard";
-    if (href === "/investor/calls") return isPaid ? "none" : "tease";
     return "none";
   };
 

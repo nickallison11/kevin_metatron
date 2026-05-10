@@ -117,6 +117,70 @@ pub fn founder_invite_signup_notification_html(
     )
 }
 
+/// Subjects for waitlist flow — keep in sync with `metatron-landing` when that repo defines them.
+pub const WAITLIST_CONFIRMATION_SUBJECT: &str = "You're on the metatron waitlist";
+pub const WAITLIST_ADMIN_SUBJECT: &str = "New metatron waitlist signup";
+
+pub fn waitlist_confirmation_html(name: &str, startup_name: &str, tier: &str) -> String {
+    let esc = |s: &str| {
+        s.replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;")
+            .replace('"', "&quot;")
+    };
+    shell_html(
+        "You're on the list",
+        &format!(
+            r#"<p style="margin:0 0 14px 0;font-size:14px;color:#e8e8ed;">Hi {},</p>
+<p style="margin:0 0 14px 0;font-size:14px;color:#e8e8ed;">Thanks for joining the metatron waitlist for <strong>{}</strong>.</p>
+<p style="margin:0 0 14px 0;font-size:14px;color:#e8e8ed;">We've recorded your interest in <strong>{}</strong>. We'll email you when it's your turn to get access.</p>
+<p style="margin:0 0 14px 0;font-size:14px;color:#e8e8ed;">In the meantime, you can explore <a href="https://metatron.id" style="color:#6c5ce7;text-decoration:none;">metatron.id</a> and follow updates from the team.</p>
+<p style="margin:0 0 0 0;font-size:14px;color:#e8e8ed;">— metatron</p>"#,
+            esc(name),
+            esc(startup_name),
+            esc(tier),
+        ),
+    )
+}
+
+pub fn waitlist_admin_notification_html(
+    name: &str,
+    startup_name: &str,
+    email: &str,
+    tier: &str,
+    user_agent: Option<&str>,
+    referrer: Option<&str>,
+) -> String {
+    let esc = |s: &str| {
+        s.replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;")
+            .replace('"', "&quot;")
+    };
+    let ua = user_agent.map(esc).unwrap_or_else(|| "—".to_string());
+    let ref_html = referrer.map(esc).unwrap_or_else(|| "—".to_string());
+    shell_html(
+        "New waitlist signup",
+        &format!(
+            r#"<p style="margin:0 0 14px 0;font-size:14px;color:#e8e8ed;">Someone submitted the landing waitlist form.</p>
+<table style="font-size:14px;color:#e8e8ed;line-height:1.7;border-collapse:collapse;">
+<tr><td style="padding:6px 14px 6px 0;font-family:ui-monospace,monospace;color:#8888a0;vertical-align:top;white-space:nowrap;">Name</td><td>{}</td></tr>
+<tr><td style="padding:6px 14px 6px 0;font-family:ui-monospace,monospace;color:#8888a0;vertical-align:top;">Startup</td><td>{}</td></tr>
+<tr><td style="padding:6px 14px 6px 0;font-family:ui-monospace,monospace;color:#8888a0;vertical-align:top;">Email</td><td>{}</td></tr>
+<tr><td style="padding:6px 14px 6px 0;font-family:ui-monospace,monospace;color:#8888a0;vertical-align:top;">Tier</td><td>{}</td></tr>
+<tr><td style="padding:6px 14px 6px 0;font-family:ui-monospace,monospace;color:#8888a0;vertical-align:top;">User-Agent</td><td style="word-break:break-all;">{}</td></tr>
+<tr><td style="padding:6px 14px 6px 0;font-family:ui-monospace,monospace;color:#8888a0;vertical-align:top;">Referrer</td><td style="word-break:break-all;">{}</td></tr>
+</table>"#,
+            esc(name),
+            esc(startup_name),
+            esc(email),
+            esc(tier),
+            ua,
+            ref_html,
+        ),
+    )
+}
+
 pub fn welcome_email_html(role: &str) -> String {
     let body = match role {
         "INVESTOR" => r#"

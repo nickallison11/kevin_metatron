@@ -24,4 +24,5 @@ pub mod profile;
 pub mod subscription_finalize;
 pub mod subscriptions;
 pub mod uploads;
+pub mod waitlist;
 pub mod whatsapp;

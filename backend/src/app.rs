@@ -30,6 +30,7 @@ pub fn build_app(_settings: &Settings, state: Arc<AppState>) -> Router {
         .nest("/investor-pipeline", routes::investor_pipeline::router())
         .nest("/connector-profile", routes::connector_profile::router())
         .nest("/connections", routes::connections::router())
+        .nest("/waitlist", routes::waitlist::router())
         .nest("/subscriptions", routes::subscriptions::router())
         .nest("/commerce", routes::commerce::router())
         .nest("/uploads", routes::uploads::router())

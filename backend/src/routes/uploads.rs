@@ -271,6 +271,22 @@ async fn upload_pitch_deck(
                             tracing::error!("insert_pitch_from_extracted: {e}");
                         }
                     }
+                    let deck_full_text = v
+                        .get("full_text")
+                        .and_then(|x| x.as_str())
+                        .map(|s| s.to_string());
+                    if let Some(t) = deck_full_text.as_deref() {
+                        let trimmed = t.trim();
+                        if !trimmed.is_empty() {
+                            let _ = sqlx::query(
+                                "UPDATE profiles SET deck_text = $1, updated_at = NOW() WHERE user_id = $2",
+                            )
+                            .bind(trimmed)
+                            .bind(id)
+                            .execute(&state.db)
+                            .await;
+                        }
+                    }
                 }
                 Err(e) => {
                     extraction_error = Some(e);

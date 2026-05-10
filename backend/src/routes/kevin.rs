@@ -1061,7 +1061,7 @@ async fn build_context(state: &AppState, user_id: uuid::Uuid, role: &str) -> Str
     if let Ok(row) = sqlx::query_as::<_, ProfileCtx>(
         r#"
         SELECT company_name, one_liner, stage, sector, country::text, website, pitch_deck_url,
-               context_ipfs_url
+               context_ipfs_url, deck_text
         FROM profiles WHERE user_id = $1
         "#,
     )
@@ -1100,6 +1100,11 @@ async fn build_context(state: &AppState, user_id: uuid::Uuid, role: &str) -> Str
                     "Founder profile:\n{}",
                     profile_parts.join("\n")
                 ));
+            }
+            if let Some(ref t) = p.deck_text {
+                if !t.trim().is_empty() {
+                    parts.push(format!("\n## Pitch deck contents\n{}", t));
+                }
             }
         }
     }
@@ -1184,6 +1189,7 @@ struct ProfileCtx {
     website: Option<String>,
     pitch_deck_url: Option<String>,
     context_ipfs_url: Option<String>,
+    deck_text: Option<String>,
 }
 
 #[derive(sqlx::FromRow)]

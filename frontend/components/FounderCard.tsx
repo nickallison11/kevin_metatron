@@ -67,7 +67,7 @@ export function FounderCard({
         headers: authJsonHeaders(token),
         body: JSON.stringify({
           startup_user_id: founder.user_id,
-          note: "Request intro via Metatron.",
+          note: "Connect request via Metatron.",
         }),
       });
       if (res.ok) onIntroRequested?.();
@@ -119,7 +119,7 @@ export function FounderCard({
           onClick={() => void requestIntro()}
           className="rounded-lg bg-metatron-accent px-3 py-1.5 text-xs font-semibold text-white hover:bg-metatron-accent-hover"
         >
-          Request intro
+          Connect
         </button>
         {showMessage && (
           <button

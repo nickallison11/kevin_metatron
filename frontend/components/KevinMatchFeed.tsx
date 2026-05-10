@@ -302,7 +302,7 @@ function IntroButton({
   }
 
   if (state === "done") {
-    return <span className="text-xs text-metatron-accent">Intro Requested ✓</span>;
+    return <span className="text-xs text-metatron-accent">Connect requested ✓</span>;
   }
 
   if (profileIncomplete) {
@@ -315,13 +315,13 @@ function IntroButton({
           aria-label="Complete your profile first"
           className="shrink-0 cursor-not-allowed rounded-[8px] border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--text-muted)] opacity-60"
         >
-          Request Intro
+          Connect
         </button>
         <p className="text-[11px] text-[var(--text-muted)]">
           <Link href="/startup/profile" className="text-metatron-accent hover:underline">
             Complete your profile
           </Link>{" "}
-          to request an intro.
+          to send a Connect.
         </p>
       </div>
     );
@@ -338,10 +338,10 @@ function IntroButton({
         className="shrink-0 rounded-[8px] border border-metatron-accent/40 px-3 py-1.5 text-xs text-metatron-accent hover:bg-metatron-accent/10 disabled:opacity-50"
       >
         {state === "loading"
-          ? "Requesting…"
+          ? "Sending…"
           : state === "error"
             ? "Try again"
-            : "Request Intro"}
+            : "Connect"}
       </button>
       {state === "error" && errorMessage && (
         <p className="text-[11px] text-red-400">

@@ -5,6 +5,10 @@ import { Suspense, useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { API_BASE, authJsonHeaders } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import {
+  acceptedPeerUserIds,
+  type ConnectListsResponse,
+} from "@/lib/connectionsHandshake";
 
 type KevinMatch = {
   id: string;
@@ -90,6 +94,7 @@ function InvestorMatchesPageInner() {
   const [matchView, setMatchView] = useState<"list" | "card">("list");
   const [followedIds, setFollowedIds] = useState<Set<string>>(new Set());
   const [requestedIntroIds, setRequestedIntroIds] = useState<Set<string>>(new Set());
+  const [acceptedPeerIds, setAcceptedPeerIds] = useState<Set<string>>(new Set());
   const [introColWidths, setIntroColWidths] = useState<Record<string, number>>(() => {
     if (typeof window === "undefined") return {};
     try {
@@ -140,11 +145,27 @@ function InvestorMatchesPageInner() {
     }
   }, [token]);
 
+  const loadConnections = useCallback(async () => {
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_BASE}/connections`, {
+        headers: authJsonHeaders(token),
+      });
+      if (res.ok) {
+        const data = (await res.json()) as ConnectListsResponse;
+        setAcceptedPeerIds(acceptedPeerUserIds(data));
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [token]);
+
   useEffect(() => {
     if (loading || !token) return;
     void loadIntros();
     void loadMatches();
-  }, [loading, token, loadIntros, loadMatches]);
+    void loadConnections();
+  }, [loading, token, loadIntros, loadMatches, loadConnections]);
 
   useEffect(() => {
     const params = new URLSearchParams(searchParams.toString());
@@ -246,6 +267,7 @@ function InvestorMatchesPageInner() {
         const ts = new Date().toISOString();
         setIntros((prev) => prev.map((i) => (i.id === r.id ? { ...i, intro_accepted_at: ts } : i)));
         setViewingIntro((prev) => (prev?.id === r.id ? { ...prev, intro_accepted_at: ts } : prev));
+        void loadConnections();
       }
     } finally {
       setActionBusy(null);
@@ -264,6 +286,7 @@ function InvestorMatchesPageInner() {
         const ts = new Date().toISOString();
         setIntros((prev) => prev.map((i) => (i.id === r.id ? { ...i, intro_passed_at: ts } : i)));
         setViewingIntro((prev) => (prev?.id === r.id ? { ...prev, intro_passed_at: ts } : prev));
+        void loadConnections();
       }
     } finally {
       setActionBusy(null);
@@ -302,6 +325,7 @@ function InvestorMatchesPageInner() {
             x.id === m.id ? { ...x, intro_requested_at: new Date().toISOString() } : x
           )
         );
+        void loadConnections();
       }
     } finally {
       setActionBusy(null);
@@ -321,7 +345,7 @@ function InvestorMatchesPageInner() {
           <div>
             <h1 className="text-2xl font-semibold text-[var(--text)]">Startup Matches</h1>
             <p className="text-sm text-[var(--text-muted)] mt-1">
-              {intros.length} intro request{intros.length !== 1 ? "s" : ""} · {matches.length} Kevin match
+              {intros.length} connect request{intros.length !== 1 ? "s" : ""} · {matches.length} Kevin match
               {matches.length !== 1 ? "es" : ""}
             </p>
           </div>
@@ -341,7 +365,7 @@ function InvestorMatchesPageInner() {
                 }`}
               >
                 {t === "intros"
-                  ? `Intro Requests${intros.length > 0 ? ` (${intros.length})` : ""}`
+                  ? `Connect Requests${intros.length > 0 ? ` (${intros.length})` : ""}`
                   : "Kevin's Matches"}
               </button>
             ))}
@@ -355,7 +379,7 @@ function InvestorMatchesPageInner() {
         {!fetching && tab === "intros" && intros.length === 0 && (
           <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-6 text-center">
             <p className="text-sm text-[var(--text-muted)]">
-              No intro requests yet. When founders request introductions through Kevin, they&apos;ll appear here.
+              No connect requests yet. When founders send a Connect through Kevin, they&apos;ll appear here.
             </p>
           </div>
         )}
@@ -440,11 +464,11 @@ function InvestorMatchesPageInner() {
                             ) : col.key === "actions" ? (
                               r.intro_accepted_at ? (
                                 <span className="px-2 py-0.5 rounded text-xs font-medium bg-[rgba(0,200,100,0.12)] text-green-400">
-                                  Connected
+                                  Connection accepted
                                 </span>
                               ) : r.intro_passed_at ? (
                                 <span className="px-2 py-0.5 rounded text-xs font-medium bg-[rgba(255,255,255,0.06)] text-[var(--text-muted)]">
-                                  Passed
+                                  Declined
                                 </span>
                               ) : (
                                 <div className="flex items-center gap-1.5 whitespace-nowrap">
@@ -470,7 +494,7 @@ function InvestorMatchesPageInner() {
                                     disabled={actionBusy === r.id + "accept"}
                                     className="px-2.5 py-1.5 bg-[#6c5ce7] text-white rounded-lg text-xs font-medium hover:bg-[#7d6ff0] disabled:opacity-50"
                                   >
-                                    {actionBusy === r.id + "accept" ? "…" : "I'm interested"}
+                                    {actionBusy === r.id + "accept" ? "…" : "Accept"}
                                   </button>
                                   <button
                                     type="button"
@@ -481,7 +505,7 @@ function InvestorMatchesPageInner() {
                                     disabled={actionBusy === r.id + "pass"}
                                     className="px-2.5 py-1.5 border border-[rgba(239,68,68,0.3)] text-[rgba(254,202,202,0.7)] rounded-lg text-xs hover:border-[rgba(239,68,68,0.5)] transition-colors disabled:opacity-50"
                                   >
-                                    {actionBusy === r.id + "pass" ? "…" : "Pass"}
+                                    {actionBusy === r.id + "pass" ? "…" : "Decline"}
                                   </button>
                                 </div>
                               )
@@ -645,19 +669,34 @@ function InvestorMatchesPageInner() {
                                       disabled={actionBusy === m.id + "intro"}
                                       className="px-2.5 py-1.5 bg-[#6c5ce7] text-white rounded-lg text-xs font-medium hover:bg-[#7d6ff0] disabled:opacity-50"
                                     >
-                                      {actionBusy === m.id + "intro" ? "…" : "Request intro"}
+                                      {actionBusy === m.id + "intro" ? "…" : "Connect"}
                                     </button>
                                   )}
-                                  {(m.intro_requested_at || requestedIntroIds.has(m.id)) && (
-                                    <span className="px-2 py-0.5 rounded text-xs font-medium bg-[rgba(108,92,231,0.15)] text-[#6c5ce7]">
-                                      Intro sent
-                                    </span>
-                                  )}
+                                  {(m.intro_requested_at || requestedIntroIds.has(m.id)) &&
+                                    m.matched_user_id &&
+                                    !acceptedPeerIds.has(m.matched_user_id) && (
+                                      <span className="px-2 py-0.5 rounded text-xs font-medium bg-[rgba(108,92,231,0.15)] text-[#6c5ce7]">
+                                        Connect requested
+                                      </span>
+                                    )}
+                                  {(m.intro_requested_at || requestedIntroIds.has(m.id)) &&
+                                    m.matched_user_id &&
+                                    acceptedPeerIds.has(m.matched_user_id) && (
+                                      <span className="px-2 py-0.5 rounded text-xs font-medium bg-[rgba(0,200,100,0.12)] text-green-400">
+                                        Connection accepted
+                                      </span>
+                                    )}
                                   {m.matched_user_id && (
                                     <button
                                       type="button"
+                                      title={
+                                        acceptedPeerIds.has(m.matched_user_id)
+                                          ? undefined
+                                          : "Connect with this user first"
+                                      }
                                       onClick={(e) => {
                                         e.stopPropagation();
+                                        if (!acceptedPeerIds.has(m.matched_user_id!)) return;
                                         window.dispatchEvent(
                                           new CustomEvent("metatron:open-chat", {
                                             detail: {
@@ -667,7 +706,8 @@ function InvestorMatchesPageInner() {
                                           })
                                         );
                                       }}
-                                      className="px-2.5 py-1.5 border border-[var(--border)] text-[var(--text-muted)] rounded-lg text-xs hover:border-[rgba(108,92,231,0.4)] hover:text-[#6c5ce7] transition-colors"
+                                      disabled={!acceptedPeerIds.has(m.matched_user_id)}
+                                      className="px-2.5 py-1.5 border border-[var(--border)] text-[var(--text-muted)] rounded-lg text-xs hover:border-[rgba(108,92,231,0.4)] hover:text-[#6c5ce7] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                                     >
                                       Message
                                     </button>
@@ -745,18 +785,33 @@ function InvestorMatchesPageInner() {
                           disabled={actionBusy === m.id + "intro"}
                           className="px-2.5 py-1.5 bg-[#6c5ce7] text-white rounded-lg text-xs font-medium hover:bg-[#7d6ff0] disabled:opacity-50"
                         >
-                          {actionBusy === m.id + "intro" ? "…" : "Request intro"}
+                          {actionBusy === m.id + "intro" ? "…" : "Connect"}
                         </button>
                       )}
-                      {(m.intro_requested_at || requestedIntroIds.has(m.id)) && (
-                        <span className="px-2 py-0.5 rounded text-xs font-medium bg-[rgba(108,92,231,0.15)] text-[#6c5ce7]">
-                          Intro sent
-                        </span>
-                      )}
+                      {(m.intro_requested_at || requestedIntroIds.has(m.id)) &&
+                        m.matched_user_id &&
+                        !acceptedPeerIds.has(m.matched_user_id) && (
+                          <span className="px-2 py-0.5 rounded text-xs font-medium bg-[rgba(108,92,231,0.15)] text-[#6c5ce7]">
+                            Connect requested
+                          </span>
+                        )}
+                      {(m.intro_requested_at || requestedIntroIds.has(m.id)) &&
+                        m.matched_user_id &&
+                        acceptedPeerIds.has(m.matched_user_id) && (
+                          <span className="px-2 py-0.5 rounded text-xs font-medium bg-[rgba(0,200,100,0.12)] text-green-400">
+                            Connection accepted
+                          </span>
+                        )}
                       {m.matched_user_id && (
                         <button
                           type="button"
+                          title={
+                            acceptedPeerIds.has(m.matched_user_id)
+                              ? undefined
+                              : "Connect with this user first"
+                          }
                           onClick={() => {
+                            if (!acceptedPeerIds.has(m.matched_user_id!)) return;
                             window.dispatchEvent(
                               new CustomEvent("metatron:open-chat", {
                                 detail: {
@@ -766,7 +821,8 @@ function InvestorMatchesPageInner() {
                               })
                             );
                           }}
-                          className="px-2.5 py-1.5 border border-[var(--border)] text-[var(--text-muted)] rounded-lg text-xs hover:border-[rgba(108,92,231,0.4)] hover:text-[#6c5ce7] transition-colors"
+                          disabled={!acceptedPeerIds.has(m.matched_user_id)}
+                          className="px-2.5 py-1.5 border border-[var(--border)] text-[var(--text-muted)] rounded-lg text-xs hover:border-[rgba(108,92,231,0.4)] hover:text-[#6c5ce7] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                         >
                           Message
                         </button>
@@ -866,11 +922,11 @@ function InvestorMatchesPageInner() {
             <div className="shrink-0 border-t border-[var(--border)] px-5 py-3">
               {viewingIntro.intro_accepted_at ? (
                 <span className="inline-flex w-full justify-center px-2 py-2 rounded-lg text-xs font-medium bg-[rgba(0,200,100,0.12)] text-green-400">
-                  Connected
+                  Connection accepted
                 </span>
               ) : viewingIntro.intro_passed_at ? (
                 <span className="inline-flex w-full justify-center px-2 py-2 rounded-lg text-xs font-medium bg-[rgba(255,255,255,0.06)] text-[var(--text-muted)]">
-                  Passed
+                  Declined
                 </span>
               ) : (
                 <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
@@ -890,7 +946,7 @@ function InvestorMatchesPageInner() {
                     disabled={actionBusy === viewingIntro.id + "accept"}
                     className="flex-1 min-w-[120px] px-2.5 py-2 bg-[#6c5ce7] text-white rounded-lg text-xs font-medium hover:bg-[#7d6ff0] disabled:opacity-50"
                   >
-                    {actionBusy === viewingIntro.id + "accept" ? "…" : "I'm interested"}
+                    {actionBusy === viewingIntro.id + "accept" ? "…" : "Accept"}
                   </button>
                   <button
                     type="button"
@@ -898,7 +954,7 @@ function InvestorMatchesPageInner() {
                     disabled={actionBusy === viewingIntro.id + "pass"}
                     className="flex-1 min-w-[120px] px-2.5 py-2 border border-[rgba(239,68,68,0.3)] text-[rgba(254,202,202,0.7)] rounded-lg text-xs hover:border-[rgba(239,68,68,0.5)] transition-colors disabled:opacity-50"
                   >
-                    {actionBusy === viewingIntro.id + "pass" ? "…" : "Pass"}
+                    {actionBusy === viewingIntro.id + "pass" ? "…" : "Decline"}
                   </button>
                 </div>
               )}
@@ -987,18 +1043,33 @@ function InvestorMatchesPageInner() {
                     disabled={actionBusy === viewingMatch.id + "intro"}
                     className="flex-1 min-w-[100px] rounded-xl bg-[#6c5ce7] py-2.5 text-sm font-semibold text-white hover:bg-[#7d6ff0] disabled:opacity-50"
                   >
-                    {actionBusy === viewingMatch.id + "intro" ? "…" : "Request intro"}
+                    {actionBusy === viewingMatch.id + "intro" ? "…" : "Connect"}
                   </button>
                 )}
-              {(viewingMatch.intro_requested_at || requestedIntroIds.has(viewingMatch.id)) && (
-                <span className="flex-1 min-w-[100px] flex items-center justify-center px-2 py-2 rounded-lg text-sm font-medium bg-[rgba(108,92,231,0.15)] text-[#6c5ce7]">
-                  Intro sent
-                </span>
-              )}
+              {(viewingMatch.intro_requested_at || requestedIntroIds.has(viewingMatch.id)) &&
+                viewingMatch.matched_user_id &&
+                !acceptedPeerIds.has(viewingMatch.matched_user_id) && (
+                  <span className="flex-1 min-w-[100px] flex items-center justify-center px-2 py-2 rounded-lg text-sm font-medium bg-[rgba(108,92,231,0.15)] text-[#6c5ce7]">
+                    Connect requested
+                  </span>
+                )}
+              {(viewingMatch.intro_requested_at || requestedIntroIds.has(viewingMatch.id)) &&
+                viewingMatch.matched_user_id &&
+                acceptedPeerIds.has(viewingMatch.matched_user_id) && (
+                  <span className="flex-1 min-w-[100px] flex items-center justify-center px-2 py-2 rounded-lg text-sm font-medium bg-[rgba(0,200,100,0.12)] text-green-400">
+                    Connection accepted
+                  </span>
+                )}
               {viewingMatch.matched_user_id && (
                 <button
                   type="button"
+                  title={
+                    acceptedPeerIds.has(viewingMatch.matched_user_id)
+                      ? undefined
+                      : "Connect with this user first"
+                  }
                   onClick={() => {
+                    if (!acceptedPeerIds.has(viewingMatch.matched_user_id!)) return;
                     window.dispatchEvent(
                       new CustomEvent("metatron:open-chat", {
                         detail: {
@@ -1009,7 +1080,8 @@ function InvestorMatchesPageInner() {
                     );
                     setViewingMatch(null);
                   }}
-                  className="flex-1 min-w-[100px] rounded-xl border border-[var(--border)] py-2.5 text-sm text-[var(--text-muted)] hover:border-[rgba(108,92,231,0.4)] hover:text-[#6c5ce7]"
+                  disabled={!acceptedPeerIds.has(viewingMatch.matched_user_id)}
+                  className="flex-1 min-w-[100px] rounded-xl border border-[var(--border)] py-2.5 text-sm text-[var(--text-muted)] hover:border-[rgba(108,92,231,0.4)] hover:text-[#6c5ce7] disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   Message →
                 </button>

@@ -3,6 +3,10 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { API_BASE, authHeaders, authJsonHeaders } from "@/lib/api";
 import type { MeResponse } from "@/lib/me";
+import {
+  acceptedPeerUserIds,
+  type ConnectListsResponse,
+} from "@/lib/connectionsHandshake";
 
 type Conversation = {
   id: string;
@@ -389,26 +393,42 @@ export default function MessagingWidget({ token }: { token: string | null }) {
   useEffect(() => {
     function handler(e: Event) {
       const { userId, name } = (e as CustomEvent<{ userId: string; name: string }>).detail;
-      setPanes((prev) => {
-        if (prev.find((p) => p.recipientId === userId)) return prev;
-        const next = prev.length >= 2 ? prev.slice(1) : prev;
-        return [
-          ...next,
-          {
-            id: `pending-${userId}`,
-            type: "direct",
-            name,
-            recipientId: userId,
-            messages: [],
-            input: "",
-            sending: false,
-          },
-        ];
-      });
+      void (async () => {
+        if (!token) return;
+        try {
+          const res = await fetch(`${API_BASE}/connections`, {
+            headers: authJsonHeaders(token),
+          });
+          if (res.ok) {
+            const data = (await res.json()) as ConnectListsResponse;
+            if (!acceptedPeerUserIds(data).has(userId)) return;
+          } else {
+            return;
+          }
+        } catch {
+          return;
+        }
+        setPanes((prev) => {
+          if (prev.find((p) => p.recipientId === userId)) return prev;
+          const next = prev.length >= 2 ? prev.slice(1) : prev;
+          return [
+            ...next,
+            {
+              id: `pending-${userId}`,
+              type: "direct",
+              name,
+              recipientId: userId,
+              messages: [],
+              input: "",
+              sending: false,
+            },
+          ];
+        });
+      })();
     }
     window.addEventListener("metatron:open-chat", handler);
     return () => window.removeEventListener("metatron:open-chat", handler);
-  }, []);
+  }, [token]);
 
   async function openKevinChat() {
     const existingKevin = panes.find((p) => p.type === "kevin");
@@ -693,7 +713,8 @@ export default function MessagingWidget({ token }: { token: string | null }) {
 
           {directConvs.length === 0 && (
             <p className="px-4 py-4 text-xs text-[var(--text-muted)]">
-              No direct messages yet. Message investors from your matches page.
+              No direct messages yet. Message investors from your matches page after a connection is
+              accepted.
             </p>
           )}
           {directConvs.map((conv) => (

@@ -99,7 +99,7 @@ export default function InvestorsDiscoveryPage() {
                       onClick={() => void connect(inv.user_id, "intro_request")}
                       className="rounded-lg bg-metatron-accent px-3 py-1.5 text-xs font-semibold text-white hover:bg-metatron-accent-hover"
                     >
-                      Request intro
+                      Connect
                     </button>
                   </div>
                 </div>

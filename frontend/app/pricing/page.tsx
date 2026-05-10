@@ -33,7 +33,7 @@ const founderProFeatures = [
 
 const investorFreeFeatures = [
   "Browse public founder profiles",
-  "Save a short watchlist",
+  "Short follow list",
   "Kevin on Telegram & WhatsApp",
 ];
 
@@ -61,7 +61,7 @@ const connectorBasicFeatures = [
   "Unlimited contacts",
   "50 enrichment credits/month",
   "IPFS network storage",
-  "Introductions tracker",
+  "Connect tracker",
 ];
 
 const connectorProFeatures = [

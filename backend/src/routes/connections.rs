@@ -119,8 +119,39 @@ pub async fn send_kevin_warm_email_for_intro_accept(
     accepter_user_id: Uuid,
     km_for_user_id: Uuid,
 ) {
+    // Detect which of the two users is the investor and which is the founder.
+    // Don't assume accepter==investor — the new investor->founder Connect flow
+    // has the founder accepting, which is the reverse of the legacy direction.
+    let roles: Vec<(Uuid, String)> = match sqlx::query_as(
+        "SELECT id, role::text FROM users WHERE id = ANY($1)",
+    )
+    .bind(vec![accepter_user_id, km_for_user_id])
+    .fetch_all(&state.db)
+    .await
+    {
+        Ok(r) => r,
+        Err(_) => return,
+    };
+    let (investor_user_id, founder_user_id) = {
+        let mut investor: Option<Uuid> = None;
+        let mut founder: Option<Uuid> = None;
+        for (id, role) in &roles {
+            match role.as_str() {
+                "INVESTOR" => investor = Some(*id),
+                "STARTUP" => founder = Some(*id),
+                _ => {}
+            }
+        }
+        match (investor, founder) {
+            (Some(i), Some(f)) => (i, f),
+            // Legacy path or unexpected pair — fall back to the historical assumption
+            // (accepter=investor, km_for_user=founder) so existing flows don't break.
+            _ => (accepter_user_id, km_for_user_id),
+        }
+    };
+
     let investor_email: String = match sqlx::query_scalar("SELECT email FROM users WHERE id = $1")
-        .bind(accepter_user_id)
+        .bind(investor_user_id)
         .fetch_one(&state.db)
         .await
     {
@@ -131,7 +162,7 @@ pub async fn send_kevin_warm_email_for_intro_accept(
     let firm_name: Option<String> = sqlx::query_scalar::<_, Option<String>>(
         "SELECT firm_name FROM investor_profiles WHERE user_id = $1",
     )
-    .bind(accepter_user_id)
+    .bind(investor_user_id)
     .fetch_optional(&state.db)
     .await
     .ok()
@@ -142,7 +173,7 @@ pub async fn send_kevin_warm_email_for_intro_accept(
     let investor_notif: Option<(Option<String>, Option<String>)> = sqlx::query_as(
         "SELECT telegram_id, whatsapp_number FROM users WHERE id = $1",
     )
-    .bind(accepter_user_id)
+    .bind(investor_user_id)
     .fetch_optional(&state.db)
     .await
     .ok()
@@ -155,7 +186,7 @@ pub async fn send_kevin_warm_email_for_intro_accept(
                     CASE WHEN u.is_basic OR u.is_pro OR p.deck_expires_at IS NULL OR p.deck_expires_at > NOW() THEN p.pitch_deck_url ELSE NULL END
              FROM users u LEFT JOIN profiles p ON p.user_id = u.id WHERE u.id = $1"#,
         )
-        .bind(km_for_user_id)
+        .bind(founder_user_id)
         .fetch_optional(&state.db)
         .await
         .ok()

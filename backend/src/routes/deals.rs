@@ -14,6 +14,7 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use crate::identity::{require_role, AuthedUser};
+use crate::routes::connections;
 use crate::state::AppState;
 
 pub fn router() -> Router<Arc<AppState>> {
@@ -149,6 +150,10 @@ async fn request_intro(
             "startup not found".into(),
         ));
     }
+
+    connections::upsert_connect_request(&state.db, investor_id, body.startup_user_id)
+        .await
+        .map_err(internal)?;
 
     let intro_id = Uuid::new_v4();
     sqlx::query(

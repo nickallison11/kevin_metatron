@@ -367,6 +367,41 @@ async fn send_direct_message(
         return Err((StatusCode::BAD_REQUEST, "cannot message yourself".into()));
     }
 
+    let allowed: bool = sqlx::query_scalar(
+        r#"
+        SELECT EXISTS (
+            SELECT 1 FROM kevin_matches km
+            WHERE km.intro_accepted_at IS NOT NULL
+              AND km.matched_user_id IS NOT NULL
+              AND (
+                (km.for_user_id = $1 AND km.matched_user_id = $2)
+                OR (km.for_user_id = $2 AND km.matched_user_id = $1)
+              )
+        )
+        OR EXISTS (
+            SELECT 1 FROM connections c
+            WHERE c.connection_type = 'connect'
+              AND c.accepted_at IS NOT NULL
+              AND (
+                (c.from_user_id = $1 AND c.to_user_id = $2)
+                OR (c.from_user_id = $2 AND c.to_user_id = $1)
+              )
+        )
+        "#,
+    )
+    .bind(user_id)
+    .bind(recipient_id)
+    .fetch_one(&state.db)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    if !allowed {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "direct messages require an accepted introduction or connect".into(),
+        ));
+    }
+
     let conv_id = ensure_direct_conversation(&state.db, user_id, recipient_id).await?;
 
     sqlx::query("INSERT INTO messages (conversation_id, sender_id, body) VALUES ($1, $2, $3)")

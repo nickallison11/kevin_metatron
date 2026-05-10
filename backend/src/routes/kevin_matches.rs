@@ -17,6 +17,7 @@ use uuid::Uuid;
 
 use crate::email;
 use crate::identity::require_user;
+use crate::routes::connections;
 use crate::state::AppState;
 
 pub fn router() -> Router<Arc<AppState>> {
@@ -309,10 +310,11 @@ async fn accept_intro(
 
     let row: Option<(
         Uuid,
+        Option<Uuid>,
         Option<chrono::DateTime<chrono::Utc>>,
         Option<chrono::DateTime<chrono::Utc>>,
     )> = sqlx::query_as(
-        r#"SELECT km.for_user_id, km.intro_accepted_at, km.intro_passed_at
+        r#"SELECT km.for_user_id, km.matched_user_id, km.intro_accepted_at, km.intro_passed_at
              FROM kevin_matches km
              WHERE km.id = $1
                AND (km.matched_user_id = $2 OR EXISTS (
@@ -327,7 +329,7 @@ async fn accept_intro(
     .await
     .map_err(internal)?;
 
-    let (founder_id, intro_accepted_at, intro_passed_at) =
+    let (founder_id, matched_user_id, intro_accepted_at, intro_passed_at) =
         row.ok_or((StatusCode::NOT_FOUND, "match not found".to_string()))?;
     if intro_accepted_at.is_some() {
         return Err((StatusCode::CONFLICT, "already accepted".to_string()));
@@ -342,117 +344,23 @@ async fn accept_intro(
         .await
         .map_err(internal)?;
 
-    let firm_name: Option<String> = sqlx::query_scalar::<_, Option<String>>(
-        "SELECT firm_name FROM investor_profiles WHERE user_id = $1",
-    )
-    .bind(user.id)
-    .fetch_optional(&state.db)
-    .await
-    .map_err(internal)?
-    .flatten();
-    let investor_name = firm_name.unwrap_or_else(|| investor_email.clone());
-
-    let investor_notif: Option<(Option<String>, Option<String>)> = sqlx::query_as(
-        "SELECT telegram_id, whatsapp_number FROM users WHERE id = $1",
-    )
-    .bind(user.id)
-    .fetch_optional(&state.db)
-    .await
-    .map_err(internal)?;
-    let (inv_tg, inv_wa) = investor_notif.unwrap_or((None, None));
-
-    let founder: Option<(String, Option<String>, Option<String>, Option<String>, Option<String>)> =
-        sqlx::query_as(
-            r#"SELECT u.email, u.telegram_id, u.whatsapp_number, p.company_name,
-                    CASE WHEN u.is_basic OR u.is_pro OR p.deck_expires_at IS NULL OR p.deck_expires_at > NOW() THEN p.pitch_deck_url ELSE NULL END
-             FROM users u LEFT JOIN profiles p ON p.user_id = u.id WHERE u.id = $1"#,
+    if let Some(matched_uid) = matched_user_id {
+        let first = connections::try_first_accept_connect(&state.db, founder_id, matched_uid)
+            .await
+            .map_err(internal)?;
+        let exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM connections WHERE from_user_id = $1 AND to_user_id = $2 AND connection_type = 'connect')",
         )
         .bind(founder_id)
-        .fetch_optional(&state.db)
+        .bind(matched_uid)
+        .fetch_one(&state.db)
         .await
         .map_err(internal)?;
-
-    if let Some((f_email, f_tg, f_wa, company_name, deck_url)) = founder {
-        let company = company_name.unwrap_or_else(|| "your company".to_string());
-
-        let f_subject = format!("{} is interested in {}!", investor_name, company);
-        let f_html = email::intro_accepted_founder_html(&investor_name, &company, &investor_email);
-        let f_msg = format!(
-            "🎉 {} wants to connect with {}! Reach them at: {}\n\nThey'll be in touch to arrange a call.",
-            investor_name, company, investor_email
-        );
-        email::send_email(
-            &state.http_client,
-            state.resend_api_key.as_deref(),
-            &state.email_from,
-            &f_email,
-            &f_subject,
-            &f_html,
-        )
-        .await;
-        if let (Some(tg), Some(bot)) = (f_tg.as_deref(), state.telegram_bot_token.as_deref()) {
-            let _ = state
-                .http_client
-                .post(format!("https://api.telegram.org/bot{bot}/sendMessage", bot = bot))
-                .json(&serde_json::json!({"chat_id": tg, "text": f_msg}))
-                .send()
-                .await;
+        if first || !exists {
+            connections::send_kevin_warm_email_for_intro_accept(&state, user.id, founder_id).await;
         }
-        if let (Some(wa), Some(tok), Some(pid)) = (
-            f_wa.as_deref(),
-            state.whatsapp_access_token.as_deref(),
-            state.whatsapp_phone_number_id.as_deref(),
-        ) {
-            let _ = state
-                .http_client
-                .post(format!("https://graph.facebook.com/v18.0/{pid}/messages", pid = pid))
-                .bearer_auth(tok)
-                .json(&serde_json::json!({"messaging_product":"whatsapp","recipient_type":"individual","to":wa,"type":"text","text":{"body":f_msg}}))
-                .send()
-                .await;
-        }
-
-        let deck_msg = deck_url
-            .as_deref()
-            .map(|u| format!("\nDeck: {}", u))
-            .unwrap_or_default();
-        let inv_subject = format!("You're connected with {}", company);
-        let inv_html =
-            email::intro_accepted_investor_html(&investor_name, &company, &f_email, deck_url.as_deref());
-        let inv_msg = format!(
-            "✅ You're now connected with {}!\n\nFounder email: {}{}\n\nGood luck!",
-            company, f_email, deck_msg
-        );
-        email::send_email(
-            &state.http_client,
-            state.resend_api_key.as_deref(),
-            &state.email_from,
-            &investor_email,
-            &inv_subject,
-            &inv_html,
-        )
-        .await;
-        if let (Some(tg), Some(bot)) = (inv_tg.as_deref(), state.telegram_bot_token.as_deref()) {
-            let _ = state
-                .http_client
-                .post(format!("https://api.telegram.org/bot{bot}/sendMessage", bot = bot))
-                .json(&serde_json::json!({"chat_id": tg, "text": inv_msg}))
-                .send()
-                .await;
-        }
-        if let (Some(wa), Some(tok), Some(pid)) = (
-            inv_wa.as_deref(),
-            state.whatsapp_access_token.as_deref(),
-            state.whatsapp_phone_number_id.as_deref(),
-        ) {
-            let _ = state
-                .http_client
-                .post(format!("https://graph.facebook.com/v18.0/{pid}/messages", pid = pid))
-                .bearer_auth(tok)
-                .json(&serde_json::json!({"messaging_product":"whatsapp","recipient_type":"individual","to":wa,"type":"text","text":{"body":inv_msg}}))
-                .send()
-                .await;
-        }
+    } else {
+        connections::send_kevin_warm_email_for_intro_accept(&state, user.id, founder_id).await;
     }
     Ok(Json(serde_json::json!({"ok": true})))
 }
@@ -471,10 +379,11 @@ async fn pass_intro(
 
     let row: Option<(
         Uuid,
+        Option<Uuid>,
         Option<chrono::DateTime<chrono::Utc>>,
         Option<chrono::DateTime<chrono::Utc>>,
     )> = sqlx::query_as(
-        r#"SELECT km.for_user_id, km.intro_accepted_at, km.intro_passed_at
+        r#"SELECT km.for_user_id, km.matched_user_id, km.intro_accepted_at, km.intro_passed_at
              FROM kevin_matches km
              WHERE km.id = $1
                AND (km.matched_user_id = $2 OR EXISTS (
@@ -489,7 +398,7 @@ async fn pass_intro(
     .await
     .map_err(internal)?;
 
-    let (founder_id, intro_accepted_at, intro_passed_at) =
+    let (founder_id, matched_user_id, intro_accepted_at, intro_passed_at) =
         row.ok_or((StatusCode::NOT_FOUND, "match not found".to_string()))?;
     if intro_accepted_at.is_some() {
         return Err((StatusCode::CONFLICT, "already accepted".to_string()));
@@ -513,6 +422,10 @@ async fn pass_intro(
         .execute(&state.db)
         .await
         .map_err(internal)?;
+
+    if let Some(matched_uid) = matched_user_id {
+        let _ = connections::mark_connect_declined_for_pair(&state.db, founder_id, matched_uid).await;
+    }
 
     let founder: Option<(String, Option<String>, Option<String>, Option<String>)> = sqlx::query_as(
         "SELECT u.email, u.telegram_id, u.whatsapp_number, p.company_name FROM users u LEFT JOIN profiles p ON p.user_id = u.id WHERE u.id = $1",
@@ -1089,6 +1002,8 @@ async fn request_intro(
             .await
             .map_err(internal)?;
 
+        let _ = connections::upsert_connect_request(&state.db, user.id, founder_id).await;
+
         return Ok(Json(serde_json::json!({"ok": true})));
     }
 
@@ -1611,6 +1526,10 @@ async fn request_intro(
         .execute(&state.db)
         .await
         .map_err(internal)?;
+
+    if let Some(to_uid) = matched_user_id {
+        let _ = connections::upsert_connect_request(&state.db, user.id, to_uid).await;
+    }
 
     if !founder_notified_in_branch {
         // Email confirmation to founder — includes reasoning and channels used

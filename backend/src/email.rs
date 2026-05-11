@@ -276,11 +276,11 @@ pub fn pro_activated_email_html(plan_name: &str, period_end: &str, amount_paid: 
 
 pub fn subscription_cancelled_email_html(period_end: &str) -> String {
     shell_html(
-        "Your Pro subscription has been cancelled",
+        "Your metatron subscription has been cancelled",
         &format!(
             r#"
-<p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">Your metatron Pro subscription has been set to cancel at the end of your current billing period.</p>
-<p style="margin:0 0 12px 0;font-size:13px;color:#e8e8ed;">You will retain full Pro access until: <strong>{period_end}</strong></p>
+<p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">Your metatron subscription has been set to cancel at the end of your current billing period.</p>
+<p style="margin:0 0 12px 0;font-size:13px;color:#e8e8ed;">You will retain full access until: <strong>{period_end}</strong></p>
 <p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">After that date your account will revert to the free tier.</p>
 <p style="margin:0 0 0 0;font-size:14px;">
   <a href="https://platform.metatron.id/pricing" style="color:#6c5ce7;text-decoration:none;">Resubscribe</a> ·
@@ -294,13 +294,13 @@ pub fn subscription_cancelled_email_html(period_end: &str) -> String {
 
 pub fn renewal_reminder_email_html(expiry_date: &str) -> String {
     shell_html(
-        "Your Pro subscription is expiring soon",
+        "Your metatron subscription is expiring soon",
         &format!(
             r#"
-<p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">Your metatron Pro subscription renews in 3 days.</p>
+<p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">Your metatron subscription renews in 3 days.</p>
 <p style="margin:0 0 12px 0;font-size:13px;color:#e8e8ed;">Expiry date: {expiry_date}</p>
 <p style="margin:0 0 12px 0;font-size:14px;">
-  <a href="https://platform.metatron.id/pricing" style="color:#6c5ce7;text-decoration:none;">Renew your Pro plan</a>
+  <a href="https://platform.metatron.id/pricing" style="color:#6c5ce7;text-decoration:none;">Renew your subscription</a>
 </p>
 <p style="margin:0 0 8px 0;font-size:14px;color:#e8e8ed;">If not renewed, you'll lose access to:</p>
 <ul style="margin:0 0 0 18px;padding:0;color:#e8e8ed;font-size:14px;line-height:1.6;">

@@ -35,6 +35,7 @@ type ReceivedConnect = {
   reasoning: string | null;
   intro_requested_at: string;
   company_name: string | null;
+  firm_name: string | null;
   one_liner: string | null;
   stage: string | null;
   sector: string | null;
@@ -59,8 +60,10 @@ const DEFAULT_MATCH_COLUMNS = [
 ] as const;
 
 function investorDisplayName(r: ReceivedConnect) {
-  const n = r.company_name?.trim();
-  if (n) return n;
+  const firm = r.firm_name?.trim();
+  if (firm) return firm;
+  const company = r.company_name?.trim();
+  if (company) return company;
   const o = r.one_liner?.trim();
   if (o) return o;
   return r.founder_email;
@@ -473,6 +476,9 @@ function StartupMatchesPageInner() {
                     {paginated.map((m) => {
                       const accepted =
                         m.matched_user_id && acceptedPeerIds.has(m.matched_user_id);
+                      const showConnectCta =
+                        !m.intro_requested_at &&
+                        !(m.matched_user_id && acceptedPeerIds.has(m.matched_user_id));
                       const dimmed = m.intro_requested_at && !accepted;
                       return (
                         <div
@@ -522,7 +528,7 @@ function StartupMatchesPageInner() {
                               </div>
                             )}
                           </dl>
-                          {!m.intro_requested_at ? (
+                          {showConnectCta ? (
                             <button
                               type="button"
                               onClick={(e) => {
@@ -599,6 +605,9 @@ function StartupMatchesPageInner() {
                         {paginated.map((m) => {
                           const accepted =
                             m.matched_user_id && acceptedPeerIds.has(m.matched_user_id);
+                          const showConnectCta =
+                            !m.intro_requested_at &&
+                            !(m.matched_user_id && acceptedPeerIds.has(m.matched_user_id));
                           const dimmed = m.intro_requested_at && !accepted;
                           return (
                             <tr
@@ -653,7 +662,7 @@ function StartupMatchesPageInner() {
                                       </span>
                                     ) : (
                                       <div className="flex items-center gap-2 whitespace-nowrap">
-                                        {!m.intro_requested_at ? (
+                                        {showConnectCta ? (
                                           <button
                                             type="button"
                                             onClick={(e) => {
@@ -828,7 +837,11 @@ function StartupMatchesPageInner() {
                 !acceptedPeerIds.has(viewingMatch.matched_user_id) && (
                   <p className="text-sm text-[var(--text-muted)]">Connect requested</p>
                 )}
-              {!viewingMatch.intro_requested_at ? (
+              {!viewingMatch.intro_requested_at &&
+              !(
+                viewingMatch.matched_user_id &&
+                acceptedPeerIds.has(viewingMatch.matched_user_id)
+              ) ? (
                 <button
                   type="button"
                   onClick={() => void requestIntro(viewingMatch.id)}

@@ -76,7 +76,7 @@ export default function SubscriptionSettingsContent({
   }, [load]);
 
   const onCancel = async () => {
-    if (!confirm("Cancel your Pro subscription at the end of this billing period?")) return;
+    if (!confirm("Cancel your subscription at the end of this billing period?")) return;
     setActionBusy(true);
     try {
       const res = await fetch(`${API_BASE}/subscriptions/cancel`, {
@@ -90,7 +90,7 @@ export default function SubscriptionSettingsContent({
   };
 
   const onUndo = async () => {
-    if (!confirm("Keep your Pro subscription and remove the scheduled cancellation?")) return;
+    if (!confirm("Keep your subscription and remove the scheduled cancellation?")) return;
     setActionBusy(true);
     try {
       const res = await fetch(`${API_BASE}/subscriptions/cancel`, {

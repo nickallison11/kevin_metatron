@@ -57,6 +57,7 @@ pub struct ReceivedIntro {
     pub reasoning: Option<String>,
     pub intro_requested_at: chrono::DateTime<chrono::Utc>,
     pub company_name: Option<String>,
+    pub firm_name: Option<String>,
     pub one_liner: Option<String>,
     pub stage: Option<String>,
     pub sector: Option<String>,
@@ -156,20 +157,21 @@ async fn get_received_intros(
         .map_err(internal)?;
     let rows = sqlx::query_as::<_, ReceivedIntro>(
         r#"SELECT km.id, km.for_user_id, km.score, km.reasoning, km.intro_requested_at,
-                    p.company_name, p.one_liner, p.stage, p.sector, p.country,
+                    p.company_name, ip_req.firm_name, p.one_liner, p.stage, p.sector, p.country,
                     a.score AS angel_score, u.email AS founder_email,
                     CASE WHEN u.is_basic OR u.is_pro OR p.deck_expires_at IS NULL OR p.deck_expires_at > NOW() THEN p.pitch_deck_url ELSE NULL END AS deck_url,
                     km.deck_viewed_at, km.intro_accepted_at, km.intro_passed_at
              FROM kevin_matches km
              JOIN users u ON u.id = km.for_user_id
              LEFT JOIN profiles p ON p.user_id = km.for_user_id
+             LEFT JOIN investor_profiles ip_req ON ip_req.user_id = km.for_user_id
              LEFT JOIN angel_scores a ON a.founder_user_id = km.for_user_id
              WHERE km.matched_user_id = $1 AND km.intro_requested_at IS NOT NULL
 
              UNION ALL
 
              SELECT km.id, km.for_user_id, km.score, km.reasoning, km.intro_requested_at,
-                    p.company_name, p.one_liner, p.stage, p.sector, p.country,
+                    p.company_name, NULL::text AS firm_name, p.one_liner, p.stage, p.sector, p.country,
                     a.score AS angel_score, u.email AS founder_email,
                     CASE WHEN u.is_basic OR u.is_pro OR p.deck_expires_at IS NULL OR p.deck_expires_at > NOW() THEN p.pitch_deck_url ELSE NULL END AS deck_url,
                     km.deck_viewed_at, km.intro_accepted_at, km.intro_passed_at

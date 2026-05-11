@@ -35,6 +35,7 @@ type ReceivedIntro = {
   reasoning: string | null;
   intro_requested_at: string;
   company_name: string | null;
+  firm_name: string | null;
   one_liner: string | null;
   stage: string | null;
   sector: string | null;

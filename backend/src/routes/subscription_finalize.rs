@@ -100,7 +100,7 @@ pub async fn finalize_pro_subscription(
     .bind(invoice_amount)
     .bind(invoice_currency)
     .bind(payment_method)
-    .bind(tier.as_str())
+    .bind("founder_basic")
     .bind(&period_start)
     .bind(&period_end)
     .bind(reference)

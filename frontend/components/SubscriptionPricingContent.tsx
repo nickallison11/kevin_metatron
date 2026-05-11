@@ -250,7 +250,7 @@ export default function SubscriptionPricingContent(
   const onCancel = async () => {
     if (
       !confirm(
-        "Cancel your Pro subscription at the end of this billing period?",
+        "Cancel your subscription at the end of this billing period?",
       )
     )
       return;
@@ -269,7 +269,7 @@ export default function SubscriptionPricingContent(
   const onUndo = async () => {
     if (
       !confirm(
-        "Keep your Pro subscription and remove the scheduled cancellation?",
+        "Keep your subscription and remove the scheduled cancellation?",
       )
     )
       return;

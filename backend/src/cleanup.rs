@@ -45,7 +45,10 @@ pub fn start_cleanup_task(state: Arc<AppState>) {
             match sqlx::query(
                 r#"
                 UPDATE users
-                SET subscription_status = 'inactive', is_pro = FALSE
+                SET subscription_status = 'inactive',
+                    is_pro = FALSE,
+                    subscription_plan = 'free',
+                    cancel_at_period_end = FALSE
                 WHERE cancel_at_period_end = TRUE
                 AND subscription_period_end < NOW()
                 AND subscription_status = 'active'

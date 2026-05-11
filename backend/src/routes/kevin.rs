@@ -1056,7 +1056,13 @@ fn memory_section_from_recalled(recalled: Vec<String>) -> String {
 }
 
 async fn build_context(state: &AppState, user_id: uuid::Uuid, role: &str) -> String {
-    let mut parts = vec![format!("Role: {role}")];
+    let friendly_role = match role {
+        "STARTUP" => "Founder",
+        "INVESTOR" => "Investor",
+        "INTERMEDIARY" => "Connector",
+        _ => role,
+    };
+    let mut parts = vec![format!("Role: {friendly_role}")];
 
     if let Ok(row) = sqlx::query_as::<_, ProfileCtx>(
         r#"

@@ -64,6 +64,8 @@ pub struct Settings {
     pub investor_match_limit_free: i64,
     pub investor_match_limit_basic: i64,
     pub investor_match_limit_pro: i64,
+    pub cron_secret: Option<String>,
+    pub unsubscribe_secret: String,
 }
 
 impl Settings {
@@ -260,6 +262,13 @@ impl Settings {
             .and_then(|v| v.parse().ok())
             .unwrap_or(0);
 
+        let cron_secret = env::var("CRON_SECRET")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+        let unsubscribe_secret = env::var("UNSUBSCRIBE_SECRET")
+            .unwrap_or_else(|_| "changeme-unsubscribe-secret".to_string());
+
         Ok(Self {
             database_url,
             port,
@@ -320,6 +329,8 @@ impl Settings {
             investor_match_limit_free,
             investor_match_limit_basic,
             investor_match_limit_pro,
+            cron_secret,
+            unsubscribe_secret,
         })
     }
 }

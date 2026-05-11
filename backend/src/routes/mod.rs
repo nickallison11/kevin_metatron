@@ -24,5 +24,7 @@ pub mod profile;
 pub mod subscription_finalize;
 pub mod subscriptions;
 pub mod uploads;
+pub mod unsubscribe;
 pub mod waitlist;
+pub mod weekly_matches;
 pub mod whatsapp;

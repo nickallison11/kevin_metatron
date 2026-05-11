@@ -98,6 +98,7 @@ function SignupForm() {
   const [password, setPassword] = useState("");
   const [result, setResult] = useState<string | null>(null);
   const [consentGiven, setConsentGiven] = useState(false);
+  const [emailOptIn, setEmailOptIn] = useState(true);
   const [consentError, setConsentError] = useState<string | null>(null);
 
   async function onSubmit(e: FormEvent) {
@@ -141,6 +142,7 @@ function SignupForm() {
             invite_secret: inviteSecret,
             ...(selectedRole ? { role: selectedRole } : {}),
             ...(referralCode ? { referral_code: referralCode } : {}),
+            email_opt_in: emailOptIn,
           }),
         }
       );
@@ -225,6 +227,15 @@ function SignupForm() {
             , and I understand my conversations and call transcripts are processed by
             Google Gemini to power Kevin AI.
           </span>
+        </label>
+        <label className="flex items-start gap-2 text-sm text-[var(--text-muted)]">
+          <input
+            type="checkbox"
+            checked={emailOptIn}
+            onChange={(e) => setEmailOptIn(e.target.checked)}
+            className="mt-0.5 h-4 w-4 rounded border border-metatron-accent bg-transparent accent-[var(--accent)]"
+          />
+          <span>Send me weekly investor matches</span>
         </label>
         <button
           type="submit"

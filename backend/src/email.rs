@@ -1,6 +1,66 @@
 use reqwest::Client;
 use serde_json::json;
 
+pub async fn send_email_with_headers(
+    http_client: &Client,
+    api_key: Option<&str>,
+    from: &str,
+    to: &str,
+    subject: &str,
+    html: &str,
+    headers: serde_json::Value,
+) -> Option<String> {
+    let api_key = match api_key {
+        Some(v) if !v.trim().is_empty() => v.trim(),
+        _ => {
+            tracing::warn!("email: RESEND_API_KEY missing; skipping email to {}", to);
+            return None;
+        }
+    };
+
+    if to.trim().is_empty() {
+        tracing::warn!("email: empty recipient; skipping subject '{}'", subject);
+        return None;
+    }
+
+    let payload = json!({
+        "from": from,
+        "to": [to],
+        "subject": subject,
+        "html": html,
+        "headers": headers
+    });
+
+    match http_client
+        .post("https://api.resend.com/emails")
+        .header("Authorization", format!("Bearer {}", api_key))
+        .header("Content-Type", "application/json")
+        .json(&payload)
+        .send()
+        .await
+    {
+        Ok(resp) => {
+            if resp.status().is_success() {
+                let body: serde_json::Value = resp.json().await.unwrap_or_default();
+                body.get("id").and_then(|v| v.as_str()).map(|s| s.to_string())
+            } else {
+                let status = resp.status();
+                let body = resp.text().await.unwrap_or_default();
+                tracing::warn!(
+                    "email: resend failed status={} to={} subject='{}' body={}",
+                    status, to, subject,
+                    body.chars().take(300).collect::<String>()
+                );
+                None
+            }
+        }
+        Err(e) => {
+            tracing::warn!("email: resend request error to={} subject='{}': {}", to, subject, e);
+            None
+        }
+    }
+}
+
 pub async fn send_email(
     http_client: &Client,
     api_key: Option<&str>,

@@ -83,6 +83,12 @@ pub struct SignupRequest {
     pub invite_secret: Option<String>,
     #[serde(default)]
     pub referral_code: Option<String>,
+    #[serde(default = "default_true")]
+    pub email_opt_in: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Deserialize)]
@@ -240,6 +246,14 @@ async fn signup(
         }
     }
 
+    let _ = sqlx::query(
+        "INSERT INTO email_preferences (user_id, weekly_matches, instant_alerts, unsubscribed_all) VALUES ($1, $2, FALSE, FALSE) ON CONFLICT (user_id) DO NOTHING",
+    )
+    .bind(user_id)
+    .bind(body.email_opt_in)
+    .execute(&state.db)
+    .await;
+
     let token = auth::issue_jwt(&state, user_id, db_role)
         .map_err(|_| {
             (
@@ -256,6 +270,19 @@ async fn signup(
         "Welcome to metatron",
         &email::welcome_email_html(db_role),
     )
+    .await;
+
+    let email_type = match db_role {
+        "INVESTOR" => "welcome_investor",
+        "INTERMEDIARY" => "welcome_connector",
+        _ => "welcome_founder",
+    };
+    let _ = sqlx::query(
+        "INSERT INTO email_send_log (user_id, email_type) VALUES ($1, $2)",
+    )
+    .bind(user_id)
+    .bind(email_type)
+    .execute(&state.db)
     .await;
 
     if let Some(ref code) = body.invite_code {

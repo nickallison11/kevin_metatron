@@ -61,6 +61,8 @@ pub struct AppState {
     pub investor_match_limit_basic: i64,
     pub investor_match_limit_pro: i64,
     pub http_client: Client,
+    pub cron_secret: Option<String>,
+    pub unsubscribe_secret: String,
 }
 
 impl AppState {
@@ -143,6 +145,8 @@ impl AppState {
             investor_match_limit_basic: settings.investor_match_limit_basic,
             investor_match_limit_pro: settings.investor_match_limit_pro,
             http_client,
+            cron_secret: settings.cron_secret.clone(),
+            unsubscribe_secret: settings.unsubscribe_secret.clone(),
         }))
     }
 }

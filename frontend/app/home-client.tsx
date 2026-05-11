@@ -24,7 +24,7 @@ const ROLES: {
       "Angel Score — AI-powered investor readiness assessment",
       "Pitch deck hosting — Secure link with 14-day free access",
       "Kevin AI matching — Matched to investors by stage, sector and thesis",
-      "Warm introductions — Kevin facilitates intros on your behalf",
+      "Warm introductions — Kevin facilitates intros on your behalf. You click the button, so you have control over the intro.",
       "Call Intelligence — AI analysis of your investor conversations",
       "Kevin chat — Ask Kevin anything about your raise",
     ],

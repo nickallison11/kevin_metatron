@@ -16,6 +16,7 @@ interface EligibleFounder {
   email: string;
   timezone: string | null;
   is_basic: boolean;
+  unsubscribe_token: string;
 }
 
 interface WeeklyMatchesResponse {
@@ -120,7 +121,7 @@ export async function GET(req: NextRequest) {
       year: "numeric",
     });
 
-    const unsubscribeUrl = `${API_BASE}/unsubscribe?token=${f.user_id}:weekly_matches_founder:PLACEHOLDER`;
+    const unsubscribeUrl = `${API_BASE}/unsubscribe?token=${encodeURIComponent(f.unsubscribe_token)}`;
 
     let html: string;
     try {

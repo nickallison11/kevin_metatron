@@ -273,6 +273,36 @@ struct EnrichmentData {
     one_liner: Option<String>,
 }
 
+fn repair_double_encoded_utf8(input: &str) -> String {
+    // Recover common mojibake sequences like "EntrÃ©e" -> "Entrée" when UTF-8
+    // bytes were interpreted as Latin-1 and then re-encoded.
+    if !input.contains('Ã') && !input.contains('Â') {
+        return input.to_string();
+    }
+    let mut latin1_bytes = Vec::with_capacity(input.len());
+    for ch in input.chars() {
+        let cp = ch as u32;
+        if cp > 0xFF {
+            return input.to_string();
+        }
+        latin1_bytes.push(cp as u8);
+    }
+    let Ok(repaired) = String::from_utf8(latin1_bytes) else {
+        return input.to_string();
+    };
+    let repaired_markers = repaired.matches('Ã').count() + repaired.matches('Â').count();
+    let original_markers = input.matches('Ã').count() + input.matches('Â').count();
+    if repaired_markers < original_markers {
+        repaired
+    } else {
+        input.to_string()
+    }
+}
+
+fn repair_opt(value: Option<&str>) -> Option<String> {
+    value.map(repair_double_encoded_utf8)
+}
+
 #[derive(Debug, Deserialize)]
 pub struct EnrichBody {
     pub ids: Option<Vec<Uuid>>,
@@ -664,6 +694,14 @@ async fn add_network_contact(
     } else {
         None
     };
+    let repaired_name = repair_double_encoded_utf8(body.name.trim());
+    let repaired_firm = repair_opt(body.firm_or_company.as_deref());
+    let repaired_sector = repair_opt(body.sector_focus.as_deref());
+    let repaired_stage = repair_opt(body.stage_focus.as_deref());
+    let repaired_ticket = repair_opt(body.ticket_size.as_deref());
+    let repaired_geo = repair_opt(body.geography.as_deref());
+    let repaired_one_liner = repair_opt(body.one_liner.as_deref());
+    let repaired_notes = repair_opt(body.notes.as_deref());
     let row = sqlx::query_as::<_, NetworkContactRow>(
         r#"INSERT INTO connector_network_contacts
                  (connector_user_id, role, name, email, firm_or_company, linkedin_url, notes, joined_user_id,
@@ -674,18 +712,18 @@ async fn add_network_contact(
     )
     .bind(user_id)
     .bind(&body.role)
-    .bind(body.name.trim())
+    .bind(&repaired_name)
     .bind(&body.email)
-    .bind(&body.firm_or_company)
+    .bind(&repaired_firm)
     .bind(&body.linkedin_url)
-    .bind(&body.notes)
+    .bind(&repaired_notes)
     .bind(joined_user_id)
     .bind(&body.website)
-    .bind(&body.sector_focus)
-    .bind(&body.stage_focus)
-    .bind(&body.ticket_size)
-    .bind(&body.geography)
-    .bind(&body.one_liner)
+    .bind(&repaired_sector)
+    .bind(&repaired_stage)
+    .bind(&repaired_ticket)
+    .bind(&repaired_geo)
+    .bind(&repaired_one_liner)
     .fetch_one(&state.db)
     .await
     .map_err(internal)?;
@@ -718,6 +756,14 @@ async fn update_network_contact(
     } else {
         None
     };
+    let repaired_name = repair_double_encoded_utf8(body.name.trim());
+    let repaired_firm = repair_opt(body.firm_or_company.as_deref());
+    let repaired_sector = repair_opt(body.sector_focus.as_deref());
+    let repaired_stage = repair_opt(body.stage_focus.as_deref());
+    let repaired_ticket = repair_opt(body.ticket_size.as_deref());
+    let repaired_geo = repair_opt(body.geography.as_deref());
+    let repaired_one_liner = repair_opt(body.one_liner.as_deref());
+    let repaired_notes = repair_opt(body.notes.as_deref());
     let row = sqlx::query_as::<_, NetworkContactRow>(
         r#"UPDATE connector_network_contacts
              SET role=$1, name=$2, email=$3, firm_or_company=$4, linkedin_url=$5, notes=$6, joined_user_id=$7,
@@ -727,18 +773,18 @@ async fn update_network_contact(
                        invited_at, joined_user_id, created_at"#,
     )
     .bind(&body.role)
-    .bind(body.name.trim())
+    .bind(&repaired_name)
     .bind(&body.email)
-    .bind(&body.firm_or_company)
+    .bind(&repaired_firm)
     .bind(&body.linkedin_url)
-    .bind(&body.notes)
+    .bind(&repaired_notes)
     .bind(joined_user_id)
     .bind(&body.website)
-    .bind(&body.sector_focus)
-    .bind(&body.stage_focus)
-    .bind(&body.ticket_size)
-    .bind(&body.geography)
-    .bind(&body.one_liner)
+    .bind(&repaired_sector)
+    .bind(&repaired_stage)
+    .bind(&repaired_ticket)
+    .bind(&repaired_geo)
+    .bind(&repaired_one_liner)
     .bind(contact_id)
     .bind(user_id)
     .fetch_optional(&state.db)
@@ -828,6 +874,14 @@ async fn import_network_csv(
         let geo = cols.get(9).map(|s| s.trim()).filter(|s| !s.is_empty());
         let one_liner = cols.get(10).map(|s| s.trim()).filter(|s| !s.is_empty());
         let notes = cols.get(11).map(|s| s.trim()).filter(|s| !s.is_empty());
+        let repaired_name = repair_double_encoded_utf8(name);
+        let repaired_firm = repair_opt(firm);
+        let repaired_sector = repair_opt(sector);
+        let repaired_stage = repair_opt(stage);
+        let repaired_ticket = repair_opt(ticket);
+        let repaired_geo = repair_opt(geo);
+        let repaired_one_liner = repair_opt(one_liner);
+        let repaired_notes = repair_opt(notes);
         let joined: Option<Uuid> = if let Some(e) = email {
             sqlx::query_scalar("SELECT id FROM users WHERE LOWER(email)=LOWER($1)")
                 .bind(e)
@@ -857,17 +911,17 @@ async fn import_network_csv(
         )
         .bind(user_id)
         .bind(&role)
-        .bind(name)
+        .bind(&repaired_name)
         .bind(email)
-        .bind(firm)
+        .bind(&repaired_firm)
         .bind(linkedin)
         .bind(website)
-        .bind(sector)
-        .bind(stage)
-        .bind(ticket)
-        .bind(geo)
-        .bind(one_liner)
-        .bind(notes)
+        .bind(&repaired_sector)
+        .bind(&repaired_stage)
+        .bind(&repaired_ticket)
+        .bind(&repaired_geo)
+        .bind(&repaired_one_liner)
+        .bind(&repaired_notes)
         .bind(joined)
         .execute(&state.db)
         .await;
@@ -910,6 +964,9 @@ async fn batch_import_network(
         } else {
             None
         };
+        let repaired_name = repair_double_encoded_utf8(contact.name.trim());
+        let repaired_firm = repair_opt(contact.firm_or_company.as_deref());
+        let repaired_notes = repair_opt(contact.notes.as_deref());
         let res = sqlx::query(
             r#"INSERT INTO connector_network_contacts
                      (connector_user_id, role, name, email, firm_or_company, linkedin_url, notes, joined_user_id)
@@ -923,11 +980,11 @@ async fn batch_import_network(
         )
         .bind(user_id)
         .bind(&contact.role)
-        .bind(contact.name.trim())
+        .bind(&repaired_name)
         .bind(&contact.email)
-        .bind(&contact.firm_or_company)
+        .bind(&repaired_firm)
         .bind(&contact.linkedin_url)
-        .bind(&contact.notes)
+        .bind(&repaired_notes)
         .bind(joined)
         .execute(&state.db)
         .await;
@@ -1352,6 +1409,14 @@ async fn import_from_staging(
             .as_deref()
             .filter(|s| !s.is_empty())
             .or(Some(name));
+        let repaired_name = repair_double_encoded_utf8(name);
+        let repaired_firm = repair_opt(firm);
+        let repaired_sector = repair_opt(row.sector_focus.as_deref());
+        let repaired_stage = repair_opt(row.stage_focus.as_deref());
+        let repaired_ticket = repair_opt(row.ticket_size.as_deref());
+        let repaired_geo = repair_opt(row.geography.as_deref());
+        let repaired_one_liner = repair_opt(row.one_liner.as_deref());
+        let repaired_notes = repair_opt(row.raw_notes.as_deref());
 
         let res = sqlx::query(
             r#"INSERT INTO connector_network_contacts
@@ -1371,17 +1436,17 @@ async fn import_from_staging(
         )
         .bind(user_id)
         .bind(&row.role)
-        .bind(name)
+        .bind(&repaired_name)
         .bind(&row.email)
-        .bind(firm)
+        .bind(&repaired_firm)
         .bind(&row.linkedin_url)
-        .bind(row.raw_notes.as_deref())
+        .bind(&repaired_notes)
         .bind(row.website.as_deref())
-        .bind(row.sector_focus.as_deref())
-        .bind(row.stage_focus.as_deref())
-        .bind(row.ticket_size.as_deref())
-        .bind(row.geography.as_deref())
-        .bind(row.one_liner.as_deref())
+        .bind(&repaired_sector)
+        .bind(&repaired_stage)
+        .bind(&repaired_ticket)
+        .bind(&repaired_geo)
+        .bind(&repaired_one_liner)
         .execute(&state.db)
         .await;
 

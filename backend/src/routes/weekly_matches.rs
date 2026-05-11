@@ -13,6 +13,7 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::ai;
+use crate::routes::unsubscribe::generate_token;
 use crate::state::AppState;
 
 pub fn router() -> Router<Arc<AppState>> {
@@ -52,6 +53,7 @@ struct EligibleFounder {
     email: String,
     timezone: Option<String>,
     is_basic: bool,
+    unsubscribe_token: String,
 }
 
 async fn eligible_for_weekly_matches(
@@ -89,11 +91,15 @@ async fn eligible_for_weekly_matches(
 
     let founders: Vec<EligibleFounder> = rows
         .into_iter()
-        .map(|(user_id, email, timezone, is_basic)| EligibleFounder {
-            user_id,
-            email,
-            timezone,
-            is_basic,
+        .map(|(user_id, email, timezone, is_basic)| {
+            let unsubscribe_token = generate_token(&state.unsubscribe_secret, user_id, "weekly_matches_founder");
+            EligibleFounder {
+                user_id,
+                email,
+                timezone,
+                is_basic,
+                unsubscribe_token,
+            }
         })
         .collect();
 

@@ -86,7 +86,7 @@ pub fn start_cleanup_task(state: Arc<AppState>) {
                             state.resend_api_key.as_deref(),
                             &state.email_from,
                             &email_addr,
-                            "Your metatron Pro subscription renews in 3 days",
+                            "Your metatron subscription renews in 3 days",
                             &email::renewal_reminder_email_html(&expiry),
                         )
                         .await;

@@ -179,7 +179,7 @@ async fn weekly_matches_for_user(
         (StatusCode::INTERNAL_SERVER_ERROR, "db error".into())
     })?;
 
-    if candidates.len() < 3 {
+    if candidates.is_empty() {
         return Ok(Json(WeeklyMatchesResponse {
             tier: tier.into(),
             eligible: false,

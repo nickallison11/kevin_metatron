@@ -541,7 +541,7 @@ function StartupMatchesPageInner() {
                               {introBusy === m.id ? "Sending…" : "Connect"}
                             </button>
                           ) : accepted ? (
-                            <p className="text-xs font-medium text-green-400">Connected — message</p>
+                            <p className="text-xs font-medium text-green-400">Connected</p>
                           ) : (
                             <span className="text-xs text-[#6c5ce7]">Connect requested</span>
                           )}
@@ -675,7 +675,7 @@ function StartupMatchesPageInner() {
                                             {introBusy === m.id ? "…" : "Connect"}
                                           </button>
                                         ) : accepted ? (
-                                          <span className="text-xs text-green-400">Connected — message</span>
+                                          <span className="text-xs text-green-400">Connected</span>
                                         ) : (
                                           <span className="text-xs text-[#6c5ce7]">Connect requested</span>
                                         )}
@@ -830,7 +830,7 @@ function StartupMatchesPageInner() {
               {viewingMatch.intro_requested_at &&
                 viewingMatch.matched_user_id &&
                 acceptedPeerIds.has(viewingMatch.matched_user_id) && (
-                  <p className="text-sm text-green-400">Connected — message</p>
+                  <p className="text-sm text-green-400">Connected</p>
                 )}
               {viewingMatch.intro_requested_at &&
                 viewingMatch.matched_user_id &&

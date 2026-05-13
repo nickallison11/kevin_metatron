@@ -591,14 +591,66 @@ async fn generate_matches(
         let one_liner = one_liner.unwrap();
         let stage = stage.unwrap();
         let sector = sector.unwrap();
-        let ctx = format!(
-            "Founder: {}, {}, Stage: {}, Sector: {}, Country: {}",
-            company,
-            one_liner,
-            stage,
-            sector,
-            founder_country.as_deref().unwrap_or("not specified")
-        );
+
+        // Enrich context with pitch detail if available
+        let pitch: Option<(Option<String>, Option<String>, Option<String>, Option<String>, Option<String>)> =
+            sqlx::query_as(
+                "SELECT problem, solution, traction, market_size, funding_ask FROM pitches WHERE created_by = $1 ORDER BY created_at DESC LIMIT 1",
+            )
+            .bind(user.id)
+            .fetch_optional(&state.db)
+            .await
+            .map_err(internal)?;
+
+        let ctx = if let Some((problem, solution, traction, market_size, funding_ask)) = pitch {
+            let mut parts = vec![format!(
+                "Founder: {}, {}, Stage: {}, Sector: {}, Country: {}",
+                company,
+                one_liner,
+                stage,
+                sector,
+                founder_country.as_deref().unwrap_or("not specified")
+            )];
+            if let Some(ref v) = problem {
+                if !v.trim().is_empty() {
+                    let t: String = v.chars().take(200).collect();
+                    parts.push(format!("Problem: {t}"));
+                }
+            }
+            if let Some(ref v) = solution {
+                if !v.trim().is_empty() {
+                    let t: String = v.chars().take(200).collect();
+                    parts.push(format!("Solution: {t}"));
+                }
+            }
+            if let Some(ref v) = traction {
+                if !v.trim().is_empty() {
+                    let t: String = v.chars().take(150).collect();
+                    parts.push(format!("Traction: {t}"));
+                }
+            }
+            if let Some(ref v) = market_size {
+                if !v.trim().is_empty() {
+                    let t: String = v.chars().take(100).collect();
+                    parts.push(format!("Market: {t}"));
+                }
+            }
+            if let Some(ref v) = funding_ask {
+                if !v.trim().is_empty() {
+                    parts.push(format!("Raising: {v}"));
+                }
+            }
+            parts.join(". ")
+        } else {
+            format!(
+                "Founder: {}, {}, Stage: {}, Sector: {}, Country: {}",
+                company,
+                one_liner,
+                stage,
+                sector,
+                founder_country.as_deref().unwrap_or("not specified")
+            )
+        };
 
         // Registered investors
         #[derive(sqlx::FromRow, Serialize)]
@@ -680,9 +732,12 @@ async fn generate_matches(
                 "id": id,
                 "source": "user",
                 "name": inv.firm_name,
+                "bio": inv.bio,
                 "thesis": inv.investment_thesis,
                 "sectors": inv.sectors,
                 "stages": inv.stages,
+                "ticket_min": inv.ticket_size_min,
+                "ticket_max": inv.ticket_size_max,
                 "country": inv.country,
             }));
         }
@@ -708,6 +763,7 @@ async fn generate_matches(
             all.push(serde_json::json!({
                 "id": id,
                 "name": display_name,
+                "one_liner": c.one_liner,
                 "sector": sector,
                 "stage": stage,
                 "country": c.geography,

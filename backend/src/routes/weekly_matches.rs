@@ -165,7 +165,7 @@ async fn weekly_matches_for_user(
         LEFT JOIN investor_profiles ip ON ip.user_id = km.matched_user_id
         LEFT JOIN profiles p ON p.user_id = km.for_user_id
         WHERE km.for_user_id = $1
-          AND km.match_type = 'investor'
+          AND km.match_type = 'founder_investor'
           AND km.intro_requested_at IS NULL
         ORDER BY km.score DESC
         LIMIT 20

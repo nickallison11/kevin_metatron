@@ -62,12 +62,11 @@ async fn eligible_for_weekly_matches(
 ) -> Result<Json<Vec<EligibleFounder>>, (StatusCode, String)> {
     verify_cron(&state, &headers)?;
 
-    let rows = sqlx::query_as::<_, (Uuid, String, Option<String>, bool)>(
+    let rows = sqlx::query_as::<_, (Uuid, String, bool)>(
         r#"
-        SELECT u.id, u.email, p.timezone, u.is_basic
+        SELECT u.id, u.email, u.is_basic
         FROM users u
         JOIN email_preferences ep ON ep.user_id = u.id
-        LEFT JOIN profiles p ON p.user_id = u.id
         WHERE u.role = 'STARTUP'
           AND ep.weekly_matches = TRUE
           AND ep.unsubscribed_all = FALSE
@@ -91,12 +90,12 @@ async fn eligible_for_weekly_matches(
 
     let founders: Vec<EligibleFounder> = rows
         .into_iter()
-        .map(|(user_id, email, timezone, is_basic)| {
+        .map(|(user_id, email, is_basic)| {
             let unsubscribe_token = generate_token(&state.unsubscribe_secret, user_id, "weekly_matches_founder");
             EligibleFounder {
                 user_id,
                 email,
-                timezone,
+                timezone: None,
                 is_basic,
                 unsubscribe_token,
             }

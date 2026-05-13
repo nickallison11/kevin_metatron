@@ -42,6 +42,8 @@ export async function POST(req: NextRequest) {
           id: "mock-1",
           firm_name: "Sample VC Fund",
           angel_score: 87,
+          sector_overlap: true,
+          stage_overlap: true,
           why_blurb: "Strong alignment with your sector focus and stage preference.",
           deep_link: "/startup/matches?focus=mock-1",
         },

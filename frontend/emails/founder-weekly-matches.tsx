@@ -17,6 +17,8 @@ export interface MatchCard {
   id: string;
   firm_name: string | null;
   angel_score: number | null;
+  sector_overlap: boolean;
+  stage_overlap: boolean;
   why_blurb: string | null;
   deep_link: string;
 }
@@ -27,12 +29,6 @@ interface FounderWeeklyMatchesProps {
   matches: MatchCard[];
   unsubscribeUrl: string;
   platformUrl: string;
-}
-
-function truncateWords(text: string, count: number): string {
-  const words = text.split(/\s+/);
-  if (words.length <= count) return text;
-  return words.slice(0, count).join(" ") + " …";
 }
 
 export default function FounderWeeklyMatches({
@@ -62,41 +58,41 @@ export default function FounderWeeklyMatches({
           <Heading style={heading}>Your weekly matches</Heading>
           <Text style={subheading}>Week of {weekDate}</Text>
 
-          {matches.map((m, i) => {
-            const blurred = isFree && i >= 0;
-            return (
+          {matches.map((m) => (
               <Section key={m.id} style={card}>
                 <Text style={firmName}>
                   {m.firm_name || "Investor"}
                 </Text>
                 <Text style={scoreText}>
                   Angel Score:{" "}
-                  {blurred ? "•••" : m.angel_score ?? "N/A"}
+                  {m.angel_score ?? "N/A"}
                 </Text>
                 {m.why_blurb && (
                   <Text style={blurbText}>
-                    {blurred
-                      ? truncateWords(m.why_blurb, 6)
-                      : m.why_blurb}
+                    {m.why_blurb}
                   </Text>
                 )}
-                {!blurred && (
-                  <Link
-                    href={`${platformUrl}${m.deep_link}`}
-                    style={matchButton}
-                  >
-                    View match
-                  </Link>
+                {!isFree && (m.sector_overlap || m.stage_overlap) && (
+                  <Text style={signalsText}>
+                    {m.sector_overlap && "✓ Sector match"}
+                    {m.sector_overlap && m.stage_overlap && "  ·  "}
+                    {m.stage_overlap && "✓ Stage match"}
+                  </Text>
                 )}
+                <Link
+                  href={`${platformUrl}${m.deep_link}`}
+                  style={matchButton}
+                >
+                  View match
+                </Link>
               </Section>
-            );
-          })}
+            ))}
 
           {isFree && (
             <Section style={upgradeSection}>
               <Text style={upgradeText}>
-                Upgrade to see all your matches with full Angel Scores and
-                personalised blurbs.
+                Upgrade to get up to 5 matches per week with sector and stage
+                overlap signals.
               </Text>
               <Link
                 href={`${platformUrl}/startup/settings/subscription`}
@@ -184,6 +180,13 @@ const blurbText: React.CSSProperties = {
   color: "#c0c0d0",
   fontSize: "14px",
   lineHeight: "1.5",
+  margin: "0 0 14px",
+};
+
+const signalsText: React.CSSProperties = {
+  color: "#6c5ce7",
+  fontSize: "12px",
+  fontFamily: "'JetBrains Mono', monospace",
   margin: "0 0 14px",
 };
 

@@ -572,16 +572,17 @@ async fn generate_matches(
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "GEMINI_API_KEY not set".to_string()))?;
 
     let (user_context, candidates_json, candidate_info, match_type) = if role == "STARTUP" {
-        let profile: Option<(Option<String>, Option<String>, Option<String>, Option<String>)> =
+        let profile: Option<(Option<String>, Option<String>, Option<String>, Option<String>, Option<String>)> =
             sqlx::query_as(
-                "SELECT company_name, one_liner, stage, sector FROM profiles WHERE user_id = $1",
+                "SELECT company_name, one_liner, stage, sector, country FROM profiles WHERE user_id = $1",
             )
             .bind(user.id)
             .fetch_optional(&state.db)
             .await
             .map_err(internal)?;
 
-        let (company, one_liner, stage, sector) = profile.unwrap_or((None, None, None, None));
+        let (company, one_liner, stage, sector, founder_country) =
+            profile.unwrap_or((None, None, None, None, None));
         // Gate: require complete profile before generating matches
         if company.is_none() || one_liner.is_none() || stage.is_none() || sector.is_none() {
             return Ok(Json(vec![]));
@@ -591,8 +592,12 @@ async fn generate_matches(
         let stage = stage.unwrap();
         let sector = sector.unwrap();
         let ctx = format!(
-            "Founder: {}, {}, Stage: {}, Sector: {}",
-            company, one_liner, stage, sector
+            "Founder: {}, {}, Stage: {}, Sector: {}, Country: {}",
+            company,
+            one_liner,
+            stage,
+            sector,
+            founder_country.as_deref().unwrap_or("not specified")
         );
 
         // Registered investors
@@ -790,6 +795,8 @@ Founder: {user_context}
 
 Investor candidates (JSON array):
 {candidates_json}
+
+Geography matters significantly. Investors who explicitly invest in or have portfolio companies in the founder's region should score higher. Investors based only in the US who focus on US/European markets should score lower for founders in Africa, Southeast Asia, LATAM, or other emerging markets unless their thesis explicitly includes those regions.
 
 For each candidate, return:
 - score: 0–100 match score

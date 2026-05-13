@@ -71,7 +71,7 @@ async fn eligible_for_weekly_matches(
           AND ep.weekly_matches = TRUE
           AND ep.unsubscribed_all = FALSE
           AND EXISTS (
-              SELECT 1 FROM pitches pt WHERE pt.user_id = u.id
+              SELECT 1 FROM pitches pt WHERE pt.created_by = u.id
           )
           AND NOT EXISTS (
               SELECT 1 FROM email_send_log esl

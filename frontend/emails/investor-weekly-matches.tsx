@@ -68,7 +68,7 @@ export default function InvestorWeeklyMatches({
                   {[m.sector, m.stage].filter(Boolean).join(" · ")}
                 </Text>
               )}
-              {m.angel_score != null && (
+              {m.angel_score != null && m.angel_score > 0 && (
                 <Text style={scoreText}>Angel Score: {m.angel_score}</Text>
               )}
               {m.why_blurb && <Text style={blurbText}>{m.why_blurb}</Text>}

@@ -403,7 +403,7 @@ async fn weekly_matches_for_investor(
                a.score AS angel_score
         FROM kevin_matches km
         LEFT JOIN profiles p ON p.user_id = km.matched_user_id
-        LEFT JOIN angel_scores a ON a.founder_user_id = km.matched_user_id
+        JOIN angel_scores a ON a.founder_user_id = km.matched_user_id AND a.score >= 50
         WHERE km.for_user_id = $1
           AND km.match_type = 'investor_founder'
           AND km.intro_requested_at IS NULL

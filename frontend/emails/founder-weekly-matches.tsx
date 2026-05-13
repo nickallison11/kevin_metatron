@@ -52,7 +52,7 @@ export default function FounderWeeklyMatches({
         <Container style={container}>
           <Section style={header}>
             <Img
-              src="https://metatron.id/wp-content/uploads/2026/03/metatron-_Logo.png"
+              src="https://metatron.id/metatron-logo.png"
               alt="metatron"
               height={42}
               style={{ margin: "0 auto" }}
@@ -110,14 +110,14 @@ export default function FounderWeeklyMatches({
           <Hr style={divider} />
 
           <Text style={footer}>
-            Phoenix Eleven Limited (trading as metatron)
-            <br />
             You are receiving this because you signed up on metatron and opted
             in to weekly match emails.
             <br />
             <Link href={unsubscribeUrl} style={unsubLink}>
               Unsubscribe
             </Link>
+            {" · "}
+            — The metatron team
           </Text>
         </Container>
       </Body>

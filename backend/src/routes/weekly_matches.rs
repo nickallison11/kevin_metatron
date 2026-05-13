@@ -152,12 +152,12 @@ async fn weekly_matches_for_user(
     let tier = if is_basic { "basic" } else { "free" };
     let limit: i64 = if is_basic { 5 } else { 1 };
 
-    let candidates = sqlx::query_as::<_, (Uuid, Option<String>, Option<i32>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>)>(
+    let candidates = sqlx::query_as::<_, (Uuid, Option<String>, i32, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>)>(
         r#"
         SELECT km.id, COALESCE(km.display_name, ip.firm_name) AS firm_name,
-               ip.angel_score,
-               ip.sector AS investor_sector,
-               ip.stage_preference AS investor_stage,
+               km.score AS angel_score,
+               array_to_string(ip.sectors, ',') AS investor_sector,
+               array_to_string(ip.stages, ',') AS investor_stage,
                p.sector AS founder_sector,
                p.stage AS founder_stage,
                km.why_blurb
@@ -167,7 +167,7 @@ async fn weekly_matches_for_user(
         WHERE km.for_user_id = $1
           AND km.match_type = 'investor'
           AND km.intro_requested_at IS NULL
-        ORDER BY COALESCE(ip.angel_score, 0) DESC, km.score DESC
+        ORDER BY km.score DESC
         LIMIT 20
         "#,
     )
@@ -221,7 +221,7 @@ async fn weekly_matches_for_user(
         items.push(WeeklyMatchItem {
             id: *km_id,
             firm_name: firm_name.clone(),
-            angel_score: *angel_score,
+            angel_score: Some(*angel_score),
             sector_overlap,
             stage_overlap,
             why_blurb: blurb,

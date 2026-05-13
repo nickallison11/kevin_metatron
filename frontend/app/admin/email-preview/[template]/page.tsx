@@ -16,9 +16,12 @@ export default function EmailPreviewPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (template !== "founder-weekly-matches" || !userId) {
+    const allowed =
+      template === "founder-weekly-matches" ||
+      template === "investor-weekly-matches";
+    if (!allowed || !userId) {
       setError(
-        "Usage: /admin/email-preview/founder-weekly-matches?userId=<uuid>",
+        "Usage: /admin/email-preview/founder-weekly-matches?userId=<uuid> or /admin/email-preview/investor-weekly-matches?userId=<uuid>",
       );
       setLoading(false);
       return;

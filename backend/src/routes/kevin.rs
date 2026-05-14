@@ -812,7 +812,7 @@ Metatron is the intelligence layer connecting founders, investors, and ecosystem
 Stay in character as Kevin. If asked about capabilities you don't have, say what you can help with within Metatron (profiles, pitches, intros, call notes). Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. Plain text only."#
     );
 
-    let (provider, api_key, model) = if user.is_pro {
+    let (_provider, _api_key, _model) = if user.is_pro {
         // Pro custom routing: only the custom API key is required; provider/model can default.
         if let Some(custom_key) = user.custom_ai_api_key.as_deref() {
             let provider = user
@@ -874,17 +874,26 @@ Stay in character as Kevin. If asked about capabilities you don't have, say what
         }
     }
 
-    let reply = complete_chat(
-        &state.http_client,
-        provider,
-        api_key,
-        model,
+    let user_email: String = sqlx::query_scalar("SELECT email FROM users WHERE id = $1")
+        .bind(user.id)
+        .fetch_one(&state.db)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "db error".into()))?;
+
+    let anthropic_msgs: Vec<serde_json::Value> = msgs
+        .iter()
+        .map(|(role, content)| serde_json::json!({ "role": role, "content": content }))
+        .collect();
+
+    let reply = run_kevin_with_tools(
+        &state,
+        user.id,
+        &user_email,
+        &user.role,
         &system,
-        msgs,
+        anthropic_msgs,
     )
-    .await
-    .map_err(|e| (StatusCode::BAD_GATEWAY, e))?;
-    let reply = strip_markdown(&reply);
+    .await;
 
     if let Some(gemini_key) = state.ai_api_key.clone() {
         let db = state.db.clone();
@@ -1055,7 +1064,7 @@ fn memory_section_from_recalled(recalled: Vec<String>) -> String {
     )
 }
 
-async fn build_context(state: &AppState, user_id: uuid::Uuid, role: &str) -> String {
+pub(crate) async fn build_context(state: &AppState, user_id: uuid::Uuid, role: &str) -> String {
     let friendly_role = match role {
         "STARTUP" => "Founder",
         "INVESTOR" => "Investor",
@@ -1216,6 +1225,468 @@ struct PitchCtx {
 struct InvestorCtx {
     sectors: Option<Vec<String>>,
     stages: Option<Vec<String>>,
+}
+
+pub(crate) fn kevin_tools_for_role(role: &str) -> serde_json::Value {
+    let mut tools = vec![
+        serde_json::json!({
+            "name": "lookup_match",
+            "description": "Look up a matched startup or investor by name. Returns their profile and match details.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "The name of the startup or investor to look up"
+                    }
+                },
+                "required": ["name"]
+            }
+        }),
+        serde_json::json!({
+            "name": "request_intro",
+            "description": "Request an introduction to a matched startup or investor.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "matched_user_id": {
+                        "type": "string",
+                        "description": "The UUID of the matched user to request an intro to"
+                    }
+                },
+                "required": ["matched_user_id"]
+            }
+        }),
+    ];
+
+    if role == "INVESTOR" {
+        tools.push(serde_json::json!({
+            "name": "email_pitch_deck",
+            "description": "Email a matched startup's pitch deck link to the investor's registered email address.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "matched_user_id": {
+                        "type": "string",
+                        "description": "The UUID of the matched startup whose deck to send"
+                    }
+                },
+                "required": ["matched_user_id"]
+            }
+        }));
+    }
+
+    serde_json::json!(tools)
+}
+
+pub(crate) async fn execute_kevin_tool(
+    state: &AppState,
+    user_id: Uuid,
+    user_email: &str,
+    role: &str,
+    tool_name: &str,
+    tool_input: &serde_json::Value,
+) -> String {
+    match tool_name {
+        "lookup_match" => {
+            let name = tool_input["name"].as_str().unwrap_or("").to_lowercase();
+            if name.is_empty() {
+                return "No name provided.".to_string();
+            }
+
+            #[derive(sqlx::FromRow)]
+            struct MatchRow {
+                matched_user_id: Uuid,
+                display_name: Option<String>,
+                score: i32,
+                match_type: String,
+                intro_requested_at: Option<chrono::DateTime<chrono::Utc>>,
+                intro_accepted_at: Option<chrono::DateTime<chrono::Utc>>,
+            }
+
+            let rows: Vec<MatchRow> = sqlx::query_as(
+                r#"SELECT km.matched_user_id, km.display_name, km.score, km.match_type,
+                          km.intro_requested_at, km.intro_accepted_at
+                   FROM kevin_matches km
+                   WHERE km.for_user_id = $1
+                     AND LOWER(km.display_name) LIKE $2
+                   LIMIT 5"#,
+            )
+            .bind(user_id)
+            .bind(format!("%{name}%"))
+            .fetch_all(&state.db)
+            .await
+            .unwrap_or_default();
+
+            if rows.is_empty() {
+                return format!("No matches found for '{name}'.");
+            }
+
+            let mut parts = Vec::new();
+            for r in rows {
+                let mut info = format!(
+                    "Name: {}\nID: {}\nMatch type: {}\nScore: {}",
+                    r.display_name.as_deref().unwrap_or("Unknown"),
+                    r.matched_user_id,
+                    r.match_type,
+                    r.score,
+                );
+                if r.intro_requested_at.is_some() {
+                    info.push_str("\nIntro: requested");
+                }
+                if r.intro_accepted_at.is_some() {
+                    info.push_str(", accepted");
+                }
+
+                if r.match_type == "founder_investor" || r.match_type == "investor_founder" {
+                    let profile: Option<(
+                        Option<String>,
+                        Option<String>,
+                        Option<String>,
+                        Option<String>,
+                    )> = sqlx::query_as(
+                        "SELECT company_name, one_liner, stage, sector FROM profiles WHERE user_id = $1",
+                    )
+                    .bind(r.matched_user_id)
+                    .fetch_optional(&state.db)
+                    .await
+                    .ok()
+                    .flatten();
+
+                    if let Some((company, one_liner, stage, sector)) = profile {
+                        if let Some(v) = company {
+                            info.push_str(&format!("\nCompany: {v}"));
+                        }
+                        if let Some(v) = one_liner {
+                            info.push_str(&format!("\nOne-liner: {v}"));
+                        }
+                        if let Some(v) = stage {
+                            info.push_str(&format!("\nStage: {v}"));
+                        }
+                        if let Some(v) = sector {
+                            info.push_str(&format!("\nSector: {v}"));
+                        }
+                    }
+
+                    let deck: Option<(Option<String>,)> = sqlx::query_as(
+                        r#"SELECT CASE WHEN pitch_deck_expires_at IS NULL OR pitch_deck_expires_at > now()
+                                       THEN pitch_deck_url ELSE NULL END
+                           FROM pitches WHERE created_by = $1 ORDER BY created_at DESC LIMIT 1"#,
+                    )
+                    .bind(r.matched_user_id)
+                    .fetch_optional(&state.db)
+                    .await
+                    .ok()
+                    .flatten();
+
+                    if let Some((Some(url),)) = deck {
+                        info.push_str(&format!("\nPitch deck: {url}"));
+                    }
+                }
+
+                parts.push(info);
+            }
+
+            parts.join("\n\n---\n\n")
+        }
+
+        "request_intro" => {
+            let matched_id_str = tool_input["matched_user_id"].as_str().unwrap_or("");
+            let matched_id: Uuid = match matched_id_str.parse() {
+                Ok(id) => id,
+                Err(_) => return "Invalid matched_user_id.".to_string(),
+            };
+
+            let exists: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM kevin_matches WHERE for_user_id = $1 AND matched_user_id = $2)",
+            )
+            .bind(user_id)
+            .bind(matched_id)
+            .fetch_one(&state.db)
+            .await
+            .unwrap_or(false);
+
+            if !exists {
+                return "This user is not in your matches.".to_string();
+            }
+
+            let already: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM kevin_matches WHERE for_user_id = $1 AND matched_user_id = $2 AND intro_requested_at IS NOT NULL)",
+            )
+            .bind(user_id)
+            .bind(matched_id)
+            .fetch_one(&state.db)
+            .await
+            .unwrap_or(false);
+
+            if already {
+                return "An intro has already been requested with this person.".to_string();
+            }
+
+            let updated = sqlx::query(
+                "UPDATE kevin_matches SET intro_requested_at = now() WHERE for_user_id = $1 AND matched_user_id = $2",
+            )
+            .bind(user_id)
+            .bind(matched_id)
+            .execute(&state.db)
+            .await;
+
+            if updated.is_err() {
+                return "Failed to record intro request.".to_string();
+            }
+
+            #[derive(sqlx::FromRow)]
+            struct NotifyRow {
+                email: String,
+                display_name: Option<String>,
+                telegram_id: Option<String>,
+            }
+            let notify: Option<NotifyRow> = sqlx::query_as(
+                r#"SELECT u.email, km.display_name, u.telegram_id
+                   FROM users u
+                   JOIN kevin_matches km ON km.for_user_id = $1 AND km.matched_user_id = u.id
+                   WHERE u.id = $2"#,
+            )
+            .bind(user_id)
+            .bind(matched_id)
+            .fetch_optional(&state.db)
+            .await
+            .ok()
+            .flatten();
+
+            let matched_name = notify
+                .as_ref()
+                .and_then(|n| n.display_name.as_deref())
+                .unwrap_or("your match");
+
+            let requester_name: Option<String> = sqlx::query_scalar(
+                "SELECT COALESCE(p.company_name, ip.firm_name, u.email) FROM users u \
+                 LEFT JOIN profiles p ON p.user_id = u.id \
+                 LEFT JOIN investor_profiles ip ON ip.user_id = u.id \
+                 WHERE u.id = $1",
+            )
+            .bind(user_id)
+            .fetch_optional(&state.db)
+            .await
+            .ok()
+            .flatten();
+
+            let requester_display = requester_name.as_deref().unwrap_or(user_email);
+
+            if let (Some(bot_token), Some(chat_id)) = (
+                state.telegram_bot_token.as_deref(),
+                notify.as_ref().and_then(|n| n.telegram_id.as_deref()).filter(|t| !t.is_empty()),
+            ) {
+                let text = format!(
+                    "You have a new intro request from {} on Metatron. Log in to platform.metatron.id to respond.",
+                    requester_display
+                );
+                let url = format!("https://api.telegram.org/bot{bot_token}/sendMessage");
+                let _ = state
+                    .http_client
+                    .post(&url)
+                    .json(&serde_json::json!({ "chat_id": chat_id, "text": text }))
+                    .send()
+                    .await;
+            }
+
+            if let (Some(resend_key), Some(notify_row)) = (&state.resend_api_key, &notify) {
+                let body = serde_json::json!({
+                    "from": "Kevin <kevin@metatron.id>",
+                    "to": [notify_row.email.clone()],
+                    "subject": format!("{} wants an intro on Metatron", requester_display),
+                    "text": format!(
+                        "Hi,\n\n{} has requested an introduction with you on Metatron.\n\nLog in to platform.metatron.id to accept or decline.\n\n— The metatron team",
+                        requester_display
+                    )
+                });
+                let _ = state
+                    .http_client
+                    .post("https://api.resend.com/emails")
+                    .header("Authorization", format!("Bearer {resend_key}"))
+                    .json(&body)
+                    .send()
+                    .await;
+            }
+
+            format!("Intro request sent to {}.", matched_name)
+        }
+
+        "email_pitch_deck" => {
+            if role != "INVESTOR" {
+                return "This action is only available to investors.".to_string();
+            }
+
+            let matched_id_str = tool_input["matched_user_id"].as_str().unwrap_or("");
+            let matched_id: Uuid = match matched_id_str.parse() {
+                Ok(id) => id,
+                Err(_) => return "Invalid matched_user_id.".to_string(),
+            };
+
+            let exists: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM kevin_matches WHERE for_user_id = $1 AND matched_user_id = $2)",
+            )
+            .bind(user_id)
+            .bind(matched_id)
+            .fetch_one(&state.db)
+            .await
+            .unwrap_or(false);
+
+            if !exists {
+                return "This startup is not in your matches.".to_string();
+            }
+
+            let deck: Option<(Option<String>, Option<String>)> = sqlx::query_as(
+                r#"SELECT
+                     CASE WHEN pitch_deck_expires_at IS NULL OR pitch_deck_expires_at > now()
+                          THEN pitch_deck_url ELSE NULL END,
+                     title
+                   FROM pitches WHERE created_by = $1 ORDER BY created_at DESC LIMIT 1"#,
+            )
+            .bind(matched_id)
+            .fetch_optional(&state.db)
+            .await
+            .ok()
+            .flatten();
+
+            let (deck_url, company_name) = match deck {
+                Some((Some(url), title)) => (
+                    url,
+                    title.unwrap_or_else(|| "this startup".to_string()),
+                ),
+                Some((None, _)) => return "This startup's pitch deck has expired.".to_string(),
+                None => return "This startup has not uploaded a pitch deck yet.".to_string(),
+            };
+
+            if let Some(resend_key) = &state.resend_api_key {
+                let body = serde_json::json!({
+                    "from": "Kevin <kevin@metatron.id>",
+                    "to": [user_email],
+                    "subject": format!("Pitch deck: {}", company_name),
+                    "text": format!(
+                        "Hi,\n\nHere is the pitch deck for {} as requested:\n\n{}\n\nThis link has been shared from Metatron.\n\n— Kevin",
+                        company_name, deck_url
+                    )
+                });
+                let result = state
+                    .http_client
+                    .post("https://api.resend.com/emails")
+                    .header("Authorization", format!("Bearer {resend_key}"))
+                    .json(&body)
+                    .send()
+                    .await;
+
+                match result {
+                    Ok(r) if r.status().is_success() => {
+                        format!("Pitch deck for {} sent to {}.", company_name, user_email)
+                    }
+                    _ => "Failed to send pitch deck email. Please try again.".to_string(),
+                }
+            } else {
+                "Email service not configured.".to_string()
+            }
+        }
+
+        _ => format!("Unknown tool: {tool_name}"),
+    }
+}
+
+pub(crate) async fn run_kevin_with_tools(
+    state: &AppState,
+    user_id: Uuid,
+    user_email: &str,
+    role: &str,
+    system: &str,
+    mut messages: Vec<serde_json::Value>,
+) -> String {
+    let api_key = match &state.anthropic_api_key {
+        Some(k) => k.clone(),
+        None => return "Kevin is not configured on this server.".to_string(),
+    };
+
+    let tools = kevin_tools_for_role(role);
+
+    for _ in 0..4 {
+        let request_body = serde_json::json!({
+            "model": "claude-sonnet-4-6",
+            "max_tokens": 1024,
+            "system": system,
+            "tools": tools,
+            "messages": messages
+        });
+
+        let response = match state
+            .http_client
+            .post("https://api.anthropic.com/v1/messages")
+            .header("x-api-key", api_key.as_str())
+            .header("anthropic-version", "2023-06-01")
+            .json(&request_body)
+            .send()
+            .await
+        {
+            Ok(r) => r,
+            Err(_) => return "Kevin is temporarily unavailable.".to_string(),
+        };
+
+        let value: serde_json::Value = match response.json().await {
+            Ok(v) => v,
+            Err(_) => return "Kevin is temporarily unavailable.".to_string(),
+        };
+
+        let stop_reason = value["stop_reason"].as_str().unwrap_or("end_turn");
+
+        if stop_reason != "tool_use" {
+            if let Some(content) = value["content"].as_array() {
+                for block in content {
+                    if block["type"].as_str() == Some("text") {
+                        let text = block["text"].as_str().unwrap_or("").to_string();
+                        return strip_markdown(&text);
+                    }
+                }
+            }
+            return "Kevin is temporarily unavailable.".to_string();
+        }
+
+        let content = match value["content"].as_array() {
+            Some(c) => c.clone(),
+            None => return "Kevin is temporarily unavailable.".to_string(),
+        };
+
+        messages.push(serde_json::json!({
+            "role": "assistant",
+            "content": content
+        }));
+
+        let mut tool_results = Vec::new();
+        for block in &content {
+            if block["type"].as_str() == Some("tool_use") {
+                let tool_name = block["name"].as_str().unwrap_or("");
+                let tool_id = block["id"].as_str().unwrap_or("");
+                let tool_input = &block["input"];
+                let result = execute_kevin_tool(
+                    state,
+                    user_id,
+                    user_email,
+                    role,
+                    tool_name,
+                    tool_input,
+                )
+                .await;
+                tool_results.push(serde_json::json!({
+                    "type": "tool_result",
+                    "tool_use_id": tool_id,
+                    "content": result
+                }));
+            }
+        }
+
+        messages.push(serde_json::json!({
+            "role": "user",
+            "content": tool_results
+        }));
+    }
+
+    "Kevin reached the tool call limit. Please try again.".to_string()
 }
 
 fn strip_markdown(text: &str) -> String {

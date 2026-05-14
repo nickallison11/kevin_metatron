@@ -300,33 +300,25 @@ async fn send_kevin_message(
         anthropic_msgs.push(serde_json::json!({ "role": "user", "content": text }));
     }
 
-    let reply = if let Some(api_key) = &state.anthropic_api_key {
-        match state
-            .http_client
-            .post("https://api.anthropic.com/v1/messages")
-            .header("x-api-key", api_key.as_str())
-            .header("anthropic-version", "2023-06-01")
-            .json(&serde_json::json!({
-                "model": "claude-sonnet-4-6",
-                "max_tokens": 1024,
-                "system": "You are Kevin, metatron's AI co-pilot. Help founders raise capital, assist investors with deal flow, and support connectors with introductions. Be concise and helpful.",
-                "messages": anthropic_msgs
-            }))
-            .send()
-            .await
-        {
-            Ok(r) => match r.json::<serde_json::Value>().await {
-                Ok(v) => v["content"][0]["text"]
-                    .as_str()
-                    .map(|s| s.to_string())
-                    .unwrap_or_else(|| "Kevin is temporarily unavailable.".to_string()),
-                Err(_) => "Kevin is temporarily unavailable.".to_string(),
-            },
-            Err(_) => "Kevin is temporarily unavailable.".to_string(),
-        }
-    } else {
-        "Kevin is not configured on this server.".to_string()
-    };
+    let user_email: String = sqlx::query_scalar("SELECT email FROM users WHERE id = $1")
+        .bind(user_id)
+        .fetch_one(&state.db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let context = crate::routes::kevin::build_context(&state, user_id, &user.role).await;
+    let system = format!(
+        "You are Kevin, metatron's AI co-pilot. Help founders raise capital, assist investors with deal flow, and support connectors with introductions. Be concise and helpful.\n\n## Current user context\n{context}"
+    );
+    let reply = crate::routes::kevin::run_kevin_with_tools(
+        &state,
+        user_id,
+        &user_email,
+        &user.role,
+        &system,
+        anthropic_msgs,
+    )
+    .await;
 
     sqlx::query("INSERT INTO messages (conversation_id, sender_id, body) VALUES ($1, NULL, $2)")
         .bind(conv_id)

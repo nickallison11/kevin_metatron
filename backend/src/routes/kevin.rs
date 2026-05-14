@@ -1545,7 +1545,21 @@ pub(crate) async fn execute_kevin_tool(
 
             // Send HTML email notification via Resend
             if let (Some(resend_key), Some(notify_row)) = (&state.resend_api_key, &notify) {
-                // Fetch founder's company name
+                let recipient_role: Option<String> = sqlx::query_scalar(
+                    "SELECT role FROM users WHERE id = $1",
+                )
+                .bind(matched_id)
+                .fetch_optional(&state.db)
+                .await
+                .ok()
+                .flatten();
+
+                let matches_href = match recipient_role.as_deref() {
+                    Some("INVESTOR") => "https://platform.metatron.id/investor/matches",
+                    _ => "https://platform.metatron.id/startup/matches",
+                };
+
+                // Company name on the recipient's profile (e.g. startup when investor receives mail)
                 let founder_company: String = sqlx::query_scalar(
                     "SELECT COALESCE(p.company_name, 'your startup') FROM profiles p WHERE p.user_id = $1",
                 )
@@ -1556,20 +1570,105 @@ pub(crate) async fn execute_kevin_tool(
                 .flatten()
                 .unwrap_or_else(|| "your startup".to_string());
 
-                // Fetch investor's sectors + stages for context
-                let investor_focus: String = sqlx::query_scalar::<_, String>(
-                    r#"SELECT COALESCE(
+                // Requester context: investor thesis line, or founder one-liner / stage · sector
+                #[derive(sqlx::FromRow)]
+                struct InvestorEnrichment {
+                    focus: String,
+                    investment_thesis: Option<String>,
+                    ticket_size_min: Option<i64>,
+                    ticket_size_max: Option<i64>,
+                }
+                let enrichment: Option<InvestorEnrichment> = sqlx::query_as(
+                    r#"SELECT
+                         COALESCE(
                            array_to_string(sectors, ', ') || CASE WHEN stages IS NOT NULL THEN ' · ' || array_to_string(stages, ', ') ELSE '' END,
                            'Early-stage'
-                         )
-                         FROM investor_profiles WHERE user_id = $1"#,
+                         ) AS focus,
+                         investment_thesis,
+                         ticket_size_min,
+                         ticket_size_max
+                       FROM investor_profiles WHERE user_id = $1"#,
+                )
+                .bind(user_id)
+                .fetch_optional(&state.db)
+                .await
+                .ok()
+                .flatten();
+                let investor_focus = enrichment
+                    .as_ref()
+                    .map(|e| e.focus.clone())
+                    .unwrap_or_else(|| "Early-stage".to_string());
+                let has_investor_profile = enrichment.is_some();
+
+                let founder_context: String = sqlx::query_scalar::<_, String>(
+                    r#"SELECT COALESCE(
+                         NULLIF(TRIM(CONCAT_WS(' · ', NULLIF(TRIM(stage), ''), NULLIF(TRIM(sector), ''))), ''),
+                         NULLIF(TRIM(one_liner), ''),
+                         'Founder'
+                       )
+                       FROM profiles WHERE user_id = $1"#,
                 )
                 .bind(user_id)
                 .fetch_optional(&state.db)
                 .await
                 .ok()
                 .flatten()
-                .unwrap_or_else(|| "Early-stage".to_string());
+                .unwrap_or_else(|| "Founder".to_string());
+
+                let context_line = if has_investor_profile {
+                    investor_focus
+                } else {
+                    founder_context
+                };
+
+                let subtitle = match recipient_role.as_deref() {
+                    Some("INVESTOR") => format!(
+                        "{} is requesting an introduction on Metatron",
+                        requester_display
+                    ),
+                    _ => format!(
+                        "A matched contact wants to connect with {}",
+                        founder_company
+                    ),
+                };
+
+                let thesis_html = if has_investor_profile {
+                    enrichment
+                        .as_ref()
+                        .and_then(|e| e.investment_thesis.as_deref())
+                        .filter(|t| !t.trim().is_empty())
+                        .map(|t| {
+                            let safe = t
+                                .replace('&', "&amp;")
+                                .replace('<', "&lt;")
+                                .replace('>', "&gt;")
+                                .replace('"', "&quot;");
+                            format!(r#"<p style="color:#8888a0;font-size:13px;font-style:italic;line-height:1.6;margin:0 0 12px">&ldquo;{}&rdquo;</p>"#, safe)
+                        })
+                        .unwrap_or_default()
+                } else {
+                    String::new()
+                };
+
+                let ticket_html = if has_investor_profile {
+                    enrichment
+                        .as_ref()
+                        .and_then(|e| match (e.ticket_size_min, e.ticket_size_max) {
+                            (Some(mn), Some(mx)) => Some(format!(
+                                r#"<p style="color:#8888a0;font-size:12px;font-family:monospace;margin:0 0 16px">Check size: ${} – ${}</p>"#,
+                                format_check_size(mn),
+                                format_check_size(mx)
+                            )),
+                            (Some(mn), None) => Some(format!(
+                                r#"<p style="color:#8888a0;font-size:12px;font-family:monospace;margin:0 0 16px">Check size: ${}+</p>"#,
+                                format_check_size(mn)
+                            )),
+                            _ => None,
+                        })
+                        .unwrap_or_default()
+                } else {
+                    String::new()
+                };
 
                 let subject = format!("{} wants an intro on Metatron", requester_display);
                 let html = format!(r#"<!DOCTYPE html>
@@ -1583,14 +1682,15 @@ pub(crate) async fn execute_kevin_tool(
       <img src="https://metatron.id/metatron-logo.png" alt="metatron" height="42" style="display:block;margin:0 auto">
     </div>
     <h1 style="color:#e8e8ed;font-size:24px;font-weight:600;text-align:center;margin:0 0 4px">New intro request</h1>
-    <p style="color:#8888a0;font-size:14px;text-align:center;margin:0 0 28px">A matched investor wants to connect with {}</p>
+    <p style="color:#8888a0;font-size:14px;text-align:center;margin:0 0 28px">{}</p>
     <div style="background:#16161f;border:1px solid rgba(255,255,255,0.06);border-radius:12px;padding:24px;margin-bottom:16px">
       <p style="color:#e8e8ed;font-size:18px;font-weight:600;margin:0 0 4px">{}</p>
-      <p style="color:#6c5ce7;font-size:12px;font-family:monospace;margin:0 0 16px">{}</p>
+      <p style="color:#6c5ce7;font-size:12px;font-family:monospace;margin:0 0 12px">{}</p>
+      {}{}
       <p style="color:#c0c0d0;font-size:14px;line-height:1.6;margin:0 0 24px">
         {} has matched with {} on Metatron and requested an introduction. Log in to review the request and accept or decline.
       </p>
-      <a href="https://platform.metatron.id/startup/matches"
+      <a href="{}"
          style="display:inline-block;background:#6c5ce7;color:#fff;border-radius:8px;padding:12px 24px;font-size:14px;font-weight:600;text-decoration:none">
         Review intro request
       </a>
@@ -1602,11 +1702,14 @@ pub(crate) async fn execute_kevin_tool(
   </div>
 </body>
 </html>"#,
-                    founder_company,
+                    subtitle,
                     requester_display,
-                    investor_focus,
+                    context_line,
+                    thesis_html,
+                    ticket_html,
                     requester_display,
                     founder_company,
+                    matches_href,
                 );
 
                 let body = serde_json::json!({
@@ -1615,17 +1718,27 @@ pub(crate) async fn execute_kevin_tool(
                     "subject": subject,
                     "html": html,
                     "text": format!(
-                        "{} has requested an introduction with {} on Metatron.\n\nLog in to platform.metatron.id/startup/matches to accept or decline.\n\n— The metatron team",
-                        requester_display, founder_company
+                        "{} has requested an introduction with {} on Metatron.\n\nLog in to {} to accept or decline.\n\n— The metatron team",
+                        requester_display, founder_company, matches_href
                     )
                 });
-                let _ = state
+                let intro_res = state
                     .http_client
                     .post("https://api.resend.com/emails")
                     .header("Authorization", format!("Bearer {resend_key}"))
                     .json(&body)
                     .send()
                     .await;
+                match intro_res {
+                    Ok(resp) => {
+                        if !resp.status().is_success() {
+                            let status = resp.status();
+                            let err_body = resp.text().await.unwrap_or_default();
+                            tracing::error!("intro email Resend error {status}: {err_body}");
+                        }
+                    }
+                    Err(e) => tracing::error!("intro email send failed: {e}"),
+                }
             }
 
             format!("Intro request sent to {}.", matched_name)
@@ -1670,7 +1783,12 @@ pub(crate) async fn execute_kevin_tool(
                      CASE WHEN p.deck_expires_at IS NULL OR p.deck_expires_at > now()
                           THEN p.pitch_deck_url ELSE NULL END AS deck_url,
                      COALESCE(p.company_name, 'this startup') AS title,
-                     p.one_liner,
+                     COALESCE(p.one_liner,
+                       (SELECT reasoning FROM kevin_matches
+                        WHERE matched_user_id = p.user_id AND for_user_id = $2
+                        ORDER BY generated_at DESC
+                        LIMIT 1)
+                     ) AS one_liner,
                      p.sector,
                      p.stage,
                      (SELECT funding_ask FROM pitches WHERE created_by = p.user_id ORDER BY created_at DESC LIMIT 1) AS funding_ask
@@ -1678,6 +1796,7 @@ pub(crate) async fn execute_kevin_tool(
                    WHERE p.user_id = $1"#,
             )
             .bind(matched_id)
+            .bind(user_id)
             .fetch_optional(&state.db)
             .await
             .ok()
@@ -2034,4 +2153,14 @@ fn strip_markdown(text: &str) -> String {
         result.push(c);
     }
     result
+}
+
+fn format_check_size(n: i64) -> String {
+    if n >= 1_000_000 {
+        format!("{}M", n / 1_000_000)
+    } else if n >= 1_000 {
+        format!("{}K", n / 1_000)
+    } else {
+        n.to_string()
+    }
 }

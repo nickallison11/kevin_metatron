@@ -40,7 +40,7 @@ export default function FoundersDiscoveryPage() {
       </header>
       <section className="max-w-5xl p-6 md:p-10">
         <p className="mb-6 max-w-2xl text-xs leading-relaxed text-[var(--text-muted)]">
-          Browse founder profiles on Metatron. Follow teams, request intros, or
+          Browse founder profiles on metatron. Follow teams, request intros, or
           send a message request.
         </p>
         <div className="grid gap-4 sm:grid-cols-2">

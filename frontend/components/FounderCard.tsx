@@ -67,7 +67,7 @@ export function FounderCard({
         headers: authJsonHeaders(token),
         body: JSON.stringify({
           startup_user_id: founder.user_id,
-          note: "Connect request via Metatron.",
+          note: "Connect request via metatron.",
         }),
       });
       if (res.ok) onIntroRequested?.();

@@ -1422,9 +1422,9 @@ pub(crate) async fn execute_kevin_tool(
                     }
 
                     let deck: Option<(Option<String>,)> = sqlx::query_as(
-                        r#"SELECT CASE WHEN pitch_deck_expires_at IS NULL OR pitch_deck_expires_at > now()
+                        r#"SELECT CASE WHEN deck_expires_at IS NULL OR deck_expires_at > now()
                                        THEN pitch_deck_url ELSE NULL END
-                           FROM pitches WHERE created_by = $1 ORDER BY created_at DESC LIMIT 1"#,
+                           FROM profiles WHERE user_id = $1"#,
                     )
                     .bind(r.matched_user_id)
                     .fetch_optional(&state.db)
@@ -1543,14 +1543,80 @@ pub(crate) async fn execute_kevin_tool(
                     .await;
             }
 
+            // Send HTML email notification via Resend
             if let (Some(resend_key), Some(notify_row)) = (&state.resend_api_key, &notify) {
+                // Fetch founder's company name
+                let founder_company: String = sqlx::query_scalar(
+                    "SELECT COALESCE(p.company_name, 'your startup') FROM profiles p WHERE p.user_id = $1",
+                )
+                .bind(matched_id)
+                .fetch_optional(&state.db)
+                .await
+                .ok()
+                .flatten()
+                .unwrap_or_else(|| "your startup".to_string());
+
+                // Fetch investor's sectors + stages for context
+                let investor_focus: String = sqlx::query_scalar::<_, String>(
+                    r#"SELECT COALESCE(
+                           array_to_string(sectors, ', ') || CASE WHEN stages IS NOT NULL THEN ' · ' || array_to_string(stages, ', ') ELSE '' END,
+                           'Early-stage'
+                         )
+                         FROM investor_profiles WHERE user_id = $1"#,
+                )
+                .bind(user_id)
+                .fetch_optional(&state.db)
+                .await
+                .ok()
+                .flatten()
+                .unwrap_or_else(|| "Early-stage".to_string());
+
+                let subject = format!("{} wants an intro on Metatron", requester_display);
+                let html = format!(r#"<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600&display=swap');</style>
+</head>
+<body style="background:#0a0a0f;margin:0;padding:0;font-family:'DM Sans',system-ui,sans-serif">
+  <div style="max-width:560px;margin:0 auto;padding:40px 20px">
+    <div style="text-align:center;margin-bottom:32px">
+      <img src="https://metatron.id/metatron-logo.png" alt="metatron" height="42" style="display:block;margin:0 auto">
+    </div>
+    <h1 style="color:#e8e8ed;font-size:24px;font-weight:600;text-align:center;margin:0 0 4px">New intro request</h1>
+    <p style="color:#8888a0;font-size:14px;text-align:center;margin:0 0 28px">A matched investor wants to connect with {}</p>
+    <div style="background:#16161f;border:1px solid rgba(255,255,255,0.06);border-radius:12px;padding:24px;margin-bottom:16px">
+      <p style="color:#e8e8ed;font-size:18px;font-weight:600;margin:0 0 4px">{}</p>
+      <p style="color:#6c5ce7;font-size:12px;font-family:monospace;margin:0 0 16px">{}</p>
+      <p style="color:#c0c0d0;font-size:14px;line-height:1.6;margin:0 0 24px">
+        {} has matched with {} on Metatron and requested an introduction. Log in to review the request and accept or decline.
+      </p>
+      <a href="https://platform.metatron.id/startup/matches"
+         style="display:inline-block;background:#6c5ce7;color:#fff;border-radius:8px;padding:12px 24px;font-size:14px;font-weight:600;text-decoration:none">
+        Review intro request
+      </a>
+    </div>
+    <p style="color:#8888a0;font-size:12px;text-align:center;margin:24px 0 0;line-height:1.6">
+      — The metatron team &nbsp;·&nbsp;
+      <a href="https://platform.metatron.id" style="color:#6c5ce7;text-decoration:none">platform.metatron.id</a>
+    </p>
+  </div>
+</body>
+</html>"#,
+                    founder_company,
+                    requester_display,
+                    investor_focus,
+                    requester_display,
+                    founder_company,
+                );
+
                 let body = serde_json::json!({
                     "from": "Kevin <kevin@metatron.id>",
                     "to": [notify_row.email.clone()],
-                    "subject": format!("{} wants an intro on Metatron", requester_display),
+                    "subject": subject,
+                    "html": html,
                     "text": format!(
-                        "Hi,\n\n{} has requested an introduction with you on Metatron.\n\nLog in to platform.metatron.id to accept or decline.\n\n— The metatron team",
-                        requester_display
+                        "{} has requested an introduction with {} on Metatron.\n\nLog in to platform.metatron.id/startup/matches to accept or decline.\n\n— The metatron team",
+                        requester_display, founder_company
                     )
                 });
                 let _ = state
@@ -1589,12 +1655,27 @@ pub(crate) async fn execute_kevin_tool(
                 return "This startup is not in your matches.".to_string();
             }
 
-            let deck: Option<(Option<String>, Option<String>)> = sqlx::query_as(
+            // Fetch richer company data for the email
+            #[derive(sqlx::FromRow)]
+            struct PitchEmailData {
+                deck_url: Option<String>,
+                title: String,
+                one_liner: Option<String>,
+                sector: Option<String>,
+                stage: Option<String>,
+                funding_ask: Option<String>,
+            }
+            let pitch_data: Option<PitchEmailData> = sqlx::query_as(
                 r#"SELECT
-                     CASE WHEN pitch_deck_expires_at IS NULL OR pitch_deck_expires_at > now()
-                          THEN pitch_deck_url ELSE NULL END,
-                     title
-                   FROM pitches WHERE created_by = $1 ORDER BY created_at DESC LIMIT 1"#,
+                     CASE WHEN p.deck_expires_at IS NULL OR p.deck_expires_at > now()
+                          THEN p.pitch_deck_url ELSE NULL END AS deck_url,
+                     COALESCE(p.company_name, 'this startup') AS title,
+                     p.one_liner,
+                     p.sector,
+                     p.stage,
+                     (SELECT funding_ask FROM pitches WHERE created_by = p.user_id ORDER BY created_at DESC LIMIT 1) AS funding_ask
+                   FROM profiles p
+                   WHERE p.user_id = $1"#,
             )
             .bind(matched_id)
             .fetch_optional(&state.db)
@@ -1602,38 +1683,93 @@ pub(crate) async fn execute_kevin_tool(
             .ok()
             .flatten();
 
-            let (deck_url, company_name) = match deck {
-                Some((Some(url), title)) => (
-                    url,
-                    title.unwrap_or_else(|| "this startup".to_string()),
-                ),
-                Some((None, _)) => return "This startup's pitch deck has expired.".to_string(),
+            let pd = match pitch_data {
+                Some(d) => d,
                 None => return "This startup has not uploaded a pitch deck yet.".to_string(),
+            };
+            let deck_url = match pd.deck_url {
+                Some(ref u) => u.clone(),
+                None => return "This startup's pitch deck has expired.".to_string(),
             };
 
             if let Some(resend_key) = &state.resend_api_key {
-                let body = serde_json::json!({
-                    "from": "Kevin <kevin@metatron.id>",
-                    "to": [user_email],
-                    "subject": format!("Pitch deck: {}", company_name),
-                    "text": format!(
-                        "Hi,\n\nHere is the pitch deck for {} as requested:\n\n{}\n\nThis link has been shared from Metatron.\n\n— Kevin",
-                        company_name, deck_url
-                    )
-                });
+                let sector_stage = match (&pd.sector, &pd.stage) {
+                    (Some(s), Some(st)) => format!("{} · {}", s, st),
+                    (Some(s), None) => s.clone(),
+                    (None, Some(st)) => st.clone(),
+                    _ => String::new(),
+                };
+
+                let html = format!(r#"<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600&display=swap');</style>
+</head>
+<body style="background:#0a0a0f;margin:0;padding:0;font-family:'DM Sans',system-ui,sans-serif">
+  <div style="max-width:560px;margin:0 auto;padding:40px 20px">
+    <div style="text-align:center;margin-bottom:32px">
+      <img src="https://metatron.id/metatron-logo.png" alt="metatron" height="42" style="display:block;margin:0 auto">
+    </div>
+    <h1 style="color:#e8e8ed;font-size:24px;font-weight:600;text-align:center;margin:0 0 4px">Pitch deck ready</h1>
+    <p style="color:#8888a0;font-size:14px;text-align:center;margin:0 0 28px">Requested by Kevin on your behalf</p>
+    <div style="background:#16161f;border:1px solid rgba(255,255,255,0.06);border-radius:12px;padding:24px;margin-bottom:16px">
+      <p style="color:#e8e8ed;font-size:18px;font-weight:600;margin:0 0 4px">{}</p>
+      {}
+      {}
+      {}
+      <a href="{}"
+         style="display:inline-block;background:#6c5ce7;color:#fff;border-radius:8px;padding:12px 24px;font-size:14px;font-weight:600;text-decoration:none;margin-top:8px">
+        View pitch deck
+      </a>
+    </div>
+    <p style="color:#8888a0;font-size:12px;text-align:center;margin:24px 0 0;line-height:1.6">
+      — The metatron team &nbsp;·&nbsp;
+      <a href="https://platform.metatron.id" style="color:#6c5ce7;text-decoration:none">platform.metatron.id</a>
+    </p>
+  </div>
+</body>
+</html>"#,
+                    pd.title,
+                    if sector_stage.is_empty() { String::new() } else {
+                        format!(r#"<p style="color:#6c5ce7;font-size:12px;font-family:monospace;margin:0 0 12px">{}</p>"#, sector_stage)
+                    },
+                    pd.one_liner.as_deref().map(|s| format!(
+                        r#"<p style="color:#c0c0d0;font-size:14px;line-height:1.6;margin:0 0 12px">{}</p>"#, s
+                    )).unwrap_or_default(),
+                    pd.funding_ask.as_deref().map(|s| format!(
+                        r#"<p style="color:#8888a0;font-size:13px;font-family:monospace;margin:0 0 16px">Raising: {}</p>"#, s
+                    )).unwrap_or_default(),
+                    deck_url,
+                );
+
                 let result = state
                     .http_client
                     .post("https://api.resend.com/emails")
                     .header("Authorization", format!("Bearer {resend_key}"))
-                    .json(&body)
+                    .json(&serde_json::json!({
+                        "from": "Kevin <kevin@metatron.id>",
+                        "to": [user_email],
+                        "subject": format!("Pitch deck: {}", pd.title),
+                        "html": html,
+                        "text": format!("Pitch deck for {}:\n\n{}\n\n— Kevin", pd.title, deck_url)
+                    }))
                     .send()
                     .await;
 
                 match result {
                     Ok(r) if r.status().is_success() => {
-                        format!("Pitch deck for {} sent to {}.", company_name, user_email)
+                        format!("Pitch deck for {} sent to {}.", pd.title, user_email)
                     }
-                    _ => "Failed to send pitch deck email. Please try again.".to_string(),
+                    Ok(r) => {
+                        let status = r.status();
+                        let body = r.text().await.unwrap_or_default();
+                        tracing::error!("Resend error {status}: {body}");
+                        "Failed to send pitch deck email. Please try again.".to_string()
+                    }
+                    Err(e) => {
+                        tracing::error!("pitch deck email send failed: {e}");
+                        "Failed to send pitch deck email. Please try again.".to_string()
+                    }
                 }
             } else {
                 "Email service not configured.".to_string()

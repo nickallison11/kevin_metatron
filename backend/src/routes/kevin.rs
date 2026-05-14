@@ -890,6 +890,7 @@ Stay in character as Kevin. If asked about capabilities you don't have, say what
         user.id,
         &user_email,
         &user.role,
+        user.is_pro,
         &system,
         anthropic_msgs,
     )
@@ -1279,6 +1280,58 @@ pub(crate) fn kevin_tools_for_role(role: &str) -> serde_json::Value {
     serde_json::json!(tools)
 }
 
+pub(crate) fn kevin_tools_for_gemini(role: &str) -> serde_json::Value {
+    let mut declarations = vec![
+        serde_json::json!({
+            "name": "lookup_match",
+            "description": "Look up a matched startup or investor by name. Returns their profile and match details.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "The name of the startup or investor to look up"
+                    }
+                },
+                "required": ["name"]
+            }
+        }),
+        serde_json::json!({
+            "name": "request_intro",
+            "description": "Request an introduction to a matched startup or investor.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "matched_user_id": {
+                        "type": "string",
+                        "description": "The UUID of the matched user to request an intro to"
+                    }
+                },
+                "required": ["matched_user_id"]
+            }
+        }),
+    ];
+
+    if role == "INVESTOR" {
+        declarations.push(serde_json::json!({
+            "name": "email_pitch_deck",
+            "description": "Email a matched startup's pitch deck link to the investor's registered email address.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "matched_user_id": {
+                        "type": "string",
+                        "description": "The UUID of the matched startup whose deck to send"
+                    }
+                },
+                "required": ["matched_user_id"]
+            }
+        }));
+    }
+
+    serde_json::json!([{ "function_declarations": declarations }])
+}
+
 pub(crate) async fn execute_kevin_tool(
     state: &AppState,
     user_id: Uuid,
@@ -1591,102 +1644,236 @@ pub(crate) async fn execute_kevin_tool(
     }
 }
 
-pub(crate) async fn run_kevin_with_tools(
+async fn run_kevin_with_tools_gemini(
     state: &AppState,
     user_id: Uuid,
     user_email: &str,
     role: &str,
     system: &str,
-    mut messages: Vec<serde_json::Value>,
+    initial_messages: &[serde_json::Value],
+    api_key: &str,
+    model: &str,
 ) -> String {
-    let api_key = match &state.anthropic_api_key {
-        Some(k) => k.clone(),
-        None => return "Kevin is not configured on this server.".to_string(),
-    };
+    let mut contents: Vec<serde_json::Value> = initial_messages
+        .iter()
+        .map(|m| {
+            let gemini_role = if m["role"].as_str() == Some("assistant") {
+                "model"
+            } else {
+                "user"
+            };
+            let text = m["content"].as_str().unwrap_or("");
+            serde_json::json!({ "role": gemini_role, "parts": [{ "text": text }] })
+        })
+        .collect();
 
-    let tools = kevin_tools_for_role(role);
+    let tools = kevin_tools_for_gemini(role);
+    let url = format!(
+        "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+    );
 
     for _ in 0..4 {
-        let request_body = serde_json::json!({
-            "model": "claude-sonnet-4-6",
-            "max_tokens": 1024,
-            "system": system,
+        let body = serde_json::json!({
+            "system_instruction": { "parts": [{ "text": system }] },
             "tools": tools,
-            "messages": messages
+            "contents": contents
         });
 
         let response = match state
             .http_client
-            .post("https://api.anthropic.com/v1/messages")
-            .header("x-api-key", api_key.as_str())
-            .header("anthropic-version", "2023-06-01")
-            .json(&request_body)
+            .post(&url)
+            .query(&[("key", api_key)])
+            .json(&body)
             .send()
             .await
         {
             Ok(r) => r,
-            Err(_) => return "Kevin is temporarily unavailable.".to_string(),
+            Err(e) => {
+                tracing::error!("gemini tool call request failed: {e}");
+                return "Kevin is temporarily unavailable.".to_string();
+            }
         };
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let text = response.text().await.unwrap_or_default();
+            tracing::error!("gemini tool call error {status}: {text}");
+            return "Kevin is temporarily unavailable.".to_string();
+        }
 
         let value: serde_json::Value = match response.json().await {
             Ok(v) => v,
-            Err(_) => return "Kevin is temporarily unavailable.".to_string(),
+            Err(e) => {
+                tracing::error!("gemini tool call json parse failed: {e}");
+                return "Kevin is temporarily unavailable.".to_string();
+            }
         };
 
-        let stop_reason = value["stop_reason"].as_str().unwrap_or("end_turn");
+        let parts = value["candidates"][0]["content"]["parts"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
 
-        if stop_reason != "tool_use" {
-            if let Some(content) = value["content"].as_array() {
-                for block in content {
-                    if block["type"].as_str() == Some("text") {
-                        let text = block["text"].as_str().unwrap_or("").to_string();
-                        return strip_markdown(&text);
+        let function_calls: Vec<&serde_json::Value> = parts
+            .iter()
+            .filter(|p| p.get("functionCall").is_some())
+            .collect();
+
+        if function_calls.is_empty() {
+            for part in &parts {
+                if let Some(text) = part["text"].as_str() {
+                    if !text.is_empty() {
+                        return strip_markdown(text);
                     }
                 }
             }
             return "Kevin is temporarily unavailable.".to_string();
         }
 
-        let content = match value["content"].as_array() {
-            Some(c) => c.clone(),
-            None => return "Kevin is temporarily unavailable.".to_string(),
-        };
-
-        messages.push(serde_json::json!({
-            "role": "assistant",
-            "content": content
+        contents.push(serde_json::json!({
+            "role": "model",
+            "parts": parts
         }));
 
-        let mut tool_results = Vec::new();
-        for block in &content {
-            if block["type"].as_str() == Some("tool_use") {
-                let tool_name = block["name"].as_str().unwrap_or("");
-                let tool_id = block["id"].as_str().unwrap_or("");
-                let tool_input = &block["input"];
-                let result = execute_kevin_tool(
-                    state,
-                    user_id,
-                    user_email,
-                    role,
-                    tool_name,
-                    tool_input,
-                )
-                .await;
-                tool_results.push(serde_json::json!({
-                    "type": "tool_result",
-                    "tool_use_id": tool_id,
-                    "content": result
-                }));
-            }
+        let mut response_parts = Vec::new();
+        for fc_part in function_calls {
+            let fc = &fc_part["functionCall"];
+            let tool_name = fc["name"].as_str().unwrap_or("");
+            let tool_input = &fc["args"];
+            let result =
+                execute_kevin_tool(state, user_id, user_email, role, tool_name, tool_input).await;
+            response_parts.push(serde_json::json!({
+                "functionResponse": {
+                    "name": tool_name,
+                    "response": { "result": result }
+                }
+            }));
         }
 
-        messages.push(serde_json::json!({
+        contents.push(serde_json::json!({
             "role": "user",
-            "content": tool_results
+            "parts": response_parts
         }));
     }
 
     "Kevin reached the tool call limit. Please try again.".to_string()
+}
+
+pub(crate) async fn run_kevin_with_tools(
+    state: &AppState,
+    user_id: Uuid,
+    user_email: &str,
+    role: &str,
+    is_pro: bool,
+    system: &str,
+    messages: Vec<serde_json::Value>,
+) -> String {
+    if is_pro {
+        if let Some(api_key) = &state.anthropic_api_key {
+            let tools = kevin_tools_for_role(role);
+            let mut msgs = messages.clone();
+
+            for _ in 0..4 {
+                let request_body = serde_json::json!({
+                    "model": "claude-sonnet-4-6",
+                    "max_tokens": 1024,
+                    "system": system,
+                    "tools": tools,
+                    "messages": msgs
+                });
+
+                let response = match state
+                    .http_client
+                    .post("https://api.anthropic.com/v1/messages")
+                    .header("x-api-key", api_key.as_str())
+                    .header("anthropic-version", "2023-06-01")
+                    .json(&request_body)
+                    .send()
+                    .await
+                {
+                    Ok(r) => r,
+                    Err(e) => {
+                        tracing::error!("anthropic tool call request failed: {e}");
+                        return "Kevin is temporarily unavailable.".to_string();
+                    }
+                };
+
+                if !response.status().is_success() {
+                    let status = response.status();
+                    let text = response.text().await.unwrap_or_default();
+                    tracing::error!("anthropic tool call error {status}: {text}");
+                    return "Kevin is temporarily unavailable.".to_string();
+                }
+
+                let value: serde_json::Value = match response.json().await {
+                    Ok(v) => v,
+                    Err(e) => {
+                        tracing::error!("anthropic tool call json parse failed: {e}");
+                        return "Kevin is temporarily unavailable.".to_string();
+                    }
+                };
+
+                let stop_reason = value["stop_reason"].as_str().unwrap_or("end_turn");
+
+                if stop_reason != "tool_use" {
+                    if let Some(content) = value["content"].as_array() {
+                        for block in content {
+                            if block["type"].as_str() == Some("text") {
+                                let text = block["text"].as_str().unwrap_or("").to_string();
+                                return strip_markdown(&text);
+                            }
+                        }
+                    }
+                    return "Kevin is temporarily unavailable.".to_string();
+                }
+
+                let content = match value["content"].as_array() {
+                    Some(c) => c.clone(),
+                    None => return "Kevin is temporarily unavailable.".to_string(),
+                };
+
+                msgs.push(serde_json::json!({ "role": "assistant", "content": content }));
+
+                let mut tool_results = Vec::new();
+                for block in &content {
+                    if block["type"].as_str() == Some("tool_use") {
+                        let tool_name = block["name"].as_str().unwrap_or("");
+                        let tool_id = block["id"].as_str().unwrap_or("");
+                        let tool_input = &block["input"];
+                        let result = execute_kevin_tool(
+                            state, user_id, user_email, role, tool_name, tool_input,
+                        )
+                        .await;
+                        tool_results.push(serde_json::json!({
+                            "type": "tool_result",
+                            "tool_use_id": tool_id,
+                            "content": result
+                        }));
+                    }
+                }
+
+                msgs.push(serde_json::json!({ "role": "user", "content": tool_results }));
+            }
+
+            return "Kevin reached the tool call limit. Please try again.".to_string();
+        }
+    }
+
+    if let Some(api_key) = &state.ai_api_key {
+        return run_kevin_with_tools_gemini(
+            state,
+            user_id,
+            user_email,
+            role,
+            system,
+            &messages,
+            api_key,
+            state.gemini_model.as_str(),
+        )
+        .await;
+    }
+
+    "Kevin is not configured on this server.".to_string()
 }
 
 fn strip_markdown(text: &str) -> String {

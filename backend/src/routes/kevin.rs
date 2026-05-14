@@ -1531,7 +1531,7 @@ pub(crate) async fn execute_kevin_tool(
                 notify.as_ref().and_then(|n| n.telegram_id.as_deref()).filter(|t| !t.is_empty()),
             ) {
                 let text = format!(
-                    "You have a new intro request from {} on Metatron. Log in to platform.metatron.id to respond.",
+                    "You have a new intro request from {} on metatron. Log in to platform.metatron.id to respond.",
                     requester_display
                 );
                 let url = format!("https://api.telegram.org/bot{bot_token}/sendMessage");
@@ -1623,7 +1623,7 @@ pub(crate) async fn execute_kevin_tool(
 
                 let subtitle = match recipient_role.as_deref() {
                     Some("INVESTOR") => format!(
-                        "{} is requesting an introduction on Metatron",
+                        "{} is requesting an introduction on metatron",
                         requester_display
                     ),
                     _ => format!(
@@ -1670,7 +1670,7 @@ pub(crate) async fn execute_kevin_tool(
                     String::new()
                 };
 
-                let subject = format!("{} wants an intro on Metatron", requester_display);
+                let subject = format!("{} wants an intro on metatron", requester_display);
                 let html = format!(r#"<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -1688,7 +1688,7 @@ pub(crate) async fn execute_kevin_tool(
       <p style="color:#6c5ce7;font-size:12px;font-family:monospace;margin:0 0 12px">{}</p>
       {}{}
       <p style="color:#c0c0d0;font-size:14px;line-height:1.6;margin:0 0 24px">
-        {} has matched with {} on Metatron and requested an introduction. Log in to review the request and accept or decline.
+        {} has matched with {} on metatron and requested an introduction. Log in to review the request and accept or decline.
       </p>
       <a href="{}"
          style="display:inline-block;background:#6c5ce7;color:#fff;border-radius:8px;padding:12px 24px;font-size:14px;font-weight:600;text-decoration:none">
@@ -1718,7 +1718,7 @@ pub(crate) async fn execute_kevin_tool(
                     "subject": subject,
                     "html": html,
                     "text": format!(
-                        "{} has requested an introduction with {} on Metatron.\n\nLog in to {} to accept or decline.\n\n— The metatron team",
+                        "{} has requested an introduction with {} on metatron.\n\nLog in to {} to accept or decline.\n\n— The metatron team",
                         requester_display, founder_company, matches_href
                     )
                 });

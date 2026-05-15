@@ -198,6 +198,17 @@ export default function KevinChat() {
         return;
       }
 
+      if (res.status === 401) {
+        setMessages((m) => [
+          ...m,
+          {
+            role: "assistant",
+            content: "Your session has expired. Please log in again.",
+          },
+        ]);
+        return;
+      }
+
       const raw = await res.text();
       if (!res.ok) throw new Error(raw || "Chat failed");
 

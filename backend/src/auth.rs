@@ -131,7 +131,7 @@ pub fn issue_jwt(
         .duration_since(UNIX_EPOCH)
         .map_err(|_| AuthError::Internal)?
         .as_secs();
-    let exp = now + Duration::from_hours(24).as_secs();
+    let exp = now + Duration::from_secs(7 * 24 * 3600).as_secs();
 
     let claims = Claims {
         sub: user_id.to_string(),

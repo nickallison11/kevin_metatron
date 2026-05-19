@@ -388,7 +388,7 @@ async fn require_connector_paid(
     .await
     .map_err(internal)?
     .flatten();
-    if tier.as_deref() != Some("paid") {
+    if tier.as_deref() != Some("connector_basic") {
         return Err((
             axum::http::StatusCode::PAYMENT_REQUIRED,
             "Connector Basic required".into(),

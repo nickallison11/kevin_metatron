@@ -35,14 +35,16 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/telegram", post(telegram_kevin))
 }
 
-fn kevin_daily_limit(is_pro: bool, subscription_tier: &str) -> i32 {
+fn kevin_daily_limit(is_basic: bool, is_pro: bool, subscription_tier: &str) -> i32 {
     if is_pro {
         match subscription_tier.to_ascii_lowercase().as_str() {
             "pro" => i32::MAX,
-            _ => 200, // basic
+            _ => 200,
         }
+    } else if is_basic {
+        200
     } else {
-        20 // free
+        20
     }
 }
 
@@ -127,6 +129,7 @@ struct InboundEmailRequest {
 struct UserForEmail {
     id: Uuid,
     is_pro: bool,
+    is_basic: bool,
     subscription_tier: String,
     role: String,
     custom_ai_provider: Option<String>,
@@ -165,7 +168,7 @@ async fn inbound_email_process(state: Arc<AppState>, body: InboundEmailRequest) 
 
     let user_row: Option<UserForEmail> = match sqlx::query_as(
         r#"
-        SELECT id, is_pro, subscription_tier, role::text,
+        SELECT id, is_pro, is_basic, subscription_tier, role::text,
                custom_ai_provider, custom_ai_api_key, custom_ai_model
         FROM users
         WHERE LOWER(email) = LOWER($1)
@@ -214,7 +217,7 @@ async fn inbound_email_process(state: Arc<AppState>, body: InboundEmailRequest) 
         None => None,
     };
 
-    let daily_limit = kevin_daily_limit(user.is_pro, &user.subscription_tier);
+    let daily_limit = kevin_daily_limit(user.is_basic, user.is_pro, &user.subscription_tier);
 
     if daily_limit < i32::MAX {
         let count: i32 = match sqlx::query_scalar(
@@ -245,10 +248,10 @@ async fn inbound_email_process(state: Arc<AppState>, body: InboundEmailRequest) 
             .execute(&state.db)
             .await;
 
-            let limit_body = if !user.is_pro {
-                "You've used your 20 daily Kevin messages across all channels. Upgrade to Founder Basic at platform.metatron.id/pricing for 200 messages/day."
+            let limit_body = if !user.is_pro && !user.is_basic {
+                "You've used your 20 daily Kevin messages across all channels. Upgrade to Basic at platform.metatron.id/pricing for 200 messages/day."
             } else {
-                "You've reached your daily Kevin limit. It resets at midnight UTC. Upgrade at platform.metatron.id/pricing for higher limits."
+                "You've reached your daily Kevin limit. It resets at midnight UTC."
             };
 
             email::send_kevin_email_reply(
@@ -453,6 +456,7 @@ struct TelegramJsonError {
 pub(crate) struct UserForTelegram {
     pub id: Uuid,
     pub is_pro: bool,
+    pub is_basic: bool,
     pub subscription_tier: String,
     pub role: String,
     pub custom_ai_provider: Option<String>,
@@ -547,7 +551,7 @@ Stay in character as Kevin. If asked about capabilities you don't have, say what
         return Err(KevinReplyError::ServiceUnavailable);
     };
 
-    let daily_limit = kevin_daily_limit(user.is_pro, &user.subscription_tier);
+    let daily_limit = kevin_daily_limit(user.is_basic, user.is_pro, &user.subscription_tier);
 
     if daily_limit < i32::MAX {
         let count: i32 = match sqlx::query_scalar(
@@ -578,12 +582,10 @@ Stay in character as Kevin. If asked about capabilities you don't have, say what
             .execute(&state.db)
             .await;
 
-            let limit_msg = if !user.is_pro {
-                "You've used your 20 daily Kevin messages across all channels. Upgrade to Founder Basic at platform.metatron.id/pricing for 200 messages/day.".to_string()
+            let limit_msg = if !user.is_pro && !user.is_basic {
+                "You've used your 20 daily Kevin messages across all channels. Upgrade to Basic at platform.metatron.id/pricing for 200 messages/day.".to_string()
             } else {
-                format!(
-                    "Daily message limit reached ({daily_limit}/day). Resets at midnight UTC."
-                )
+                "You've reached your daily Kevin limit. It resets at midnight UTC.".to_string()
             };
             return Err(KevinReplyError::Limit(limit_msg));
         }
@@ -674,7 +676,7 @@ async fn telegram_kevin(
 
     let user_row: Option<UserForTelegram> = match sqlx::query_as(
         r#"
-        SELECT id, is_pro, subscription_tier, role::text,
+        SELECT id, is_pro, is_basic, subscription_tier, role::text,
                custom_ai_provider, custom_ai_api_key, custom_ai_model
         FROM users WHERE telegram_id = $1
         "#,
@@ -838,7 +840,7 @@ Stay in character as Kevin. If asked about capabilities you don't have, say what
         return Err((StatusCode::SERVICE_UNAVAILABLE, "AI not configured".to_string()));
     };
 
-    let daily_limit = kevin_daily_limit(user.is_pro, &user.subscription_tier);
+    let daily_limit = kevin_daily_limit(user.is_basic, user.is_pro, &user.subscription_tier);
 
     if daily_limit < i32::MAX {
         let count: i32 = sqlx::query_scalar(
@@ -863,12 +865,10 @@ Stay in character as Kevin. If asked about capabilities you don't have, say what
             .execute(&state.db)
             .await;
 
-            let msg = if !user.is_pro {
-                "You've used your 20 daily Kevin messages across all channels. Upgrade to Founder Basic at platform.metatron.id/pricing for 200 messages/day.".to_string()
+            let msg = if !user.is_pro && !user.is_basic {
+                "You've used your 20 daily Kevin messages across all channels. Upgrade to Basic at platform.metatron.id/pricing for 200 messages/day.".to_string()
             } else {
-                format!(
-                    "Daily message limit reached ({daily_limit}/day). Resets at midnight UTC."
-                )
+                "You've reached your daily Kevin limit. It resets at midnight UTC.".to_string()
             };
             return Err((StatusCode::TOO_MANY_REQUESTS, msg));
         }

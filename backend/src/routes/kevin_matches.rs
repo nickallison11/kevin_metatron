@@ -554,7 +554,7 @@ async fn generate_matches(
     } else {
         limit_free
     };
-    let cache_interval = "7 days";
+    let cache_interval = if is_basic || is_pro_user { "6 hours" } else { "7 days" };
 
     let fresh_count: i64 = sqlx::query_scalar(
         &format!("SELECT COUNT(*)::bigint FROM kevin_matches WHERE for_user_id = $1 AND generated_at > NOW() - INTERVAL '{cache_interval}'"),

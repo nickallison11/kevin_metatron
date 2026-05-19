@@ -22,7 +22,7 @@ use crate::identity::{require_role, AuthedUser};
 use crate::state::AppState;
 
 async fn calls_access_allowed(state: &AppState, user: &AuthedUser) -> bool {
-    if user.is_pro {
+    if user.is_pro || user.is_basic {
         return true;
     }
     if user.role == "INVESTOR" {

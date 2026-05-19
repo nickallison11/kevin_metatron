@@ -44,14 +44,25 @@ pub fn start_cleanup_task(state: Arc<AppState>) {
 
             match sqlx::query(
                 r#"
-                UPDATE users
-                SET subscription_status = 'inactive',
-                    is_pro = FALSE,
-                    subscription_plan = 'free',
-                    cancel_at_period_end = FALSE
-                WHERE cancel_at_period_end = TRUE
-                AND subscription_period_end < NOW()
-                AND subscription_status = 'active'
+                WITH expired AS (
+                    UPDATE users
+                    SET subscription_status = 'inactive',
+                        is_pro = FALSE,
+                        subscription_plan = 'free',
+                        cancel_at_period_end = FALSE
+                    WHERE cancel_at_period_end = TRUE
+                    AND subscription_period_end < NOW()
+                    AND subscription_status = 'active'
+                    RETURNING id
+                ),
+                reset_investors AS (
+                    UPDATE investor_profiles
+                    SET investor_tier = 'free'
+                    WHERE user_id IN (SELECT id FROM expired)
+                )
+                UPDATE connector_profiles
+                SET connector_tier = 'free'
+                WHERE user_id IN (SELECT id FROM expired)
                 "#,
             )
             .execute(&state.db)
@@ -68,9 +79,9 @@ pub fn start_cleanup_task(state: Arc<AppState>) {
                 }
             }
 
-            match sqlx::query_as::<_, (sqlx::types::Uuid, String, Option<String>)>(
+            match sqlx::query_as::<_, (sqlx::types::Uuid, String, String, Option<String>)>(
                 r#"
-                SELECT id, email, subscription_period_end::text FROM users
+                SELECT id, email, role, subscription_period_end::text FROM users
                 WHERE subscription_status = 'active'
                 AND subscription_period_end BETWEEN NOW() + INTERVAL '3 days' AND NOW() + INTERVAL '4 days'
                 "#,
@@ -79,7 +90,7 @@ pub fn start_cleanup_task(state: Arc<AppState>) {
             .await
             {
                 Ok(rows) => {
-                    for (id, email_addr, period_end) in rows {
+                    for (id, email_addr, role, period_end) in rows {
                         let expiry = period_end.unwrap_or_else(|| "in 3 days".to_string());
                         email::send_email(
                             &state.http_client,
@@ -87,13 +98,14 @@ pub fn start_cleanup_task(state: Arc<AppState>) {
                             &state.email_from,
                             &email_addr,
                             "Your metatron subscription renews in 3 days",
-                            &email::renewal_reminder_email_html(&expiry),
+                            &email::renewal_reminder_email_html(&expiry, &role),
                         )
                         .await;
                         tracing::info!(
-                            "cleanup: renewal reminder sent attempt for user {} ({})",
+                            "cleanup: renewal reminder sent attempt for user {} ({}) role={}",
                             id,
-                            email_addr
+                            email_addr,
+                            role
                         );
                     }
                 }

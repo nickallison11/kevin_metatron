@@ -181,7 +181,7 @@ async fn handle_whatsapp_message(
 
     let user: Option<UserForTelegram> = sqlx::query_as(
         r#"
-        SELECT id, is_pro, subscription_tier, role::text,
+        SELECT id, is_pro, is_basic, subscription_tier, role::text,
                custom_ai_provider, custom_ai_api_key, custom_ai_model
         FROM users
         WHERE regexp_replace(COALESCE(whatsapp_number, ''), '[^0-9]', '', 'g') = $1

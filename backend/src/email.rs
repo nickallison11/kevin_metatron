@@ -352,7 +352,30 @@ pub fn subscription_cancelled_email_html(period_end: &str) -> String {
     )
 }
 
-pub fn renewal_reminder_email_html(expiry_date: &str) -> String {
+pub fn renewal_reminder_email_html(expiry_date: &str, role: &str) -> String {
+    let (heading, bullets) = match role.to_ascii_uppercase().as_str() {
+        "INVESTOR" => (
+            "Keep your deal flow running with Kevin:",
+            r#"<li>Weekly founder matches curated to your thesis and ticket size</li>
+  <li>Kevin introductions handled end-to-end</li>
+  <li>Access to call intelligence and pitch analysis</li>
+  <li>Full contact details shared on every introduction</li>"#,
+        ),
+        "CONNECTOR" => (
+            "Keep your network active with Kevin:",
+            r#"<li>Weekly matches connecting your founders with the right investors</li>
+  <li>Kevin introductions managed across your network</li>
+  <li>Full contact sharing on every intro</li>
+  <li>Enriched network contact management</li>"#,
+        ),
+        _ => (
+            "Keep your momentum with Kevin:",
+            r#"<li>Weekly investor matches tailored to your stage and sector</li>
+  <li>Kevin introductions sent on your behalf</li>
+  <li>Your pitch deck stays live and discoverable</li>
+  <li>Full profile visibility to matched investors</li>"#,
+        ),
+    };
     shell_html(
         "Your metatron subscription is expiring soon",
         &format!(
@@ -362,12 +385,9 @@ pub fn renewal_reminder_email_html(expiry_date: &str) -> String {
 <p style="margin:0 0 12px 0;font-size:14px;">
   <a href="https://platform.metatron.id/pricing" style="color:#6c5ce7;text-decoration:none;">Renew your subscription</a>
 </p>
-<p style="margin:0 0 8px 0;font-size:14px;color:#e8e8ed;">If not renewed, you'll lose access to:</p>
+<p style="margin:0 0 8px 0;font-size:14px;color:#e8e8ed;">{heading}</p>
 <ul style="margin:0 0 0 18px;padding:0;color:#e8e8ed;font-size:14px;line-height:1.6;">
-  <li>IPFS deck storage (public/private)</li>
-  <li>Call intelligence analysis</li>
-  <li>Full pitch management features</li>
-  <li>Full contact card sharing on intros</li>
+  {bullets}
 </ul>
 "#
         ),

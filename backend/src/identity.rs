@@ -10,6 +10,7 @@ pub struct AuthedUser {
     pub id: Uuid,
     pub role: String,
     pub is_pro: bool,
+    pub is_basic: bool,
     pub is_admin: bool,
     pub is_super_admin: bool,
     pub subscription_tier: String,
@@ -36,6 +37,7 @@ pub async fn require_user(
     let (
         role,
         is_pro,
+        is_basic,
         is_admin,
         is_super_admin,
         subscription_tier,
@@ -45,6 +47,7 @@ pub async fn require_user(
         is_suspended,
     ): (
         String,
+        bool,
         bool,
         bool,
         bool,
@@ -58,6 +61,7 @@ pub async fn require_user(
         SELECT
             role::text,
             is_pro,
+            is_basic,
             is_admin,
             is_super_admin,
             subscription_tier,
@@ -93,6 +97,7 @@ pub async fn require_user(
         id: uid,
         role,
         is_pro,
+        is_basic,
         is_admin,
         is_super_admin,
         subscription_tier,

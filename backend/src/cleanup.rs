@@ -124,6 +124,7 @@ pub fn start_cleanup_task(state: Arc<AppState>) {
                 JOIN users u ON u.id = p.user_id
                 WHERE p.deck_expires_at BETWEEN NOW() + INTERVAL '6 days' AND NOW() + INTERVAL '7 days'
                 AND p.pitch_deck_url IS NOT NULL
+                AND u.is_basic = FALSE
                 AND u.is_pro = FALSE
                 AND p.deck_7day_email_sent = FALSE
                 "#,
@@ -166,6 +167,7 @@ pub fn start_cleanup_task(state: Arc<AppState>) {
                 JOIN users u ON u.id = p.user_id
                 WHERE p.deck_expires_at BETWEEN NOW() + INTERVAL '20 hours' AND NOW() + INTERVAL '28 hours'
                 AND p.pitch_deck_url IS NOT NULL
+                AND u.is_basic = FALSE
                 AND u.is_pro = FALSE
                 AND p.deck_1day_email_sent = FALSE
                 "#,
@@ -209,6 +211,7 @@ pub fn start_cleanup_task(state: Arc<AppState>) {
                 WHERE p.deck_expires_at IS NOT NULL
                 AND p.deck_expires_at < NOW()
                 AND p.pitch_deck_url IS NOT NULL
+                AND u.is_basic = FALSE
                 AND u.is_pro = FALSE
                 AND p.deck_expired_email_sent = FALSE
                 "#,

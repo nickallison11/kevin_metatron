@@ -65,7 +65,7 @@ async fn upload_pitch_deck(
     }
     let id = authed_user.id;
 
-    if let Err(resp) = check_deck_upload_allowed(&state, id, authed_user.is_pro).await {
+    if let Err(resp) = check_deck_upload_allowed(&state, id, authed_user.is_basic, authed_user.is_pro).await {
         return Ok(resp);
     }
 
@@ -216,7 +216,11 @@ async fn upload_pitch_deck(
     let visibility = "public";
     let cid_out: Option<String> = Some(cid.to_string());
 
-    let deck_expires_at = Utc::now() + ChronoDuration::days(14);
+    let deck_expires_at: Option<chrono::DateTime<Utc>> = if authed_user.is_basic || authed_user.is_pro {
+        None
+    } else {
+        Some(Utc::now() + ChronoDuration::days(14))
+    };
 
     sqlx::query(
         r#"
@@ -301,7 +305,7 @@ async fn upload_pitch_deck(
         "url": url,
         "visibility": visibility,
         "cid": cid_out,
-        "deck_expires_at": deck_expires_at.to_rfc3339(),
+        "deck_expires_at": deck_expires_at.map(|d| d.to_rfc3339()),
         "extracted": extracted,
         "pitch": pitch,
     });
@@ -323,6 +327,7 @@ async fn upload_pitch_deck(
 async fn check_deck_upload_allowed(
     state: &AppState,
     user_id: Uuid,
+    is_basic: bool,
     is_pro: bool,
 ) -> Result<(), axum::response::Response> {
     let deck_count: i32 = sqlx::query_scalar(
@@ -343,7 +348,7 @@ async fn check_deck_upload_allowed(
     })?
     .unwrap_or(0);
 
-    if !is_pro && deck_count >= 1 {
+    if !is_basic && !is_pro && deck_count >= 1 {
         return Err((
             StatusCode::FORBIDDEN,
             Json(json!({

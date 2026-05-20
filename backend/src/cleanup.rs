@@ -164,7 +164,7 @@ pub fn start_cleanup_task(state: Arc<AppState>) {
                 SELECT u.id, u.email
                 FROM profiles p
                 JOIN users u ON u.id = p.user_id
-                WHERE p.deck_expires_at BETWEEN NOW() AND NOW() + INTERVAL '1 day'
+                WHERE p.deck_expires_at BETWEEN NOW() + INTERVAL '20 hours' AND NOW() + INTERVAL '28 hours'
                 AND p.pitch_deck_url IS NOT NULL
                 AND u.is_pro = FALSE
                 AND p.deck_1day_email_sent = FALSE

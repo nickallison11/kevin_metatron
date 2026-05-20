@@ -33,6 +33,7 @@ pub fn router() -> Router<Arc<AppState>> {
             "/cancel",
             post(cancel_subscription).delete(undo_cancel_subscription),
         )
+        .route("/email-preferences", get(get_email_prefs).put(update_email_prefs))
 }
 
 #[derive(Serialize)]
@@ -646,5 +647,65 @@ async fn undo_cancel_subscription(
         return Err((StatusCode::BAD_REQUEST, "no active subscription".to_string()));
     }
 
+    Ok(StatusCode::OK)
+}
+
+#[derive(Serialize, sqlx::FromRow)]
+struct EmailPrefsResponse {
+    weekly_matches: bool,
+    unsubscribed_all: bool,
+}
+
+async fn get_email_prefs(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+) -> Result<Json<EmailPrefsResponse>, (StatusCode, String)> {
+    let user = require_user(&state, bearer.token()).await?;
+    let prefs = sqlx::query_as::<_, EmailPrefsResponse>(
+        "SELECT weekly_matches, unsubscribed_all FROM email_preferences WHERE user_id = $1",
+    )
+    .bind(user.id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| {
+        tracing::error!("get_email_prefs: {e}");
+        (StatusCode::INTERNAL_SERVER_ERROR, "db error".into())
+    })?
+    .unwrap_or(EmailPrefsResponse {
+        weekly_matches: true,
+        unsubscribed_all: false,
+    });
+    Ok(Json(prefs))
+}
+
+#[derive(Deserialize)]
+struct EmailPrefsBody {
+    weekly_matches: bool,
+    unsubscribed_all: bool,
+}
+
+async fn update_email_prefs(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+    Json(body): Json<EmailPrefsBody>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let user = require_user(&state, bearer.token()).await?;
+    sqlx::query(
+        r#"
+        INSERT INTO email_preferences (user_id, weekly_matches, unsubscribed_all, last_updated)
+        VALUES ($1, $2, $3, NOW())
+        ON CONFLICT (user_id)
+        DO UPDATE SET weekly_matches = $2, unsubscribed_all = $3, last_updated = NOW()
+        "#,
+    )
+    .bind(user.id)
+    .bind(body.weekly_matches)
+    .bind(body.unsubscribed_all)
+    .execute(&state.db)
+    .await
+    .map_err(|e| {
+        tracing::error!("update_email_prefs: {e}");
+        (StatusCode::INTERNAL_SERVER_ERROR, "db error".into())
+    })?;
     Ok(StatusCode::OK)
 }

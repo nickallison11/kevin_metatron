@@ -2,7 +2,7 @@
 
 ## What is metatron?
 
-metatron is a global platform connecting founders, investors, and ecosystem partners via on-chain anchored pitch data and AI-powered matching. It's built by Phoenix Eleven Limited (trading as metatron), co-founded by Nick Allison (technical lead) and Rianna (business development/investor relations). The project is venture-backed by Flori Ventures and uses Apache-2.0 licensing.
+metatron is a global platform connecting founders, investors, and ecosystem partners via on-chain anchored pitch data and AI-powered matching. Co-founded by Nick Allison (technical lead) and Rianna (business development/investor relations). The project is venture-backed by Flori Ventures and uses Apache-2.0 licensing.
 
 Nick has spoken to founders across Africa, Asia, India, USA, Europe, LATAM, and Australia, maintaining connections with angels and VCs across multiple regions.
 
@@ -69,7 +69,7 @@ All UI must match the metatron.id design system. **Never deviate from these toke
 | Borders | `rgba(255,255,255,0.06)`, 1px solid |
 | Border radius | 12px |
 | Nav | Sticky, `rgba(10,10,15,0.85)`, `backdrop-filter: blur(12px)`, border-bottom `rgba(255,255,255,0.06)` |
-| Logo | `https://metatron.id/wp-content/uploads/2026/03/metatron-_Logo.png` at 42px height, no separate wordmark |
+| Logo | `https://metatron.id/metatron-logo.png` at 42px height, no separate wordmark. NEVER use the WordPress `/wp-content/...` URL — metatron.id is no longer on WordPress. |
 | Background effects | 52px grid (`grid-bg`) + purple orb glow (radial-gradient) |
 
 The reference design files are in `reference/platform-live/` (App.js, App.css from the live CRA version on KVM2).
@@ -79,7 +79,7 @@ The reference design files are in `reference/platform-live/` (App.js, App.css fr
 Three roles on the platform:
 1. **Founder** — creates pitch profiles, uploads decks, records calls
 2. **Investor** — browses founders, requests intros, manages deal flow
-3. **Connector** — ecosystem partners (placeholder dashboard, to be built out)
+3. **Connector** — ecosystem partners with their own dashboard for managing their investor network contacts (`connector_network_contacts` table). This is live and already populated by connectors.
 
 Authentication: Connect Solana wallet (Phantom/Solflare) **OR** email/password (both options).
 
@@ -95,13 +95,24 @@ Authentication: Connect Solana wallet (Phantom/Solflare) **OR** email/password (
 - IPFS profile storage via Pinata
 - MTN token gating on Telegram (10k tMTN for Kevin access)
 
+### ✅ Completed
+- metatron.id design system applied to Next.js frontend
+- Role selection (Founder/Investor/Connector) on landing page
+- Signup with email/password → JWT auth
+- Startup and investor dashboard shells
+- Rust backend with auth, pitches, pools, investments, compliance routes
+- Telegram bot (wallet_bot.py on KVM2) with /pitch, /investor, /find, /findinvestor, /intro, /approve, /reject
+- IPFS profile storage via Pinata
+- MTN token gating on Telegram (10k tMTN for Kevin access)
+- **Founder Profile & Pitch Deck Upload** — `/startup/profile`, Pinata IPFS
+- **Kevin Chat Widget** — floating chat on all dashboards, `POST /api/kevin/chat`
+- **Weekly Matches Email Engine** — founder + investor weekly digest, Vercel cron, Resend, HMAC unsubscribe
+
 ### 🔨 To Build (priority order)
-1. **Founder Profile & Pitch Deck Upload** — profile page at `/startup/profile`, pitch deck upload → backend stores on Pinata IPFS, profile data in PostgreSQL `profiles` table
-2. **Kevin Chat Widget** — floating chat button on all dashboard pages, messages POST to `/api/kevin/chat` → Anthropic API (Claude) with user context (role, profile, pitches). Use `ANTHROPIC_API_KEY` env var on backend
-3. **Call Intelligence** — `/startup/calls` page, upload audio recordings (.m4a/.mp3/.wav), backend sends to Whisper API Docker container on KVM2 (port 9000) for transcription, then Claude for analysis (summary, key takeaways, action items, investor sentiment). Display in card layout. Both founder and investor get tailored insights if investor opts in
-4. **Investor Deal Flow** — investor dashboard shows matched startups, each card: company name, stage, sector, one-liner, "View pitch" + "Request intro" buttons
-5. **Wallet Connect** — Phantom/Solflare integration, MTN token balance check, alternative to email auth
-6. **Pro Tier** — $9.99/month subscription via Stripe
+1. **Call Intelligence** — `/startup/calls` page, upload audio recordings (.m4a/.mp3/.wav), backend sends to Whisper API Docker container on KVM2 (port 9000) for transcription, then Claude for analysis (summary, key takeaways, action items, investor sentiment). Display in card layout. Both founder and investor get tailored insights if investor opts in
+2. **Investor Deal Flow** — investor dashboard shows matched startups, each card: company name, stage, sector, one-liner, "View pitch" + "Request intro" buttons
+3. **Wallet Connect** — Phantom/Solflare integration, MTN token balance check, alternative to email auth
+4. **Pro Tier** — $9.99/month subscription via Stripe
 
 ### Pro Tier Features (gated behind subscription)
 - Private deck storage on Pinata (free tier = public IPFS only)

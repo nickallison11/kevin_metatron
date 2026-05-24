@@ -321,6 +321,54 @@ async fn complete_chat_openai(
     Ok(text.trim().to_string())
 }
 
+
+async fn complete_chat_nadirclaw(
+    client: &reqwest::Client,
+    base_url: &str,
+    system: &str,
+    messages: Vec<(String, String)>,
+    model: &str,
+) -> Result<String, String> {
+    let mut oa_messages: Vec<OpenAiChatMessage> = Vec::new();
+    oa_messages.push(OpenAiChatMessage {
+        role: "system".to_string(),
+        content: system.to_string(),
+    });
+    for (role, content) in messages {
+        let role = if role == "assistant" { "assistant" } else { "user" };
+        oa_messages.push(OpenAiChatMessage {
+            role: role.to_string(),
+            content,
+        });
+    }
+    let body = OpenAiChatCompletionRequest { model, messages: oa_messages, temperature: 0.2 };
+    let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
+    let res = client
+        .post(&url)
+        .header(CONTENT_TYPE, HeaderValue::from_static("application/json"))
+        .header(AUTHORIZATION, HeaderValue::from_str(&format!("Bearer local")).unwrap_or(HeaderValue::from_static("Bearer local")))
+        .timeout(Duration::from_secs(60))
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("nadirclaw request: {e}"))?;
+    if !res.status().is_success() {
+        let t = res.text().await.unwrap_or_default();
+        return Err(format!("nadirclaw error: {t}"));
+    }
+    let parsed: OpenAiChatCompletionResponse = res
+        .json()
+        .await
+        .map_err(|e| format!("nadirclaw json: {e}"))?;
+    let text = parsed
+        .choices
+        .first()
+        .and_then(|c| c.message.content.as_ref())
+        .cloned()
+        .unwrap_or_default();
+    Ok(text.trim().to_string())
+}
+
 // ----------------------------
 // Public wrapper
 // ----------------------------
@@ -337,6 +385,7 @@ pub async fn complete_chat(
         "gemini" => complete_chat_gemini(client, api_key, system, messages, model).await,
         "anthropic" => complete_chat_anthropic(client, api_key, system, messages, model).await,
         "openai" => complete_chat_openai(client, api_key, system, messages, model).await,
+        "nadirclaw" => complete_chat_nadirclaw(client, api_key, system, messages, model).await,
         _ => Err("unsupported provider".to_string()),
     }
 }

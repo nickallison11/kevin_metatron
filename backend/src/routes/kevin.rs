@@ -526,20 +526,9 @@ Metatron is the intelligence layer connecting founders, investors, and ecosystem
 Stay in character as Kevin. If asked about capabilities you don't have, say what you can help with within Metatron (profiles, pitches, intros, call notes). Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. Plain text only."#
     );
 
-    let (provider, api_key, model) = if user.is_pro {
-        if let Some(ref custom_key) = custom_ai_api_key {
-            let provider = user
-                .custom_ai_provider
-                .as_deref()
-                .unwrap_or("openai");
-            let model = user.custom_ai_model.as_deref().unwrap_or("gpt-4o-mini");
-            (provider, custom_key.as_str(), model)
-        } else if let Some(key) = state.anthropic_api_key.as_deref() {
-            (
-                "anthropic",
-                key,
-                "claude-haiku-4-5-20251001",
-            )
+    let (provider, api_key, model) = if user.is_pro || user.is_basic {
+        if let Some(key) = state.anthropic_api_key.as_deref() {
+            ("anthropic", key, "claude-haiku-4-5-20251001")
         } else if let Some(key) = state.ai_api_key.as_deref() {
             ("gemini", key, "gemini-2.5-flash-lite")
         } else {
@@ -814,32 +803,6 @@ Metatron is the intelligence layer connecting founders, investors, and ecosystem
 Stay in character as Kevin. If asked about capabilities you don't have, say what you can help with within Metatron (profiles, pitches, intros, call notes). Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. Plain text only."#
     );
 
-    let (_provider, _api_key, _model) = if user.is_pro {
-        // Pro custom routing: only the custom API key is required; provider/model can default.
-        if let Some(custom_key) = user.custom_ai_api_key.as_deref() {
-            let provider = user
-                .custom_ai_provider
-                .as_deref()
-                .unwrap_or("openai");
-            let model = user.custom_ai_model.as_deref().unwrap_or("gpt-4o-mini");
-            (provider, custom_key, model)
-        } else if let Some(key) = state.anthropic_api_key.as_deref() {
-            (
-                "anthropic",
-                key,
-                "claude-haiku-4-5-20251001",
-            )
-        } else if let Some(key) = state.ai_api_key.as_deref() {
-            ("gemini", key, "gemini-2.5-flash-lite")
-        } else {
-            return Err((StatusCode::SERVICE_UNAVAILABLE, "AI not configured".to_string()));
-        }
-    } else if let Some(key) = state.ai_api_key.as_deref() {
-        ("gemini", key, "gemini-2.5-flash-lite")
-    } else {
-        return Err((StatusCode::SERVICE_UNAVAILABLE, "AI not configured".to_string()));
-    };
-
     let daily_limit = kevin_daily_limit(user.is_basic, user.is_pro, &user.subscription_tier);
 
     if daily_limit < i32::MAX {
@@ -891,6 +854,7 @@ Stay in character as Kevin. If asked about capabilities you don't have, say what
         &user_email,
         &user.role,
         user.is_pro,
+        user.is_basic,
         &system,
         anthropic_msgs,
     )
@@ -1192,6 +1156,21 @@ pub(crate) async fn build_context(state: &AppState, user_id: uuid::Uuid, role: &
         }
     }
 
+    // Network-level ambient awareness
+    if let Ok(row) = sqlx::query_as::<_, (i64, i64, i64)>(
+        "SELECT (SELECT COUNT(*) FROM profiles WHERE company_name IS NOT NULL), (SELECT COUNT(*) FROM investor_profiles), (SELECT COUNT(*) FROM introductions WHERE status = 'accepted')"
+    )
+    .fetch_optional(&state.db)
+    .await
+    {
+        if let Some((founders, investors, intros)) = row {
+            parts.push(format!(
+                "Network: {} founders · {} investors · {} accepted intros on metatron",
+                founders, investors, intros
+            ));
+        }
+    }
+
     parts.join("\n")
 }
 
@@ -1277,6 +1256,26 @@ pub(crate) fn kevin_tools_for_role(role: &str) -> serde_json::Value {
         }));
     }
 
+    tools.push(serde_json::json!({
+        "name": "search_network",
+        "description": "Search the metatron network for founders, investors, or connectors by name, sector, stage, or country. Use this to answer questions about who is in the network, what companies are raising, or which investors are active.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Search term: company name, sector, stage, country, investor firm name, or any keyword"
+                },
+                "filter": {
+                    "type": "string",
+                    "enum": ["founders", "investors", "all"],
+                    "description": "Which part of the network to search. Default: all"
+                }
+            },
+            "required": ["query"]
+        }
+    }));
+
     serde_json::json!(tools)
 }
 
@@ -1329,7 +1328,42 @@ pub(crate) fn kevin_tools_for_gemini(role: &str) -> serde_json::Value {
         }));
     }
 
+    declarations.push(serde_json::json!({
+        "name": "search_network",
+        "description": "Search the metatron network for founders, investors, or connectors by name, sector, stage, or country.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Search term"
+                },
+                "filter": {
+                    "type": "string",
+                    "description": "founders | investors | all"
+                }
+            },
+            "required": ["query"]
+        }
+    }));
+
     serde_json::json!([{ "function_declarations": declarations }])
+}
+
+
+pub(crate) fn kevin_tools_for_openai(role: &str) -> serde_json::Value {
+    let anthropic_tools = kevin_tools_for_role(role);
+    let tools = anthropic_tools.as_array().map(|arr| {
+        arr.iter().map(|t| serde_json::json!({
+            "type": "function",
+            "function": {
+                "name": t["name"],
+                "description": t["description"],
+                "parameters": t["input_schema"]
+            }
+        })).collect::<Vec<_>>()
+    }).unwrap_or_default();
+    serde_json::json!(tools)
 }
 
 pub(crate) async fn execute_kevin_tool(
@@ -1895,6 +1929,99 @@ pub(crate) async fn execute_kevin_tool(
             }
         }
 
+        "search_network" => {
+            let query = tool_input["query"].as_str().unwrap_or("").to_lowercase();
+            let filter = tool_input["filter"].as_str().unwrap_or("all");
+
+            if query.trim().is_empty() {
+                return "Please provide a search term.".to_string();
+            }
+
+            let like = format!("%{query}%");
+            let mut results = Vec::new();
+
+            if filter == "founders" || filter == "all" {
+                #[derive(sqlx::FromRow)]
+                struct FounderResult {
+                    company_name: Option<String>,
+                    one_liner: Option<String>,
+                    stage: Option<String>,
+                    sector: Option<String>,
+                    country: Option<String>,
+                }
+                let founders: Vec<FounderResult> = sqlx::query_as(
+                    r#"SELECT company_name, one_liner, stage, sector, country::text
+                       FROM profiles
+                       WHERE company_name ILIKE $1
+                          OR sector ILIKE $1
+                          OR stage ILIKE $1
+                          OR country::text ILIKE $1
+                          OR one_liner ILIKE $1
+                       ORDER BY updated_at DESC
+                       LIMIT 8"#,
+                )
+                .bind(&like)
+                .fetch_all(&state.db)
+                .await
+                .unwrap_or_default();
+
+                for f in founders {
+                    let mut line = format!("[Founder] {}", f.company_name.as_deref().unwrap_or("Unknown"));
+                    if let Some(v) = f.one_liner { line.push_str(&format!(" — {v}")); }
+                    let mut meta = Vec::new();
+                    if let Some(v) = f.stage { meta.push(v); }
+                    if let Some(v) = f.sector { meta.push(v); }
+                    if let Some(v) = f.country { meta.push(v.trim().to_string()); }
+                    if !meta.is_empty() { line.push_str(&format!(" ({})", meta.join(", "))); }
+                    results.push(line);
+                }
+            }
+
+            if filter == "investors" || filter == "all" {
+                #[derive(sqlx::FromRow)]
+                struct InvestorResult {
+                    firm_name: Option<String>,
+                    bio: Option<String>,
+                    sectors: Option<Vec<String>>,
+                    stages: Option<Vec<String>>,
+                    country: Option<String>,
+                }
+                let investors: Vec<InvestorResult> = sqlx::query_as(
+                    r#"SELECT firm_name, bio, sectors, stages, country
+                       FROM investor_profiles
+                       WHERE firm_name ILIKE $1
+                          OR bio ILIKE $1
+                          OR country ILIKE $1
+                          OR sectors::text ILIKE $1
+                          OR stages::text ILIKE $1
+                       ORDER BY updated_at DESC
+                       LIMIT 8"#,
+                )
+                .bind(&like)
+                .fetch_all(&state.db)
+                .await
+                .unwrap_or_default();
+
+                for i in investors {
+                    let mut line = format!("[Investor] {}", i.firm_name.as_deref().unwrap_or("Unknown firm"));
+                    if let Some(v) = i.bio { if !v.trim().is_empty() { line.push_str(&format!(" — {}", v.chars().take(120).collect::<String>())); } }
+                    let mut meta = Vec::new();
+                    if let Some(v) = i.sectors { if !v.is_empty() { meta.push(format!("sectors: {}", v.join(", "))); } }
+                    if let Some(v) = i.stages { if !v.is_empty() { meta.push(format!("stages: {}", v.join(", "))); } }
+                    if let Some(v) = i.country { meta.push(v); }
+                    if !meta.is_empty() { line.push_str(&format!(" ({})", meta.join("; "))); }
+                    results.push(line);
+                }
+            }
+
+            if results.is_empty() {
+                format!("No results found for '{query}' in the metatron network.")
+            } else {
+                results.join("
+")
+            }
+        }
+
         _ => format!("Unknown tool: {tool_name}"),
     }
 }
@@ -2014,103 +2141,327 @@ async fn run_kevin_with_tools_gemini(
     "Kevin reached the tool call limit. Please try again.".to_string()
 }
 
+
+#[derive(Debug, PartialEq)]
+enum QueryComplexity {
+    Simple,      // NadirClaw (free, local)
+    Moderate,    // GPT-4.1-mini + tools  (Pro) / Haiku (Basic)
+    Complex,     // Sonnet + tools         (Pro) / Haiku (Basic)
+    DeepComplex, // Opus + tools           (Pro) / Haiku (Basic)
+}
+
+fn classify_query_complexity(message: &str) -> QueryComplexity {
+    let msg = message.to_lowercase();
+    let len = message.len();
+
+    // Tool-trigger keywords
+    let tool_triggers = [
+        "request intro", "intro request", "send deck", "email deck",
+        "pitch deck", "send pitch", "request an intro", "connect me",
+        "make an intro", "intro to",
+    ];
+    let needs_tools = tool_triggers.iter().any(|kw| msg.contains(kw));
+
+    // Deep analysis keywords — need Opus for Pro
+    let deep_triggers = [
+        "review my pitch", "review my deck", "review the pitch", "review the deck",
+        "review this pitch", "review this deck", "analyse my pitch", "analyze my pitch",
+        "analyse my deck", "analyze my deck", "full strategy", "comprehensive",
+        "step by step plan", "detailed analysis", "detailed plan", "write my",
+        "write an investor", "outreach strategy", "fundraising strategy",
+        "investor strategy", "evaluate my", "evaluate the",
+    ];
+    let needs_opus = len > 400
+        || (len > 280 && deep_triggers.iter().any(|kw| msg.contains(kw)));
+
+    // Complex reasoning keywords — need Sonnet for Pro
+    let complex_triggers = [
+        "strategy", "analyse", "analyze", "advise", "advice",
+        "write me", "help me write", "draft", "plan for", "how should i",
+        "what should i do", "compare", "evaluate", "outreach",
+    ];
+    let needs_sonnet = (len > 180 && !needs_opus)
+        || complex_triggers.iter().any(|kw| msg.contains(kw));
+
+    if needs_opus {
+        QueryComplexity::DeepComplex
+    } else if needs_sonnet || (needs_tools && len > 120) {
+        QueryComplexity::Complex
+    } else if needs_tools || len > 100 {
+        QueryComplexity::Moderate
+    } else {
+        QueryComplexity::Simple
+    }
+}
+
+
+async fn run_kevin_openai_tool_loop(
+    state: &AppState,
+    api_key: &str,
+    user_id: Uuid,
+    user_email: &str,
+    role: &str,
+    system: &str,
+    messages: Vec<serde_json::Value>,
+) -> Result<String, String> {
+    let tools = kevin_tools_for_openai(role);
+    let mut msgs: Vec<serde_json::Value> = vec![
+        serde_json::json!({"role": "system", "content": system})
+    ];
+    msgs.extend(messages);
+
+    for _ in 0..4 {
+        let request_body = serde_json::json!({
+            "model": "gpt-4.1-mini",
+            "messages": msgs,
+            "tools": tools,
+            "tool_choice": "auto"
+        });
+
+        let response = match state
+            .http_client
+            .post("https://api.openai.com/v1/chat/completions")
+            .header("Authorization", format!("Bearer {api_key}"))
+            .header("content-type", "application/json")
+            .json(&request_body)
+            .send()
+            .await
+        {
+            Ok(r) => r,
+            Err(e) => return Err(format!("openai request: {e}")),
+        };
+
+        if !response.status().is_success() {
+            let t = response.text().await.unwrap_or_default();
+            return Err(format!("openai error: {t}"));
+        }
+
+        let value: serde_json::Value = match response.json().await {
+            Ok(v) => v,
+            Err(e) => return Err(format!("openai json: {e}")),
+        };
+
+        let choice = match value["choices"].get(0) {
+            Some(c) => c.clone(),
+            None => return Err("no choices in openai response".to_string()),
+        };
+        let finish_reason = choice["finish_reason"].as_str().unwrap_or("stop");
+        let message = choice["message"].clone();
+
+        if finish_reason != "tool_calls" {
+            let text = message["content"].as_str().unwrap_or("").to_string();
+            return Ok(strip_markdown(&text));
+        }
+
+        let tool_calls = match message["tool_calls"].as_array() {
+            Some(tc) => tc.clone(),
+            None => return Err("tool_calls missing".to_string()),
+        };
+
+        msgs.push(message);
+
+        for tc in &tool_calls {
+            let tc_id = tc["id"].as_str().unwrap_or("").to_string();
+            let fn_name = tc["function"]["name"].as_str().unwrap_or("");
+            let args: serde_json::Value = serde_json::from_str(
+                tc["function"]["arguments"].as_str().unwrap_or("{}")
+            ).unwrap_or(serde_json::json!({}));
+
+            let result = execute_kevin_tool(state, user_id, user_email, role, fn_name, &args).await;
+            msgs.push(serde_json::json!({
+                "role": "tool",
+                "tool_call_id": tc_id,
+                "content": result
+            }));
+        }
+    }
+
+    Err("max openai tool turns reached".to_string())
+}
+
+
+async fn run_kevin_anthropic_tool_loop(
+    state: &AppState,
+    api_key: &str,
+    model: &str,
+    user_id: Uuid,
+    user_email: &str,
+    role: &str,
+    system: &str,
+    messages: Vec<serde_json::Value>,
+) -> Result<String, String> {
+    let tools = kevin_tools_for_role(role);
+    let mut msgs = messages;
+
+    for _ in 0..4 {
+        let request_body = serde_json::json!({
+            "model": model,
+            "max_tokens": 2048,
+            "system": system,
+            "tools": tools,
+            "messages": msgs
+        });
+
+        let response = match state
+            .http_client
+            .post("https://api.anthropic.com/v1/messages")
+            .header("x-api-key", api_key)
+            .header("anthropic-version", "2023-06-01")
+            .json(&request_body)
+            .send()
+            .await
+        {
+            Ok(r) => r,
+            Err(e) => return Err(format!("anthropic request: {e}")),
+        };
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let text = response.text().await.unwrap_or_default();
+            return Err(format!("anthropic {status}: {text}"));
+        }
+
+        let value: serde_json::Value = match response.json().await {
+            Ok(v) => v,
+            Err(e) => return Err(format!("anthropic json: {e}")),
+        };
+
+        let stop_reason = value["stop_reason"].as_str().unwrap_or("end_turn");
+
+        if stop_reason != "tool_use" {
+            if let Some(content) = value["content"].as_array() {
+                for block in content {
+                    if block["type"].as_str() == Some("text") {
+                        return Ok(strip_markdown(block["text"].as_str().unwrap_or("")));
+                    }
+                }
+            }
+            return Err("no text block in anthropic response".to_string());
+        }
+
+        let content = match value["content"].as_array() {
+            Some(c) => c.clone(),
+            None => return Err("no content array".to_string()),
+        };
+
+        msgs.push(serde_json::json!({ "role": "assistant", "content": content }));
+
+        let mut tool_results = Vec::new();
+        for block in &content {
+            if block["type"].as_str() == Some("tool_use") {
+                let tool_name = block["name"].as_str().unwrap_or("");
+                let tool_id   = block["id"].as_str().unwrap_or("");
+                let result = execute_kevin_tool(
+                    state, user_id, user_email, role, tool_name, &block["input"],
+                ).await;
+                tool_results.push(serde_json::json!({
+                    "type": "tool_result",
+                    "tool_use_id": tool_id,
+                    "content": result
+                }));
+            }
+        }
+        msgs.push(serde_json::json!({ "role": "user", "content": tool_results }));
+    }
+
+    Err("max anthropic tool turns reached".to_string())
+}
+
 pub(crate) async fn run_kevin_with_tools(
     state: &AppState,
     user_id: Uuid,
     user_email: &str,
     role: &str,
     is_pro: bool,
+    is_basic: bool,
     system: &str,
     messages: Vec<serde_json::Value>,
 ) -> String {
+    // Determine complexity from the last user message
+    let last_msg = messages
+        .iter()
+        .rev()
+        .find_map(|m| {
+            if m["role"].as_str() == Some("user") {
+                m["content"].as_str().map(|s| s.to_string())
+            } else {
+                None
+            }
+        })
+        .unwrap_or_default();
+    let complexity = classify_query_complexity(&last_msg);
+
+    // Tier 0: NadirClaw (local, free) for simple queries — no tool use needed
+    if complexity == QueryComplexity::Simple {
+        let nadirclaw_msgs: Vec<(String, String)> = messages
+            .iter()
+            .filter_map(|m| {
+                let role = m["role"].as_str()?.to_string();
+                let content = m["content"].as_str()?.to_string();
+                Some((role, content))
+            })
+            .collect();
+        match crate::ai::complete_chat(
+            &state.http_client,
+            "nadirclaw",
+            &state.nadirclaw_url,
+            "auto",
+            system,
+            nadirclaw_msgs,
+        )
+        .await
+        {
+            Ok(reply) if !reply.is_empty() => return strip_markdown(&reply),
+            _ => {
+                tracing::warn!("nadirclaw unavailable, falling back to paid tier");
+            }
+        }
+    }
+
+    // ── Pro tier routing ────────────────────────────────────────────────────
     if is_pro {
-        if let Some(api_key) = &state.anthropic_api_key {
-            let tools = kevin_tools_for_role(role);
-            let mut msgs = messages.clone();
+        if let Some(anthropic_key) = &state.anthropic_api_key {
+            let model = match complexity {
+                QueryComplexity::DeepComplex => "claude-opus-4-5-20251101",
+                QueryComplexity::Complex     => "claude-sonnet-4-6",
+                _                            => "claude-haiku-4-5-20251001",
+            };
 
-            for _ in 0..4 {
-                let request_body = serde_json::json!({
-                    "model": "claude-sonnet-4-6",
-                    "max_tokens": 1024,
-                    "system": system,
-                    "tools": tools,
-                    "messages": msgs
-                });
-
-                let response = match state
-                    .http_client
-                    .post("https://api.anthropic.com/v1/messages")
-                    .header("x-api-key", api_key.as_str())
-                    .header("anthropic-version", "2023-06-01")
-                    .json(&request_body)
-                    .send()
-                    .await
-                {
-                    Ok(r) => r,
-                    Err(e) => {
-                        tracing::error!("anthropic tool call request failed: {e}");
-                        return "Kevin is temporarily unavailable.".to_string();
-                    }
-                };
-
-                if !response.status().is_success() {
-                    let status = response.status();
-                    let text = response.text().await.unwrap_or_default();
-                    tracing::error!("anthropic tool call error {status}: {text}");
-                    return "Kevin is temporarily unavailable.".to_string();
-                }
-
-                let value: serde_json::Value = match response.json().await {
-                    Ok(v) => v,
-                    Err(e) => {
-                        tracing::error!("anthropic tool call json parse failed: {e}");
-                        return "Kevin is temporarily unavailable.".to_string();
-                    }
-                };
-
-                let stop_reason = value["stop_reason"].as_str().unwrap_or("end_turn");
-
-                if stop_reason != "tool_use" {
-                    if let Some(content) = value["content"].as_array() {
-                        for block in content {
-                            if block["type"].as_str() == Some("text") {
-                                let text = block["text"].as_str().unwrap_or("").to_string();
-                                return strip_markdown(&text);
-                            }
-                        }
-                    }
-                    return "Kevin is temporarily unavailable.".to_string();
-                }
-
-                let content = match value["content"].as_array() {
-                    Some(c) => c.clone(),
-                    None => return "Kevin is temporarily unavailable.".to_string(),
-                };
-
-                msgs.push(serde_json::json!({ "role": "assistant", "content": content }));
-
-                let mut tool_results = Vec::new();
-                for block in &content {
-                    if block["type"].as_str() == Some("tool_use") {
-                        let tool_name = block["name"].as_str().unwrap_or("");
-                        let tool_id = block["id"].as_str().unwrap_or("");
-                        let tool_input = &block["input"];
-                        let result = execute_kevin_tool(
-                            state, user_id, user_email, role, tool_name, tool_input,
-                        )
-                        .await;
-                        tool_results.push(serde_json::json!({
-                            "type": "tool_result",
-                            "tool_use_id": tool_id,
-                            "content": result
-                        }));
+            // Moderate: try GPT-4.1-mini first (cheaper), fall back to Haiku
+            if complexity == QueryComplexity::Moderate {
+                if let Some(openai_key) = &state.openai_api_key {
+                    match run_kevin_openai_tool_loop(
+                        state, openai_key, user_id, user_email, role, system, messages.clone(),
+                    ).await {
+                        Ok(reply) if !reply.is_empty() => return reply,
+                        Ok(_) => tracing::warn!("openai empty, falling back to haiku"),
+                        Err(e) => tracing::warn!("openai failed ({e}), falling back to haiku"),
                     }
                 }
-
-                msgs.push(serde_json::json!({ "role": "user", "content": tool_results }));
             }
 
-            return "Kevin reached the tool call limit. Please try again.".to_string();
+            match run_kevin_anthropic_tool_loop(
+                state, anthropic_key, model, user_id, user_email, role, system, messages.clone(),
+            ).await {
+                Ok(reply) if !reply.is_empty() => return reply,
+                Ok(_) => tracing::warn!("anthropic empty response"),
+                Err(e) => tracing::error!("anthropic tool loop failed: {e}"),
+            }
+            return "Kevin is temporarily unavailable.".to_string();
+        }
+    }
+
+    // ── Basic tier routing: Haiku with tools ─────────────────────────────────
+    if is_basic {
+        if let Some(anthropic_key) = &state.anthropic_api_key {
+            match run_kevin_anthropic_tool_loop(
+                state, anthropic_key, "claude-haiku-4-5-20251001",
+                user_id, user_email, role, system, messages.clone(),
+            ).await {
+                Ok(reply) if !reply.is_empty() => return reply,
+                Ok(_) => tracing::warn!("haiku empty, falling back to gemini"),
+                Err(e) => tracing::warn!("haiku failed ({e}), falling back to gemini"),
+            }
         }
     }
 

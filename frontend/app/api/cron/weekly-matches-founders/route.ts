@@ -1,3 +1,4 @@
+// cron: weekly match digest for founders
 import { NextRequest, NextResponse } from "next/server";
 import { render } from "@react-email/render";
 import React from "react";

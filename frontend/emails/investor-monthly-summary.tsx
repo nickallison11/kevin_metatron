@@ -48,8 +48,7 @@ export default function InvestorMonthlySummary({
     <Html>
       <Head />
       <Preview>
-        Your top founder matches for {monthName} — {totalThisMonth} matches
-        this month
+        {`Your top founder matches for ${monthName} — ${totalThisMonth} matches this month`}
       </Preview>
       <Body style={body}>
         <Container style={container}>

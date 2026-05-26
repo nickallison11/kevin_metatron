@@ -25,9 +25,9 @@ interface InvestorWeeklyMatchesResponse {
   snapshot_id: string | null;
 }
 
-function isTuesday9amWindow(): boolean {
+function isMondayWindow(): boolean {
   const now = new Date();
-  return now.getUTCDay() === 2 && now.getUTCHours() === 9;
+  return now.getUTCDay() === 1;
 }
 
 export async function GET(req: NextRequest) {
@@ -58,7 +58,7 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  if (!isTuesday9amWindow()) {
+  if (!isMondayWindow()) {
     summary.skipped = investors.length;
     return NextResponse.json(summary);
   }

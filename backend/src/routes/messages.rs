@@ -316,6 +316,7 @@ async fn send_kevin_message(
         &user_email,
         &user.role,
         user.is_pro,
+        user.is_basic,
         &system,
         anthropic_msgs,
     )

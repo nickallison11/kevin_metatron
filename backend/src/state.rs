@@ -20,6 +20,7 @@ pub struct AppState {
     pub gemini_model: String,
     pub gemini_embedding_key: Option<String>,
     pub anthropic_api_key: Option<String>,
+    pub openai_api_key: Option<String>,
     pub frontend_url: String,
     pub oauth_google: Option<OAuthProviderConfig>,
     pub oauth_linkedin: Option<OAuthProviderConfig>,
@@ -63,6 +64,7 @@ pub struct AppState {
     pub http_client: Client,
     pub cron_secret: Option<String>,
     pub unsubscribe_secret: String,
+    pub nadirclaw_url: String,
 }
 
 impl AppState {
@@ -96,6 +98,7 @@ impl AppState {
             gemini_model: settings.gemini_model.clone(),
             gemini_embedding_key: settings.gemini_embedding_key.clone(),
             anthropic_api_key: settings.anthropic_api_key.clone(),
+            openai_api_key: settings.openai_api_key.clone(),
             frontend_url: settings.frontend_url.clone(),
             oauth_google: settings.oauth_google.clone(),
             oauth_linkedin: settings.oauth_linkedin.clone(),
@@ -147,6 +150,7 @@ impl AppState {
             http_client,
             cron_secret: settings.cron_secret.clone(),
             unsubscribe_secret: settings.unsubscribe_secret.clone(),
+            nadirclaw_url: settings.nadirclaw_url.clone(),
         }))
     }
 }

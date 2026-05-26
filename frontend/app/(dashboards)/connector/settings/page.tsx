@@ -40,6 +40,12 @@ export default function ConnectorSettingsPage() {
   const [disableCode, setDisableCode] = useState("");
   const [disableLoading, setDisableLoading] = useState(false);
 
+  const [emailPrefsLoaded, setEmailPrefsLoaded] = useState(false);
+  const [weeklyMatches, setWeeklyMatches] = useState(true);
+  const [unsubscribedAll, setUnsubscribedAll] = useState(false);
+  const [emailPrefsMsg, setEmailPrefsMsg] = useState<string | null>(null);
+  const [emailPrefsSaving, setEmailPrefsSaving] = useState(false);
+
   const qrDataUrl = useMemo(() => {
     if (!otpauthUri) return null;
     return `https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(
@@ -73,6 +79,19 @@ export default function ConnectorSettingsPage() {
         setTwoFactorEnabled(Boolean(data.totp_enabled));
       } catch {
         // Keep UI usable even if `/auth/me` fails.
+      }
+      try {
+        const epRes = await fetch(`${API_BASE}/subscriptions/email-preferences`, {
+          headers: authHeaders(token),
+        });
+        if (epRes.ok) {
+          const ep = await epRes.json();
+          setWeeklyMatches(ep.weekly_matches ?? true);
+          setUnsubscribedAll(ep.unsubscribed_all ?? false);
+          setEmailPrefsLoaded(true);
+        }
+      } catch {
+        // non-fatal
       }
     })();
   }, [token]);
@@ -570,6 +589,124 @@ export default function ConnectorSettingsPage() {
                     Cancel
                   </button>
                 </form>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-6 space-y-5">
+          <h2 className="text-sm font-semibold">Email notifications</h2>
+          {!emailPrefsLoaded ? (
+            <p className="text-xs text-[var(--text-muted)]">Loading…</p>
+          ) : (
+            <div className="space-y-4">
+              <label className="flex items-center justify-between gap-4 cursor-pointer">
+                <div>
+                  <p className="text-sm font-medium">Weekly matches</p>
+                  <p className="text-xs text-[var(--text-muted)]">
+                    Receive your weekly investor or founder match digest every Tuesday.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={weeklyMatches && !unsubscribedAll}
+                  disabled={emailPrefsSaving || unsubscribedAll}
+                  onClick={async () => {
+                    const next = !weeklyMatches;
+                    setWeeklyMatches(next);
+                    setEmailPrefsSaving(true);
+                    setEmailPrefsMsg(null);
+                    try {
+                      const res = await fetch(`${API_BASE}/subscriptions/email-preferences`, {
+                        method: "PUT",
+                        headers: authJsonHeaders(token!),
+                        body: JSON.stringify({
+                          weekly_matches: next,
+                          unsubscribed_all: unsubscribedAll,
+                        }),
+                      });
+                      if (!res.ok) throw new Error();
+                      setEmailPrefsMsg("Saved.");
+                    } catch {
+                      setWeeklyMatches(!next);
+                      setEmailPrefsMsg("Could not save preferences.");
+                    } finally {
+                      setEmailPrefsSaving(false);
+                    }
+                  }}
+                  className={[
+                    "relative inline-flex h-5 w-9 flex-shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none disabled:opacity-40",
+                    weeklyMatches && !unsubscribedAll
+                      ? "bg-metatron-accent"
+                      : "bg-[var(--border)]",
+                  ].join(" ")}
+                >
+                  <span
+                    className={[
+                      "inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform duration-200",
+                      weeklyMatches && !unsubscribedAll
+                        ? "translate-x-4"
+                        : "translate-x-0",
+                    ].join(" ")}
+                  />
+                </button>
+              </label>
+
+              <div className="h-px bg-[var(--border)]" />
+
+              <label className="flex items-center justify-between gap-4 cursor-pointer">
+                <div>
+                  <p className="text-sm font-medium">Unsubscribe from all emails</p>
+                  <p className="text-xs text-[var(--text-muted)]">
+                    Stop all marketing and digest emails from metatron. Transactional emails
+                    (receipts, security) still send.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={unsubscribedAll}
+                  disabled={emailPrefsSaving}
+                  onClick={async () => {
+                    const next = !unsubscribedAll;
+                    setUnsubscribedAll(next);
+                    setEmailPrefsSaving(true);
+                    setEmailPrefsMsg(null);
+                    try {
+                      const res = await fetch(`${API_BASE}/subscriptions/email-preferences`, {
+                        method: "PUT",
+                        headers: authJsonHeaders(token!),
+                        body: JSON.stringify({
+                          weekly_matches: weeklyMatches,
+                          unsubscribed_all: next,
+                        }),
+                      });
+                      if (!res.ok) throw new Error();
+                      setEmailPrefsMsg("Saved.");
+                    } catch {
+                      setUnsubscribedAll(!next);
+                      setEmailPrefsMsg("Could not save preferences.");
+                    } finally {
+                      setEmailPrefsSaving(false);
+                    }
+                  }}
+                  className={[
+                    "relative inline-flex h-5 w-9 flex-shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none disabled:opacity-40",
+                    unsubscribedAll ? "bg-metatron-accent" : "bg-[var(--border)]",
+                  ].join(" ")}
+                >
+                  <span
+                    className={[
+                      "inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform duration-200",
+                      unsubscribedAll ? "translate-x-4" : "translate-x-0",
+                    ].join(" ")}
+                  />
+                </button>
+              </label>
+
+              {emailPrefsMsg && (
+                <p className="text-xs text-[var(--text-muted)]">{emailPrefsMsg}</p>
               )}
             </div>
           )}

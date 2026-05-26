@@ -26,36 +26,27 @@ interface WeeklyMatchesResponse {
   snapshot_id: string | null;
 }
 
-function isTuesday9amWindow(tz: string | null): boolean {
+function isMondayWindow(tz: string | null): boolean {
   const now = new Date();
-  let localHour: number;
   let localDay: number;
 
   if (tz) {
     try {
       const fmt = new Intl.DateTimeFormat("en-US", {
         timeZone: tz,
-        hour: "numeric",
-        hour12: false,
         weekday: "short",
       });
       const parts = fmt.formatToParts(now);
-      localHour = parseInt(
-        parts.find((p) => p.type === "hour")?.value ?? "0",
-        10,
-      );
       const dayStr = parts.find((p) => p.type === "weekday")?.value ?? "";
-      localDay = dayStr === "Tue" ? 2 : -1;
+      localDay = dayStr === "Mon" ? 1 : -1;
     } catch {
-      localHour = now.getUTCHours();
       localDay = now.getUTCDay();
     }
   } else {
-    localHour = now.getUTCHours();
     localDay = now.getUTCDay();
   }
 
-  return localDay === 2 && localHour === 9;
+  return localDay === 1;
 }
 
 export async function GET(req: NextRequest) {
@@ -89,7 +80,7 @@ export async function GET(req: NextRequest) {
   }
 
   for (const f of founders) {
-    if (!isTuesday9amWindow(f.timezone)) {
+    if (!isMondayWindow(f.timezone)) {
       summary.skipped++;
       continue;
     }

@@ -289,14 +289,14 @@ async fn refresh_matches(
 
     // Recycle matches sent more than 28 days ago so they can resurface
     let recycled: i64 = if unsent < limit {
-        sqlx::query_scalar(
-            "UPDATE kevin_matches SET weekly_email_sent_at = NULL WHERE for_user_id = $1 AND match_type = $2 AND weekly_email_sent_at < NOW() - INTERVAL '28 days' AND intro_requested_at IS NULL RETURNING 1",
+        sqlx::query(
+            "UPDATE kevin_matches SET weekly_email_sent_at = NULL WHERE for_user_id = $1 AND match_type = $2 AND weekly_email_sent_at < NOW() - INTERVAL '28 days' AND intro_requested_at IS NULL",
         )
         .bind(user_id)
         .bind(match_type)
-        .fetch_all(&state.db)
+        .execute(&state.db)
         .await
-        .map(|v| v.len() as i64)
+        .map(|r| r.rows_affected() as i64)
         .unwrap_or(0)
     } else {
         0

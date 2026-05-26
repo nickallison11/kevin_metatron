@@ -559,12 +559,12 @@ async fn weekly_matches_for_investor(
                a.score AS angel_score
         FROM kevin_matches km
         LEFT JOIN profiles p ON p.user_id = km.matched_user_id
-        JOIN angel_scores a ON a.founder_user_id = km.matched_user_id AND a.score >= 50
+        LEFT JOIN angel_scores a ON a.founder_user_id = km.matched_user_id
         WHERE km.for_user_id = $1
           AND km.match_type = 'investor_founder'
           AND km.intro_requested_at IS NULL
           AND km.weekly_email_sent_at IS NULL
-        ORDER BY a.score DESC
+        ORDER BY a.score DESC NULLS LAST
         LIMIT 20
         "#,
     )
@@ -932,12 +932,12 @@ async fn monthly_summary_for_investor(
                a.score AS angel_score
         FROM kevin_matches km
         LEFT JOIN profiles p ON p.user_id = km.matched_user_id
-        JOIN angel_scores a ON a.founder_user_id = km.matched_user_id AND a.score >= 50
+        LEFT JOIN angel_scores a ON a.founder_user_id = km.matched_user_id
         WHERE km.for_user_id = $1
           AND km.match_type = 'investor_founder'
           AND km.weekly_email_sent_at >= $2
           AND km.weekly_email_sent_at < $3
-        ORDER BY a.score DESC
+        ORDER BY a.score DESC NULLS LAST
         LIMIT $4
         "#,
     )

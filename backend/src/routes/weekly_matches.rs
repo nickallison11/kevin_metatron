@@ -218,7 +218,11 @@ async fn weekly_matches_for_user(
     };
 
     let tier = if is_basic { "basic" } else { "free" };
-    let limit: i64 = if is_basic { 5 } else { 1 };
+    let limit: i64 = if is_basic {
+        state.match_limit_basic
+    } else {
+        state.match_limit_free
+    };
 
     let candidates = sqlx::query_as::<_, (Uuid, Option<String>, i32, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>)>(
         r#"
@@ -384,7 +388,11 @@ async fn weekly_matches_for_investor(
     };
 
     let tier = if is_basic { "basic" } else { "free" };
-    let limit: i64 = if is_basic { 5 } else { 1 };
+    let limit: i64 = if is_basic {
+        state.investor_match_limit_basic
+    } else {
+        state.investor_match_limit_free
+    };
 
     let candidates = sqlx::query_as::<_, (
         Uuid,

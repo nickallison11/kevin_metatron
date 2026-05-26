@@ -25,11 +25,6 @@ interface InvestorWeeklyMatchesResponse {
   snapshot_id: string | null;
 }
 
-function isMondayWindow(): boolean {
-  const now = new Date();
-  return now.getUTCDay() === 1;
-}
-
 export async function GET(req: NextRequest) {
   const auth = req.headers.get("authorization") ?? "";
   if (!CRON_SECRET || auth !== `Bearer ${CRON_SECRET}`) {
@@ -56,11 +51,6 @@ export async function GET(req: NextRequest) {
       { error: `eligible fetch: ${e}` },
       { status: 502 },
     );
-  }
-
-  if (!isMondayWindow()) {
-    summary.skipped = investors.length;
-    return NextResponse.json(summary);
   }
 
   for (const inv of investors) {

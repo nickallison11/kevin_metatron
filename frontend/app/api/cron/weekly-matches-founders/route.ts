@@ -26,29 +26,6 @@ interface WeeklyMatchesResponse {
   snapshot_id: string | null;
 }
 
-function isMondayWindow(tz: string | null): boolean {
-  const now = new Date();
-  let localDay: number;
-
-  if (tz) {
-    try {
-      const fmt = new Intl.DateTimeFormat("en-US", {
-        timeZone: tz,
-        weekday: "short",
-      });
-      const parts = fmt.formatToParts(now);
-      const dayStr = parts.find((p) => p.type === "weekday")?.value ?? "";
-      localDay = dayStr === "Mon" ? 1 : -1;
-    } catch {
-      localDay = now.getUTCDay();
-    }
-  } else {
-    localDay = now.getUTCDay();
-  }
-
-  return localDay === 1;
-}
-
 export async function GET(req: NextRequest) {
   const auth = req.headers.get("authorization") ?? "";
   if (!CRON_SECRET || auth !== `Bearer ${CRON_SECRET}`) {
@@ -80,11 +57,6 @@ export async function GET(req: NextRequest) {
   }
 
   for (const f of founders) {
-    if (!isMondayWindow(f.timezone)) {
-      summary.skipped++;
-      continue;
-    }
-
     let matchData: WeeklyMatchesResponse;
     try {
       const resp = await fetch(

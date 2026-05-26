@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { render } from "@react-email/render";
 import React from "react";
-import FounderWeeklyMatches from "../../../../emails/founder-weekly-matches";
-import type { MatchCard } from "../../../../emails/founder-weekly-matches";
+import FounderMonthlySummary from "../../../../emails/founder-monthly-summary";
+import type { MonthlySummaryMatchCard } from "../../../../emails/founder-monthly-summary";
 
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "https://platform.metatron.id";
@@ -14,15 +14,16 @@ const PLATFORM_URL =
 interface EligibleFounder {
   user_id: string;
   email: string;
-  timezone: string | null;
   is_basic: boolean;
   unsubscribe_token: string;
 }
 
-interface WeeklyMatchesResponse {
+interface MonthlySummaryResponse {
   tier: "free" | "basic";
   eligible: boolean;
-  matches: MatchCard[];
+  month_name: string;
+  total_this_month: number;
+  matches: MonthlySummaryMatchCard[];
   snapshot_id: string | null;
 }
 
@@ -37,7 +38,7 @@ export async function GET(req: NextRequest) {
   let founders: EligibleFounder[];
   try {
     const resp = await fetch(
-      `${API_BASE}/api/founders/eligible-for-weekly-matches`,
+      `${API_BASE}/api/founders/eligible-for-monthly-summary`,
       { headers: { "x-cron-secret": CRON_SECRET } },
     );
     if (!resp.ok) {
@@ -55,48 +56,37 @@ export async function GET(req: NextRequest) {
   }
 
   for (const f of founders) {
-    // Refresh match pool — recycle old matches and trigger AI generation if needed
-    await fetch(`${API_BASE}/api/founders/${f.user_id}/refresh-matches`, {
-      method: "POST",
-      headers: { "x-cron-secret": CRON_SECRET },
-    }).catch(() => {});
-
-    let matchData: WeeklyMatchesResponse;
+    let summaryData: MonthlySummaryResponse;
     try {
       const resp = await fetch(
-        `${API_BASE}/api/founders/${f.user_id}/weekly-matches`,
+        `${API_BASE}/api/founders/${f.user_id}/monthly-summary`,
         { headers: { "x-cron-secret": CRON_SECRET } },
       );
       if (!resp.ok) {
-        summary.errors.push(`${f.user_id}: match endpoint ${resp.status}`);
+        summary.errors.push(`${f.user_id}: summary endpoint ${resp.status}`);
         continue;
       }
-      matchData = await resp.json();
+      summaryData = await resp.json();
     } catch (e) {
-      summary.errors.push(`${f.user_id}: match fetch ${e}`);
+      summary.errors.push(`${f.user_id}: summary fetch ${e}`);
       continue;
     }
 
-    if (!matchData.eligible || matchData.matches.length === 0) {
+    if (!summaryData.eligible || summaryData.matches.length === 0) {
       summary.skipped++;
       continue;
     }
-
-    const weekDate = new Date().toLocaleDateString("en-GB", {
-      day: "numeric",
-      month: "long",
-      year: "numeric",
-    });
 
     const unsubscribeUrl = `${API_BASE}/unsubscribe?token=${encodeURIComponent(f.unsubscribe_token)}`;
 
     let html: string;
     try {
       html = await render(
-        React.createElement(FounderWeeklyMatches, {
-          weekDate,
-          tier: matchData.tier,
-          matches: matchData.matches,
+        React.createElement(FounderMonthlySummary, {
+          monthName: summaryData.month_name,
+          totalThisMonth: summaryData.total_this_month,
+          tier: summaryData.tier,
+          matches: summaryData.matches,
           unsubscribeUrl,
           platformUrl: PLATFORM_URL,
         }),
@@ -116,7 +106,7 @@ export async function GET(req: NextRequest) {
         body: JSON.stringify({
           from: "Kevin <kevin@metatron.id>",
           to: [f.email],
-          subject: `Your weekly investor matches — ${weekDate}`,
+          subject: `Your top investor matches for ${summaryData.month_name}`,
           html,
           headers: {
             "List-Unsubscribe": `<mailto:unsubscribe@metatron.id>, <${unsubscribeUrl}>`,
@@ -132,7 +122,6 @@ export async function GET(req: NextRequest) {
         continue;
       }
       const resendData = await resendResp.json();
-      const messageId = resendData.id ?? null;
 
       await fetch(`${API_BASE}/api/founders/email-log`, {
         method: "POST",
@@ -142,9 +131,9 @@ export async function GET(req: NextRequest) {
         },
         body: JSON.stringify({
           user_id: f.user_id,
-          email_type: "weekly_matches_founder",
-          resend_message_id: messageId,
-          match_snapshot_id: matchData.snapshot_id,
+          email_type: "monthly_summary_founder",
+          resend_message_id: resendData.id ?? null,
+          match_snapshot_id: summaryData.snapshot_id,
         }),
       }).catch(() => {});
 

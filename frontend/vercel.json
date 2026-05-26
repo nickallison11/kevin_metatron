@@ -7,6 +7,14 @@
     {
       "path": "/api/cron/weekly-matches-investors",
       "schedule": "0 8 * * 1"
+    },
+    {
+      "path": "/api/cron/monthly-summary-founders",
+      "schedule": "0 8 1 * *"
+    },
+    {
+      "path": "/api/cron/monthly-summary-investors",
+      "schedule": "0 8 1 * *"
     }
   ]
 }

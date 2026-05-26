@@ -54,6 +54,12 @@ export async function GET(req: NextRequest) {
   }
 
   for (const inv of investors) {
+    // Refresh match pool — recycle old matches and trigger AI generation if needed
+    await fetch(`${API_BASE}/api/founders/${inv.user_id}/refresh-matches`, {
+      method: "POST",
+      headers: { "x-cron-secret": CRON_SECRET },
+    }).catch(() => {});
+
     let matchData: InvestorWeeklyMatchesResponse;
     try {
       const resp = await fetch(

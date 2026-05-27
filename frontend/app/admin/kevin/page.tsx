@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { API_BASE, authHeaders, authJsonHeaders } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
@@ -34,6 +34,7 @@ export default function AdminKevinKnowledgePage() {
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [roleTarget, setRoleTarget] = useState<RoleTarget>("all");
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   async function load() {
     if (!token) return;
@@ -190,21 +191,23 @@ export default function AdminKevinKnowledgePage() {
                 />
               ) : (
                 <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-5 flex flex-col items-center gap-3 min-h-[120px] justify-center">
-                  <label className="relative cursor-pointer">
-                    <input
-                      type="file"
-                      accept=".txt,.md,.pdf"
-                      className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
-                      onChange={handleFileUpload}
-                      disabled={uploading}
-                    />
-                    <span className="btn-metatron-primary px-5 py-2 text-sm inline-flex items-center gap-2">
-                      {uploading ? "Extracting…" : "Choose file"}
-                    </span>
-                  </label>
-                  <p className="text-xs text-[var(--text-muted)]">
-                    .txt · .md · .pdf supported
-                  </p>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".txt,.md,.pdf"
+                    className="hidden"
+                    onChange={handleFileUpload}
+                    disabled={uploading}
+                  />
+                  <button
+                    type="button"
+                    className="btn-metatron-primary px-5 py-2 text-sm disabled:opacity-50"
+                    disabled={uploading}
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    {uploading ? "Extracting…" : "Choose file"}
+                  </button>
+                  <p className="text-xs text-[var(--text-muted)]">.txt · .md · .pdf supported</p>
                   {uploadErr && <p className="text-xs text-[rgb(254,202,202)]">{uploadErr}</p>}
                   {body && !uploadErr && (
                     <p className="text-xs text-[var(--text-muted)]">

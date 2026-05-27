@@ -26,6 +26,8 @@ export default function AdminKevinKnowledgePage() {
   const [rows, setRows] = useState<KnowledgeRow[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadErr, setUploadErr] = useState<string | null>(null);
 
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
@@ -52,6 +54,33 @@ export default function AdminKevinKnowledgePage() {
     })();
     return () => { cancelled = true; };
   }, [token, authLoading]);
+
+  async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !token) return;
+    setUploading(true);
+    setUploadErr(null);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch(`${API_BASE}/api/admin/kevin/knowledge/upload`, {
+        method: "POST",
+        headers: authHeaders(token),
+        body: fd,
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const { text, filename } = await res.json();
+      setBody(text);
+      if (!title.trim()) {
+        setTitle(filename.replace(/\.[^.]+$/, "").replace(/[-_]/g, " "));
+      }
+    } catch (e) {
+      setUploadErr(e instanceof Error ? e.message : "Upload failed");
+    } finally {
+      setUploading(false);
+      e.target.value = "";
+    }
+  }
 
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault();
@@ -114,6 +143,22 @@ export default function AdminKevinKnowledgePage() {
         {/* Add form */}
         <div>
           <h2 className="text-sm font-semibold mb-4">Add entry</h2>
+          <div className="flex items-center gap-3 mb-4">
+            <label className="relative cursor-pointer">
+              <input
+                type="file"
+                accept=".txt,.md,.pdf"
+                className="absolute inset-0 opacity-0 w-full cursor-pointer"
+                onChange={handleFileUpload}
+                disabled={uploading}
+              />
+              <span className="btn-metatron-primary px-4 py-2 text-sm inline-flex items-center gap-2">
+                {uploading ? "Extracting…" : "Upload document"}
+              </span>
+            </label>
+            <span className="text-xs text-[var(--text-muted)]">.txt · .md · .pdf — populates the body below</span>
+          </div>
+          {uploadErr && <p className="text-xs text-[rgb(254,202,202)] mb-2">{uploadErr}</p>}
           <form onSubmit={handleAdd} className="space-y-4">
             <label className="block space-y-1">
               <span className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">Title</span>

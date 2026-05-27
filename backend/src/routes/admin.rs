@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use axum::extract::{Path, State};
+use axum::extract::{Multipart, Path, State};
 use axum::http::StatusCode;
 use axum::routing::{delete, get, post, put};
 use sqlx::Error as SqlxError;
@@ -28,6 +28,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/prospects", get(list_prospects).post(create_prospect))
         .route("/prospects/:id", put(update_prospect).delete(delete_prospect))
         .route("/kevin/knowledge", get(list_kevin_knowledge).post(create_kevin_knowledge))
+        .route("/kevin/knowledge/upload", post(upload_kevin_knowledge_file))
         .route("/kevin/knowledge/:id", delete(delete_kevin_knowledge))
 }
 
@@ -630,4 +631,66 @@ async fn delete_kevin_knowledge(
     }
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+
+async fn upload_kevin_knowledge_file(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+    mut multipart: Multipart,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let _ = require_admin(&state, bearer.token()).await?;
+
+    while let Some(field) = multipart.next_field().await.map_err(|e| {
+        (StatusCode::BAD_REQUEST, format!("multipart error: {e}"))
+    })? {
+        let name = field.name().unwrap_or("").to_string();
+        if name != "file" {
+            continue;
+        }
+
+        let filename = field.file_name().unwrap_or("upload.txt").to_string();
+        let bytes = field.bytes().await.map_err(|e| {
+            (StatusCode::BAD_REQUEST, format!("read error: {e}"))
+        })?;
+
+        let ext = filename.rsplit('.').next().unwrap_or("").to_lowercase();
+
+        let text = match ext.as_str() {
+            "txt" | "md" => String::from_utf8(bytes.to_vec())
+                .map_err(|_| (StatusCode::BAD_REQUEST, "file is not valid UTF-8 text".to_string()))?,
+            "pdf" => {
+                let tmp_path = format!("/tmp/kevin_upload_{}.pdf", uuid::Uuid::new_v4());
+                tokio::fs::write(&tmp_path, &bytes).await.map_err(|e| {
+                    (StatusCode::INTERNAL_SERVER_ERROR, format!("write temp: {e}"))
+                })?;
+                let output = tokio::process::Command::new("pdftotext")
+                    .arg(&tmp_path)
+                    .arg("-")
+                    .output()
+                    .await;
+                let _ = tokio::fs::remove_file(&tmp_path).await;
+                let output = output.map_err(|e| {
+                    (StatusCode::INTERNAL_SERVER_ERROR, format!("pdftotext failed: {e}"))
+                })?;
+                if !output.status.success() {
+                    return Err((
+                        StatusCode::UNPROCESSABLE_ENTITY,
+                        "could not extract text from PDF".to_string(),
+                    ));
+                }
+                String::from_utf8_lossy(&output.stdout).to_string()
+            }
+            other => {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    format!("unsupported file type: .{other}. Use .txt, .md, or .pdf"),
+                ));
+            }
+        };
+
+        return Ok(Json(serde_json::json!({ "text": text, "filename": filename })));
+    }
+
+    Err((StatusCode::BAD_REQUEST, "no file field found in upload".to_string()))
 }

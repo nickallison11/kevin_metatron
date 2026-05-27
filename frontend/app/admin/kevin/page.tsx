@@ -5,6 +5,7 @@ import { API_BASE, authHeaders, authJsonHeaders } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
 type RoleTarget = "all" | "STARTUP" | "INVESTOR" | "INTERMEDIARY";
+type BodyMode = "paste" | "upload";
 
 type KnowledgeRow = {
   id: string;
@@ -28,6 +29,7 @@ export default function AdminKevinKnowledgePage() {
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadErr, setUploadErr] = useState<string | null>(null);
+  const [bodyMode, setBodyMode] = useState<BodyMode>("paste");
 
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
@@ -74,6 +76,7 @@ export default function AdminKevinKnowledgePage() {
       if (!title.trim()) {
         setTitle(filename.replace(/\.[^.]+$/, "").replace(/[-_]/g, " "));
       }
+      setBodyMode("paste");
     } catch (e) {
       setUploadErr(e instanceof Error ? e.message : "Upload failed");
     } finally {
@@ -97,6 +100,7 @@ export default function AdminKevinKnowledgePage() {
       setTitle("");
       setBody("");
       setRoleTarget("all");
+      setBodyMode("paste");
       await load();
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Could not save");
@@ -125,6 +129,13 @@ export default function AdminKevinKnowledgePage() {
     return <div className="p-8 md:p-10"><p className="text-sm text-[var(--text-muted)]">Loading…</p></div>;
   }
 
+  const tabClass = (mode: BodyMode) =>
+    `px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+      bodyMode === mode
+        ? "bg-[var(--bg-card)] text-[var(--text)] border border-[var(--border)]"
+        : "text-[var(--text-muted)] hover:text-[var(--text)]"
+    }`;
+
   return (
     <main className="min-w-0">
       <header className="border-b border-[var(--border)] px-6 py-4 md:px-10">
@@ -143,22 +154,6 @@ export default function AdminKevinKnowledgePage() {
         {/* Add form */}
         <div>
           <h2 className="text-sm font-semibold mb-4">Add entry</h2>
-          <div className="flex items-center gap-3 mb-4">
-            <label className="relative cursor-pointer">
-              <input
-                type="file"
-                accept=".txt,.md,.pdf"
-                className="absolute inset-0 opacity-0 w-full cursor-pointer"
-                onChange={handleFileUpload}
-                disabled={uploading}
-              />
-              <span className="btn-metatron-primary px-4 py-2 text-sm inline-flex items-center gap-2">
-                {uploading ? "Extracting…" : "Upload document"}
-              </span>
-            </label>
-            <span className="text-xs text-[var(--text-muted)]">.txt · .md · .pdf — populates the body below</span>
-          </div>
-          {uploadErr && <p className="text-xs text-[rgb(254,202,202)] mb-2">{uploadErr}</p>}
           <form onSubmit={handleAdd} className="space-y-4">
             <label className="block space-y-1">
               <span className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">Title</span>
@@ -170,16 +165,56 @@ export default function AdminKevinKnowledgePage() {
                 required
               />
             </label>
-            <label className="block space-y-1">
-              <span className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">Body</span>
-              <textarea
-                className="input-metatron w-full min-h-[160px] font-mono text-sm"
-                placeholder="Paste or type the content Kevin should treat as gospel…"
-                value={body}
-                onChange={(e) => setBody(e.target.value)}
-                required
-              />
-            </label>
+
+            {/* Body — tab toggle */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">Body</span>
+                <div className="flex items-center gap-1 bg-[var(--bg)] rounded-lg p-1">
+                  <button type="button" className={tabClass("paste")} onClick={() => setBodyMode("paste")}>
+                    Paste text
+                  </button>
+                  <button type="button" className={tabClass("upload")} onClick={() => setBodyMode("upload")}>
+                    Upload document
+                  </button>
+                </div>
+              </div>
+
+              {bodyMode === "paste" ? (
+                <textarea
+                  className="input-metatron w-full min-h-[160px] font-mono text-sm"
+                  placeholder="Paste or type the content Kevin should treat as gospel…"
+                  value={body}
+                  onChange={(e) => setBody(e.target.value)}
+                  required
+                />
+              ) : (
+                <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-5 flex flex-col items-center gap-3 min-h-[120px] justify-center">
+                  <label className="relative cursor-pointer">
+                    <input
+                      type="file"
+                      accept=".txt,.md,.pdf"
+                      className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
+                      onChange={handleFileUpload}
+                      disabled={uploading}
+                    />
+                    <span className="btn-metatron-primary px-5 py-2 text-sm inline-flex items-center gap-2">
+                      {uploading ? "Extracting…" : "Choose file"}
+                    </span>
+                  </label>
+                  <p className="text-xs text-[var(--text-muted)]">
+                    .txt · .md · .pdf supported
+                  </p>
+                  {uploadErr && <p className="text-xs text-[rgb(254,202,202)]">{uploadErr}</p>}
+                  {body && !uploadErr && (
+                    <p className="text-xs text-[var(--text-muted)]">
+                      Text extracted — switch to <strong className="text-[var(--text)]">Paste text</strong> to review before saving
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+
             <label className="block space-y-1">
               <span className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">Show to</span>
               <select
@@ -193,6 +228,7 @@ export default function AdminKevinKnowledgePage() {
                 <option value="INTERMEDIARY">Connectors only</option>
               </select>
             </label>
+
             <button
               type="submit"
               disabled={saving || !title.trim() || !body.trim()}

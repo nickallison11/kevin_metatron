@@ -59,6 +59,9 @@ export default function AdminShell({ children }: { children: ReactNode }) {
               Add prospect
             </Link>
           </div>
+          <Link href="/admin/kevin" className={navClass("/admin/kevin")}>
+            Kevin Knowledge
+          </Link>
           <Link href="/" className={`${linkBase} ${linkInactive} mt-2 md:mt-4`}>
             ← Platform home
           </Link>

@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use axum::routing::{get, post, put};
+use axum::routing::{delete, get, post, put};
 use sqlx::Error as SqlxError;
 use axum::{Json, Router};
 use axum_extra::{
@@ -27,6 +27,8 @@ pub fn router() -> Router<Arc<AppState>> {
         )
         .route("/prospects", get(list_prospects).post(create_prospect))
         .route("/prospects/:id", put(update_prospect).delete(delete_prospect))
+        .route("/kevin/knowledge", get(list_kevin_knowledge).post(create_kevin_knowledge))
+        .route("/kevin/knowledge/:id", delete(delete_kevin_knowledge))
 }
 
 #[derive(Serialize, sqlx::FromRow)]
@@ -522,6 +524,102 @@ async fn delete_prospect(
     let _ = require_admin(&state, bearer.token()).await?;
 
     let r = sqlx::query("DELETE FROM prospects WHERE id = $1")
+        .bind(id)
+        .execute(&state.db)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "database error".to_string()))?;
+
+    if r.rows_affected() == 0 {
+        return Err((StatusCode::NOT_FOUND, "not found".to_string()));
+    }
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+// ── Kevin Knowledge ──────────────────────────────────────────────────────────
+
+#[derive(Serialize, sqlx::FromRow)]
+pub struct KnowledgeRow {
+    pub id: Uuid,
+    pub title: String,
+    pub body: String,
+    pub role_target: String,
+    pub created_at: String,
+}
+
+#[derive(Deserialize)]
+pub struct CreateKnowledgeBody {
+    pub title: String,
+    pub body: String,
+    #[serde(default)]
+    pub role_target: Option<String>,
+}
+
+async fn list_kevin_knowledge(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+) -> Result<Json<Vec<KnowledgeRow>>, (StatusCode, String)> {
+    let _ = require_admin(&state, bearer.token()).await?;
+
+    let rows = sqlx::query_as::<_, KnowledgeRow>(
+        r#"SELECT id, title, body, role_target, created_at::text AS created_at
+           FROM kevin_knowledge ORDER BY created_at DESC"#,
+    )
+    .fetch_all(&state.db)
+    .await
+    .map_err(|e| {
+        tracing::error!("list_kevin_knowledge: {e}");
+        (StatusCode::INTERNAL_SERVER_ERROR, "database error".to_string())
+    })?;
+
+    Ok(Json(rows))
+}
+
+async fn create_kevin_knowledge(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+    Json(body): Json<CreateKnowledgeBody>,
+) -> Result<Json<KnowledgeRow>, (StatusCode, String)> {
+    let _ = require_admin(&state, bearer.token()).await?;
+
+    if body.title.trim().is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "title required".to_string()));
+    }
+    if body.body.trim().is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "body required".to_string()));
+    }
+
+    let role_target = body.role_target.unwrap_or_else(|| "all".to_string());
+    if !matches!(role_target.as_str(), "all" | "STARTUP" | "INVESTOR" | "INTERMEDIARY") {
+        return Err((StatusCode::BAD_REQUEST, "invalid role_target".to_string()));
+    }
+
+    let row = sqlx::query_as::<_, KnowledgeRow>(
+        r#"INSERT INTO kevin_knowledge (title, body, role_target)
+           VALUES ($1, $2, $3)
+           RETURNING id, title, body, role_target, created_at::text AS created_at"#,
+    )
+    .bind(body.title.trim())
+    .bind(body.body.trim())
+    .bind(&role_target)
+    .fetch_one(&state.db)
+    .await
+    .map_err(|e| {
+        tracing::error!("create_kevin_knowledge: {e}");
+        (StatusCode::INTERNAL_SERVER_ERROR, "database error".to_string())
+    })?;
+
+    Ok(Json(row))
+}
+
+async fn delete_kevin_knowledge(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+    Path(id): Path<Uuid>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let _ = require_admin(&state, bearer.token()).await?;
+
+    let r = sqlx::query("DELETE FROM kevin_knowledge WHERE id = $1")
         .bind(id)
         .execute(&state.db)
         .await

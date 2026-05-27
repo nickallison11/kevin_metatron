@@ -1171,6 +1171,25 @@ pub(crate) async fn build_context(state: &AppState, user_id: uuid::Uuid, role: &
         }
     }
 
+    // Gospel knowledge injected by admin
+    if let Ok(rows) = sqlx::query_as::<_, (String, String)>(
+        r#"SELECT title, body FROM kevin_knowledge
+           WHERE role_target = 'all' OR role_target = $1
+           ORDER BY created_at ASC"#,
+    )
+    .bind(role)
+    .fetch_all(&state.db)
+    .await
+    {
+        if !rows.is_empty() {
+            let knowledge: Vec<String> = rows
+                .into_iter()
+                .map(|(title, body)| format!("### {title}\n{body}"))
+                .collect();
+            parts.push(format!("\n## Kevin Knowledge (gospel — always follow)\n{}", knowledge.join("\n\n")));
+        }
+    }
+
     parts.join("\n")
 }
 

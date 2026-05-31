@@ -267,15 +267,16 @@ function SignupForm() {
           />
           <span>
             I agree to the{" "}
-            <a href="/terms" className="text-[var(--text)] hover:text-metatron-accent">
+            <a href="/terms" target="_blank" className="text-[var(--text)] hover:text-metatron-accent">
               Terms of Service
             </a>{" "}
             and{" "}
             <a href="/privacy" className="text-[var(--text)] hover:text-metatron-accent">
               Privacy Policy
             </a>
-            , and I understand my conversations and call transcripts are processed by
-            Google Gemini to power Kevin AI.
+            . I grant metatron the right to use my pitch deck and company data to facilitate
+            introductions and market my project within the network. I retain ownership of my data.
+            My conversations with Kevin are processed by AI providers including Google Gemini and Anthropic.
           </span>
         </label>
         <label className="flex items-start gap-2 text-sm text-[var(--text-muted)]">

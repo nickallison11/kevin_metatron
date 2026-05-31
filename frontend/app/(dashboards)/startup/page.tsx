@@ -2,7 +2,6 @@
 
 import AngelScoreCard from "@/components/AngelScoreCard";
 import KevinMatchFeed from "@/components/KevinMatchFeed";
-import { StartupKevinChatCard } from "@/components/StartupKevinChatCard";
 import { useAuth } from "@/lib/auth";
 
 export default function StartupDashboardPage() {
@@ -22,7 +21,6 @@ export default function StartupDashboardPage() {
       <section className="space-y-4 p-6 md:p-10">
         <AngelScoreCard token={token} />
         <KevinMatchFeed token={token} role="founder" />
-        <StartupKevinChatCard token={token} />
       </section>
     </main>
   );

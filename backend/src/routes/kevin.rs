@@ -301,7 +301,13 @@ Metatron is the intelligence layer connecting founders, investors, and ecosystem
 ## Current user context
 {context}{memory_section}
 
-Stay in character as Kevin. If asked about capabilities you don't have, say what you can help with within Metatron (profiles, pitches, intros, call notes). Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. Plain text only."#
+Stay in character as Kevin. You have tools to:
+- Look up and introduce matched investors/founders on the Metatron network
+- Search the open web for investors, funds, and companies NOT yet on the platform
+- Search the Metatron network by sector, stage, or country
+- Email pitch decks to interested investors
+
+When a user asks to find investors, research a firm, or explore a market, use the search_web tool proactively. Do not say you cannot search the web — you can. Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. Plain text only."#
     );
 
     let ai_route: Option<(&str, &str, &str)> = if user.is_pro {
@@ -523,7 +529,13 @@ Metatron is the intelligence layer connecting founders, investors, and ecosystem
 ## Current user context
 {context}{memory_section}
 
-Stay in character as Kevin. If asked about capabilities you don't have, say what you can help with within Metatron (profiles, pitches, intros, call notes). Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. Plain text only."#
+Stay in character as Kevin. You have tools to:
+- Look up and introduce matched investors/founders on the Metatron network
+- Search the open web for investors, funds, and companies NOT yet on the platform
+- Search the Metatron network by sector, stage, or country
+- Email pitch decks to interested investors
+
+When a user asks to find investors, research a firm, or explore a market, use the search_web tool proactively. Do not say you cannot search the web — you can. Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. Plain text only."#
     );
 
     let (provider, api_key, model) = if user.is_pro || user.is_basic {
@@ -800,7 +812,13 @@ Metatron is the intelligence layer connecting founders, investors, and ecosystem
 ## Current user context
 {context}{memory_section}{role_extra}
 
-Stay in character as Kevin. If asked about capabilities you don't have, say what you can help with within Metatron (profiles, pitches, intros, call notes). Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. Plain text only."#
+Stay in character as Kevin. You have tools to:
+- Look up and introduce matched investors/founders on the Metatron network
+- Search the open web for investors, funds, and companies NOT yet on the platform
+- Search the Metatron network by sector, stage, or country
+- Email pitch decks to interested investors
+
+When a user asks to find investors, research a firm, or explore a market, use the search_web tool proactively. Do not say you cannot search the web — you can. Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. Plain text only."#
     );
 
     let daily_limit = kevin_daily_limit(user.is_basic, user.is_pro, &user.subscription_tier);
@@ -1171,6 +1189,25 @@ pub(crate) async fn build_context(state: &AppState, user_id: uuid::Uuid, role: &
         }
     }
 
+    // Gospel knowledge injected by admin
+    if let Ok(rows) = sqlx::query_as::<_, (String, String)>(
+        r#"SELECT title, body FROM kevin_knowledge
+           WHERE role_target = 'all' OR role_target = $1
+           ORDER BY created_at ASC"#,
+    )
+    .bind(role)
+    .fetch_all(&state.db)
+    .await
+    {
+        if !rows.is_empty() {
+            let knowledge: Vec<String> = rows
+                .into_iter()
+                .map(|(title, body)| format!("### {title}\n{body}"))
+                .collect();
+            parts.push(format!("\n## Kevin Knowledge (gospel — always follow)\n{}", knowledge.join("\n\n")));
+        }
+    }
+
     parts.join("\n")
 }
 
@@ -1276,6 +1313,21 @@ pub(crate) fn kevin_tools_for_role(role: &str) -> serde_json::Value {
         }
     }));
 
+    tools.push(serde_json::json!({
+        "name": "search_web",
+        "description": "Search the open web for investors, companies, funds, or market information that is NOT in the metatron network. Use this when the user asks to find investors outside the platform, research a specific VC firm, or explore a market. Returns real-time results with citations.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "The search query, e.g. \"fintech investors Southeast Asia seed stage\""
+                }
+            },
+            "required": ["query"]
+        }
+    }));
+
     serde_json::json!(tools)
 }
 
@@ -1341,6 +1393,21 @@ pub(crate) fn kevin_tools_for_gemini(role: &str) -> serde_json::Value {
                 "filter": {
                     "type": "string",
                     "description": "founders | investors | all"
+                }
+            },
+            "required": ["query"]
+        }
+    }));
+
+    declarations.push(serde_json::json!({
+        "name": "search_web",
+        "description": "Search the open web for investors, companies, funds, or market information that is NOT in the metatron network. Use when the user wants to find investors outside the platform or research a specific firm.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "The search query"
                 }
             },
             "required": ["query"]
@@ -2022,6 +2089,58 @@ pub(crate) async fn execute_kevin_tool(
             }
         }
 
+        "search_web" => {
+            let query = tool_input["query"].as_str().unwrap_or("").trim().to_string();
+            if query.is_empty() {
+                return "Please provide a search query.".to_string();
+            }
+
+            let output = tokio::process::Command::new("openclaw")
+                .args(["capability", "web", "search", "--query", &query, "--limit", "5", "--json"])
+                .output()
+                .await;
+
+            match output {
+                Err(e) => {
+                    tracing::error!("search_web: openclaw spawn failed: {e}");
+                    format!("Web search unavailable: {e}")
+                }
+                Ok(out) if !out.status.success() => {
+                    let stderr = String::from_utf8_lossy(&out.stderr);
+                    tracing::error!("search_web: openclaw error: {stderr}");
+                    format!("Web search failed. Try a different query.")
+                }
+                Ok(out) => {
+                    let raw = String::from_utf8_lossy(&out.stdout);
+                    match serde_json::from_str::<serde_json::Value>(&raw) {
+                        Err(_) => "Web search returned unreadable data.".to_string(),
+                        Ok(json) => {
+                            let result = &json["outputs"][0]["result"];
+                            let content = result["content"].as_str().unwrap_or("").trim().to_string();
+                            let citations = result["citations"]
+                                .as_array()
+                                .map(|arr| {
+                                    arr.iter()
+                                        .filter_map(|c| c["url"].as_str())
+                                        .map(|u| format!("- {u}"))
+                                        .collect::<Vec<_>>()
+                                        .join("\n")
+                                })
+                                .unwrap_or_default();
+
+                            if content.is_empty() {
+                                "No results found for that query.".to_string()
+                            } else if citations.is_empty() {
+                                content
+                            } else {
+                                format!("{content}\n\nSources:\n{citations}")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         _ => format!("Unknown tool: {tool_name}"),
     }
 }
@@ -2159,6 +2278,12 @@ fn classify_query_complexity(message: &str) -> QueryComplexity {
         "request intro", "intro request", "send deck", "email deck",
         "pitch deck", "send pitch", "request an intro", "connect me",
         "make an intro", "intro to",
+        // web-search triggers
+        "search the web", "find investors", "find me investors", "look for investors",
+        "research investors", "who invests", "investors in", "find a vc", "find vc",
+        "find funds", "find a fund", "who backs", "who funds", "look up investors",
+        "find me a vc", "find me a fund", "who should i talk to", "who should i speak",
+        "find startups", "research the market", "look up",
     ];
     let needs_tools = tool_triggers.iter().any(|kw| msg.contains(kw));
 

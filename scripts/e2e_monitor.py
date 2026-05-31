@@ -5,9 +5,10 @@ Daily health check covering all test accounts and platform features.
 New feature checks are added here as features ship — one script, one report.
 
 Current checks:
-  1. Account logins (founder free, founder basic, investor)
+  1. Account logins (founder free, founder basic, founder pro, investor)
   2. Free founder — Pinata reachability + profile (14-day deck trial)
   3. Basic founder — subscription plan + permanent deck
+  3b. Pro founder — subscription plan = pro + is_pro flag
   4. Investor — role + profile
   5. IMAP scan (last 36h from metatron.id)
   6. Email cadence compliance (7-day, 1-day, expired)
@@ -48,6 +49,7 @@ REPORT_TO          = "nick.allison@metatrondao.io"
 ACCOUNTS = {
     "founder":      "kevin.metatron.testing+founder@gmail.com",
     "founderbasic": "kevin.metatron.testing+founderbasic@gmail.com",
+    "founderpro":   "kevin.metatron.testing+founderpro@gmail.com",
     "investor":     "kevin.metatron.testing+investor@gmail.com",
 }
 # ─────────────────────────────────────────────────────────────────────────────
@@ -259,6 +261,34 @@ def main():
         except Exception as e:
             lines.append(f"- ⚠ profile check failed: {e}")
             drifts.append(f"founderbasic profile failed: {e}")
+    else:
+        lines.append("- ⚠ skipped (login failed)")
+    lines.append("")
+
+    # ── Check 3b: Pro founder — subscription plan = pro ──────────────────────
+    lines.append("## Check 3b — Pro founder: subscription plan = pro")
+    if "founderpro" in jwts:
+        try:
+            sub = check_subscription(jwts["founderpro"])
+            plan = sub.get("subscription_tier") or sub.get("subscription_plan", "—")
+            lines.append(f"- subscription_plan: {plan}")
+            if plan != "pro":
+                drifts.append(f"founderpro plan is '{plan}', expected 'pro'")
+                lines.append("  ⚠ DRIFT — expected 'pro'")
+        except Exception as e:
+            lines.append(f"- ⚠ subscription check failed: {e}")
+            drifts.append(f"founderpro subscription failed: {e}")
+
+        try:
+            pp = check_profile(jwts["founderpro"])
+            p_expires = pp.get("deck_expires_at")
+            lines.append(f"- deck_expires_at: {p_expires} (should be null)")
+            if p_expires:
+                drifts.append(f"founderpro deck has expiry set: {p_expires}")
+                lines.append("  ⚠ DRIFT — pro deck should not expire")
+        except Exception as e:
+            lines.append(f"- ⚠ profile check failed: {e}")
+            drifts.append(f"founderpro profile failed: {e}")
     else:
         lines.append("- ⚠ skipped (login failed)")
     lines.append("")

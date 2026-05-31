@@ -69,7 +69,7 @@ export default function StartupKevinPage() {
     setTelegramMsg(null);
     setTelegramLinkCode(null);
     try {
-      const r = await fetch(`${API_BASE}/auth/telegram-link`, {
+      const r = await fetch(`${API_BASE}/auth/telegram/link-token`, {
         method: "POST",
         headers: authHeaders(token),
       });

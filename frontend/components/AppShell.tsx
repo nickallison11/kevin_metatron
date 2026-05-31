@@ -363,7 +363,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
         {children}
       </div>
       </div>
-      {loggedIn && <MessagingWidget token={token} />}
+      {/* MessagingWidget hidden — Kevin lives on /startup/kevin */}
     </>
   );
 }

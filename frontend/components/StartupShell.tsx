@@ -7,12 +7,14 @@ import { useAuth } from "@/lib/auth";
 
 const FREE_NAV = [
   { href: "/startup", label: "Dashboard" },
+  { href: "/startup/kevin", label: "Chat with Kevin" },
   { href: "/startup/pitches", label: "Pitch data" },
   { href: "/startup/matches", label: "Investor Matches" },
 ];
 
 const PRO_NAV = [
   { href: "/startup", label: "Dashboard" },
+  { href: "/startup/kevin", label: "Chat with Kevin" },
   { href: "/startup/pitches", label: "Pitch data" },
   { href: "/startup/matches", label: "Investor Matches" },
   { href: "/startup/calls", label: "Call Intelligence" },

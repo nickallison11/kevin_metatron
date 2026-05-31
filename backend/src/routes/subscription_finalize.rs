@@ -7,11 +7,12 @@ use uuid::Uuid;
 use crate::email;
 use crate::state::AppState;
 
-/// Activates Pro subscription and sends the welcome email (on-chain and Coinbase Commerce).
+/// Activates a founder subscription (basic or pro) and sends the welcome email.
 pub async fn finalize_pro_subscription(
     state: &AppState,
     user_id: Uuid,
     plan_name: &str,
+    plan_level: &str,
     tier: &str,
     amount_paid_display: &str,
     payment_method: &str,
@@ -24,6 +25,13 @@ pub async fn finalize_pro_subscription(
         return Err((
             StatusCode::BAD_REQUEST,
             Json(json!({ "error": "tier must be monthly or annual" })),
+        ));
+    }
+    let plan_level = plan_level.to_ascii_lowercase();
+    if plan_level != "basic" && plan_level != "pro" {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "plan_level must be basic or pro" })),
         ));
     }
 
@@ -44,7 +52,7 @@ pub async fn finalize_pro_subscription(
             UPDATE users
             SET pending_payment_nonce = NULL,
                 subscription_tier = 'monthly',
-                subscription_plan = 'basic',
+                subscription_plan = $2,
                 subscription_status = 'active',
                 cancel_at_period_end = FALSE,
                 subscription_period_end = GREATEST(NOW(), COALESCE(subscription_period_end, NOW())) + INTERVAL '30 days'
@@ -55,6 +63,7 @@ pub async fn finalize_pro_subscription(
             "#,
         )
         .bind(user_id)
+        .bind(&plan_level)
         .fetch_one(&state.db)
         .await
         .map_err(|_| {
@@ -69,7 +78,7 @@ pub async fn finalize_pro_subscription(
             UPDATE users
             SET pending_payment_nonce = NULL,
                 subscription_tier = 'annual',
-                subscription_plan = 'basic',
+                subscription_plan = $2,
                 subscription_status = 'active',
                 cancel_at_period_end = FALSE,
                 subscription_period_end = GREATEST(NOW(), COALESCE(subscription_period_end, NOW())) + INTERVAL '365 days'
@@ -80,6 +89,7 @@ pub async fn finalize_pro_subscription(
             "#,
         )
         .bind(user_id)
+        .bind(&plan_level)
         .fetch_one(&state.db)
         .await
         .map_err(|_| {
@@ -90,6 +100,7 @@ pub async fn finalize_pro_subscription(
         })?
     };
 
+    let invoice_tier = format!("founder_{}", plan_level);
     sqlx::query(
         r#"
         INSERT INTO subscription_invoices (user_id, amount, currency, payment_method, tier, period_start, period_end, reference)
@@ -100,7 +111,7 @@ pub async fn finalize_pro_subscription(
     .bind(invoice_amount)
     .bind(invoice_currency)
     .bind(payment_method)
-    .bind("founder_basic")
+    .bind(&invoice_tier)
     .bind(&period_start)
     .bind(&period_end)
     .bind(reference)

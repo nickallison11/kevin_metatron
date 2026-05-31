@@ -71,10 +71,10 @@ async fn create_subscription(
         .map_err(|(_, msg)| (StatusCode::UNAUTHORIZED, Json(json!({ "error": msg }))))?;
 
     let tier = body.tier.to_ascii_lowercase();
-    if tier != "founder_basic" {
+    if tier != "founder_basic" && tier != "founder_pro" {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(json!({ "error": "tier must be founder_basic" })),
+            Json(json!({ "error": "tier must be founder_basic or founder_pro" })),
         ));
     }
 
@@ -93,8 +93,10 @@ async fn create_subscription(
         ));
     }
 
-    let plan_code = match billing.as_str() {
-        "annual" => state.paystack_plan_basic_annual.as_str(),
+    let plan_code = match (tier.as_str(), billing.as_str()) {
+        ("founder_pro", "annual") => state.paystack_plan_pro_annual.as_str(),
+        ("founder_pro", _) => state.paystack_plan_pro_monthly.as_str(),
+        (_, "annual") => state.paystack_plan_basic_annual.as_str(),
         _ => state.paystack_plan_basic_monthly.as_str(),
     };
 
@@ -118,9 +120,11 @@ async fn create_subscription(
         )
     })?;
 
-    let amount_kobo: i64 = match billing.as_str() {
-        "annual" => 169999,
-        _ => 16999,
+    let amount_kobo: i64 = match (tier.as_str(), billing.as_str()) {
+        ("founder_pro", "annual") => 339_999,
+        ("founder_pro", _) => 33_999,
+        (_, "annual") => 169_999,
+        _ => 16_999,
     };
 
     let reference = Uuid::new_v4().to_string();
@@ -138,7 +142,7 @@ async fn create_subscription(
         ),
         "metadata": {
             "user_id": user_id.to_string(),
-            "tier": "founder_basic",
+            "tier": tier,
             "billing": billing,
             "currency": "ZAR"
         }
@@ -484,29 +488,41 @@ pub async fn finalize_investor_subscription(
     Ok(())
 }
 
-fn plan_code_to_billing(state: &AppState, plan_code: &str) -> Option<&'static str> {
+fn plan_code_to_billing_and_level(state: &AppState, plan_code: &str) -> Option<(&'static str, &'static str)> {
     if !state.paystack_plan_basic_monthly.is_empty()
         && plan_code == state.paystack_plan_basic_monthly
     {
-        return Some("monthly");
+        return Some(("monthly", "basic"));
     }
-    if !state.paystack_plan_basic_annual.is_empty() && plan_code == state.paystack_plan_basic_annual
+    if !state.paystack_plan_basic_annual.is_empty()
+        && plan_code == state.paystack_plan_basic_annual
     {
-        return Some("annual");
+        return Some(("annual", "basic"));
+    }
+    if !state.paystack_plan_pro_monthly.is_empty()
+        && plan_code == state.paystack_plan_pro_monthly
+    {
+        return Some(("monthly", "pro"));
+    }
+    if !state.paystack_plan_pro_annual.is_empty()
+        && plan_code == state.paystack_plan_pro_annual
+    {
+        return Some(("annual", "pro"));
     }
     None
 }
 
-/// Resolves finalize tier (`monthly` | `annual`) from Paystack `plan` or metadata.
-fn resolve_finalize_tier(
+/// Resolves billing period and plan level from Paystack plan code or metadata.
+/// Returns `(billing, plan_level)` where billing is `"monthly"|"annual"` and plan_level is `"basic"|"pro"`.
+fn resolve_finalize_tier_and_level(
     state: &AppState,
     data: &Value,
     metadata: &Value,
-) -> Result<String, (StatusCode, Json<Value>)> {
+) -> Result<(String, String), (StatusCode, Json<Value>)> {
     if let Some(plan) = data.get("plan") {
         if let Some(code) = plan.get("plan_code").and_then(|c| c.as_str()) {
-            if let Some(b) = plan_code_to_billing(state, code) {
-                return Ok(b.to_string());
+            if let Some((billing, level)) = plan_code_to_billing_and_level(state, code) {
+                return Ok((billing.to_string(), level.to_string()));
             }
         }
     }
@@ -516,21 +532,20 @@ fn resolve_finalize_tier(
         .and_then(|t| t.as_str())
         .unwrap_or("monthly");
 
-    if tier_str.eq_ignore_ascii_case("founder_basic") {
+    if tier_str.eq_ignore_ascii_case("founder_basic") || tier_str.eq_ignore_ascii_case("founder_pro") {
+        let plan_level = if tier_str.eq_ignore_ascii_case("founder_pro") { "pro" } else { "basic" };
         let billing = metadata
             .get("billing")
             .and_then(|b| b.as_str())
             .unwrap_or("monthly")
             .to_ascii_lowercase();
-        if billing == "annual" {
-            return Ok("annual".to_string());
-        }
-        return Ok("monthly".to_string());
+        let billing = if billing == "annual" { "annual" } else { "monthly" };
+        return Ok((billing.to_string(), plan_level.to_string()));
     }
 
     let tier_lower = tier_str.to_ascii_lowercase();
     if tier_lower == "monthly" || tier_lower == "annual" {
-        return Ok(tier_lower);
+        return Ok((tier_lower, "basic".to_string()));
     }
 
     Err((
@@ -550,6 +565,28 @@ fn usd_amounts_for_billing(billing: &str) -> (&'static str, Decimal) {
     match billing {
         "annual" => ("$99.99 USD", Decimal::from_str("99.99").unwrap()),
         _ => ("$9.99 USD", Decimal::from_str("9.99").unwrap()),
+    }
+}
+
+fn zar_pro_amounts_for_billing(billing: &str) -> (&'static str, Decimal) {
+    match billing {
+        "annual" => ("R3,399.99 ZAR", Decimal::from_str("3399.99").unwrap()),
+        _ => ("R339.99 ZAR", Decimal::from_str("339.99").unwrap()),
+    }
+}
+
+fn usd_pro_amounts_for_billing(billing: &str) -> (&'static str, Decimal) {
+    match billing {
+        "annual" => ("$199.99 USD", Decimal::from_str("199.99").unwrap()),
+        _ => ("$19.99 USD", Decimal::from_str("19.99").unwrap()),
+    }
+}
+
+fn amounts_for_billing_and_level(billing: &str, plan_level: &str, currency: &str) -> (&'static str, Decimal) {
+    if plan_level == "pro" {
+        if currency == "ZAR" { zar_pro_amounts_for_billing(billing) } else { usd_pro_amounts_for_billing(billing) }
+    } else {
+        if currency == "ZAR" { zar_amounts_for_billing(billing) } else { usd_amounts_for_billing(billing) }
     }
 }
 
@@ -665,19 +702,16 @@ async fn verify_payment(
         return Ok(Json(VerifyResponse { status: "active" }));
     }
 
-    let tier_lower = resolve_finalize_tier(&state, &data, &metadata)?;
-
-    let (amount_paid, invoice_amount) = if pay_currency == "ZAR" {
-        zar_amounts_for_billing(tier_lower.as_str())
-    } else {
-        usd_amounts_for_billing(tier_lower.as_str())
-    };
+    let (tier_lower, plan_level) = resolve_finalize_tier_and_level(&state, &data, &metadata)?;
+    let (amount_paid, invoice_amount) = amounts_for_billing_and_level(&tier_lower, &plan_level, pay_currency);
+    let plan_name = if plan_level == "pro" { "Founder Pro" } else { "Founder Basic" };
 
     finalize_pro_subscription(
         &state,
         user_id,
-        "Founder Basic",
-        tier_lower.as_str(),
+        plan_name,
+        &plan_level,
+        &tier_lower,
         amount_paid,
         "card",
         Some(ref_trim),
@@ -1070,24 +1104,22 @@ async fn finalize_from_paystack_data(
         .map_err(|(s, _)| s);
     }
 
-    let tier_lower = resolve_finalize_tier(state, data, metadata).map_err(|(s, _)| s)?;
+    let (tier_lower, plan_level) = resolve_finalize_tier_and_level(state, data, metadata).map_err(|(s, _)| s)?;
 
     let pay_currency = metadata
         .get("currency")
         .and_then(|c| c.as_str())
         .unwrap_or("USD");
 
-    let (amount_paid, invoice_amount) = if pay_currency == "ZAR" {
-        zar_amounts_for_billing(tier_lower.as_str())
-    } else {
-        usd_amounts_for_billing(tier_lower.as_str())
-    };
+    let (amount_paid, invoice_amount) = amounts_for_billing_and_level(&tier_lower, &plan_level, pay_currency);
+    let plan_name = if plan_level == "pro" { "Founder Pro" } else { "Founder Basic" };
 
     finalize_pro_subscription(
         state,
         user_id,
-        "Founder Basic",
-        tier_lower.as_str(),
+        plan_name,
+        &plan_level,
+        &tier_lower,
         amount_paid,
         "card",
         Some(paystack_ref),
@@ -1117,10 +1149,10 @@ async fn handle_invoice_payment_success(
             StatusCode::BAD_REQUEST
         })?;
 
-    let founder_billing = plan_code_to_billing(state, plan_code);
+    let founder_billing_and_level = plan_code_to_billing_and_level(state, plan_code);
     let connector_billing = connector_plan_code_to_billing(state, plan_code);
     let investor_billing = investor_plan_code_to_billing(state, plan_code);
-    if founder_billing.is_none() && connector_billing.is_none() && investor_billing.is_none() {
+    if founder_billing_and_level.is_none() && connector_billing.is_none() && investor_billing.is_none() {
         tracing::warn!("invoice.payment_success: unknown plan_code {}", plan_code);
         return Err(StatusCode::BAD_REQUEST);
     }
@@ -1198,12 +1230,14 @@ async fn handle_invoice_payment_success(
         )
         .await
         .map_err(|(s, _)| s)?;
-    } else if let Some(billing) = founder_billing {
-        let (amount_paid, invoice_amount) = zar_amounts_for_billing(billing);
+    } else if let Some((billing, plan_level)) = founder_billing_and_level {
+        let (amount_paid, invoice_amount) = amounts_for_billing_and_level(billing, plan_level, "ZAR");
+        let plan_name = if plan_level == "pro" { "Founder Pro" } else { "Founder Basic" };
         finalize_pro_subscription(
             state,
             user_id,
-            "Founder Basic",
+            plan_name,
+            plan_level,
             billing,
             amount_paid,
             "card",
@@ -1359,21 +1393,6 @@ fn verify_nowpayments_ipn(secret: &str, body: &[u8], sig_header: &str) -> bool {
     timing_safe_eq_hex(&exp_l, &sig_l)
 }
 
-fn usd_nowpayments_invoice_amount(billing: &str) -> Decimal {
-    if billing == "annual" {
-        Decimal::from_str("99.99").unwrap()
-    } else {
-        Decimal::from_str("9.99").unwrap()
-    }
-}
-
-fn usd_nowpayments_amount_display(billing: &str) -> &'static str {
-    match billing {
-        "annual" => "$99.99 USD",
-        _ => "$9.99 USD",
-    }
-}
-
 fn settings_path_for_role(role: &str) -> &'static str {
     match role {
         "investor" => "/investor",
@@ -1386,6 +1405,7 @@ fn settings_path_for_role(role: &str) -> &'static str {
 struct NowpaymentsSubscribeBody {
     billing: String,
     role: String,
+    plan: Option<String>,
 }
 
 async fn nowpayments_subscribe(
@@ -1446,14 +1466,29 @@ async fn nowpayments_subscribe(
         _ => {}
     }
 
-    let amount = if billing == "annual" { 99.99 } else { 9.99 };
+    let plan_level = if role_norm == "founder" {
+        match body.plan.as_deref().map(|p| p.to_ascii_lowercase()).as_deref() {
+            Some("pro") => "pro".to_string(),
+            _ => "basic".to_string(),
+        }
+    } else {
+        "basic".to_string()
+    };
+
+    let amount = match (plan_level.as_str(), billing.as_str()) {
+        ("pro", "annual") => 199.99,
+        ("pro", _) => 19.99,
+        (_, "annual") => 99.99,
+        _ => 9.99,
+    };
 
     let pending_id: Uuid = sqlx::query_scalar(
-        r#"INSERT INTO nowpayments_pending (user_id, role, billing) VALUES ($1, $2, $3) RETURNING id"#,
+        r#"INSERT INTO nowpayments_pending (user_id, role, billing, plan_level) VALUES ($1, $2, $3, $4) RETURNING id"#,
     )
     .bind(authed.id)
     .bind(&role_norm)
     .bind(&billing)
+    .bind(&plan_level)
     .fetch_one(&state.db)
     .await
     .map_err(|_| {
@@ -1473,7 +1508,7 @@ async fn nowpayments_subscribe(
         state.public_base_url.trim_end_matches('/')
     );
 
-    let order_description = format!("metatron {role_norm} basic {billing}");
+    let order_description = format!("metatron {role_norm} {plan_level} {billing}");
 
     let payload = json!({
         "price_amount": amount,
@@ -1609,15 +1644,15 @@ async fn nowpayments_webhook(
         return Ok(StatusCode::OK);
     }
 
-    let claimed: Option<(Uuid, String, String)> = sqlx::query_as(
-        r#"UPDATE nowpayments_pending SET fulfilled = TRUE WHERE id = $1 AND fulfilled = FALSE RETURNING user_id, role, billing"#,
+    let claimed: Option<(Uuid, String, String, String)> = sqlx::query_as(
+        r#"UPDATE nowpayments_pending SET fulfilled = TRUE WHERE id = $1 AND fulfilled = FALSE RETURNING user_id, role, billing, plan_level"#,
     )
     .bind(order_uuid)
     .fetch_optional(&state.db)
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let Some((user_id, role, billing)) = claimed else {
+    let Some((user_id, role, billing, plan_level)) = claimed else {
         return Ok(StatusCode::OK);
     };
 
@@ -1632,23 +1667,28 @@ async fn nowpayments_webhook(
     }
 
     let billing_lc = billing.to_ascii_lowercase();
-    let invoice_amount = usd_nowpayments_invoice_amount(billing_lc.as_str());
+    let plan_level_lc = plan_level.to_ascii_lowercase();
+    let (amount_display, invoice_amount) = amounts_for_billing_and_level(&billing_lc, &plan_level_lc, "USD");
     let reference_owned = order_uuid.to_string();
 
     let finalize_res: Result<(), (StatusCode, Json<Value>)> = match role.as_str() {
-        "founder" => finalize_pro_subscription(
-            &state,
-            user_id,
-            "Founder Basic",
-            billing_lc.as_str(),
-            usd_nowpayments_amount_display(billing_lc.as_str()),
-            "nowpayments",
-            Some(reference_owned.as_str()),
-            "USD",
-            invoice_amount,
-        )
-        .await
-        .map(|_| ()),
+        "founder" => {
+            let plan_name = if plan_level_lc == "pro" { "Founder Pro" } else { "Founder Basic" };
+            finalize_pro_subscription(
+                &state,
+                user_id,
+                plan_name,
+                &plan_level_lc,
+                &billing_lc,
+                amount_display,
+                "nowpayments",
+                Some(reference_owned.as_str()),
+                "USD",
+                invoice_amount,
+            )
+            .await
+            .map(|_| ())
+        }
         "investor" => {
             finalize_investor_subscription(
                 &state,

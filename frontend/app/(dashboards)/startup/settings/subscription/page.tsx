@@ -72,13 +72,20 @@ export default function StartupSubscriptionPage() {
   if (!token) return null;
 
   const isPaid = status?.subscription_status === "active";
+  const planLevel: "free" | "basic" | "pro" = !isPaid
+    ? "free"
+    : status?.subscription_tier === "pro"
+      ? "pro"
+      : "basic";
+  const planName = planLevel === "pro" ? "Founder Pro" : "Founder Basic";
 
   return (
     <SubscriptionPricingContent
       token={token}
       role="STARTUP"
       isPaid={isPaid}
-      planName="Founder Basic"
+      planLevel={planLevel}
+      planName={planName}
       planFeatures={basicFeatures}
       proName="Founder Pro"
       proFeatures={proFeatures}

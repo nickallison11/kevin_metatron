@@ -22,6 +22,8 @@ export type SubscriptionPricingContentProps = {
   token: string;
   role: Role;
   isPaid: boolean;
+  /** Current plan level — "free" | "basic" | "pro". Defaults to "free". */
+  planLevel?: "free" | "basic" | "pro";
   planName: string;
   planFeatures: string[];
   proName: string;
@@ -65,7 +67,7 @@ function formatBasicDisplay(
   return { price: "R1,699.99", unit: "ZAR / yr" };
 }
 
-function formatProComingSoonDisplay(
+function formatProDisplay(
   currency: "USD" | "ZAR",
   billing: "monthly" | "annual",
 ) {
@@ -98,6 +100,7 @@ export default function SubscriptionPricingContent(
     token,
     role,
     isPaid,
+    planLevel = "free",
     planName,
     planFeatures,
     proName,
@@ -211,6 +214,34 @@ export default function SubscriptionPricingContent(
     [token, zarSubscribeEndpoint, zarTier],
   );
 
+  const handleZarProSubscribe = useCallback(
+    async (bill: "monthly" | "annual") => {
+      setSubmitting(true);
+      setError(null);
+      try {
+        const res = await fetch(`${API_BASE}${zarSubscribeEndpoint}`, {
+          method: "POST",
+          headers: authJsonHeaders(token),
+          body: JSON.stringify({ tier: "founder_pro", billing: bill, currency: "ZAR" }),
+        });
+        const data = (await res.json().catch(() => ({}))) as {
+          hosted_url?: string;
+          error?: string;
+        };
+        if (!res.ok) throw new Error(data.error || "Could not start checkout.");
+        if (!data.hosted_url) throw new Error("Missing checkout URL.");
+        window.location.href = data.hosted_url;
+      } catch (e) {
+        setError(
+          e instanceof Error ? e.message : "Could not start checkout.",
+        );
+      } finally {
+        setSubmitting(false);
+      }
+    },
+    [token, zarSubscribeEndpoint],
+  );
+
   const handleNowpaymentsSubscribe = useCallback(
     async (bill: "monthly" | "annual") => {
       setSubmitting(true);
@@ -245,6 +276,37 @@ export default function SubscriptionPricingContent(
       }
     },
     [token, zarTier],
+  );
+
+  const handleNowpaymentsProSubscribe = useCallback(
+    async (bill: "monthly" | "annual") => {
+      setSubmitting(true);
+      setError(null);
+      try {
+        const res = await fetch(`${API_BASE}/commerce/nowpayments/subscribe`, {
+          method: "POST",
+          headers: authJsonHeaders(token),
+          body: JSON.stringify({ billing: bill, role: "founder", plan: "pro" }),
+        });
+        const data = (await res.json().catch(() => ({}))) as {
+          invoice_url?: string;
+          error?: string;
+        };
+        if (!res.ok) throw new Error(data.error || "Could not start checkout.");
+        if (data.invoice_url) {
+          window.location.href = data.invoice_url;
+        } else {
+          throw new Error("Missing checkout URL.");
+        }
+      } catch (e) {
+        setError(
+          e instanceof Error ? e.message : "Could not start checkout.",
+        );
+      } finally {
+        setSubmitting(false);
+      }
+    },
+    [token],
   );
 
   const onCancel = async () => {
@@ -291,9 +353,14 @@ export default function SubscriptionPricingContent(
     "flex flex-col rounded-[12px] border bg-[var(--bg-card)] p-6 text-left";
 
   const basicDisplay = formatBasicDisplay(currency, billing);
-  const proComingSoonDisplay = formatProComingSoonDisplay(currency, billing);
+  const proDisplay = formatProDisplay(currency, billing);
 
   const startupTier = (startupMeta?.subscriptionTier ?? "free").toLowerCase();
+
+  // Show the upgrade section for: free users, or basic founders who can upgrade to Pro
+  const showUpgradeSection = !isPaid || (role === "STARTUP" && planLevel === "basic");
+  const showBasicCard = !isPaid; // only for free users, not basic→pro upgraders
+  const showProCard = role === "STARTUP" && planLevel !== "pro";
 
   return (
     <div className="mx-auto w-full max-w-5xl px-5 py-10 space-y-6">
@@ -312,7 +379,7 @@ export default function SubscriptionPricingContent(
         </div>
       )}
 
-      {!isPaid && (
+      {showUpgradeSection && (
         <>
           <div className="flex flex-wrap justify-center gap-2">
             {(["ZAR", "USD"] as const).map((c) => (
@@ -420,96 +487,125 @@ export default function SubscriptionPricingContent(
         )}
       </section>
 
-      {!isPaid && (
+      {showUpgradeSection && (
         <div className="space-y-6">
           <h2 className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
-            Upgrade
+            {planLevel === "basic" ? "Upgrade to Pro" : "Upgrade"}
           </h2>
-          <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-            <section
-              className={`${cardBase} border-metatron-accent/40 shadow-[0_0_40px_rgba(108,92,231,0.12)]`}
-            >
-              <p className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
-                {planName}
-              </p>
-              <p className="mt-1 text-sm text-[var(--text-muted)]">
-                {billing === "monthly"
-                  ? "Billed monthly"
-                  : "Billed annually · save vs monthly"}
-              </p>
-              <p className="mt-4 text-4xl font-bold tracking-tight text-[var(--text)]">
-                {basicDisplay.price}{" "}
-                <span className="text-lg font-semibold text-[var(--text-muted)]">
-                  {basicDisplay.unit}
-                </span>
-              </p>
-              {currency === "USD" && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => void handleNowpaymentsSubscribe(billing)}
-                    disabled={submitting}
-                    className="mt-6 inline-flex w-full items-center justify-center rounded-[12px] bg-metatron-accent px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-metatron-accent-hover disabled:opacity-60"
-                  >
-                    {submitting ? "Redirecting…" : "Pay with card"}
-                  </button>
-                  <p className="mt-1.5 text-center text-[10px] text-[var(--text-muted)]">
-                    Visa & Mastercard · Powered by NowPayments
-                  </p>
-                </>
-              )}
-              {currency === "ZAR" && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => void handleZarSubscribe(billing)}
-                    disabled={submitting}
-                    className="mt-6 inline-flex w-full items-center justify-center rounded-[12px] border border-[var(--border)] px-4 py-2.5 text-sm font-semibold text-[var(--text)] transition-colors hover:border-metatron-accent/30 disabled:opacity-60"
-                  >
-                    {submitting ? "Redirecting…" : "Pay with card"}
-                  </button>
-                  <p className="mt-1.5 text-center text-[10px] text-[var(--text-muted)]">
-                    Visa & Mastercard · Powered by Paystack
-                  </p>
-                </>
-              )}
-              <div className="my-6 border-t border-[var(--border)]" />
-              <ul className="flex flex-col gap-3">
-                {planFeatures.map((f) => (
-                  <FeatureCheck key={f}>{f}</FeatureCheck>
-                ))}
-              </ul>
-            </section>
+          <div className={`grid grid-cols-1 gap-6 ${showBasicCard && showProCard ? "md:grid-cols-2" : ""}`}>
+            {showBasicCard && (
+              <section
+                className={`${cardBase} border-metatron-accent/40 shadow-[0_0_40px_rgba(108,92,231,0.12)]`}
+              >
+                <p className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
+                  {planName}
+                </p>
+                <p className="mt-1 text-sm text-[var(--text-muted)]">
+                  {billing === "monthly"
+                    ? "Billed monthly"
+                    : "Billed annually · save vs monthly"}
+                </p>
+                <p className="mt-4 text-4xl font-bold tracking-tight text-[var(--text)]">
+                  {basicDisplay.price}{" "}
+                  <span className="text-lg font-semibold text-[var(--text-muted)]">
+                    {basicDisplay.unit}
+                  </span>
+                </p>
+                {currency === "USD" && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => void handleNowpaymentsSubscribe(billing)}
+                      disabled={submitting}
+                      className="mt-6 inline-flex w-full items-center justify-center rounded-[12px] bg-metatron-accent px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-metatron-accent-hover disabled:opacity-60"
+                    >
+                      {submitting ? "Redirecting…" : "Pay with card"}
+                    </button>
+                    <p className="mt-1.5 text-center text-[10px] text-[var(--text-muted)]">
+                      Visa & Mastercard · Powered by NowPayments
+                    </p>
+                  </>
+                )}
+                {currency === "ZAR" && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => void handleZarSubscribe(billing)}
+                      disabled={submitting}
+                      className="mt-6 inline-flex w-full items-center justify-center rounded-[12px] border border-[var(--border)] px-4 py-2.5 text-sm font-semibold text-[var(--text)] transition-colors hover:border-metatron-accent/30 disabled:opacity-60"
+                    >
+                      {submitting ? "Redirecting…" : "Pay with card"}
+                    </button>
+                    <p className="mt-1.5 text-center text-[10px] text-[var(--text-muted)]">
+                      Visa & Mastercard · Powered by Paystack
+                    </p>
+                  </>
+                )}
+                <div className="my-6 border-t border-[var(--border)]" />
+                <ul className="flex flex-col gap-3">
+                  {planFeatures.map((f) => (
+                    <FeatureCheck key={f}>{f}</FeatureCheck>
+                  ))}
+                </ul>
+              </section>
+            )}
 
-            <section
-              className={`${cardBase} border-[var(--border)] opacity-50 cursor-not-allowed`}
-            >
-              <div className="flex items-start justify-between gap-2">
+            {showProCard && (
+              <section
+                className={`${cardBase} border-metatron-accent/40 shadow-[0_0_40px_rgba(108,92,231,0.12)]`}
+              >
                 <p className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
                   {proName}
                 </p>
-                <span className="rounded-full bg-[var(--border)] px-2.5 py-1 text-[10px] font-semibold text-[var(--text-muted)]">
-                  Coming Soon
-                </span>
-              </div>
-              <p className="mt-1 text-sm text-[var(--text-muted)]">
-                {billing === "monthly"
-                  ? "Billed monthly"
-                  : "Billed annually · save vs monthly"}
-              </p>
-              <p className="mt-4 text-4xl font-bold tracking-tight text-[var(--text)]">
-                {proComingSoonDisplay.price}{" "}
-                <span className="text-lg font-semibold text-[var(--text-muted)]">
-                  {proComingSoonDisplay.unit}
-                </span>
-              </p>
-              <div className="my-6 border-t border-[var(--border)]" />
-              <ul className="flex flex-col gap-3">
-                {proFeatures.map((f) => (
-                  <FeatureCheck key={f}>{f}</FeatureCheck>
-                ))}
-              </ul>
-            </section>
+                <p className="mt-1 text-sm text-[var(--text-muted)]">
+                  {billing === "monthly"
+                    ? "Billed monthly"
+                    : "Billed annually · save vs monthly"}
+                </p>
+                <p className="mt-4 text-4xl font-bold tracking-tight text-[var(--text)]">
+                  {proDisplay.price}{" "}
+                  <span className="text-lg font-semibold text-[var(--text-muted)]">
+                    {proDisplay.unit}
+                  </span>
+                </p>
+                {currency === "USD" && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => void handleNowpaymentsProSubscribe(billing)}
+                      disabled={submitting}
+                      className="mt-6 inline-flex w-full items-center justify-center rounded-[12px] bg-metatron-accent px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-metatron-accent-hover disabled:opacity-60"
+                    >
+                      {submitting ? "Redirecting…" : "Pay with card"}
+                    </button>
+                    <p className="mt-1.5 text-center text-[10px] text-[var(--text-muted)]">
+                      Visa & Mastercard · Powered by NowPayments
+                    </p>
+                  </>
+                )}
+                {currency === "ZAR" && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => void handleZarProSubscribe(billing)}
+                      disabled={submitting}
+                      className="mt-6 inline-flex w-full items-center justify-center rounded-[12px] border border-[var(--border)] px-4 py-2.5 text-sm font-semibold text-[var(--text)] transition-colors hover:border-metatron-accent/30 disabled:opacity-60"
+                    >
+                      {submitting ? "Redirecting…" : "Pay with card"}
+                    </button>
+                    <p className="mt-1.5 text-center text-[10px] text-[var(--text-muted)]">
+                      Visa & Mastercard · Powered by Paystack
+                    </p>
+                  </>
+                )}
+                <div className="my-6 border-t border-[var(--border)]" />
+                <ul className="flex flex-col gap-3">
+                  {proFeatures.map((f) => (
+                    <FeatureCheck key={f}>{f}</FeatureCheck>
+                  ))}
+                </ul>
+              </section>
+            )}
           </div>
         </div>
       )}

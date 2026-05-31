@@ -47,6 +47,8 @@ pub struct Settings {
     pub paystack_connector_plan_basic_annual: String,
     pub paystack_investor_plan_basic_monthly: String,
     pub paystack_investor_plan_basic_annual: String,
+    pub paystack_plan_pro_monthly: String,
+    pub paystack_plan_pro_annual: String,
     pub nowpayments_api_key: Option<String>,
     pub nowpayments_ipn_secret: Option<String>,
     pub nowpayments_api_base: String,
@@ -201,6 +203,14 @@ impl Settings {
                 .unwrap_or_default()
                 .trim()
                 .to_string();
+        let paystack_plan_pro_monthly = env::var("PAYSTACK_PLAN_PRO_MONTHLY")
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        let paystack_plan_pro_annual = env::var("PAYSTACK_PLAN_PRO_ANNUAL")
+            .unwrap_or_default()
+            .trim()
+            .to_string();
 
         let nowpayments_api_key = env::var("NOWPAYMENTS_API_KEY")
             .ok()
@@ -322,6 +332,8 @@ impl Settings {
             paystack_connector_plan_basic_annual,
             paystack_investor_plan_basic_monthly,
             paystack_investor_plan_basic_annual,
+            paystack_plan_pro_monthly,
+            paystack_plan_pro_annual,
             nowpayments_api_key,
             nowpayments_ipn_secret,
             nowpayments_api_base,

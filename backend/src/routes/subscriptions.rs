@@ -327,6 +327,7 @@ async fn confirm_subscription(
                 &state,
                 authed.id,
                 "Founder Basic",
+                "basic",
                 &tier,
                 amount_paid_display,
                 payment_method,

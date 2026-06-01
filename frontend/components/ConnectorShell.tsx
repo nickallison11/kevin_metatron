@@ -8,6 +8,7 @@ import { useAuth } from "@/lib/auth";
 
 const FREE_NAV = [
   { href: "/connector", label: "Dashboard" },
+  { href: "/connector/kevin", label: "Chat with Kevin" },
   { href: "/connector/profile", label: "Profile Settings" },
   { href: "/connector/network", label: "My Network" },
 ];

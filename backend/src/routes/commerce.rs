@@ -18,6 +18,7 @@ use uuid::Uuid;
 use rust_decimal::Decimal;
 use std::str::FromStr;
 
+use crate::email;
 use crate::identity::require_user;
 use crate::routes::subscription_finalize::finalize_pro_subscription;
 use crate::state::AppState;
@@ -427,6 +428,28 @@ pub async fn finalize_connector_subscription(
         )
     })?;
 
+    if let Ok(user_email) = sqlx::query_scalar::<_, String>("SELECT email FROM users WHERE id = $1")
+        .bind(user_id)
+        .fetch_one(&state.db)
+        .await
+    {
+        email::send_email(
+            &state.http_client,
+            state.resend_api_key.as_deref(),
+            &state.email_from,
+            &user_email,
+            "Your metatron Connector Basic subscription has renewed",
+            &email::subscription_invoice_email_html(
+                "Connector Basic",
+                &period_start,
+                &period_end,
+                &format!("{invoice_amount:.2} {currency}"),
+                reference,
+            ),
+        )
+        .await;
+    }
+
     Ok(())
 }
 
@@ -484,6 +507,28 @@ pub async fn finalize_investor_subscription(
     .execute(&state.db)
     .await
     .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": "internal error" }))))?;
+
+    if let Ok(user_email) = sqlx::query_scalar::<_, String>("SELECT email FROM users WHERE id = $1")
+        .bind(user_id)
+        .fetch_one(&state.db)
+        .await
+    {
+        email::send_email(
+            &state.http_client,
+            state.resend_api_key.as_deref(),
+            &state.email_from,
+            &user_email,
+            "Your metatron Investor Basic subscription has renewed",
+            &email::subscription_invoice_email_html(
+                "Investor Basic",
+                &period_start,
+                &period_end,
+                &format!("{invoice_amount:.2} {currency}"),
+                reference,
+            ),
+        )
+        .await;
+    }
 
     Ok(())
 }
@@ -1308,13 +1353,17 @@ async fn webhook(
 
     let metadata = data.get("metadata").cloned().unwrap_or(Value::Null);
 
-    let user_id_str = metadata
-        .get("user_id")
-        .and_then(|u| u.as_str())
-        .ok_or_else(|| {
-            tracing::warn!("paystack webhook: missing user_id in metadata");
-            StatusCode::BAD_REQUEST
-        })?;
+    let user_id_str = match metadata.get("user_id").and_then(|u| u.as_str()) {
+        Some(s) => s,
+        None => {
+            // Automated subscription renewals don't carry the checkout metadata —
+            // Paystack sends charge.success with the customer/plan info instead.
+            tracing::info!("paystack webhook: charge.success without user_id metadata, treating as renewal");
+            return handle_invoice_payment_success(&state, &data)
+                .await
+                .map(|_| StatusCode::OK);
+        }
+    };
 
     let user_id = Uuid::parse_str(user_id_str).map_err(|_| {
         tracing::warn!("paystack webhook: invalid user_id");

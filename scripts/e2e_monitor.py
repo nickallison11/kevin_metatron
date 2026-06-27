@@ -32,6 +32,7 @@ Required env vars:
 import os
 import imaplib
 import email as email_lib
+from email.header import decode_header, make_header
 import requests
 import smtplib
 import datetime
@@ -111,10 +112,10 @@ def check_investor_profile(jwt):
 
 
 def imap_fetch(hours):
-    """Returns list of {from, subject, date} for all inbox mail in last N hours."""
+    """Returns list of {from, subject, date} for all mail (all folders) in last N hours."""
     mail = imaplib.IMAP4_SSL("imap.gmail.com")
     mail.login(GMAIL_USER, GMAIL_APP_PASSWORD)
-    mail.select("inbox")
+    mail.select('"[Gmail]/All Mail"')
     cutoff_dt = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=hours)
     since_str = cutoff_dt.strftime("%d-%b-%Y")
     _, data = mail.search(None, f'(SINCE "{since_str}")')
@@ -131,9 +132,14 @@ def imap_fetch(hours):
                 continue
         except Exception:
             pass
+        raw_subj = msg.get("Subject", "")
+        try:
+            decoded_subj = str(make_header(decode_header(raw_subj)))
+        except Exception:
+            decoded_subj = raw_subj
         msgs.append({
             "from": msg.get("From", ""),
-            "subject": msg.get("Subject", ""),
+            "subject": decoded_subj,
             "date": date_str,
         })
     mail.logout()

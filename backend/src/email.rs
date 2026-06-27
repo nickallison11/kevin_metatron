@@ -334,6 +334,33 @@ pub fn pro_activated_email_html(plan_name: &str, period_end: &str, amount_paid: 
     )
 }
 
+pub fn subscription_invoice_email_html(
+    plan_name: &str,
+    period_start: &str,
+    period_end: &str,
+    amount_paid: &str,
+    reference: Option<&str>,
+) -> String {
+    let reference_row = match reference {
+        Some(r) if !r.trim().is_empty() => format!("<br/>Reference: {r}"),
+        _ => String::new(),
+    };
+    shell_html(
+        &format!("Your metatron {plan_name} subscription has renewed"),
+        &format!(
+            r#"
+<p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">Your <strong>{plan_name}</strong> subscription has renewed. Here's your receipt:</p>
+<p style="margin:0 0 6px 0;font-size:13px;color:#8888a0;">Invoice:</p>
+<p style="margin:0 0 0 0;font-size:13px;color:#e8e8ed;">Billing period: {period_start} – {period_end}<br/>Amount paid: {amount_paid}{reference_row}</p>
+<p style="margin:14px 0 0 0;font-size:14px;">
+  <a href="https://platform.metatron.id" style="color:#6c5ce7;text-decoration:none;">Open platform</a> ·
+  <a href="mailto:support@metatron.id" style="color:#6c5ce7;text-decoration:none;">Support</a>
+</p>
+"#
+        ),
+    )
+}
+
 pub fn subscription_cancelled_email_html(period_end: &str) -> String {
     shell_html(
         "Your metatron subscription has been cancelled",

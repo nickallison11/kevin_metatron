@@ -1053,18 +1053,15 @@ async fn store_paystack_subscription_if_present(
     user_id: Uuid,
     data: &Value,
 ) {
-    let sub = match data.get("subscription") {
-        Some(s) if !s.is_null() => s,
-        _ => return,
-    };
-
-    let code = sub
-        .get("subscription_code")
-        .or_else(|| sub.get("code"))
+    // Try direct extraction from webhook data first.
+    // Paystack's charge.success webhook sends data.subscription as an empty object,
+    // so this fast-path rarely succeeds — the API fallback below handles the common case.
+    let sub = data.get("subscription");
+    let direct_code = sub
+        .and_then(|s| s.get("subscription_code").or_else(|| s.get("code")))
         .and_then(|v| v.as_str());
-
-    let token = sub
-        .get("email_token")
+    let direct_token = sub
+        .and_then(|s| s.get("email_token"))
         .and_then(|v| v.as_str())
         .or_else(|| {
             data.get("customer")
@@ -1072,23 +1069,91 @@ async fn store_paystack_subscription_if_present(
                 .and_then(|v| v.as_str())
         });
 
-    let (Some(code), Some(token)) = (code, token) else {
+    if let (Some(code), Some(token)) = (direct_code, direct_token) {
+        let _ = sqlx::query(
+            "UPDATE users SET paystack_subscription_code = $1, paystack_email_token = $2 WHERE id = $3",
+        )
+        .bind(code)
+        .bind(token)
+        .bind(user_id)
+        .execute(&state.db)
+        .await;
         return;
+    }
+
+    // charge.success doesn't include subscription_code/email_token in its data.
+    // The GET /subscription list endpoint filter also doesn't work reliably in Paystack's API.
+    // Use GET /customer/{customer_code} instead — it returns subscriptions with code + token.
+    let secret = match state.paystack_secret_key.as_deref() {
+        Some(s) if !s.is_empty() => s.to_string(),
+        _ => return,
     };
 
-    let _ = sqlx::query(
-        r#"
-        UPDATE users
-        SET paystack_subscription_code = $1,
-            paystack_email_token = $2
-        WHERE id = $3
-        "#,
-    )
-    .bind(code)
-    .bind(token)
-    .bind(user_id)
-    .execute(&state.db)
-    .await;
+    let customer_code = match data
+        .get("customer")
+        .and_then(|c| c.get("customer_code"))
+        .and_then(|v| v.as_str())
+    {
+        Some(c) => c.to_string(),
+        None => return,
+    };
+
+    let url = format!("https://api.paystack.co/customer/{}", customer_code);
+
+    let resp = match state
+        .http_client
+        .get(&url)
+        .header("Authorization", format!("Bearer {}", secret))
+        .send()
+        .await
+    {
+        Ok(r) => r,
+        Err(_) => return,
+    };
+
+    let json: Value = match resp.json().await {
+        Ok(j) => j,
+        Err(_) => return,
+    };
+
+    let subs = match json
+        .get("data")
+        .and_then(|d| d.get("subscriptions"))
+        .and_then(|s| s.as_array())
+    {
+        Some(a) if !a.is_empty() => a.clone(),
+        _ => return,
+    };
+
+    // A user has one active subscription at a time; pick the most recently created active one.
+    let mut active: Vec<&Value> = subs
+        .iter()
+        .filter(|s| s.get("status").and_then(|v| v.as_str()) == Some("active"))
+        .collect();
+    active.sort_by(|a, b| {
+        let ta = a.get("createdAt").and_then(|v| v.as_str()).unwrap_or("");
+        let tb = b.get("createdAt").and_then(|v| v.as_str()).unwrap_or("");
+        tb.cmp(ta)
+    });
+
+    let sub = match active.first() {
+        Some(s) => *s,
+        None => return,
+    };
+
+    let code = sub.get("subscription_code").and_then(|v| v.as_str());
+    let token = sub.get("email_token").and_then(|v| v.as_str());
+
+    if let (Some(code), Some(token)) = (code, token) {
+        let _ = sqlx::query(
+            "UPDATE users SET paystack_subscription_code = $1, paystack_email_token = $2 WHERE id = $3",
+        )
+        .bind(code)
+        .bind(token)
+        .bind(user_id)
+        .execute(&state.db)
+        .await;
+    }
 }
 
 async fn finalize_from_paystack_data(
@@ -1246,6 +1311,8 @@ async fn handle_invoice_payment_success(
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     if existing > 0 {
+        // Invoice already processed — still update subscription code in case it wasn't stored yet.
+        store_paystack_subscription_if_present(state, user_id, data).await;
         return Ok(());
     }
 

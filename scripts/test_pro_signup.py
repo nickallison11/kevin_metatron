@@ -57,7 +57,7 @@ existing = db(f"SELECT subscription_plan FROM users WHERE email='{TEST_EMAIL}'")
 account_exists = bool(existing)
 if account_exists:
     db(f"""UPDATE users SET subscription_plan='free', subscription_status='inactive',
-           is_pro=false, paystack_subscription_code=NULL
+           is_pro=false, paystack_subscription_code=NULL, subscription_period_end=NULL
            WHERE email='{TEST_EMAIL}'""")
     db(f"DELETE FROM subscription_invoices WHERE user_id=(SELECT id FROM users WHERE email='{TEST_EMAIL}')")
     print(f"  Existing account ({existing}) — reset to free for clean test")

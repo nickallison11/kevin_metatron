@@ -48,6 +48,19 @@ type ReceivedConnect = {
   intro_passed_at: string | null;
 };
 
+type IntroSuggestion = {
+  id: string;
+  matched_user_id: string;
+  fit_score: number;
+  fit_reason: string;
+  draft_message: string;
+  status: string;
+  created_at: string;
+  firm_name: string | null;
+  investor_email: string;
+  thesis: string | null;
+};
+
 const PAGE_SIZE = 10;
 
 const DEFAULT_MATCH_COLUMNS = [
@@ -88,6 +101,9 @@ function StartupMatchesPageInner() {
   const [receivedConnects, setReceivedConnects] = useState<ReceivedConnect[]>([]);
   const [connectFetching, setConnectFetching] = useState(false);
   const [connectActionBusy, setConnectActionBusy] = useState<string | null>(null);
+  const [suggestions, setSuggestions] = useState<IntroSuggestion[]>([]);
+  const [suggestionBusy, setSuggestionBusy] = useState<string | null>(null);
+  const [expandedSuggestion, setExpandedSuggestion] = useState<string | null>(null);
   const [acceptedPeerIds, setAcceptedPeerIds] = useState<Set<string>>(new Set());
   const [colWidths, setColWidths] = useState<Record<string, number>>(() => {
     if (typeof window === "undefined") return {};
@@ -98,6 +114,51 @@ function StartupMatchesPageInner() {
       return {};
     }
   });
+
+  const loadSuggestions = useCallback(async () => {
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_BASE}/kevin-matches/suggestions`, {
+        headers: authJsonHeaders(token),
+      });
+      if (res.ok) setSuggestions(await res.json());
+    } catch { /* ignore */ }
+  }, [token]);
+
+  async function approveSuggestion(id: string) {
+    if (!token) return;
+    setSuggestionBusy(id);
+    try {
+      const res = await fetch(`${API_BASE}/kevin-matches/suggestions/${id}/approve`, {
+        method: "POST",
+        headers: authJsonHeaders(token),
+      });
+      if (res.ok) {
+        setSuggestions((prev) => prev.filter((s) => s.id !== id));
+        setMsg("Intro sent! The investor will hear from Kevin.");
+      } else {
+        const body = await res.text();
+        setMsg(`Could not send intro: ${body}`);
+      }
+    } catch {
+      setMsg("Could not send intro.");
+    } finally {
+      setSuggestionBusy(null);
+    }
+  }
+
+  async function declineSuggestion(id: string) {
+    if (!token) return;
+    setSuggestionBusy(id);
+    try {
+      const res = await fetch(`${API_BASE}/kevin-matches/suggestions/${id}/decline`, {
+        method: "POST",
+        headers: authJsonHeaders(token),
+      });
+      if (res.ok) setSuggestions((prev) => prev.filter((s) => s.id !== id));
+    } catch { /* ignore */ }
+    finally { setSuggestionBusy(null); }
+  }
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -153,8 +214,9 @@ function StartupMatchesPageInner() {
     if (!loading && token) {
       void load();
       void loadConnections();
+      void loadSuggestions();
     }
-  }, [loading, token, load, loadConnections]);
+  }, [loading, token, load, loadConnections, loadSuggestions]);
 
   useEffect(() => {
     if (!loading && token && role === "STARTUP" && mainTab === "connectRequests") {
@@ -302,7 +364,64 @@ function StartupMatchesPageInner() {
           <div>
             <h1 className="text-2xl font-semibold text-[var(--text)]">Kevin&apos;s Investor Matches</h1>
             <p className="text-sm text-[var(--text-muted)] mt-1">
-              {showConnectTab && mainTab === "connectRequests"
+              {suggestions.length > 0 && (
+            <div style={{ background: "rgba(108,92,231,0.08)", border: "1px solid rgba(108,92,231,0.3)", borderRadius: 16, padding: "16px 20px", marginBottom: 16 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                <span style={{ fontSize: 16 }}>✨</span>
+                <span style={{ fontWeight: 600, color: "var(--text)", fontSize: 14 }}>
+                  Kevin suggests {suggestions.length === 1 ? "a connection" : `${suggestions.length} connections`}
+                </span>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                {suggestions.map((s) => {
+                  const name = s.firm_name || s.investor_email;
+                  const expanded = expandedSuggestion === s.id;
+                  return (
+                    <div key={s.id} style={{ background: "var(--card-bg, #1a1a2e)", border: "1px solid var(--border)", borderRadius: 12, padding: "14px 16px" }}>
+                      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontWeight: 600, fontSize: 14, color: "var(--text)", marginBottom: 4 }}>{name}</div>
+                          <div style={{ fontSize: 13, color: "var(--text-muted)", lineHeight: 1.5, marginBottom: expanded ? 0 : 4 }}>{s.fit_reason}</div>
+                          {expanded && (
+                            <div style={{ marginTop: 12, padding: "10px 14px", background: "rgba(108,92,231,0.06)", borderRadius: 8, fontSize: 13, color: "var(--text)", lineHeight: 1.7, whiteSpace: "pre-wrap" }}>
+                              <div style={{ fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>Kevin&apos;s draft message</div>
+                              {s.draft_message}
+                            </div>
+                          )}
+                        </div>
+                        <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                          <button
+                            type="button"
+                            onClick={() => setExpandedSuggestion(expanded ? null : s.id)}
+                            style={{ padding: "5px 10px", borderRadius: 8, fontSize: 12, background: "transparent", border: "1px solid var(--border)", color: "var(--text-muted)", cursor: "pointer" }}
+                          >
+                            {expanded ? "Hide" : "Preview"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void declineSuggestion(s.id)}
+                            disabled={suggestionBusy === s.id}
+                            style={{ padding: "5px 10px", borderRadius: 8, fontSize: 12, background: "transparent", border: "1px solid var(--border)", color: "var(--text-muted)", cursor: "pointer", opacity: suggestionBusy === s.id ? 0.5 : 1 }}
+                          >
+                            Pass
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void approveSuggestion(s.id)}
+                            disabled={suggestionBusy === s.id}
+                            style={{ padding: "5px 10px", borderRadius: 8, fontSize: 12, background: "#6c5ce7", border: "none", color: "#fff", fontWeight: 600, cursor: "pointer", opacity: suggestionBusy === s.id ? 0.5 : 1 }}
+                          >
+                            {suggestionBusy === s.id ? "Sending…" : "Send intro"}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          {showConnectTab && mainTab === "connectRequests"
                 ? `${openConnectRequests.length} open received-connection${
                     openConnectRequests.length !== 1 ? "s" : ""
                   }`

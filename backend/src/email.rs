@@ -754,3 +754,35 @@ pub fn intro_passed_html(investor_name: &str, pass_message: &str) -> String {
     )
 }
 
+
+pub fn kevin_intro_suggestion_email_html(
+    investor_name: &str,
+    fit_reason: &str,
+    draft_message: &str,
+) -> String {
+    let dashboard_url = "https://platform.metatron.id/startup/matches";
+    shell_html(
+        "Kevin found a match — ready to send?",
+        &format!(
+            r#"
+<p style="margin:0 0 20px 0;font-size:14px;color:#e8e8ed;line-height:1.7;">Kevin identified <strong style="color:#ffffff;">{investor_name}</strong> as a strong fit for your raise.</p>
+
+<div style="background:#1e1e2e;border:1px solid #3d3d5c;border-radius:12px;padding:16px 20px;margin:0 0 20px 0;">
+  <p style="margin:0 0 8px 0;font-size:12px;color:#8888a0;text-transform:uppercase;letter-spacing:0.05em;">Why Kevin thinks you match</p>
+  <p style="margin:0;font-size:14px;color:#e8e8ed;line-height:1.7;">{fit_reason}</p>
+</div>
+
+<div style="background:#1e1e2e;border:1px solid #3d3d5c;border-radius:12px;padding:16px 20px;margin:0 0 24px 0;">
+  <p style="margin:0 0 8px 0;font-size:12px;color:#8888a0;text-transform:uppercase;letter-spacing:0.05em;">Kevin's draft intro message</p>
+  <p style="margin:0;font-size:14px;color:#e8e8ed;line-height:1.7;white-space:pre-wrap;">{draft_message}</p>
+</div>
+
+<p style="margin:0 0 24px 0;">
+  <a href="{dashboard_url}" style="display:inline-block;background:#6c5ce7;color:#ffffff;text-decoration:none;padding:10px 18px;border-radius:12px;font-weight:600;font-size:14px;">Review &amp; approve in dashboard →</a>
+</p>
+
+<p style="margin:0;font-size:14px;color:#8888a0;">— Kevin<br/>metatron · The intelligence layer between founders and capital.</p>
+"#
+        ),
+    )
+}

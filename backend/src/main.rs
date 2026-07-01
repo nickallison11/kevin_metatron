@@ -31,6 +31,7 @@ async fn main() {
 
     let app = app::build_app(&settings, shared_state.clone());
     cleanup::start_cleanup_task(shared_state.clone());
+    cleanup::start_kevin_suggestions_task(shared_state.clone());
 
     let port = settings.port;
     let addr = std::net::SocketAddr::from(([0, 0, 0, 0], port));

@@ -23,6 +23,9 @@ use crate::state::AppState;
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/", get(get_matches).post(generate_matches))
+        .route("/suggestions", get(list_suggestions))
+        .route("/suggestions/:id/approve", post(approve_suggestion))
+        .route("/suggestions/:id/decline", post(decline_suggestion))
         .route("/received-intros", get(get_received_intros))
         .route("/:id/view-deck", post(view_deck))
         .route("/:id/accept-intro", post(accept_intro))
@@ -1671,3 +1674,173 @@ async fn request_intro(
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
+
+// ── Kevin intro suggestions ────────────────────────────────────────────────
+
+#[derive(Serialize, sqlx::FromRow)]
+pub struct IntroSuggestion {
+    pub id: Uuid,
+    pub matched_user_id: Uuid,
+    pub fit_score: f64,
+    pub fit_reason: String,
+    pub draft_message: String,
+    pub status: String,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub firm_name: Option<String>,
+    pub investor_email: String,
+    pub thesis: Option<String>,
+}
+
+async fn list_suggestions(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+) -> Result<Json<Vec<IntroSuggestion>>, (StatusCode, String)> {
+    let user = require_user(&state, bearer.token()).await?;
+
+    let rows = sqlx::query_as::<_, IntroSuggestion>(
+        r#"
+        SELECT
+            kis.id,
+            kis.matched_user_id,
+            kis.fit_score,
+            kis.fit_reason,
+            kis.draft_message,
+            kis.status,
+            kis.created_at,
+            ip.firm_name,
+            u2.email AS investor_email,
+            ip.thesis
+        FROM kevin_intro_suggestions kis
+        JOIN users u2 ON u2.id = kis.matched_user_id
+        LEFT JOIN investor_profiles ip ON ip.user_id = kis.matched_user_id
+        WHERE kis.for_user_id = $1
+        AND kis.status = 'pending'
+        ORDER BY kis.fit_score DESC, kis.created_at DESC
+        "#,
+    )
+    .bind(user.id)
+    .fetch_all(&state.db)
+    .await
+    .map_err(internal)?;
+
+    Ok(Json(rows))
+}
+
+async fn approve_suggestion(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+    Path(suggestion_id): Path<Uuid>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let user = require_user(&state, bearer.token()).await?;
+
+    // Load suggestion
+    let row: Option<(Uuid, String)> = sqlx::query_as(
+        "SELECT matched_user_id, draft_message FROM kevin_intro_suggestions WHERE id = $1 AND for_user_id = $2 AND status = 'pending'",
+    )
+    .bind(suggestion_id)
+    .bind(user.id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(internal)?;
+
+    let (investor_id, draft_note) = row.ok_or((StatusCode::NOT_FOUND, "suggestion not found".to_string()))?;
+
+    // Check investor exists
+    let investor_ok: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE id = $1 AND role = 'INVESTOR')")
+        .bind(investor_id)
+        .fetch_one(&state.db)
+        .await
+        .map_err(internal)?;
+
+    if !investor_ok {
+        return Err((StatusCode::NOT_FOUND, "investor not found".to_string()));
+    }
+
+    // Fire the intro via introductions table
+    let intro_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO introductions (id, investor_user_id, startup_user_id, status, note) VALUES ($1, $2, $3, 'PENDING', $4) ON CONFLICT DO NOTHING",
+    )
+    .bind(intro_id)
+    .bind(investor_id)
+    .bind(user.id)
+    .bind(&draft_note)
+    .execute(&state.db)
+    .await
+    .map_err(internal)?;
+
+    // Mark kevin_match intro_requested_at if a match exists
+    let _ = sqlx::query(
+        "UPDATE kevin_matches SET intro_requested_at = NOW() WHERE for_user_id = $1 AND matched_user_id = $2 AND intro_requested_at IS NULL",
+    )
+    .bind(user.id)
+    .bind(investor_id)
+    .execute(&state.db)
+    .await;
+
+    // Mark suggestion approved
+    sqlx::query(
+        "UPDATE kevin_intro_suggestions SET status = 'approved', actioned_at = NOW() WHERE id = $1",
+    )
+    .bind(suggestion_id)
+    .execute(&state.db)
+    .await
+    .map_err(internal)?;
+
+    // Notify investor via email
+    let investor_email: Option<String> = sqlx::query_scalar("SELECT email FROM users WHERE id = $1")
+        .bind(investor_id)
+        .fetch_optional(&state.db)
+        .await
+        .unwrap_or(None);
+
+    let founder_fp: Option<(Option<String>, Option<String>, Option<String>, Option<String>, Option<String>)> = sqlx::query_as(
+        "SELECT p.company_name, p.one_liner, p.stage, p.sector, p.pitch_deck_url FROM profiles p WHERE p.user_id = $1",
+    )
+    .bind(user.id)
+    .fetch_optional(&state.db)
+    .await
+    .unwrap_or(None);
+
+    if let (Some(inv_email), Some(resend_key)) = (investor_email, state.resend_api_key.as_deref()) {
+        let (fp_company, fp_one_liner, fp_stage, fp_sector, fp_deck) =
+            founder_fp.unwrap_or((None, None, None, None, None));
+        let company = fp_company.unwrap_or_else(|| "a founder".to_string());
+        let one_liner = fp_one_liner.unwrap_or_default();
+        let stage = fp_stage.unwrap_or_default();
+        let sector = fp_sector.unwrap_or_default();
+        crate::email::send_email(
+            &state.http_client,
+            Some(resend_key),
+            &state.email_from,
+            &inv_email,
+            &format!("{company} wants to connect via Kevin"),
+            &crate::email::intro_investor_email_html("Investor", &company, &one_liner, &stage, &sector, &draft_note, fp_deck.as_deref()),
+        )
+        .await;
+    }
+    Ok(Json(serde_json::json!({"ok": true, "intro_id": intro_id})))
+}
+
+async fn decline_suggestion(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+    Path(suggestion_id): Path<Uuid>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let user = require_user(&state, bearer.token()).await?;
+
+    let updated = sqlx::query(
+        "UPDATE kevin_intro_suggestions SET status = 'declined', actioned_at = NOW() WHERE id = $1 AND for_user_id = $2 AND status = 'pending'",
+    )
+    .bind(suggestion_id)
+    .bind(user.id)
+    .execute(&state.db)
+    .await
+    .map_err(internal)?;
+
+    if updated.rows_affected() == 0 {
+        return Err((StatusCode::NOT_FOUND, "suggestion not found".to_string()));
+    }
+
+    Ok(Json(serde_json::json!({"ok": true})))
+}

@@ -298,7 +298,7 @@ async fn generate_proactive_suggestions(state: &AppState) {
             p.company_name AS founder_company,
             p.one_liner AS founder_one_liner,
             ip.firm_name,
-            ip.thesis
+            ip.investment_thesis AS thesis
         FROM kevin_matches km
         JOIN users u ON u.id = km.for_user_id
         LEFT JOIN profiles p ON p.user_id = km.for_user_id

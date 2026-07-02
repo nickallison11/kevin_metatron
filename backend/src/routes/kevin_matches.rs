@@ -1709,7 +1709,7 @@ async fn list_suggestions(
             kis.created_at,
             ip.firm_name,
             u2.email AS investor_email,
-            ip.thesis
+            ip.investment_thesis AS thesis
         FROM kevin_intro_suggestions kis
         JOIN users u2 ON u2.id = kis.matched_user_id
         LEFT JOIN investor_profiles ip ON ip.user_id = kis.matched_user_id

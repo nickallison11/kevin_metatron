@@ -100,6 +100,17 @@ pub async fn finalize_pro_subscription(
         })?
     };
 
+    // A prior founder invoice (any plan level) means this charge is a renewal
+    // or plan change, not a first-time signup — check before inserting this one.
+    let had_prior_invoice: bool = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*)::bigint FROM subscription_invoices WHERE user_id = $1 AND tier LIKE 'founder_%'",
+    )
+    .bind(user_id)
+    .fetch_one(&state.db)
+    .await
+    .map(|c| c > 0)
+    .unwrap_or(false);
+
     let invoice_tier = format!("founder_{}", plan_level);
     sqlx::query(
         r#"
@@ -124,15 +135,33 @@ pub async fn finalize_pro_subscription(
         )
     })?;
 
-    email::send_email(
-        &state.http_client,
-        state.resend_api_key.as_deref(),
-        &state.email_from,
-        &user_email,
-        &format!("Your metatron {} subscription is active", plan_name),
-        &email::pro_activated_email_html(plan_name, &period_end, amount_paid_display),
-    )
-    .await;
+    if had_prior_invoice {
+        email::send_email(
+            &state.http_client,
+            state.resend_api_key.as_deref(),
+            &state.email_from,
+            &user_email,
+            &format!("Your metatron {} subscription has renewed", plan_name),
+            &email::subscription_invoice_email_html(
+                plan_name,
+                &period_start,
+                &period_end,
+                amount_paid_display,
+                reference,
+            ),
+        )
+        .await;
+    } else {
+        email::send_email(
+            &state.http_client,
+            state.resend_api_key.as_deref(),
+            &state.email_from,
+            &user_email,
+            &format!("Your metatron {} subscription is active", plan_name),
+            &email::pro_activated_email_html(plan_name, &period_end, amount_paid_display),
+        )
+        .await;
+    }
 
     Ok(period_end)
 }

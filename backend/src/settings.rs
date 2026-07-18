@@ -39,6 +39,7 @@ pub struct Settings {
     pub whisper_url: String,
     pub resend_api_key: Option<String>,
     pub email_from: String,
+    pub internal_automation_token: Option<String>,
     pub paystack_secret_key: Option<String>,
     pub paystack_currency: String,
     pub paystack_plan_basic_monthly: String,
@@ -165,6 +166,9 @@ impl Settings {
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| "Kevin <kevin@metatron.id>".to_string());
+        let internal_automation_token = env::var("INTERNAL_AUTOMATION_TOKEN")
+            .ok()
+            .and_then(|s| (!s.trim().is_empty()).then_some(s));
 
         let paystack_secret_key = env::var("PAYSTACK_SECRET_KEY")
             .ok()
@@ -324,6 +328,7 @@ impl Settings {
             whisper_url,
             resend_api_key,
             email_from,
+            internal_automation_token,
             paystack_secret_key,
             paystack_currency,
             paystack_plan_basic_monthly,

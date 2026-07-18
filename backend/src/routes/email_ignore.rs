@@ -37,8 +37,17 @@ fn authorized(state: &AppState, headers: &HeaderMap) -> bool {
 /// suffix stripped, domain) — all lowercased. `+tag` stripping matches how
 /// Substack-style newsletter platforms vary the local part per campaign while
 /// keeping the same underlying sender.
+///
+/// Accepts either a bare address or a full "Display Name <addr@domain>" header
+/// value (what IMAP `from` fields actually contain) and extracts the bracketed
+/// address in the latter case.
 fn normalize_sender(sender: &str) -> Option<(String, String, String)> {
-    let s = sender.trim().trim_start_matches('<').trim_end_matches('>').to_ascii_lowercase();
+    let raw = sender.trim();
+    let addr = match (raw.find('<'), raw.rfind('>')) {
+        (Some(start), Some(end)) if end > start => &raw[start + 1..end],
+        _ => raw,
+    };
+    let s = addr.trim().to_ascii_lowercase();
     let (local, domain) = s.split_once('@')?;
     let local_no_plus = local.split('+').next().unwrap_or(local);
     Some((s.clone(), format!("{local_no_plus}@{domain}"), domain.to_string()))

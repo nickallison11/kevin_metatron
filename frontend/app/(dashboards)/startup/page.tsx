@@ -13,18 +13,15 @@ export default function StartupDashboardPage() {
 
   return (
     <main className="flex-1">
-      <header className="border-b border-[var(--border)] px-6 py-4 md:px-10">
-        <p className="font-sans text-[11px] font-medium uppercase tracking-[2px] text-[var(--text-muted)] mb-1">
-          Dashboard
-        </p>
-        <h1 className="text-lg font-semibold">Founder overview</h1>
-      </header>
-      <section className="grid grid-cols-1 gap-4 p-6 md:p-10 lg:grid-cols-[380px_1fr] lg:items-start max-w-5xl mx-auto">
-        <div className="space-y-4">
-          <AngelScoreCard token={token} />
-          <ChannelLinksCard token={token} />
+      <section className="p-6 md:p-10 max-w-5xl mx-auto space-y-4">
+        <h1 className="text-2xl font-semibold text-[var(--text)]">Founder overview</h1>
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[380px_1fr] lg:items-start">
+          <div className="space-y-4">
+            <AngelScoreCard token={token} />
+            <ChannelLinksCard token={token} />
+          </div>
+          <KevinMatchFeed token={token} role="founder" />
         </div>
-        <KevinMatchFeed token={token} role="founder" />
       </section>
     </main>
   );

@@ -98,17 +98,13 @@ export default function StartupKevinPage() {
 
   return (
     <main className="min-w-0">
-      <header className="border-b border-[var(--border)] px-6 py-4 md:px-10">
-        <p className="font-sans text-[11px] font-medium uppercase tracking-[2px] text-[var(--text-muted)] mb-1">
-          Founder
-        </p>
-        <h1 className="text-lg font-semibold">Chat with Kevin</h1>
-        <p className="mt-1 text-sm text-[var(--text-muted)]">
-          Your AI co-pilot. Ask about investors, refine your pitch, request intros, or research markets.
-        </p>
-      </header>
-
       <section className="p-6 md:p-10 max-w-5xl mx-auto space-y-8">
+        <div>
+          <h1 className="text-2xl font-semibold text-[var(--text)]">Chat with Kevin</h1>
+          <p className="mt-1 text-sm text-[var(--text-muted)]">
+            Your AI co-pilot. Ask about investors, refine your pitch, request intros, or research markets.
+          </p>
+        </div>
 
         {/* Chat card */}
         <StartupKevinChatCard token={token} />

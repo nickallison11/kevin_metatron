@@ -97,17 +97,13 @@ export default function ConnectorKevinPage() {
 
   return (
     <main className="min-w-0">
-      <header className="border-b border-[var(--border)] px-6 py-4 md:px-10">
-        <p className="font-sans text-[11px] font-medium uppercase tracking-[2px] text-[var(--text-muted)] mb-1">
-          Connector
-        </p>
-        <h1 className="text-lg font-semibold">Chat with Kevin</h1>
-        <p className="mt-1 text-sm text-[var(--text-muted)]">
-          Your AI co-pilot. Ask about your network, manage introductions, or explore the ecosystem.
-        </p>
-      </header>
-
       <section className="p-6 md:p-10 max-w-5xl mx-auto space-y-8">
+        <div>
+          <h1 className="text-2xl font-semibold text-[var(--text)]">Chat with Kevin</h1>
+          <p className="mt-1 text-sm text-[var(--text-muted)]">
+            Your AI co-pilot. Ask about your network, manage introductions, or explore the ecosystem.
+          </p>
+        </div>
 
         {/* Chat card */}
         <StartupKevinChatCard

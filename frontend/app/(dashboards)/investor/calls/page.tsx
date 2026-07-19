@@ -106,25 +106,20 @@ export default function InvestorCallsPage() {
 
   return (
     <main className="flex-1">
-      <header className="border-b border-[var(--border)] px-6 py-4 md:px-10 flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <p className="font-sans text-[11px] font-medium uppercase tracking-[2px] text-[var(--text-muted)] mb-1">
-            Calls
-          </p>
-          <h1 className="text-lg font-semibold">Call intelligence</h1>
-        </div>
-        <label className="cursor-pointer rounded-lg bg-metatron-accent px-4 py-2 text-xs font-semibold text-white hover:bg-metatron-accent-hover disabled:opacity-50">
-          {uploading ? "Processing…" : "Upload recording"}
-          <input
-            type="file"
-            accept=".m4a,.mp3,.wav,audio/*"
-            className="hidden"
-            onChange={onUpload}
-            disabled={uploading}
-          />
-        </label>
-      </header>
       <section className="p-6 md:p-10 max-w-5xl mx-auto space-y-5">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <h1 className="text-2xl font-semibold text-[var(--text)]">Call intelligence</h1>
+          <label className="cursor-pointer rounded-lg bg-metatron-accent px-4 py-2 text-xs font-semibold text-white hover:bg-metatron-accent-hover disabled:opacity-50">
+            {uploading ? "Processing…" : "Upload recording"}
+            <input
+              type="file"
+              accept=".m4a,.mp3,.wav,audio/*"
+              className="hidden"
+              onChange={onUpload}
+              disabled={uploading}
+            />
+          </label>
+        </div>
         <p className="text-xs text-[var(--text-muted)] leading-relaxed">
           Upload founder call recordings to get AI-generated summaries, key
           takeaways, action items, and sentiment signals tailored to your

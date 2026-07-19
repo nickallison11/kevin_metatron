@@ -50,43 +50,40 @@ export default function ConnectorDashboardPage() {
 
   return (
     <main className="flex-1">
-      <header className="border-b border-[var(--border)] px-6 py-4 md:px-10">
-        <p className="mb-1 font-sans text-[11px] font-medium uppercase tracking-[2px] text-[var(--text-muted)]">
-          Dashboard
-        </p>
-        <h1 className="text-lg font-semibold">Connector</h1>
-      </header>
-      <section className="grid grid-cols-1 gap-4 p-6 md:p-10 lg:grid-cols-[1fr_320px] lg:items-start max-w-5xl mx-auto">
-        <StartupKevinChatCard
-          token={token}
-          systemContext={KEVIN_CTX}
-          emptyHint="Ask Kevin about warm intros, ecosystem partners, or referral tracking."
-        />
+      <section className="p-6 md:p-10 max-w-5xl mx-auto space-y-4">
+        <h1 className="text-2xl font-semibold text-[var(--text)]">Connector</h1>
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_320px] lg:items-start">
+          <StartupKevinChatCard
+            token={token}
+            systemContext={KEVIN_CTX}
+            emptyHint="Ask Kevin about warm intros, ecosystem partners, or referral tracking."
+          />
 
-        <div className="grid gap-4">
-          <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-5">
-            <p className="font-sans text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
-              Introductions brokered
-            </p>
-            <p className="mt-2 text-2xl font-semibold text-metatron-accent">
-              {intros.length}
-            </p>
-          </div>
-          <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-5">
-            <p className="font-sans text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
-              Referrals
-            </p>
-            <p className="mt-2 text-2xl font-semibold text-metatron-accent">
-              {refs.length}
-            </p>
-          </div>
-          <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-5">
-            <p className="font-sans text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
-              Pending intro requests
-            </p>
-            <p className="mt-2 text-2xl font-semibold text-metatron-accent">
-              {pendingIntro}
-            </p>
+          <div className="grid gap-4">
+            <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-5">
+              <p className="font-sans text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
+                Introductions brokered
+              </p>
+              <p className="mt-2 text-2xl font-semibold text-metatron-accent">
+                {intros.length}
+              </p>
+            </div>
+            <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-5">
+              <p className="font-sans text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
+                Referrals
+              </p>
+              <p className="mt-2 text-2xl font-semibold text-metatron-accent">
+                {refs.length}
+              </p>
+            </div>
+            <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-5">
+              <p className="font-sans text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
+                Pending intro requests
+              </p>
+              <p className="mt-2 text-2xl font-semibold text-metatron-accent">
+                {pendingIntro}
+              </p>
+            </div>
           </div>
         </div>
       </section>

@@ -271,13 +271,8 @@ export default function StartupPitchesPage() {
 
   return (
     <main className="flex-1">
-      <header className="border-b border-[var(--border)] px-6 py-4 md:px-10">
-        <p className="font-sans text-[11px] font-medium uppercase tracking-[2px] text-[var(--text-muted)] mb-1">
-          Pitch data
-        </p>
-        <h1 className="text-lg font-semibold">Your pitch data</h1>
-      </header>
       <section className="p-6 md:p-10 max-w-5xl mx-auto space-y-6">
+        <h1 className="text-2xl font-semibold text-[var(--text)]">Your pitch data</h1>
         {showProfileEmptyHint ? (
           <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-5 space-y-3">
             <div>

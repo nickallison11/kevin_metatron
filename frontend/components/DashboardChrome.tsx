@@ -56,7 +56,7 @@ function NavRow({
     />
   );
   const base = expanded
-    ? "flex w-full items-center gap-2.5 rounded-[var(--radius)] px-3 py-2.5 text-left text-sm font-medium transition-colors"
+    ? "relative flex h-10 w-full items-center gap-2.5 rounded-[var(--radius)] px-3 text-left text-sm font-medium transition-colors"
     : "relative flex h-10 w-10 items-center justify-center rounded-[10px] transition-colors";
   const activeCls = "border border-metatron-accent/25 bg-metatron-accent/15 text-metatron-accent";
   const inactiveCls =
@@ -71,7 +71,7 @@ function NavRow({
         aria-label={expanded ? undefined : `${item.label} (locked, upgrade required)`}
         className={`${base} ${inactiveCls} cursor-pointer opacity-60`}
       >
-        <Icon size={expanded ? 16 : 18} stroke={1.75} />
+        <Icon size={18} stroke={1.75} />
         {expanded && item.label}
         {lockedDot}
       </button>
@@ -85,7 +85,7 @@ function NavRow({
       aria-label={expanded ? undefined : item.label}
       className={`${base} ${active ? activeCls : inactiveCls}`}
     >
-      <Icon size={expanded ? 16 : 18} stroke={1.75} />
+      <Icon size={18} stroke={1.75} />
       {expanded && item.label}
       {lockedDot}
     </Link>
@@ -155,8 +155,8 @@ export default function DashboardChrome({
       <aside
         className={
           expanded
-            ? "hidden md:flex w-52 shrink-0 flex-col border-r border-[var(--border)] bg-[color-mix(in_srgb,var(--bg-card)_92%,transparent)] px-3 py-4 gap-1"
-            : "hidden md:flex w-16 shrink-0 flex-col items-center border-r border-[var(--border)] bg-[color-mix(in_srgb,var(--bg-card)_92%,transparent)] py-4 gap-2"
+            ? "hidden md:flex w-52 shrink-0 flex-col bg-[var(--bg)] px-3 py-4 gap-1"
+            : "hidden md:flex w-16 shrink-0 flex-col items-center bg-[var(--bg)] py-4 gap-2"
         }
       >
         <button

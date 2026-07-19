@@ -293,40 +293,36 @@ export default function ConnectorSettingsPage() {
 
   return (
     <main className="flex-1">
-      <header className="border-b border-[var(--border)] px-6 py-4 md:px-10">
-        <p className="font-sans text-[11px] font-medium uppercase tracking-[2px] text-[var(--text-muted)] mb-1">
-          Settings
-        </p>
-        <h1 className="text-lg font-semibold">Account & security</h1>
-        <div className="mt-3 space-y-1">
-          <p className="text-xs text-[var(--text-muted)]">Signed in as</p>
-          <div className="flex items-center gap-2 flex-wrap">
-            <p className="text-sm font-semibold text-[var(--text)]">
-              {me?.email}
-            </p>
-            {roleBadgeText ? (
-              <span className="font-sans text-[10px] uppercase tracking-wider border border-[var(--border)] text-[var(--text-muted)] px-2 py-0.5 rounded">
-                {roleBadgeText}
-              </span>
-            ) : null}
-            <span
-              className={[
-                "font-sans text-[10px] uppercase tracking-wider border px-2 py-0.5 rounded",
-                (me?.is_pro || me?.is_basic)
-                  ? "border-metatron-accent/40 text-metatron-accent"
-                  : "border-[var(--border)] text-[var(--text-muted)]",
-              ].join(" ")}
-            >
-              {tierBadgeText}
-            </span>
-          </div>
-          {fullName ? (
-            <p className="text-xs text-[var(--text-muted)]">{fullName}</p>
-          ) : null}
-        </div>
-      </header>
-
       <section className="p-6 md:p-10 max-w-5xl mx-auto space-y-6">
+        <div>
+          <h1 className="text-2xl font-semibold text-[var(--text)]">Account & security</h1>
+          <div className="mt-3 space-y-1">
+            <p className="text-xs text-[var(--text-muted)]">Signed in as</p>
+            <div className="flex items-center gap-2 flex-wrap">
+              <p className="text-sm font-semibold text-[var(--text)]">
+                {me?.email}
+              </p>
+              {roleBadgeText ? (
+                <span className="font-sans text-[10px] uppercase tracking-wider border border-[var(--border)] text-[var(--text-muted)] px-2 py-0.5 rounded">
+                  {roleBadgeText}
+                </span>
+              ) : null}
+              <span
+                className={[
+                  "font-sans text-[10px] uppercase tracking-wider border px-2 py-0.5 rounded",
+                  (me?.is_pro || me?.is_basic)
+                    ? "border-metatron-accent/40 text-metatron-accent"
+                    : "border-[var(--border)] text-[var(--text-muted)]",
+                ].join(" ")}
+              >
+                {tierBadgeText}
+              </span>
+            </div>
+            {fullName ? (
+              <p className="text-xs text-[var(--text-muted)]">{fullName}</p>
+            ) : null}
+          </div>
+        </div>
         <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-6 space-y-5">
           <h2 className="text-sm font-semibold">Personal details</h2>
 

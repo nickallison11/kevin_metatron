@@ -96,70 +96,67 @@ export default function InvestorDashboardPage() {
 
   return (
     <main className="flex-1">
-      <header className="border-b border-[var(--border)] px-6 py-4 md:px-10">
-        <p className="mb-1 font-sans text-[11px] font-medium uppercase tracking-[2px] text-[var(--text-muted)]">
-          Dashboard
-        </p>
-        <h1 className="text-lg font-semibold">Investor</h1>
-      </header>
-      <section className="grid grid-cols-1 gap-4 p-6 md:p-10 lg:grid-cols-2 lg:items-start max-w-5xl mx-auto">
-        <div className="lg:col-span-2">
-          <KevinMatchFeed token={token} role="investor" onAddToPipeline={addToPipeline} />
-        </div>
+      <section className="p-6 md:p-10 max-w-5xl mx-auto space-y-4">
+        <h1 className="text-2xl font-semibold text-[var(--text)]">Investor</h1>
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 lg:items-start">
+          <div className="lg:col-span-2">
+            <KevinMatchFeed token={token} role="investor" onAddToPipeline={addToPipeline} />
+          </div>
 
-        <StartupKevinChatCard
-          token={token}
-          systemContext={KEVIN_CTX}
-          emptyHint="Ask Kevin about deal flow, diligence, or sector trends."
-        />
+          <StartupKevinChatCard
+            token={token}
+            systemContext={KEVIN_CTX}
+            emptyHint="Ask Kevin about deal flow, diligence, or sector trends."
+          />
 
-        <div className="rounded-[12px] border border-[var(--border)] bg-[var(--bg-card)] p-6">
-          <p className="font-sans text-[11px] uppercase tracking-[2px] text-[var(--text-muted)]">My Pipeline</p>
-          {!pipelineLoaded ? (
-            <p className="mt-4 text-sm text-[var(--text-muted)]">Loading…</p>
-          ) : pipeline.length === 0 ? (
-            <p className="mt-4 text-sm text-[var(--text-muted)]">
-              No founders in your pipeline yet. Add them from Kevin&apos;s matches above.
-            </p>
-          ) : (
-            <div className="mt-4 space-y-2">
-              {pipeline.map((row) => (
-                <div key={row.id} className="flex items-center gap-4 rounded-[8px] border border-[var(--border)] p-3">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="font-medium text-[var(--text)]">{row.company_name ?? "Founder"}</p>
-                      {row.angel_score != null && (
-                        <span className="rounded-full bg-metatron-accent/10 px-2 py-0.5 text-[10px] font-sans text-metatron-accent">
-                          AS {row.angel_score}
-                        </span>
+          <div className="rounded-[12px] border border-[var(--border)] bg-[var(--bg-card)] p-6">
+            <p className="font-sans text-[11px] uppercase tracking-[2px] text-[var(--text-muted)]">My Pipeline</p>
+            {!pipelineLoaded ? (
+              <p className="mt-4 text-sm text-[var(--text-muted)]">Loading…</p>
+            ) : pipeline.length === 0 ? (
+              <p className="mt-4 text-sm text-[var(--text-muted)]">
+                No founders in your pipeline yet. Add them from Kevin&apos;s matches above.
+              </p>
+            ) : (
+              <div className="mt-4 space-y-2">
+                {pipeline.map((row) => (
+                  <div key={row.id} className="flex items-center gap-4 rounded-[8px] border border-[var(--border)] p-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-medium text-[var(--text)]">{row.company_name ?? "Founder"}</p>
+                        {row.angel_score != null && (
+                          <span className="rounded-full bg-metatron-accent/10 px-2 py-0.5 text-[10px] font-sans text-metatron-accent">
+                            AS {row.angel_score}
+                          </span>
+                        )}
+                      </div>
+                      {row.one_liner && (
+                        <p className="mt-0.5 text-xs text-[var(--text-muted)] line-clamp-1">{row.one_liner}</p>
                       )}
                     </div>
-                    {row.one_liner && (
-                      <p className="mt-0.5 text-xs text-[var(--text-muted)] line-clamp-1">{row.one_liner}</p>
-                    )}
+                    <select
+                      value={row.stage}
+                      onChange={(e) => void updateStage(row.id, e.target.value)}
+                      className={`rounded-full border-0 px-2.5 py-1 text-[11px] font-semibold cursor-pointer ${STAGE_COLORS[row.stage] ?? ""}`}
+                    >
+                      {PIPELINE_STAGES.map((s) => (
+                        <option key={s} value={s}>
+                          {STAGE_LABELS[s]}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => void removeFromPipeline(row.id)}
+                      className="text-xs text-[var(--text-muted)] hover:text-red-400"
+                    >
+                      Remove
+                    </button>
                   </div>
-                  <select
-                    value={row.stage}
-                    onChange={(e) => void updateStage(row.id, e.target.value)}
-                    className={`rounded-full border-0 px-2.5 py-1 text-[11px] font-semibold cursor-pointer ${STAGE_COLORS[row.stage] ?? ""}`}
-                  >
-                    {PIPELINE_STAGES.map((s) => (
-                      <option key={s} value={s}>
-                        {STAGE_LABELS[s]}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    type="button"
-                    onClick={() => void removeFromPipeline(row.id)}
-                    className="text-xs text-[var(--text-muted)] hover:text-red-400"
-                  >
-                    Remove
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </section>
     </main>

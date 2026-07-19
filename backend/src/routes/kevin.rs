@@ -896,6 +896,7 @@ Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. 
         user.is_basic,
         &system,
         anthropic_msgs,
+        body.session_id,
     )
     .await;
 
@@ -2175,19 +2176,11 @@ async fn run_kevin_with_tools_gemini(
     initial_messages: &[serde_json::Value],
     api_key: &str,
     model: &str,
-) -> String {
-    let mut contents: Vec<serde_json::Value> = initial_messages
-        .iter()
-        .map(|m| {
-            let gemini_role = if m["role"].as_str() == Some("assistant") {
-                "model"
-            } else {
-                "user"
-            };
-            let text = m["content"].as_str().unwrap_or("");
-            serde_json::json!({ "role": gemini_role, "parts": [{ "text": text }] })
-        })
-        .collect();
+) -> (String, Vec<crate::kevin_context::ContextRow>) {
+    // `initial_messages` already arrives in Gemini-native {role, parts} shape
+    // (built by kevin_context::to_gemini) — used as-is, not re-derived.
+    let mut contents: Vec<serde_json::Value> = initial_messages.to_vec();
+    let mut new_rows: Vec<crate::kevin_context::ContextRow> = Vec::new();
 
     let tools = kevin_tools_for_gemini(role);
     let url = format!(
@@ -2212,7 +2205,7 @@ async fn run_kevin_with_tools_gemini(
             Ok(r) => r,
             Err(e) => {
                 tracing::error!("gemini tool call request failed: {e}");
-                return "Kevin is temporarily unavailable.".to_string();
+                return ("Kevin is temporarily unavailable.".to_string(), new_rows);
             }
         };
 
@@ -2220,14 +2213,14 @@ async fn run_kevin_with_tools_gemini(
             let status = response.status();
             let text = response.text().await.unwrap_or_default();
             tracing::error!("gemini tool call error {status}: {text}");
-            return "Kevin is temporarily unavailable.".to_string();
+            return ("Kevin is temporarily unavailable.".to_string(), new_rows);
         }
 
         let value: serde_json::Value = match response.json().await {
             Ok(v) => v,
             Err(e) => {
                 tracing::error!("gemini tool call json parse failed: {e}");
-                return "Kevin is temporarily unavailable.".to_string();
+                return ("Kevin is temporarily unavailable.".to_string(), new_rows);
             }
         };
 
@@ -2245,19 +2238,26 @@ async fn run_kevin_with_tools_gemini(
             for part in &parts {
                 if let Some(text) = part["text"].as_str() {
                     if !text.is_empty() {
-                        return strip_markdown(text);
+                        let text = strip_markdown(text);
+                        new_rows.push(crate::kevin_context::text_row("assistant", &text));
+                        return (text, new_rows);
                     }
                 }
             }
-            return "Kevin is temporarily unavailable.".to_string();
+            return ("Kevin is temporarily unavailable.".to_string(), new_rows);
         }
 
         contents.push(serde_json::json!({
             "role": "model",
             "parts": parts
         }));
+        new_rows.push(crate::kevin_context::ContextRow {
+            role: "assistant".to_string(),
+            blocks: crate::kevin_context::gemini_parts_to_blocks(&parts),
+        });
 
         let mut response_parts = Vec::new();
+        let mut result_triples = Vec::new();
         for fc_part in function_calls {
             let fc = &fc_part["functionCall"];
             let tool_name = fc["name"].as_str().unwrap_or("");
@@ -2270,15 +2270,17 @@ async fn run_kevin_with_tools_gemini(
                     "response": { "result": result }
                 }
             }));
+            result_triples.push((format!("call_{}", Uuid::new_v4()), tool_name.to_string(), result));
         }
 
         contents.push(serde_json::json!({
             "role": "user",
             "parts": response_parts
         }));
+        new_rows.push(crate::kevin_context::tool_result_row(result_triples));
     }
 
-    "Kevin reached the tool call limit. Please try again.".to_string()
+    ("Kevin reached the tool call limit. Please try again.".to_string(), new_rows)
 }
 
 
@@ -2349,12 +2351,13 @@ async fn run_kevin_openai_tool_loop(
     role: &str,
     system: &str,
     messages: Vec<serde_json::Value>,
-) -> Result<String, String> {
+) -> Result<(String, Vec<crate::kevin_context::ContextRow>), String> {
     let tools = kevin_tools_for_openai(role);
     let mut msgs: Vec<serde_json::Value> = vec![
         serde_json::json!({"role": "system", "content": system})
     ];
     msgs.extend(messages);
+    let mut new_rows: Vec<crate::kevin_context::ContextRow> = Vec::new();
 
     for _ in 0..4 {
         let request_body = serde_json::json!({
@@ -2395,8 +2398,9 @@ async fn run_kevin_openai_tool_loop(
         let message = choice["message"].clone();
 
         if finish_reason != "tool_calls" {
-            let text = message["content"].as_str().unwrap_or("").to_string();
-            return Ok(strip_markdown(&text));
+            let text = strip_markdown(message["content"].as_str().unwrap_or(""));
+            new_rows.push(crate::kevin_context::text_row("assistant", &text));
+            return Ok((text, new_rows));
         }
 
         let tool_calls = match message["tool_calls"].as_array() {
@@ -2404,8 +2408,13 @@ async fn run_kevin_openai_tool_loop(
             None => return Err("tool_calls missing".to_string()),
         };
 
-        msgs.push(message);
+        msgs.push(message.clone());
+        new_rows.push(crate::kevin_context::ContextRow {
+            role: "assistant".to_string(),
+            blocks: crate::kevin_context::openai_message_to_blocks(&message),
+        });
 
+        let mut result_triples = Vec::new();
         for tc in &tool_calls {
             let tc_id = tc["id"].as_str().unwrap_or("").to_string();
             let fn_name = tc["function"]["name"].as_str().unwrap_or("");
@@ -2419,7 +2428,9 @@ async fn run_kevin_openai_tool_loop(
                 "tool_call_id": tc_id,
                 "content": result
             }));
+            result_triples.push((tc_id, fn_name.to_string(), result));
         }
+        new_rows.push(crate::kevin_context::tool_result_row(result_triples));
     }
 
     Err("max openai tool turns reached".to_string())
@@ -2435,9 +2446,10 @@ async fn run_kevin_anthropic_tool_loop(
     role: &str,
     system: &str,
     messages: Vec<serde_json::Value>,
-) -> Result<String, String> {
+) -> Result<(String, Vec<crate::kevin_context::ContextRow>), String> {
     let tools = kevin_tools_for_role(role);
     let mut msgs = messages;
+    let mut new_rows: Vec<crate::kevin_context::ContextRow> = Vec::new();
 
     for _ in 0..4 {
         let request_body = serde_json::json!({
@@ -2478,7 +2490,9 @@ async fn run_kevin_anthropic_tool_loop(
             if let Some(content) = value["content"].as_array() {
                 for block in content {
                     if block["type"].as_str() == Some("text") {
-                        return Ok(strip_markdown(block["text"].as_str().unwrap_or("")));
+                        let text = strip_markdown(block["text"].as_str().unwrap_or(""));
+                        new_rows.push(crate::kevin_context::text_row("assistant", &text));
+                        return Ok((text, new_rows));
                     }
                 }
             }
@@ -2491,8 +2505,13 @@ async fn run_kevin_anthropic_tool_loop(
         };
 
         msgs.push(serde_json::json!({ "role": "assistant", "content": content }));
+        new_rows.push(crate::kevin_context::ContextRow {
+            role: "assistant".to_string(),
+            blocks: crate::kevin_context::anthropic_content_to_blocks(&content),
+        });
 
         let mut tool_results = Vec::new();
+        let mut result_triples = Vec::new();
         for block in &content {
             if block["type"].as_str() == Some("tool_use") {
                 let tool_name = block["name"].as_str().unwrap_or("");
@@ -2505,9 +2524,11 @@ async fn run_kevin_anthropic_tool_loop(
                     "tool_use_id": tool_id,
                     "content": result
                 }));
+                result_triples.push((tool_id.to_string(), tool_name.to_string(), result));
             }
         }
         msgs.push(serde_json::json!({ "role": "user", "content": tool_results }));
+        new_rows.push(crate::kevin_context::tool_result_row(result_triples));
     }
 
     Err("max anthropic tool turns reached".to_string())
@@ -2522,6 +2543,7 @@ pub(crate) async fn run_kevin_with_tools(
     is_basic: bool,
     system: &str,
     messages: Vec<serde_json::Value>,
+    session_id: Option<Uuid>,
 ) -> String {
     // Determine complexity from the last user message
     let last_msg = messages
@@ -2537,14 +2559,62 @@ pub(crate) async fn run_kevin_with_tools(
         .unwrap_or_default();
     let complexity = classify_query_complexity(&last_msg);
 
+    // Prefer real persisted context (with actual tool_call/tool_result blocks)
+    // over the frontend's flattened text history, when it exists. A session
+    // with no persisted rows yet — brand new, or predates this feature —
+    // falls back to `messages` exactly as before; nothing to migrate, it
+    // just starts accumulating structured context from here on.
+    let prior_rows = match session_id {
+        Some(sid) => crate::kevin_context::load(state, sid).await,
+        None => Vec::new(),
+    };
+    let using_persisted = !prior_rows.is_empty();
+
+    let seed_rows: Vec<crate::kevin_context::ContextRow> = if using_persisted {
+        let mut rows = prior_rows;
+        rows.push(crate::kevin_context::text_row("user", &last_msg));
+        rows
+    } else {
+        messages
+            .iter()
+            .map(|m| {
+                let r = if m["role"].as_str() == Some("assistant") { "assistant" } else { "user" };
+                crate::kevin_context::text_row(r, m["content"].as_str().unwrap_or(""))
+            })
+            .collect()
+    };
+    let new_user_row = crate::kevin_context::text_row("user", &last_msg);
+
+    // Persists exactly the new turn (user message + whatever the successful
+    // provider generated) — never the seed, whether it came from prior
+    // persisted rows or the flattened fallback — so history never
+    // duplicates across requests.
+    async fn persist(
+        state: &AppState,
+        session_id: Option<Uuid>,
+        user_id: Uuid,
+        new_user_row: &crate::kevin_context::ContextRow,
+        new_rows: Vec<crate::kevin_context::ContextRow>,
+    ) {
+        if let Some(sid) = session_id {
+            let mut to_save = vec![new_user_row.clone()];
+            to_save.extend(new_rows);
+            crate::kevin_context::append(state, sid, user_id, &to_save).await;
+        }
+    }
+
     // Tier 0: NadirClaw (local, free) for simple queries — no tool use needed
     if complexity == QueryComplexity::Simple {
-        let nadirclaw_msgs: Vec<(String, String)> = messages
+        // NadirClaw has no concept of tool calls — skip any "tool" rows a
+        // prior (tool-using) turn in this session may have left behind, and
+        // only pass the plain text of user/assistant turns.
+        let nadirclaw_msgs: Vec<(String, String)> = seed_rows
             .iter()
-            .filter_map(|m| {
-                let role = m["role"].as_str()?.to_string();
-                let content = m["content"].as_str()?.to_string();
-                Some((role, content))
+            .filter(|r| r.role != "tool")
+            .filter_map(|r| {
+                let text = r.blocks.iter().find_map(|b| b["text"].as_str())?;
+                if text.is_empty() { return None; }
+                Some((r.role.clone(), text.to_string()))
             })
             .collect();
         match crate::ai::complete_chat(
@@ -2557,7 +2627,13 @@ pub(crate) async fn run_kevin_with_tools(
         )
         .await
         {
-            Ok(reply) if !reply.is_empty() => return strip_markdown(&reply),
+            Ok(reply) if !reply.is_empty() => {
+                let text = strip_markdown(&reply);
+                persist(state, session_id, user_id, &new_user_row, vec![
+                    crate::kevin_context::text_row("assistant", &text),
+                ]).await;
+                return text;
+            }
             _ => {
                 tracing::warn!("nadirclaw unavailable, falling back to paid tier");
             }
@@ -2576,20 +2652,28 @@ pub(crate) async fn run_kevin_with_tools(
             // Moderate: try GPT-4.1-mini first (cheaper), fall back to Haiku
             if complexity == QueryComplexity::Moderate {
                 if let Some(openai_key) = &state.openai_api_key {
+                    let seed = crate::kevin_context::to_openai(&seed_rows);
                     match run_kevin_openai_tool_loop(
-                        state, openai_key, user_id, user_email, role, system, messages.clone(),
+                        state, openai_key, user_id, user_email, role, system, seed,
                     ).await {
-                        Ok(reply) if !reply.is_empty() => return reply,
+                        Ok((reply, new_rows)) if !reply.is_empty() => {
+                            persist(state, session_id, user_id, &new_user_row, new_rows).await;
+                            return reply;
+                        }
                         Ok(_) => tracing::warn!("openai empty, falling back to haiku"),
                         Err(e) => tracing::warn!("openai failed ({e}), falling back to haiku"),
                     }
                 }
             }
 
+            let seed = crate::kevin_context::to_anthropic(&seed_rows);
             match run_kevin_anthropic_tool_loop(
-                state, anthropic_key, model, user_id, user_email, role, system, messages.clone(),
+                state, anthropic_key, model, user_id, user_email, role, system, seed,
             ).await {
-                Ok(reply) if !reply.is_empty() => return reply,
+                Ok((reply, new_rows)) if !reply.is_empty() => {
+                    persist(state, session_id, user_id, &new_user_row, new_rows).await;
+                    return reply;
+                }
                 Ok(_) => tracing::warn!("anthropic empty response"),
                 Err(e) => tracing::error!("anthropic tool loop failed: {e}"),
             }
@@ -2600,11 +2684,15 @@ pub(crate) async fn run_kevin_with_tools(
     // ── Basic tier routing: Haiku with tools ─────────────────────────────────
     if is_basic {
         if let Some(anthropic_key) = &state.anthropic_api_key {
+            let seed = crate::kevin_context::to_anthropic(&seed_rows);
             match run_kevin_anthropic_tool_loop(
                 state, anthropic_key, "claude-haiku-4-5-20251001",
-                user_id, user_email, role, system, messages.clone(),
+                user_id, user_email, role, system, seed,
             ).await {
-                Ok(reply) if !reply.is_empty() => return reply,
+                Ok((reply, new_rows)) if !reply.is_empty() => {
+                    persist(state, session_id, user_id, &new_user_row, new_rows).await;
+                    return reply;
+                }
                 Ok(_) => tracing::warn!("haiku empty, falling back to gemini"),
                 Err(e) => tracing::warn!("haiku failed ({e}), falling back to gemini"),
             }
@@ -2612,17 +2700,20 @@ pub(crate) async fn run_kevin_with_tools(
     }
 
     if let Some(api_key) = &state.ai_api_key {
-        return run_kevin_with_tools_gemini(
+        let seed = crate::kevin_context::to_gemini(&seed_rows);
+        let (reply, new_rows) = run_kevin_with_tools_gemini(
             state,
             user_id,
             user_email,
             role,
             system,
-            &messages,
+            &seed,
             api_key,
             state.gemini_model.as_str(),
         )
         .await;
+        persist(state, session_id, user_id, &new_user_row, new_rows).await;
+        return reply;
     }
 
     "Kevin is not configured on this server.".to_string()

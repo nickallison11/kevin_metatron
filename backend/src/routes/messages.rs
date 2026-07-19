@@ -319,6 +319,7 @@ async fn send_kevin_message(
         user.is_basic,
         &system,
         anthropic_msgs,
+        None, // this is a conversation-thread reply, not the Kevin chat widget — no session_id concept here
     )
     .await;
 

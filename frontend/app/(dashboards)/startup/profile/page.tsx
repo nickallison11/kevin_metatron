@@ -272,7 +272,7 @@ export default function StartupProfilePage() {
         </p>
         <h1 className="text-lg font-semibold">Company & pitch deck</h1>
       </header>
-      <section className="p-6 md:p-10 max-w-3xl">
+      <section className="p-6 md:p-10 max-w-3xl mx-auto">
         <div className="space-y-6">
             {loading ? (
               <p className="text-sm text-[var(--text-muted)]">Loading…</p>

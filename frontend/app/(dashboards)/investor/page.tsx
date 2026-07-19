@@ -102,7 +102,7 @@ export default function InvestorDashboardPage() {
         </p>
         <h1 className="text-lg font-semibold">Investor</h1>
       </header>
-      <section className="grid grid-cols-1 gap-4 p-6 md:p-10 lg:grid-cols-2 lg:items-start">
+      <section className="grid grid-cols-1 gap-4 p-6 md:p-10 lg:grid-cols-2 lg:items-start max-w-6xl mx-auto">
         <div className="lg:col-span-2">
           <KevinMatchFeed token={token} role="investor" onAddToPipeline={addToPipeline} />
         </div>

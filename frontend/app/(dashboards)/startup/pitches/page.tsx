@@ -277,7 +277,7 @@ export default function StartupPitchesPage() {
         </p>
         <h1 className="text-lg font-semibold">Your pitch data</h1>
       </header>
-      <section className="p-6 md:p-10 max-w-3xl space-y-6">
+      <section className="p-6 md:p-10 max-w-3xl mx-auto space-y-6">
         {showProfileEmptyHint ? (
           <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-5 space-y-3">
             <div>

@@ -226,7 +226,7 @@ export default function ConnectorProfilePage() {
         <h1 className="text-lg font-semibold">Connector profile</h1>
       </header>
       <section className="p-6 md:p-10">
-        <div className="grid gap-8 lg:grid-cols-[1fr_320px] items-start">
+        <div className="grid gap-8 lg:grid-cols-[1fr_320px] items-start max-w-5xl mx-auto">
           <div className="max-w-2xl space-y-6 lg:max-w-none">
             {loading ? (
               <p className="text-sm text-[var(--text-muted)]">Loading…</p>

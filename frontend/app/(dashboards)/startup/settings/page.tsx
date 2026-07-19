@@ -284,7 +284,7 @@ export default function StartupSettingsPage() {
   if (authLoading || !me) {
     return (
       <main className="flex-1">
-        <section className="p-6 md:p-10 max-w-2xl space-y-6">
+        <section className="p-6 md:p-10 max-w-2xl mx-auto space-y-6">
           <p className="text-sm text-[var(--text-muted)]">Loading…</p>
         </section>
       </main>
@@ -326,7 +326,7 @@ export default function StartupSettingsPage() {
         </div>
       </header>
 
-      <section className="p-6 md:p-10 max-w-2xl space-y-6">
+      <section className="p-6 md:p-10 max-w-2xl mx-auto space-y-6">
         <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-6 space-y-5">
           <h2 className="text-sm font-semibold">Personal details</h2>
 

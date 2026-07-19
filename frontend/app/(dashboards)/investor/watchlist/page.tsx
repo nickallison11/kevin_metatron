@@ -38,7 +38,7 @@ export default function InvestorWatchlistPage() {
         </p>
         <h1 className="text-lg font-semibold">Followed founders</h1>
       </header>
-      <section className="max-w-5xl space-y-6 p-6 md:p-10">
+      <section className="max-w-5xl mx-auto space-y-6 p-6 md:p-10">
         <p className="max-w-2xl text-xs leading-relaxed text-[var(--text-muted)]">
           Founders you follow via the Follow action on deal flow or discovery.
         </p>

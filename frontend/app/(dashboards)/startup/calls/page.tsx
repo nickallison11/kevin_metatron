@@ -97,7 +97,7 @@ export default function StartupCallsPage() {
           />
         </label>
       </header>
-      <section className="p-6 md:p-10 max-w-4xl space-y-5">
+      <section className="p-6 md:p-10 max-w-4xl mx-auto space-y-5">
         <p className="text-xs text-[var(--text-muted)] leading-relaxed">
           Kevin transcribes your call and analyzes it for a summary, key
           takeaways, action items, and investor sentiment. This can take a

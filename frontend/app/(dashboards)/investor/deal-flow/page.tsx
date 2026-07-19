@@ -62,7 +62,7 @@ export default function InvestorDealFlowPage() {
         </p>
         <h1 className="text-lg font-semibold">All founders</h1>
       </header>
-      <section className="max-w-5xl space-y-6 p-6 md:p-10">
+      <section className="max-w-5xl mx-auto space-y-6 p-6 md:p-10">
         {tier === "free" && total > 10 && (
           <div style={{ background: "rgba(108,92,231,0.1)", border: "1px solid rgba(108,92,231,0.3)", borderRadius: 8, padding: "12px 16px", marginBottom: 16, color: "var(--muted)", fontSize: 14 }}>
             Showing 10 of {total} founders. <a href="/investor/settings/subscription" style={{ color: "#6c5ce7" }}>Upgrade to see all</a>

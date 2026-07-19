@@ -73,6 +73,13 @@ export default function KevinMatchFeed({
     void load();
   }, [load]);
 
+  // mode hydrates from localStorage after first paint, so the useState
+  // initializer above often still sees "normal" — this catches the switch
+  // once mode settles, without fighting a user's later manual choice.
+  useEffect(() => {
+    if (mode === "advanced") setView("list");
+  }, [mode]);
+
   const top10 = matches.slice(0, 10);
 
   if (loading && matches.length === 0) {

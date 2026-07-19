@@ -3,9 +3,11 @@
 import AngelScoreCard from "@/components/AngelScoreCard";
 import KevinMatchFeed from "@/components/KevinMatchFeed";
 import { useAuth } from "@/lib/auth";
+import { useMode } from "@/lib/mode";
 
 export default function StartupDashboardPage() {
   const { loading, token } = useAuth();
+  const { mode } = useMode();
 
   if (loading) return null;
   if (!token) return null;
@@ -18,7 +20,13 @@ export default function StartupDashboardPage() {
         </p>
         <h1 className="text-lg font-semibold">Founder overview</h1>
       </header>
-      <section className="space-y-4 p-6 md:p-10">
+      <section
+        className={
+          mode === "advanced"
+            ? "grid grid-cols-1 gap-4 p-6 md:p-10 lg:grid-cols-[380px_1fr] lg:items-start"
+            : "space-y-4 p-6 md:p-10"
+        }
+      >
         <AngelScoreCard token={token} />
         <KevinMatchFeed token={token} role="founder" />
       </section>

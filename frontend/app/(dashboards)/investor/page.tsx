@@ -4,6 +4,7 @@ import KevinMatchFeed from "@/components/KevinMatchFeed";
 import { StartupKevinChatCard } from "@/components/StartupKevinChatCard";
 import { API_BASE, authJsonHeaders } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { useMode } from "@/lib/mode";
 import { useCallback, useEffect, useState } from "react";
 
 const KEVIN_CTX =
@@ -36,6 +37,7 @@ type PipelineRow = {
 
 export default function InvestorDashboardPage() {
   const { token, loading } = useAuth("INVESTOR");
+  const { mode } = useMode();
   const [pipeline, setPipeline] = useState<PipelineRow[]>([]);
   const [pipelineLoaded, setPipelineLoaded] = useState(false);
 
@@ -102,8 +104,16 @@ export default function InvestorDashboardPage() {
         </p>
         <h1 className="text-lg font-semibold">Investor</h1>
       </header>
-      <section className="max-w-5xl space-y-6 p-6 md:p-10">
-        <KevinMatchFeed token={token} role="investor" onAddToPipeline={addToPipeline} />
+      <section
+        className={
+          mode === "advanced"
+            ? "grid grid-cols-1 gap-4 p-6 md:p-10 lg:grid-cols-2 lg:items-start"
+            : "max-w-5xl space-y-6 p-6 md:p-10"
+        }
+      >
+        <div className={mode === "advanced" ? "lg:col-span-2" : ""}>
+          <KevinMatchFeed token={token} role="investor" onAddToPipeline={addToPipeline} />
+        </div>
 
         <StartupKevinChatCard
           token={token}

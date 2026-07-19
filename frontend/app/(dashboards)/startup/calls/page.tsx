@@ -98,9 +98,9 @@ export default function StartupCallsPage() {
       </header>
       <section className="p-6 md:p-10 max-w-4xl space-y-5">
         <p className="text-xs text-[var(--text-muted)] leading-relaxed">
-          Transcription uses a mock pipeline until Whisper is wired. Analysis
-          uses Claude when{" "}
-          <code className="text-metatron-accent">ANTHROPIC_API_KEY</code> is set.
+          Kevin transcribes your call and analyzes it for a summary, key
+          takeaways, action items, and investor sentiment. This can take a
+          minute or two for longer recordings.
         </p>
         {msg && <p className="text-xs text-[var(--text-muted)]">{msg}</p>}
         <div className="space-y-5">

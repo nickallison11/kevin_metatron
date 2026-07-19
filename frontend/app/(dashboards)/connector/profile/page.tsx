@@ -254,40 +254,42 @@ export default function ConnectorProfilePage() {
                 onChange={(e) => setP((x) => ({ ...x, bio: e.target.value }))}
               />
             </label>
-            <label className="flex flex-col gap-1 text-xs text-[var(--text-muted)]">
-              Speciality
-              <select
-                className="input-metatron py-2.5 text-sm"
-                value={p.speciality ?? ""}
-                onChange={(e) =>
-                  setP((x) => ({ ...x, speciality: e.target.value || null }))
-                }
-              >
-                <option value="">Select…</option>
-                {SPECIALITIES.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="flex flex-col gap-1 text-xs text-[var(--text-muted)]">
-              Country
-              <select
-                className="input-metatron py-2.5 text-sm"
-                value={p.country ?? ""}
-                onChange={(e) =>
-                  setP((x) => ({ ...x, country: e.target.value || null }))
-                }
-              >
-                <option value="">Select…</option>
-                {COUNTRIES.map((c) => (
-                  <option key={c.code} value={c.code}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className="flex flex-col gap-1 text-xs text-[var(--text-muted)]">
+                Speciality
+                <select
+                  className="input-metatron py-2.5 text-sm"
+                  value={p.speciality ?? ""}
+                  onChange={(e) =>
+                    setP((x) => ({ ...x, speciality: e.target.value || null }))
+                  }
+                >
+                  <option value="">Select…</option>
+                  {SPECIALITIES.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex flex-col gap-1 text-xs text-[var(--text-muted)]">
+                Country
+                <select
+                  className="input-metatron py-2.5 text-sm"
+                  value={p.country ?? ""}
+                  onChange={(e) =>
+                    setP((x) => ({ ...x, country: e.target.value || null }))
+                  }
+                >
+                  <option value="">Select…</option>
+                  {COUNTRIES.map((c) => (
+                    <option key={c.code} value={c.code}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
 
             {msg && (
               <p className="text-xs text-[var(--text-muted)]">{msg}</p>

@@ -277,24 +277,69 @@ export default function InvestorProfilePage() {
               <p className="text-sm text-[var(--text-muted)]">Loading…</p>
             ) : (
               <form onSubmit={onSubmit} className="space-y-5">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-5">
+                <label className="flex flex-col gap-1 text-xs text-[var(--text-muted)]">
+                  Firm name
+                  <input
+                    className="input-metatron py-2.5 text-sm"
+                    value={p.firm_name ?? ""}
+                    onChange={(e) =>
+                      setP((x) => ({ ...x, firm_name: e.target.value }))
+                    }
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-xs text-[var(--text-muted)]">
+                  Bio
+                  <textarea
+                    className="input-metatron min-h-[100px] py-2.5 text-sm"
+                    value={p.bio ?? ""}
+                    onChange={(e) => setP((x) => ({ ...x, bio: e.target.value }))}
+                  />
+                </label>
+              </div>
+              <div className="flex h-full flex-col gap-1 text-xs text-[var(--text-muted)]">
+                Sectors
+                <div className="flex-1 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-3">
+                  <div className="flex flex-wrap gap-2">
+                    {SECTOR_OPTIONS.map((s) => (
+                      <button
+                        key={s}
+                        type="button"
+                        onClick={() => toggleSector(s)}
+                        className={[
+                          "rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors",
+                          (p.sectors ?? []).includes(s)
+                            ? "border-metatron-accent/40 bg-metatron-accent/15 text-metatron-accent"
+                            : "border-[var(--border)] text-[var(--text-muted)] hover:border-metatron-accent/25",
+                        ].join(" ")}
+                      >
+                        {s}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <label className="flex flex-col gap-1 text-xs text-[var(--text-muted)]">
-              Firm name
-              <input
+              Country
+              <select
                 className="input-metatron py-2.5 text-sm"
-                value={p.firm_name ?? ""}
+                value={p.country ?? ""}
                 onChange={(e) =>
-                  setP((x) => ({ ...x, firm_name: e.target.value }))
+                  setP((x) => ({ ...x, country: e.target.value || null }))
                 }
-              />
+              >
+                <option value="">Select…</option>
+                {COUNTRIES.map((c) => (
+                  <option key={c.code} value={c.code}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
             </label>
-            <label className="flex flex-col gap-1 text-xs text-[var(--text-muted)]">
-              Bio
-              <textarea
-                className="input-metatron min-h-[100px] py-2.5 text-sm"
-                value={p.bio ?? ""}
-                onChange={(e) => setP((x) => ({ ...x, bio: e.target.value }))}
-              />
-            </label>
+
             <label className="flex flex-col gap-1 text-xs text-[var(--text-muted)]">
               Investment thesis
               <textarea
@@ -305,27 +350,6 @@ export default function InvestorProfilePage() {
                 }
               />
             </label>
-
-            <div>
-              <p className="mb-2 text-xs text-[var(--text-muted)]">Sectors</p>
-              <div className="flex flex-wrap gap-2">
-                {SECTOR_OPTIONS.map((s) => (
-                  <button
-                    key={s}
-                    type="button"
-                    onClick={() => toggleSector(s)}
-                    className={[
-                      "rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors",
-                      (p.sectors ?? []).includes(s)
-                        ? "border-metatron-accent/40 bg-metatron-accent/15 text-metatron-accent"
-                        : "border-[var(--border)] text-[var(--text-muted)] hover:border-metatron-accent/25",
-                    ].join(" ")}
-                  >
-                    {s}
-                  </button>
-                ))}
-              </div>
-            </div>
 
             <div>
               <p className="mb-2 text-xs text-[var(--text-muted)]">Stages</p>
@@ -384,24 +408,6 @@ export default function InvestorProfilePage() {
                 />
               </label>
             </div>
-
-            <label className="flex flex-col gap-1 text-xs text-[var(--text-muted)]">
-              Country
-              <select
-                className="input-metatron py-2.5 text-sm"
-                value={p.country ?? ""}
-                onChange={(e) =>
-                  setP((x) => ({ ...x, country: e.target.value || null }))
-                }
-              >
-                <option value="">Select…</option>
-                {COUNTRIES.map((c) => (
-                  <option key={c.code} value={c.code}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-            </label>
 
             <label className="flex items-center gap-2 text-sm text-[var(--text)]">
               <input

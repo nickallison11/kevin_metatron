@@ -41,7 +41,6 @@ pub fn build_app(_settings: &Settings, state: Arc<AppState>) -> Router {
         .nest("/api/admin", routes::admin::router())
         .nest("/whatsapp", routes::whatsapp::router())
         .nest("/calls", routes::calls::router())
-        .nest("/integrations/notetaker", routes::notetaker_connections::router())
         .nest("/deals", routes::deals::router())
         .nest("/investment-memos", routes::investment_memos::router())
         .nest("/messages", routes::messages::router())

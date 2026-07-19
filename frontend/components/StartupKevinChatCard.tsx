@@ -1,6 +1,7 @@
 "use client";
 
 import { API_BASE, authJsonHeaders } from "@/lib/api";
+import { decodeJwtSub } from "@/lib/auth";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 type Msg = { role: "user" | "assistant"; content: string };
@@ -91,7 +92,11 @@ export function StartupKevinChatCard({
   systemContext?: string;
   emptyHint?: string;
 }) {
-  const storageKey = `metatron_kevin_chat_card_v1_${token?.slice(0, 16) ?? "anon"}`;
+  // Keyed by the JWT's `sub` claim, not a raw token prefix — every metatron
+  // JWT shares the same fixed header bytes, so slicing the raw token put
+  // every user's chat history in the same localStorage bucket on a shared
+  // or reused browser profile.
+  const storageKey = `metatron_kevin_chat_card_v1_${(token && decodeJwtSub(token)) || "anon"}`;
   const [showHistory, setShowHistory] = useState(false);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [input, setInput] = useState("");

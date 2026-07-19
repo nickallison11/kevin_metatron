@@ -19,7 +19,7 @@ export type AuthState = {
 
 export type UserRole = "STARTUP" | "INVESTOR" | "INTERMEDIARY";
 
-function decodeJwtRole(token: string): string | null {
+function decodeJwtPayload(token: string): Record<string, unknown> | null {
   try {
     const parts = token.split(".");
     if (parts.length < 2) return null;
@@ -28,11 +28,25 @@ function decodeJwtRole(token: string): string | null {
     const padLen = (4 - (base64.length % 4)) % 4;
     const normalized = base64 + "=".repeat(padLen);
     const json = atob(normalized);
-    const parsed = JSON.parse(json) as { role?: unknown };
-    return typeof parsed.role === "string" ? parsed.role : null;
+    return JSON.parse(json) as Record<string, unknown>;
   } catch {
     return null;
   }
+}
+
+function decodeJwtRole(token: string): string | null {
+  const parsed = decodeJwtPayload(token);
+  return typeof parsed?.role === "string" ? parsed.role : null;
+}
+
+/**
+ * Extracts the user id (`sub` claim) from a JWT. Every metatron JWT shares
+ * the same fixed header segment, so a per-user cache key must be derived
+ * from the payload, not a prefix of the raw token string.
+ */
+export function decodeJwtSub(token: string): string | null {
+  const parsed = decodeJwtPayload(token);
+  return typeof parsed?.sub === "string" ? parsed.sub : null;
 }
 
 function dashboardPathForRole(role: string | null): string {

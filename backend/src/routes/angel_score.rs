@@ -158,6 +158,15 @@ Founder profile:
 Pitch data:
 {pitch_text}
 
+The "reasoning" field is shown directly to the founder on their dashboard —
+write it as feedback from an analyst to a founder, not as internal notes.
+Never mention data sources, tables, "profile" vs "pitch data" as system
+concepts, or that anything is "missing," "confusing," or inconsistent
+between inputs. If the company name or details differ between the two
+sections, silently prefer whichever is more complete and score on that
+alone — don't narrate the discrepancy. Speak to the founder in second
+person, be specific and constructive, and keep it to 2-3 sentences.
+
 Return ONLY valid JSON, no markdown, no code fences:
 {{"score":0,"team":0,"market":0,"traction":0,"pitch":0,"reasoning":"2-3 sentence explanation"}}"#
     );

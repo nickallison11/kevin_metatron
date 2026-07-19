@@ -11,6 +11,16 @@
   --accent-glow: rgba(108, 92, 231, 0.2);
   --border: rgba(255, 255, 255, 0.06);
   --radius: 12px;
+  /* Subtle surface tints (dividers, pill backgrounds, hover states) layered
+     on top of --bg/--bg-card. Dark mode lightens with white; light mode
+     must darken instead, or the same rgba(255,255,255,..) value is
+     invisible against a light surface. */
+  --overlay-2: rgba(255, 255, 255, 0.02);
+  --overlay-3: rgba(255, 255, 255, 0.03);
+  --overlay-4: rgba(255, 255, 255, 0.04);
+  --overlay-6: rgba(255, 255, 255, 0.06);
+  --overlay-8: rgba(255, 255, 255, 0.08);
+  --overlay-12: rgba(255, 255, 255, 0.12);
 }
 
 html.light {
@@ -19,6 +29,12 @@ html.light {
   --text: #1a1a2e;
   --text-muted: #6e6e82;
   --border: rgba(0, 0, 0, 0.08);
+  --overlay-2: rgba(0, 0, 0, 0.03);
+  --overlay-3: rgba(0, 0, 0, 0.04);
+  --overlay-4: rgba(0, 0, 0, 0.05);
+  --overlay-6: rgba(0, 0, 0, 0.07);
+  --overlay-8: rgba(0, 0, 0, 0.09);
+  --overlay-12: rgba(0, 0, 0, 0.14);
 }
 
 html,

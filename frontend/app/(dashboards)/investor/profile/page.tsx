@@ -478,7 +478,7 @@ export default function InvestorProfilePage() {
                         Connected
                       </span>
                     </div>
-                    <p className="font-mono text-sm text-[var(--text)] bg-[rgba(255,255,255,0.04)] rounded-lg px-3 py-2 border border-[var(--border)]">
+                    <p className="font-mono text-sm text-[var(--text)] bg-[var(--overlay-4)] rounded-lg px-3 py-2 border border-[var(--border)]">
                       +{me.whatsapp_number}
                     </p>
                     <div className="flex flex-wrap items-center gap-3">

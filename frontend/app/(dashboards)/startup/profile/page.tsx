@@ -569,7 +569,7 @@ export default function StartupProfilePage() {
             <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-4 space-y-4">
               <p className="text-xs font-semibold text-[var(--text)]">Pitch deck</p>
 
-              <div className="rounded-lg border border-[var(--border)] bg-[rgba(255,255,255,0.02)] p-4 space-y-3">
+              <div className="rounded-lg border border-[var(--border)] bg-[var(--overlay-2)] p-4 space-y-3">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <p className="text-sm font-semibold text-[var(--text)]">Upload PDF</p>
@@ -585,7 +585,7 @@ export default function StartupProfilePage() {
                 </div>
 
                 {freeDeckUsed ? (
-                  <div className="rounded-lg border border-[var(--border)] bg-[rgba(255,255,255,0.02)] px-4 py-3 text-sm text-[var(--text-muted)]">
+                  <div className="rounded-lg border border-[var(--border)] bg-[var(--overlay-2)] px-4 py-3 text-sm text-[var(--text-muted)]">
                     <p>Free accounts include one deck upload. Upgrade to Founder Basic to replace your deck.</p>
                     <Link href="/pricing" className="mt-2 inline-block text-xs font-semibold text-metatron-accent hover:underline">
                       Upgrade to Founder Basic — view plans
@@ -698,7 +698,7 @@ export default function StartupProfilePage() {
                         Connected
                       </span>
                     </div>
-                    <p className="font-mono text-sm text-[var(--text)] bg-[rgba(255,255,255,0.04)] rounded-lg px-3 py-2 border border-[var(--border)]">
+                    <p className="font-mono text-sm text-[var(--text)] bg-[var(--overlay-4)] rounded-lg px-3 py-2 border border-[var(--border)]">
                       +{me.whatsapp_number}
                     </p>
                     <div className="flex flex-wrap items-center gap-3">

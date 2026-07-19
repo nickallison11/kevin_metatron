@@ -349,7 +349,7 @@ export default function StartupPitchesPage() {
                   className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
                     tab === t.id
                       ? "bg-metatron-accent text-white"
-                      : "bg-[rgba(255,255,255,0.04)] text-[var(--text-muted)] hover:text-[var(--text)]"
+                      : "bg-[var(--overlay-4)] text-[var(--text-muted)] hover:text-[var(--text)]"
                   }`}
                 >
                   {t.label}
@@ -535,7 +535,7 @@ export default function StartupPitchesPage() {
                       {teamMembers.map((row, i) => (
                         <div
                           key={i}
-                          className="rounded-lg border border-[var(--border)] bg-[rgba(255,255,255,0.02)] p-3 space-y-2"
+                          className="rounded-lg border border-[var(--border)] bg-[var(--overlay-2)] p-3 space-y-2"
                         >
                           <div className="flex justify-end">
                             <button
@@ -630,7 +630,7 @@ export default function StartupPitchesPage() {
               return (
                 <li
                   key={p.id}
-                  className="rounded-lg border border-[var(--border)] bg-[rgba(255,255,255,0.02)] px-4 py-3 space-y-2"
+                  className="rounded-lg border border-[var(--border)] bg-[var(--overlay-2)] px-4 py-3 space-y-2"
                 >
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div className="font-medium text-[var(--text)] min-w-0 flex-1">
@@ -651,7 +651,7 @@ export default function StartupPitchesPage() {
                           setShowManualForm(true);
                           setTab("overview");
                         }}
-                        className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-medium text-[var(--text)] hover:bg-[rgba(255,255,255,0.04)]"
+                        className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-medium text-[var(--text)] hover:bg-[var(--overlay-4)]"
                       >
                         View / Edit
                       </button>

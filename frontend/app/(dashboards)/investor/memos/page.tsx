@@ -59,7 +59,7 @@ export default function InvestorMemosPage() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {memos.map(m => (
             <div key={m.id} onClick={() => setSelected(m)} style={{
-              background: 'var(--bg-card)', border: '1px solid rgba(255,255,255,0.06)',
+              background: 'var(--bg-card)', border: '1px solid var(--overlay-6)',
               borderRadius: 12, padding: '16px 20px', cursor: 'pointer',
               display: 'flex', justifyContent: 'space-between', alignItems: 'center'
             }}>
@@ -81,7 +81,7 @@ export default function InvestorMemosPage() {
           display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: 24
         }}>
           <div style={{
-            background: 'var(--bg-card)', border: '1px solid rgba(255,255,255,0.06)',
+            background: 'var(--bg-card)', border: '1px solid var(--overlay-6)',
             borderRadius: 16, padding: 32, maxWidth: 720, width: '100%',
             maxHeight: '80vh', overflowY: 'auto', position: 'relative'
           }}>
@@ -105,7 +105,7 @@ export default function InvestorMemosPage() {
                 a.download = `${selected.company_name ?? 'memo'}.txt`;
                 a.click();
               }} style={{
-                padding: '10px 20px', background: 'rgba(255,255,255,0.08)', color: 'var(--text)',
+                padding: '10px 20px', background: 'var(--overlay-8)', color: 'var(--text)',
                 border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, cursor: 'pointer'
               }}>Download TXT</button>
             </div>

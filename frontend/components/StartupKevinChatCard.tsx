@@ -129,8 +129,13 @@ export function StartupKevinChatCard({
       .catch(() => setSessions([]));
   }, [showHistory, token]);
 
+  const skipNextScroll = useRef(true);
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (skipNextScroll.current) {
+      skipNextScroll.current = false;
+      return;
+    }
+    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }, [messages, loading]);
 
   const newChat = useCallback(() => {

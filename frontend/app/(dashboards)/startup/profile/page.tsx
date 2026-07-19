@@ -273,55 +273,38 @@ export default function StartupProfilePage() {
               <p className="text-sm text-[var(--text-muted)]">Loading…</p>
             ) : (
               <form onSubmit={onSave} className="space-y-4 text-sm">
-            <label className="block space-y-1">
-              <span className="font-sans text-[11px] uppercase text-[var(--text-muted)]">
-                Company name
-              </span>
-              <input
-                className="input-metatron"
-                value={profile.company_name ?? ""}
-                onChange={(e) =>
-                  setProfile((p) => ({ ...p, company_name: e.target.value }))
-                }
-              />
-            </label>
-            <label className="block space-y-1">
-              <span className="font-sans text-[11px] uppercase text-[var(--text-muted)]">
-                One-liner
-              </span>
-              <input
-                className="input-metatron"
-                value={profile.one_liner ?? ""}
-                onChange={(e) =>
-                  setProfile((p) => ({ ...p, one_liner: e.target.value }))
-                }
-              />
-            </label>
             <div className="grid sm:grid-cols-2 gap-4">
-              <label className="block space-y-1">
-                <span className="font-sans text-[11px] uppercase text-[var(--text-muted)]">
-                  Stage
-                </span>
-                <select
-                  className="input-metatron"
-                  value={profile.stage ?? ""}
-                  onChange={(e) =>
-                    setProfile((p) => ({ ...p, stage: e.target.value || null }))
-                  }
-                >
-                  <option value="">Select…</option>
-                  {STAGES.map((s) => (
-                    <option key={s.v} value={s.v}>
-                      {s.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="block space-y-1">
+              <div className="space-y-4">
+                <label className="block space-y-1">
+                  <span className="font-sans text-[11px] uppercase text-[var(--text-muted)]">
+                    Company name
+                  </span>
+                  <input
+                    className="input-metatron"
+                    value={profile.company_name ?? ""}
+                    onChange={(e) =>
+                      setProfile((p) => ({ ...p, company_name: e.target.value }))
+                    }
+                  />
+                </label>
+                <label className="block space-y-1">
+                  <span className="font-sans text-[11px] uppercase text-[var(--text-muted)]">
+                    One-liner
+                  </span>
+                  <input
+                    className="input-metatron"
+                    value={profile.one_liner ?? ""}
+                    onChange={(e) =>
+                      setProfile((p) => ({ ...p, one_liner: e.target.value }))
+                    }
+                  />
+                </label>
+              </div>
+              <label className="flex h-full flex-col space-y-1">
                 <span className="font-sans text-[11px] uppercase text-[var(--text-muted)]">
                   Sector
                 </span>
-                <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-3 space-y-2">
+                <div className="flex-1 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-3 space-y-2">
                   <div className="flex flex-wrap gap-2">
                     {(profile.sectors ?? []).map((s) => (
                       <button
@@ -372,6 +355,25 @@ export default function StartupProfilePage() {
             <div className="grid sm:grid-cols-2 gap-4">
               <label className="block space-y-1">
                 <span className="font-sans text-[11px] uppercase text-[var(--text-muted)]">
+                  Stage
+                </span>
+                <select
+                  className="input-metatron"
+                  value={profile.stage ?? ""}
+                  onChange={(e) =>
+                    setProfile((p) => ({ ...p, stage: e.target.value || null }))
+                  }
+                >
+                  <option value="">Select…</option>
+                  {STAGES.map((s) => (
+                    <option key={s.v} value={s.v}>
+                      {s.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block space-y-1">
+                <span className="font-sans text-[11px] uppercase text-[var(--text-muted)]">
                   Country (ISO-2)
                 </span>
                 <select
@@ -387,32 +389,32 @@ export default function StartupProfilePage() {
                   ))}
                 </select>
               </label>
-              <label className="block space-y-1">
-                <span className="font-sans text-[11px] uppercase text-[var(--text-muted)]">
-                  Website
-                </span>
-                <input
-                  className="input-metatron"
-                  type="text"
-                  placeholder="yoursite.com"
-                  value={profile.website ?? ""}
-                  onChange={(e) =>
-                    setProfile((p) => ({ ...p, website: e.target.value }))
-                  }
-                  onBlur={(e) => {
-                    const v = e.target.value.trim();
-                    if (!v) {
-                      setProfile((p) => ({ ...p, website: null }));
-                      return;
-                    }
-                    const startsWithHttp =
-                      v.startsWith("http://") || v.startsWith("https://");
-                    if (startsWithHttp) return;
-                    setProfile((p) => ({ ...p, website: `https://${v}` }));
-                  }}
-                />
-              </label>
             </div>
+            <label className="block space-y-1">
+              <span className="font-sans text-[11px] uppercase text-[var(--text-muted)]">
+                Website
+              </span>
+              <input
+                className="input-metatron"
+                type="text"
+                placeholder="yoursite.com"
+                value={profile.website ?? ""}
+                onChange={(e) =>
+                  setProfile((p) => ({ ...p, website: e.target.value }))
+                }
+                onBlur={(e) => {
+                  const v = e.target.value.trim();
+                  if (!v) {
+                    setProfile((p) => ({ ...p, website: null }));
+                    return;
+                  }
+                  const startsWithHttp =
+                    v.startsWith("http://") || v.startsWith("https://");
+                  if (startsWithHttp) return;
+                  setProfile((p) => ({ ...p, website: `https://${v}` }));
+                }}
+              />
+            </label>
             <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-4 space-y-4">
               <p className="text-xs font-semibold text-[var(--text)]">Pitch deck</p>
 
@@ -464,50 +466,6 @@ export default function StartupProfilePage() {
                     Your deck has been uploaded — view your pitch data →
                   </Link>
                 ) : null}
-              </div>
-
-              <div className="flex items-center gap-3">
-                <div className="flex-1 border-t border-[var(--border)]" />
-                <span className="text-xs text-[var(--text-muted)]">or share a link</span>
-                <div className="flex-1 border-t border-[var(--border)]" />
-              </div>
-
-              <div className="space-y-2">
-                <label className="block space-y-1">
-                  <span className="font-sans text-[11px] uppercase text-[var(--text-muted)]">
-                    Pitch deck link
-                  </span>
-                  <input
-                    className="input-metatron w-full"
-                    type="url"
-                    placeholder="https://drive.google.com/..."
-                    value={
-                      profile.pitch_deck_url &&
-                      !profile.pitch_deck_url.includes("pinata") &&
-                      !profile.pitch_deck_url.startsWith("ipfs://")
-                        ? profile.pitch_deck_url
-                        : ""
-                    }
-                    onChange={(e) =>
-                      setProfile((p) => ({ ...p, pitch_deck_url: e.target.value }))
-                    }
-                  />
-                </label>
-                <p className="text-xs text-[var(--text-muted)]">
-                  Your link is stored privately and not shared with investors. Upload a PDF above to enable AI-powered matching.
-                </p>
-                {profile.pitch_deck_url &&
-                  !profile.pitch_deck_url.includes("pinata") &&
-                  !profile.pitch_deck_url.startsWith("ipfs://") && (
-                    <a
-                      href={profile.pitch_deck_url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-block text-xs text-metatron-accent hover:underline"
-                    >
-                      Open current deck
-                    </a>
-                  )}
               </div>
             </div>
             <button

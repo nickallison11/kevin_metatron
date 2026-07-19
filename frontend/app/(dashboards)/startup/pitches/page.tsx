@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { API_BASE, authHeaders, authJsonHeaders } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
@@ -94,6 +94,7 @@ export default function StartupPitchesPage() {
   const { token, loading } = useAuth();
 
   const [pitches, setPitches] = useState<Pitch[]>([]);
+  const [pitchesLoaded, setPitchesLoaded] = useState(false);
   const [profile, setProfile] = useState<FounderProfile | null>(null);
   const [profileLoaded, setProfileLoaded] = useState(false);
   const [tab, setTab] = useState<FormTab>("overview");
@@ -127,6 +128,8 @@ export default function StartupPitchesPage() {
       else setMsg("Failed to load pitch data.");
     } catch {
       setMsg("Failed to load pitch data.");
+    } finally {
+      setPitchesLoaded(true);
     }
   }, [token]);
 
@@ -151,6 +154,24 @@ export default function StartupPitchesPage() {
       loadProfile();
     }
   }, [loading, token, loadPitches, loadProfile]);
+
+  // Show the full form by default instead of the collapsed summary list —
+  // open the existing pitch for editing, or the empty create form if none
+  // exists yet. Only runs once, right after the initial load settles.
+  const autoOpenedRef = useRef(false);
+  useEffect(() => {
+    if (autoOpenedRef.current) return;
+    if (!pitchesLoaded || !profileLoaded) return;
+    autoOpenedRef.current = true;
+    if (pitches.length > 0) {
+      prefillFromPitch(pitches[0]);
+      setReviewPitchId(pitches[0].id);
+      setShowManualForm(true);
+      setTab("overview");
+    } else {
+      setShowManualForm(true);
+    }
+  }, [pitchesLoaded, profileLoaded, pitches]);
 
   if (loading) return null;
   if (!token) return null;

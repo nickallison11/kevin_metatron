@@ -15,7 +15,7 @@ export default function StartupDashboardPage() {
     <main className="flex-1">
       <section className="p-6 md:p-10 max-w-5xl mx-auto space-y-4">
         <h1 className="text-2xl font-semibold text-[var(--text)]">Founder overview</h1>
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[380px_1fr] lg:items-start">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[300px_1fr] lg:items-start">
           <div className="space-y-4">
             <AngelScoreCard token={token} />
             <ChannelLinksCard token={token} />

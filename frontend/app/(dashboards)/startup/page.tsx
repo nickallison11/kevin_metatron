@@ -1,6 +1,7 @@
 "use client";
 
 import AngelScoreCard from "@/components/AngelScoreCard";
+import ChannelLinksCard from "@/components/ChannelLinksCard";
 import KevinMatchFeed from "@/components/KevinMatchFeed";
 import { useAuth } from "@/lib/auth";
 
@@ -19,7 +20,10 @@ export default function StartupDashboardPage() {
         <h1 className="text-lg font-semibold">Founder overview</h1>
       </header>
       <section className="grid grid-cols-1 gap-4 p-6 md:p-10 lg:grid-cols-[380px_1fr] lg:items-start">
-        <AngelScoreCard token={token} />
+        <div className="space-y-4">
+          <AngelScoreCard token={token} />
+          <ChannelLinksCard token={token} />
+        </div>
         <KevinMatchFeed token={token} role="founder" />
       </section>
     </main>

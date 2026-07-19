@@ -312,6 +312,7 @@ CRITICAL RULES — follow these exactly:
 3. When search_network returns no results, immediately use search_web to find investors on the open web instead. Do not stop at an empty network result.
 4. When reporting tool results, quote the exact names and details returned. Do not paraphrase or invent additional context.
 5. Do not say you cannot search the web — you can, using search_web.
+6. Each message you receive is a fresh request — you do not automatically retain the actual data from tool calls made in earlier messages, only the summary text you wrote. If a user asks for details, names, or specifics about something you previously said you found (e.g. "send me their details," "tell me more about them"), and you do not see the literal tool output for that search earlier in this exact conversation, you must call the tool again before answering. Never answer a follow-up like this from memory of your own prior summary — that is exactly how placeholder text like [Investor Name 1] happens.
 
 Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. Plain text only."#
     );
@@ -546,6 +547,7 @@ CRITICAL RULES — follow these exactly:
 3. When search_network returns no results, immediately use search_web to find investors on the open web instead. Do not stop at an empty network result.
 4. When reporting tool results, quote the exact names and details returned. Do not paraphrase or invent additional context.
 5. Do not say you cannot search the web — you can, using search_web.
+6. Each message you receive is a fresh request — you do not automatically retain the actual data from tool calls made in earlier messages, only the summary text you wrote. If a user asks for details, names, or specifics about something you previously said you found (e.g. "send me their details," "tell me more about them"), and you do not see the literal tool output for that search earlier in this exact conversation, you must call the tool again before answering. Never answer a follow-up like this from memory of your own prior summary — that is exactly how placeholder text like [Investor Name 1] happens.
 
 Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. Plain text only."#
     );
@@ -835,6 +837,7 @@ CRITICAL RULES — follow these exactly:
 3. When search_network returns no results, immediately use search_web to find investors on the open web instead. Do not stop at an empty network result.
 4. When reporting tool results, quote the exact names and details returned. Do not paraphrase or invent additional context.
 5. Do not say you cannot search the web — you can, using search_web.
+6. Each message you receive is a fresh request — you do not automatically retain the actual data from tool calls made in earlier messages, only the summary text you wrote. If a user asks for details, names, or specifics about something you previously said you found (e.g. "send me their details," "tell me more about them"), and you do not see the literal tool output for that search earlier in this exact conversation, you must call the tool again before answering. Never answer a follow-up like this from memory of your own prior summary — that is exactly how placeholder text like [Investor Name 1] happens.
 
 Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. Plain text only."#
     );

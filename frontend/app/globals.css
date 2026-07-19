@@ -55,6 +55,14 @@ body {
   display: none;
 }
 
+/* Layout mode (independent of light/dark theme, see lib/mode.tsx). Both
+   modes share every colour token and the same two font families — this
+   only affects density/emphasis, never introduces a new palette. */
+.mono-num {
+  font-family: var(--font-jetbrains-mono), ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
 /* Purple orb glow */
 .orb {
   position: fixed;

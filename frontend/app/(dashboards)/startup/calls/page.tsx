@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { API_BASE, authHeaders } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { NotetakerConnections } from "@/components/NotetakerConnections";
 
 type Analysis = {
   summary?: string;
@@ -103,6 +104,9 @@ export default function StartupCallsPage() {
           minute or two for longer recordings.
         </p>
         {msg && <p className="text-xs text-[var(--text-muted)]">{msg}</p>}
+
+        <NotetakerConnections token={token} />
+
         <div className="space-y-5">
           {calls.map((c) => (
             <article

@@ -601,7 +601,7 @@ export default function MessagingWidget({ token }: { token: string | null }) {
             setListOpen((o) => !o);
             if (!listOpen) void loadConversations();
           }}
-          className="flex w-full items-center justify-between rounded-t-xl border-x border-t border-[var(--border)] bg-[var(--bg-card)] px-4 py-3 transition-colors hover:bg-[#1e1e2a]"
+          className="flex w-full items-center justify-between rounded-t-xl border-x border-t border-[var(--border)] bg-[var(--bg-card)] px-4 py-3 transition-colors hover:bg-[var(--bg)]"
         >
           <div className="flex items-center gap-2">
             <svg

@@ -170,7 +170,7 @@ export default function KevinMatchFeed({
             </thead>
             <tbody>
               {top10.map((m) => (
-                <tr key={m.id} className="border-b border-[rgba(255,255,255,0.03)]">
+                <tr key={m.id} className="border-b border-[var(--overlay-3)]">
                   <td className="py-2 pr-3">
                     <p className="text-[var(--text)] font-medium text-xs">
                       {m.firm_name ?? "Independent investor"}

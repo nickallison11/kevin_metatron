@@ -352,7 +352,7 @@ function StartupMatchesPageInner() {
   const scoreBadgeColor = (score: number) => {
     if (score >= 85) return "bg-[rgba(0,200,100,0.12)] text-green-400";
     if (score >= 70) return "bg-[rgba(108,92,231,0.15)] text-[#6c5ce7]";
-    return "bg-[rgba(255,255,255,0.06)] text-[var(--text-muted)]";
+    return "bg-[var(--overlay-6)] text-[var(--text-muted)]";
   };
 
   const showConnectTab = role === "STARTUP";
@@ -732,7 +732,7 @@ function StartupMatchesPageInner() {
                             <tr
                               key={m.id}
                               onClick={() => setViewingMatch(m)}
-                              className={`border-b border-[rgba(255,255,255,0.03)] cursor-pointer transition-colors h-14 ${
+                              className={`border-b border-[var(--overlay-3)] cursor-pointer transition-colors h-14 ${
                                 dimmed ? "opacity-50" : "bg-[var(--bg)] hover:bg-[var(--bg-card)]"
                               }`}
                             >
@@ -848,7 +848,7 @@ function StartupMatchesPageInner() {
                         type="button"
                         onClick={() => setPageRaw((p) => Math.max(1, p - 1))}
                         disabled={page === 1}
-                        className="px-3 py-1 bg-[rgba(255,255,255,0.06)] rounded-lg disabled:opacity-30"
+                        className="px-3 py-1 bg-[var(--overlay-6)] rounded-lg disabled:opacity-30"
                       >
                         Previous
                       </button>
@@ -856,7 +856,7 @@ function StartupMatchesPageInner() {
                         type="button"
                         onClick={() => setPageRaw((p) => Math.min(totalPages, p + 1))}
                         disabled={page === totalPages}
-                        className="px-3 py-1 bg-[rgba(255,255,255,0.06)] rounded-lg disabled:opacity-30"
+                        className="px-3 py-1 bg-[var(--overlay-6)] rounded-lg disabled:opacity-30"
                       >
                         Next
                       </button>
@@ -909,7 +909,7 @@ function StartupMatchesPageInner() {
               <button
                 type="button"
                 onClick={() => setViewingMatch(null)}
-                className="shrink-0 rounded-lg p-2 text-[var(--text-muted)] hover:bg-[rgba(255,255,255,0.06)] hover:text-[var(--text)]"
+                className="shrink-0 rounded-lg p-2 text-[var(--text-muted)] hover:bg-[var(--overlay-6)] hover:text-[var(--text)]"
               >
                 <span className="block text-xl leading-none">×</span>
               </button>

@@ -232,7 +232,7 @@ export default function ConnectorProfilePage() {
               <p className="text-sm text-[var(--text-muted)]">Loading…</p>
             ) : (
               <form onSubmit={onSubmit} className="space-y-5">
-            <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[#0a0a0f] px-4 py-3 text-sm text-[var(--text-muted)]">
+            <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg)] px-4 py-3 text-sm text-[var(--text-muted)]">
               <span className="font-sans text-[10px] uppercase tracking-wider">
                 Name (from account)
               </span>
@@ -327,7 +327,7 @@ export default function ConnectorProfilePage() {
                         Connected
                       </span>
                     </div>
-                    <p className="font-mono text-sm text-[var(--text)] bg-[rgba(255,255,255,0.04)] rounded-lg px-3 py-2 border border-[var(--border)]">
+                    <p className="font-mono text-sm text-[var(--text)] bg-[var(--overlay-4)] rounded-lg px-3 py-2 border border-[var(--border)]">
                       +{me.whatsapp_number}
                     </p>
                     <div className="flex flex-wrap items-center gap-3">

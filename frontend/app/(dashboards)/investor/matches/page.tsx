@@ -71,7 +71,7 @@ const DEFAULT_INVESTOR_MATCH_COLUMNS = [
 const scoreBadgeColor = (score: number) => {
   if (score >= 85) return "bg-[rgba(0,200,100,0.12)] text-green-400";
   if (score >= 70) return "bg-[rgba(108,92,231,0.15)] text-[#6c5ce7]";
-  return "bg-[rgba(255,255,255,0.06)] text-[var(--text-muted)]";
+  return "bg-[var(--overlay-6)] text-[var(--text-muted)]";
 };
 
 function InvestorMatchesPageInner() {
@@ -425,7 +425,7 @@ function InvestorMatchesPageInner() {
                     <tr
                       key={r.id}
                       onClick={() => setViewingIntro(r)}
-                      className="border-b border-[rgba(255,255,255,0.03)] cursor-pointer transition-colors hover:bg-[rgba(108,92,231,0.04)] h-14"
+                      className="border-b border-[var(--overlay-3)] cursor-pointer transition-colors hover:bg-[rgba(108,92,231,0.04)] h-14"
                     >
                       {DEFAULT_INTRO_COLUMNS.map((col) => {
                         const w = introColWidths[col.key] ?? col.width;
@@ -468,7 +468,7 @@ function InvestorMatchesPageInner() {
                                   Connection accepted
                                 </span>
                               ) : r.intro_passed_at ? (
-                                <span className="px-2 py-0.5 rounded text-xs font-medium bg-[rgba(255,255,255,0.06)] text-[var(--text-muted)]">
+                                <span className="px-2 py-0.5 rounded text-xs font-medium bg-[var(--overlay-6)] text-[var(--text-muted)]">
                                   Declined
                                 </span>
                               ) : (
@@ -530,7 +530,7 @@ function InvestorMatchesPageInner() {
                     type="button"
                     onClick={() => setPageRaw((p) => Math.max(1, p - 1))}
                     disabled={page === 1}
-                    className="px-3 py-1 bg-[rgba(255,255,255,0.06)] rounded-lg disabled:opacity-30"
+                    className="px-3 py-1 bg-[var(--overlay-6)] rounded-lg disabled:opacity-30"
                   >
                     Previous
                   </button>
@@ -538,7 +538,7 @@ function InvestorMatchesPageInner() {
                     type="button"
                     onClick={() => setPageRaw((p) => Math.min(totalPages, p + 1))}
                     disabled={page === totalPages}
-                    className="px-3 py-1 bg-[rgba(255,255,255,0.06)] rounded-lg disabled:opacity-30"
+                    className="px-3 py-1 bg-[var(--overlay-6)] rounded-lg disabled:opacity-30"
                   >
                     Next
                   </button>
@@ -554,7 +554,7 @@ function InvestorMatchesPageInner() {
               <p className="text-xs text-[var(--text-muted)]">
                 {matches.length} match{matches.length !== 1 ? "es" : ""}
               </p>
-              <div className="flex gap-1 bg-[rgba(255,255,255,0.04)] rounded-lg p-0.5">
+              <div className="flex gap-1 bg-[var(--overlay-4)] rounded-lg p-0.5">
                 {(["list", "card"] as const).map((v) => (
                   <button
                     key={v}
@@ -603,7 +603,7 @@ function InvestorMatchesPageInner() {
                       <tr
                         key={m.id}
                         onClick={() => setViewingMatch(m)}
-                        className="border-b border-[rgba(255,255,255,0.03)] cursor-pointer transition-colors hover:bg-[rgba(108,92,231,0.04)] h-14"
+                        className="border-b border-[var(--overlay-3)] cursor-pointer transition-colors hover:bg-[rgba(108,92,231,0.04)] h-14"
                       >
                         {DEFAULT_INVESTOR_MATCH_COLUMNS.map((col) => {
                           const w = matchColWidths[col.key] ?? col.width;
@@ -731,7 +731,7 @@ function InvestorMatchesPageInner() {
                   <div
                     key={m.id}
                     onClick={() => setViewingMatch(m)}
-                    className="cursor-pointer rounded-xl border border-[var(--border)] bg-[rgba(255,255,255,0.02)] p-4 hover:border-[rgba(108,92,231,0.3)] transition-colors"
+                    className="cursor-pointer rounded-xl border border-[var(--border)] bg-[var(--overlay-2)] p-4 hover:border-[rgba(108,92,231,0.3)] transition-colors"
                   >
                     <div className="flex items-start justify-between gap-2 mb-2">
                       <div className="min-w-0">
@@ -740,7 +740,7 @@ function InvestorMatchesPageInner() {
                         </p>
                         <div className="flex flex-wrap gap-1 mt-1">
                           {m.stage && (
-                            <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-[rgba(255,255,255,0.06)] text-[var(--text-muted)]">
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-[var(--overlay-6)] text-[var(--text-muted)]">
                               {m.stage}
                             </span>
                           )}
@@ -845,7 +845,7 @@ function InvestorMatchesPageInner() {
                     type="button"
                     onClick={() => setPageRaw((p) => Math.max(1, p - 1))}
                     disabled={page === 1}
-                    className="px-3 py-1 bg-[rgba(255,255,255,0.06)] rounded-lg disabled:opacity-30"
+                    className="px-3 py-1 bg-[var(--overlay-6)] rounded-lg disabled:opacity-30"
                   >
                     Previous
                   </button>
@@ -853,7 +853,7 @@ function InvestorMatchesPageInner() {
                     type="button"
                     onClick={() => setPageRaw((p) => Math.min(totalPages, p + 1))}
                     disabled={page === totalPages}
-                    className="px-3 py-1 bg-[rgba(255,255,255,0.06)] rounded-lg disabled:opacity-30"
+                    className="px-3 py-1 bg-[var(--overlay-6)] rounded-lg disabled:opacity-30"
                   >
                     Next
                   </button>
@@ -885,7 +885,7 @@ function InvestorMatchesPageInner() {
               <button
                 type="button"
                 onClick={() => setViewingIntro(null)}
-                className="shrink-0 rounded-lg p-2 text-[var(--text-muted)] hover:bg-[rgba(255,255,255,0.06)] hover:text-[var(--text)]"
+                className="shrink-0 rounded-lg p-2 text-[var(--text-muted)] hover:bg-[var(--overlay-6)] hover:text-[var(--text)]"
               >
                 <span className="block text-xl leading-none">×</span>
               </button>
@@ -926,7 +926,7 @@ function InvestorMatchesPageInner() {
                   Connection accepted
                 </span>
               ) : viewingIntro.intro_passed_at ? (
-                <span className="inline-flex w-full justify-center px-2 py-2 rounded-lg text-xs font-medium bg-[rgba(255,255,255,0.06)] text-[var(--text-muted)]">
+                <span className="inline-flex w-full justify-center px-2 py-2 rounded-lg text-xs font-medium bg-[var(--overlay-6)] text-[var(--text-muted)]">
                   Declined
                 </span>
               ) : (
@@ -985,7 +985,7 @@ function InvestorMatchesPageInner() {
               <button
                 type="button"
                 onClick={() => setViewingMatch(null)}
-                className="shrink-0 rounded-lg p-2 text-[var(--text-muted)] hover:bg-[rgba(255,255,255,0.06)] hover:text-[var(--text)]"
+                className="shrink-0 rounded-lg p-2 text-[var(--text-muted)] hover:bg-[var(--overlay-6)] hover:text-[var(--text)]"
               >
                 <span className="block text-xl leading-none">×</span>
               </button>

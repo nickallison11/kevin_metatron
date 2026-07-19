@@ -818,7 +818,7 @@ function ConnectorNetworkPageInner() {
 
   const statusBadge = (status: StagedContact["status"]) => {
     const map = {
-      pending: "bg-[rgba(255,255,255,0.06)] text-[var(--text-muted)]",
+      pending: "bg-[var(--overlay-6)] text-[var(--text-muted)]",
       enriching: "bg-[rgba(108,92,231,0.15)] text-[#6c5ce7] animate-pulse",
       enriched: "bg-[rgba(0,200,100,0.12)] text-green-400",
       failed: "bg-[rgba(255,80,80,0.12)] text-red-400",
@@ -967,7 +967,7 @@ function ConnectorNetworkPageInner() {
               <button
                 type="button"
                 onClick={onExportNetwork}
-                className="px-3 py-1.5 text-xs rounded-xl bg-[rgba(255,255,255,0.04)] text-[var(--text-muted)] border border-[var(--border)] hover:text-[var(--text)] hover:border-[rgba(255,255,255,0.12)]"
+                className="px-3 py-1.5 text-xs rounded-xl bg-[var(--overlay-4)] text-[var(--text-muted)] border border-[var(--border)] hover:text-[var(--text)] hover:border-[var(--overlay-12)]"
               >
                 Export XLSX
               </button>
@@ -1186,7 +1186,7 @@ function ConnectorNetworkPageInner() {
                   <tr
                     key={c.id}
                     onClick={() => openContactModalView(c)}
-                    className="border-b border-[rgba(255,255,255,0.03)] bg-[var(--bg)] hover:bg-[var(--bg-card)] cursor-pointer h-14"
+                    className="border-b border-[var(--overlay-3)] bg-[var(--bg)] hover:bg-[var(--bg-card)] cursor-pointer h-14"
                   >
                     {DEFAULT_COLUMNS.map((col) => {
                       const w = colWidths[col.key] ?? col.width;
@@ -1245,7 +1245,7 @@ function ConnectorNetworkPageInner() {
                 type="button"
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
                 disabled={page === 1}
-                className="px-3 py-1 bg-[rgba(255,255,255,0.06)] rounded-lg disabled:opacity-30"
+                className="px-3 py-1 bg-[var(--overlay-6)] rounded-lg disabled:opacity-30"
               >
                 Previous
               </button>
@@ -1253,7 +1253,7 @@ function ConnectorNetworkPageInner() {
                 type="button"
                 onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                 disabled={page === totalPages}
-                className="px-3 py-1 bg-[rgba(255,255,255,0.06)] rounded-lg disabled:opacity-30"
+                className="px-3 py-1 bg-[var(--overlay-6)] rounded-lg disabled:opacity-30"
               >
                 Next
               </button>
@@ -1336,7 +1336,7 @@ function ConnectorNetworkPageInner() {
               </span>
               <span>{stagingTotal > 0 ? Math.round((stagingCounts.enriched / stagingTotal) * 100) : 0}%</span>
             </div>
-            <div className="w-full bg-[rgba(255,255,255,0.06)] rounded-full h-2">
+            <div className="w-full bg-[var(--overlay-6)] rounded-full h-2">
               <div
                 className="bg-[#6c5ce7] h-2 rounded-full transition-all duration-500"
                 style={{ width: `${stagingTotal > 0 ? (stagingCounts.enriched / stagingTotal) * 100 : 0}%` }}
@@ -1502,7 +1502,7 @@ function ConnectorNetworkPageInner() {
                     type="button"
                     onClick={() => setStagingPage((p) => Math.max(0, p - 1))}
                     disabled={stagingPage === 0}
-                    className="px-3 py-1.5 text-xs rounded-xl bg-[rgba(255,255,255,0.04)] text-[var(--text-muted)] hover:text-[var(--text)] disabled:opacity-30 disabled:cursor-not-allowed"
+                    className="px-3 py-1.5 text-xs rounded-xl bg-[var(--overlay-4)] text-[var(--text-muted)] hover:text-[var(--text)] disabled:opacity-30 disabled:cursor-not-allowed"
                   >
                     ← Prev
                   </button>
@@ -1513,7 +1513,7 @@ function ConnectorNetworkPageInner() {
                     type="button"
                     onClick={() => setStagingPage((p) => Math.min(Math.ceil(stagingTotal / 50) - 1, p + 1))}
                     disabled={stagingPage >= Math.ceil(stagingTotal / 50) - 1}
-                    className="px-3 py-1.5 text-xs rounded-xl bg-[rgba(255,255,255,0.04)] text-[var(--text-muted)] hover:text-[var(--text)] disabled:opacity-30 disabled:cursor-not-allowed"
+                    className="px-3 py-1.5 text-xs rounded-xl bg-[var(--overlay-4)] text-[var(--text-muted)] hover:text-[var(--text)] disabled:opacity-30 disabled:cursor-not-allowed"
                   >
                     Next →
                   </button>
@@ -1527,7 +1527,7 @@ function ConnectorNetworkPageInner() {
                   <span className="text-[10px] uppercase tracking-wide text-[#6c5ce7]">Live feed</span>
                   <p className="mt-0.5 text-[10px] text-[var(--text-muted)]">Newest enriched first</p>
                 </div>
-                <ul className="divide-y divide-[rgba(255,255,255,0.06)]">
+                <ul className="divide-y divide-[var(--overlay-6)]">
                   {recentFeed.map((r) => {
                     const flash = recentlyEnriched.has(r.id);
                     return (
@@ -1586,7 +1586,7 @@ function ConnectorNetworkPageInner() {
                           className={
                             recentlyEnriched.has(s.id)
                               ? `border-b border-green-400/30 ${STAGING_RECENT_HIGHLIGHT_BG}`
-                              : "border-b border-[rgba(255,255,255,0.03)] hover:bg-[rgba(255,255,255,0.02)]"
+                              : "border-b border-[var(--overlay-3)] hover:bg-[var(--overlay-2)]"
                           }
                         >
                           <td className="py-2 pr-2">
@@ -1768,7 +1768,7 @@ function ConnectorNetworkPageInner() {
                     type="button"
                     onClick={() => setStagingPage((p) => Math.max(0, p - 1))}
                     disabled={stagingPage === 0}
-                    className="px-3 py-1.5 text-xs rounded-xl bg-[rgba(255,255,255,0.04)] text-[var(--text-muted)] hover:text-[var(--text)] disabled:opacity-30 disabled:cursor-not-allowed"
+                    className="px-3 py-1.5 text-xs rounded-xl bg-[var(--overlay-4)] text-[var(--text-muted)] hover:text-[var(--text)] disabled:opacity-30 disabled:cursor-not-allowed"
                   >
                     ← Prev
                   </button>
@@ -1779,7 +1779,7 @@ function ConnectorNetworkPageInner() {
                     type="button"
                     onClick={() => setStagingPage((p) => Math.min(Math.ceil(stagingTotal / 50) - 1, p + 1))}
                     disabled={stagingPage >= Math.ceil(stagingTotal / 50) - 1}
-                    className="px-3 py-1.5 text-xs rounded-xl bg-[rgba(255,255,255,0.04)] text-[var(--text-muted)] hover:text-[var(--text)] disabled:opacity-30 disabled:cursor-not-allowed"
+                    className="px-3 py-1.5 text-xs rounded-xl bg-[var(--overlay-4)] text-[var(--text-muted)] hover:text-[var(--text)] disabled:opacity-30 disabled:cursor-not-allowed"
                   >
                     Next →
                   </button>
@@ -1824,7 +1824,7 @@ function ConnectorNetworkPageInner() {
                 <button
                   type="button"
                   onClick={closeContactModal}
-                  className="shrink-0 rounded-lg p-2 text-[var(--text-muted)] transition-colors hover:bg-[rgba(255,255,255,0.06)] hover:text-[var(--text)]"
+                  className="shrink-0 rounded-lg p-2 text-[var(--text-muted)] transition-colors hover:bg-[var(--overlay-6)] hover:text-[var(--text)]"
                   aria-label="Close"
                 >
                   <span className="block text-xl leading-none" aria-hidden>
@@ -1962,7 +1962,7 @@ function ConnectorNetworkPageInner() {
                   <button
                     type="button"
                     onClick={() => void onArchive(viewingContact.id)}
-                    className="rounded-xl px-4 py-2 text-sm font-medium text-[var(--text-muted)] transition-colors hover:bg-[rgba(255,255,255,0.06)] hover:text-[var(--text)]"
+                    className="rounded-xl px-4 py-2 text-sm font-medium text-[var(--text-muted)] transition-colors hover:bg-[var(--overlay-6)] hover:text-[var(--text)]"
                   >
                     Archive
                   </button>
@@ -1993,7 +1993,7 @@ function ConnectorNetworkPageInner() {
                     type="button"
                     onClick={cancelContactModalEdit}
                     disabled={savingEdit}
-                    className="px-4 py-2 text-sm text-[var(--text-muted)] rounded-xl hover:bg-[rgba(255,255,255,0.06)] hover:text-[var(--text)] disabled:opacity-50"
+                    className="px-4 py-2 text-sm text-[var(--text-muted)] rounded-xl hover:bg-[var(--overlay-6)] hover:text-[var(--text)] disabled:opacity-50"
                   >
                     Cancel
                   </button>

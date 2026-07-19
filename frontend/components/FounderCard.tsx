@@ -137,7 +137,7 @@ export function FounderCard({
 
 export function ProBlurOverlay({ label }: { label: string }) {
   return (
-    <div className="pointer-events-none absolute inset-0 z-[1] flex flex-col items-center justify-center gap-2 rounded-[var(--radius)] bg-[#0a0a0f]/80 px-4 backdrop-blur-sm">
+    <div className="pointer-events-none absolute inset-0 z-[1] flex flex-col items-center justify-center gap-2 rounded-[var(--radius)] bg-[var(--bg)]/80 px-4 backdrop-blur-sm">
       <p className="text-center text-xs font-medium text-[var(--text)]">
         {label}
       </p>

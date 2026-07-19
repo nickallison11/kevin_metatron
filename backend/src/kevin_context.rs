@@ -52,11 +52,27 @@ fn row_text(row: &ContextRow) -> String {
         .join("")
 }
 
+/// Caps how much prior context is replayed to a provider on each turn.
+/// Unbounded growth would eventually exceed provider context/token limits
+/// on a long-running conversation. 60 matches the existing trim the
+/// frontend already applies to its own local chat history.
+const MAX_CONTEXT_ROWS: i64 = 60;
+
 pub async fn load(state: &AppState, session_id: Uuid) -> Vec<ContextRow> {
+    // Take the most recent MAX_CONTEXT_ROWS by seq, then restore ascending
+    // order — a plain ORDER BY seq LIMIT would give the oldest rows instead
+    // of the most recent ones.
     let rows: Vec<(String, SqlxJson<Vec<Value>>)> = sqlx::query_as(
-        "SELECT role, blocks FROM kevin_chat_context WHERE session_id = $1 ORDER BY seq",
+        r#"SELECT role, blocks FROM (
+               SELECT role, blocks, seq FROM kevin_chat_context
+               WHERE session_id = $1
+               ORDER BY seq DESC
+               LIMIT $2
+           ) recent
+           ORDER BY seq ASC"#,
     )
     .bind(session_id)
+    .bind(MAX_CONTEXT_ROWS)
     .fetch_all(&state.db)
     .await
     .unwrap_or_default();
@@ -69,15 +85,39 @@ pub async fn load(state: &AppState, session_id: Uuid) -> Vec<ContextRow> {
 /// Appends new rows to a session, best-effort. Failure here should never
 /// break the chat response the user already received — it just means the
 /// next turn falls back to less context, not an error.
+///
+/// Wrapped in a transaction holding a per-session advisory lock so two
+/// requests racing on the same session_id (a frontend double-send, a
+/// second browser tab) can't both compute the same MAX(seq) and silently
+/// drop one side's rows via ON CONFLICT DO NOTHING — the second transaction
+/// blocks on the lock until the first commits, then sees the real max.
 pub async fn append(state: &AppState, session_id: Uuid, user_id: Uuid, rows: &[ContextRow]) {
     if rows.is_empty() {
         return;
     }
+
+    let mut tx = match state.db.begin().await {
+        Ok(tx) => tx,
+        Err(e) => {
+            tracing::warn!("kevin_context: append failed to open transaction: {e}");
+            return;
+        }
+    };
+
+    if let Err(e) = sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1::text))")
+        .bind(session_id)
+        .execute(&mut *tx)
+        .await
+    {
+        tracing::warn!("kevin_context: advisory lock failed for session {session_id}: {e}");
+        return;
+    }
+
     let start_seq: i32 = sqlx::query_scalar(
         "SELECT COALESCE(MAX(seq), 0) FROM kevin_chat_context WHERE session_id = $1",
     )
     .bind(session_id)
-    .fetch_one(&state.db)
+    .fetch_one(&mut *tx)
     .await
     .unwrap_or(0);
 
@@ -93,11 +133,15 @@ pub async fn append(state: &AppState, session_id: Uuid, user_id: Uuid, rows: &[C
         .bind(seq)
         .bind(&row.role)
         .bind(SqlxJson(row.blocks.clone()))
-        .execute(&state.db)
+        .execute(&mut *tx)
         .await;
         if let Err(e) = res {
             tracing::warn!("kevin_context: append failed for session {session_id}: {e}");
         }
+    }
+
+    if let Err(e) = tx.commit().await {
+        tracing::warn!("kevin_context: append transaction commit failed for session {session_id}: {e}");
     }
 }
 

@@ -4,10 +4,8 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
-import { IconGauge, IconLayoutSidebar } from "@tabler/icons-react";
 
 import { API_BASE } from "@/lib/api";
-import { useMode } from "@/lib/mode";
 import MessagingWidget from "@/components/MessagingWidget";
 
 const LOGO_URL = "/metatron-logo.png";
@@ -87,7 +85,6 @@ function dashboardPathForRole(role: string | null | undefined): string {
 }
 
 export default function AppShell({ children }: { children: ReactNode }) {
-  const { mode, toggleMode } = useMode();
   const [theme, setTheme] = useState<"dark" | "light">("dark");
 
   useEffect(() => {
@@ -234,17 +231,6 @@ export default function AppShell({ children }: { children: ReactNode }) {
           >
             {theme === "dark" ? <SunIcon /> : <MoonIcon />}
           </button>
-          {loggedIn && (
-            <button
-              type="button"
-              onClick={toggleMode}
-              className="inline-flex items-center justify-center rounded-lg border border-[var(--border)] p-2 text-[var(--text-muted)] transition-colors hover:border-metatron-accent/25 hover:text-[var(--text)]"
-              aria-label="Toggle layout mode"
-              title={mode === "advanced" ? "Switch to normal layout" : "Switch to advanced layout"}
-            >
-              {mode === "advanced" ? <IconGauge size={16} stroke={1.75} /> : <IconLayoutSidebar size={16} stroke={1.75} />}
-            </button>
-          )}
         </div>
 
         {/* Mobile right — theme toggle + hamburger */}
@@ -257,17 +243,6 @@ export default function AppShell({ children }: { children: ReactNode }) {
           >
             {theme === "dark" ? <SunIcon /> : <MoonIcon />}
           </button>
-          {loggedIn && (
-            <button
-              type="button"
-              onClick={toggleMode}
-              className="inline-flex items-center justify-center rounded-lg border border-[var(--border)] p-2 text-[var(--text-muted)]"
-              aria-label="Toggle layout mode"
-              title={mode === "advanced" ? "Switch to normal layout" : "Switch to advanced layout"}
-            >
-              {mode === "advanced" ? <IconGauge size={16} stroke={1.75} /> : <IconLayoutSidebar size={16} stroke={1.75} />}
-            </button>
-          )}
           <button
             type="button"
             onClick={() => setMenuOpen((o) => !o)}

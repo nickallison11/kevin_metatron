@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { API_BASE, authJsonHeaders } from "@/lib/api";
-import { useMode } from "@/lib/mode";
 
 type KevinMatch = {
   id: string;
@@ -21,7 +20,7 @@ type KevinMatch = {
   intro_requested_at?: string | null;
 };
 
-function ScoreBadge({ score, mono }: { score: number; mono?: boolean }) {
+function ScoreBadge({ score }: { score: number }) {
   const color =
     score >= 85
       ? "bg-green-500/15 text-green-400"
@@ -29,9 +28,7 @@ function ScoreBadge({ score, mono }: { score: number; mono?: boolean }) {
         ? "bg-metatron-accent/15 text-metatron-accent"
         : "bg-[var(--border)] text-[var(--text-muted)]";
   return (
-    <span
-      className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${color} ${mono ? "mono-num" : ""}`}
-    >
+    <span className={`mono-num rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${color}`}>
       {score}% fit
     </span>
   );
@@ -46,11 +43,9 @@ export default function KevinMatchFeed({
   role: "founder" | "investor";
   onAddToPipeline?: (founderId: string, companyName: string) => void;
 }) {
-  const { mode } = useMode();
-  const mono = mode === "advanced";
   const [matches, setMatches] = useState<KevinMatch[]>([]);
   const [loading, setLoading] = useState(true);
-  const [view, setView] = useState<"card" | "list">(mode === "advanced" ? "list" : "card");
+  const [view, setView] = useState<"card" | "list">("list");
 
   const load = useCallback(async () => {
     try {
@@ -72,13 +67,6 @@ export default function KevinMatchFeed({
   useEffect(() => {
     void load();
   }, [load]);
-
-  // mode hydrates from localStorage after first paint, so the useState
-  // initializer above often still sees "normal" — this catches the switch
-  // once mode settles, without fighting a user's later manual choice.
-  useEffect(() => {
-    if (mode === "advanced") setView("list");
-  }, [mode]);
 
   const top10 = matches.slice(0, 10);
 
@@ -152,7 +140,7 @@ export default function KevinMatchFeed({
                   <p className="font-semibold text-[var(--text)] text-sm leading-tight truncate">
                     {m.firm_name ?? "Independent investor"}
                   </p>
-                  <ScoreBadge score={m.score} mono={mono} />
+                  <ScoreBadge score={m.score} />
                 </div>
                 {sub && <p className="text-[11px] text-[var(--text-muted)]">{sub}</p>}
                 {m.one_liner && (
@@ -200,7 +188,7 @@ export default function KevinMatchFeed({
                   </td>
                   <td className="py-2 pr-3 text-[var(--text-muted)] text-[11px]">{m.stage ?? "—"}</td>
                   <td className="py-2 pr-3">
-                    <ScoreBadge score={m.score} mono={mono} />
+                    <ScoreBadge score={m.score} />
                   </td>
                   <td className="py-2 pr-2">
                     <IntroButton
@@ -233,7 +221,7 @@ export default function KevinMatchFeed({
                         AS {m.angel_score}
                       </span>
                     )}
-                    <ScoreBadge score={m.score} mono={mono} />
+                    <ScoreBadge score={m.score} />
                   </div>
                   {sub && <p className="mt-0.5 text-xs text-[var(--text-muted)]">{sub}</p>}
                   {m.one_liner && <p className="mt-1 text-xs text-[var(--text-muted)] line-clamp-1">{m.one_liner}</p>}

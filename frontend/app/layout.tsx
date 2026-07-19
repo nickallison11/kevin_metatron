@@ -1,6 +1,5 @@
 import "./globals.css";
 import AppShell from "@/components/AppShell";
-import { ModeProvider } from "@/lib/mode";
 import { DM_Sans, JetBrains_Mono } from "next/font/google";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
@@ -31,11 +30,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
       <body className={`${dmSans.variable} ${jetbrainsMono.variable} font-sans`}>
-        <ModeProvider>
-          <AppShell>
-            {children}
-          </AppShell>
-        </ModeProvider>
+        <AppShell>
+          {children}
+        </AppShell>
       </body>
     </html>
   );

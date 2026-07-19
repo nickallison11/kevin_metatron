@@ -3,7 +3,6 @@
 import { StartupKevinChatCard } from "@/components/StartupKevinChatCard";
 import { API_BASE, authHeaders } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { useMode } from "@/lib/mode";
 import { useCallback, useEffect, useState } from "react";
 
 const KEVIN_CTX =
@@ -14,7 +13,6 @@ type RefRow = { id: string; status: string };
 
 export default function ConnectorDashboardPage() {
   const { token, loading } = useAuth("INTERMEDIARY");
-  const { mode } = useMode();
   const [intros, setIntros] = useState<IntroRow[]>([]);
   const [refs, setRefs] = useState<RefRow[]>([]);
 
@@ -58,20 +56,14 @@ export default function ConnectorDashboardPage() {
         </p>
         <h1 className="text-lg font-semibold">Connector</h1>
       </header>
-      <section
-        className={
-          mode === "advanced"
-            ? "grid grid-cols-1 gap-4 p-6 md:p-10 lg:grid-cols-[1fr_320px] lg:items-start"
-            : "max-w-5xl space-y-8 p-6 md:p-10"
-        }
-      >
+      <section className="grid grid-cols-1 gap-4 p-6 md:p-10 lg:grid-cols-[1fr_320px] lg:items-start">
         <StartupKevinChatCard
           token={token}
           systemContext={KEVIN_CTX}
           emptyHint="Ask Kevin about warm intros, ecosystem partners, or referral tracking."
         />
 
-        <div className={mode === "advanced" ? "grid gap-4" : "grid gap-4 sm:grid-cols-3"}>
+        <div className="grid gap-4">
           <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-5">
             <p className="font-sans text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
               Introductions brokered

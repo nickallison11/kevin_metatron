@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { API_BASE, authJsonHeaders } from "@/lib/api";
-import { useMode } from "@/lib/mode";
 
 type AngelScore = {
   score: number;
@@ -14,42 +13,20 @@ type AngelScore = {
   generated_at: string;
 };
 
-function ScoreBar({
-  label,
-  value,
-  max = 25,
-  mono,
-}: {
-  label: string;
-  value: number | null;
-  max?: number;
-  mono?: boolean;
-}) {
+function ScoreBar({ label, value, max = 25 }: { label: string; value: number | null; max?: number }) {
   const pct = value != null ? (value / max) * 100 : 0;
   return (
     <div className="flex items-center gap-3">
-      <span
-        className={
-          mono
-            ? "w-16 shrink-0 font-mono text-[11px] uppercase tracking-wide text-[var(--text-muted)]"
-            : "w-16 shrink-0 text-xs text-[var(--text-muted)]"
-        }
-      >
+      <span className="w-16 shrink-0 font-mono text-[11px] uppercase tracking-wide text-[var(--text-muted)]">
         {label}
       </span>
-      <div className={`flex-1 rounded-full bg-[var(--border)] ${mono ? "h-1" : "h-1.5"}`}>
+      <div className="h-1 flex-1 rounded-full bg-[var(--border)]">
         <div
-          className={`rounded-full bg-metatron-accent transition-all ${mono ? "h-1" : "h-1.5"}`}
+          className="h-1 rounded-full bg-metatron-accent transition-all"
           style={{ width: `${pct}%` }}
         />
       </div>
-      <span
-        className={
-          mono
-            ? "mono-num w-10 text-right text-xs text-[var(--text)]"
-            : "w-8 text-right text-xs font-sans text-[var(--text)]"
-        }
-      >
+      <span className="mono-num w-10 text-right text-xs text-[var(--text)]">
         {value ?? "—"}/{max}
       </span>
     </div>
@@ -57,8 +34,6 @@ function ScoreBar({
 }
 
 export default function AngelScoreCard({ token }: { token: string }) {
-  const { mode } = useMode();
-  const mono = mode === "advanced";
   const [score, setScore] = useState<AngelScore | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -102,7 +77,7 @@ export default function AngelScoreCard({ token }: { token: string }) {
         <div>
           <p className="font-sans text-[11px] uppercase tracking-[2px] text-[var(--text-muted)]">Angel Score</p>
           <div className="mt-1 flex items-end gap-1">
-            <span className={`text-5xl font-bold text-[var(--text)] ${mono ? "mono-num" : ""}`}>
+            <span className="mono-num text-5xl font-bold text-[var(--text)]">
               {score?.score ?? "—"}
             </span>
             <span className="mb-1 text-lg text-[var(--text-muted)]">/100</span>
@@ -120,10 +95,10 @@ export default function AngelScoreCard({ token }: { token: string }) {
 
       {score && (
         <div className="mt-4 space-y-2">
-          <ScoreBar label="Team" value={score.team_score} mono={mono} />
-          <ScoreBar label="Market" value={score.market_score} mono={mono} />
-          <ScoreBar label="Traction" value={score.traction_score} mono={mono} />
-          <ScoreBar label="Pitch" value={score.pitch_score} mono={mono} />
+          <ScoreBar label="Team" value={score.team_score} />
+          <ScoreBar label="Market" value={score.market_score} />
+          <ScoreBar label="Traction" value={score.traction_score} />
+          <ScoreBar label="Pitch" value={score.pitch_score} />
         </div>
       )}
 

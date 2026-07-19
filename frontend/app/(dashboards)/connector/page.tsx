@@ -56,7 +56,7 @@ export default function ConnectorDashboardPage() {
         </p>
         <h1 className="text-lg font-semibold">Connector</h1>
       </header>
-      <section className="grid grid-cols-1 gap-4 p-6 md:p-10 lg:grid-cols-[1fr_320px] lg:items-start max-w-6xl mx-auto">
+      <section className="grid grid-cols-1 gap-4 p-6 md:p-10 lg:grid-cols-[1fr_320px] lg:items-start max-w-5xl mx-auto">
         <StartupKevinChatCard
           token={token}
           systemContext={KEVIN_CTX}

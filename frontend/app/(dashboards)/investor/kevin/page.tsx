@@ -107,7 +107,7 @@ export default function InvestorKevinPage() {
         </p>
       </header>
 
-      <section className="p-6 md:p-10 max-w-3xl mx-auto space-y-8">
+      <section className="p-6 md:p-10 max-w-5xl mx-auto space-y-8">
 
         {/* Chat card */}
         <StartupKevinChatCard

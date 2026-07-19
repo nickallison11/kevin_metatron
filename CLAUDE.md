@@ -67,6 +67,7 @@ All UI must match the metatron.id design system. **Never deviate from these toke
 | Accent (primary) | `#6c5ce7` (purple) |
 | Accent glow | `rgba(108,92,231,0.2)` |
 | Borders | `rgba(255,255,255,0.06)`, 1px solid |
+| Surface overlays (dividers, pill backgrounds, hover states) | `var(--overlay-2/3/4/6/8/12)` — never raw `rgba(255,255,255,0.0X)`, which is invisible against light-mode's light surfaces. Dark mode = white tints, light mode = matching black tints (defined in `globals.css`). |
 | Border radius | 12px |
 | Nav | Sticky, `rgba(10,10,15,0.85)`, `backdrop-filter: blur(12px)`, border-bottom `rgba(255,255,255,0.06)` |
 | Logo | `https://metatron.id/metatron-logo.png` at 42px height, no separate wordmark. NEVER use the WordPress `/wp-content/...` URL — metatron.id is no longer on WordPress. |

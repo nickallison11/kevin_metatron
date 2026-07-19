@@ -239,7 +239,7 @@ export function StartupKevinChatCard({
             onClick={() => setShowHistory((o) => !o)}
             aria-label="Chat history"
             title="History"
-            className="rounded-lg p-2 text-[var(--text-muted)] transition-colors hover:bg-[rgba(108,92,231,0.15)] hover:text-[#6c5ce7]"
+            className="rounded-lg p-2 text-[var(--text-muted)] transition-colors hover:bg-[rgba(108,92,231,0.15)] hover:text-metatron-accent"
           >
             <svg
               width="18"
@@ -258,16 +258,16 @@ export function StartupKevinChatCard({
       </div>
 
       {showHistory && (
-        <div className="mb-3 max-h-[200px] overflow-y-auto rounded-[12px] border border-[rgba(255,255,255,0.06)] bg-[#16161f] p-2">
+        <div className="mb-3 max-h-[200px] overflow-y-auto rounded-[12px] border border-[var(--border)] bg-[var(--bg-card)] p-2">
           <button
             type="button"
             onClick={newChat}
-            className="mb-1 w-full rounded-lg px-3 py-2 text-left text-sm font-medium text-[#6c5ce7] transition-colors hover:bg-[rgba(108,92,231,0.12)]"
+            className="mb-1 w-full rounded-lg px-3 py-2 text-left text-sm font-medium text-metatron-accent transition-colors hover:bg-[rgba(108,92,231,0.12)]"
           >
             New chat
           </button>
           {sessions.length === 0 && (
-            <p className="px-3 py-2 text-xs text-[#8888a0]">No past sessions</p>
+            <p className="px-3 py-2 text-xs text-[var(--text-muted)]">No past sessions</p>
           )}
           {sessions.map((s) => (
             <button
@@ -279,7 +279,7 @@ export function StartupKevinChatCard({
               <span className="line-clamp-2 text-sm text-[var(--text)]">
                 {s.title.trim() || "Chat"}
               </span>
-              <span className="text-[11px] text-[#8888a0]">
+              <span className="text-[11px] text-[var(--text-muted)]">
                 {formatSessionDate(s.last_message_at)} · {s.message_count}{" "}
                 messages
               </span>
@@ -288,7 +288,7 @@ export function StartupKevinChatCard({
         </div>
       )}
 
-      <div className="relative flex h-[320px] min-h-0 flex-col gap-3 overflow-y-auto rounded-lg border border-[var(--border)] bg-[#0a0a0f] p-3">
+      <div className="relative flex h-[320px] min-h-0 flex-col gap-3 overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--bg)] p-3">
         {messages.length === 0 && !loading && (
           <p className="mt-6 text-center text-xs text-[var(--text-muted)]">
             {emptyHint ??
@@ -306,7 +306,7 @@ export function StartupKevinChatCard({
               className={
                 m.role === "user"
                   ? "max-w-[85%] whitespace-pre-wrap rounded-[12px] bg-metatron-accent px-3 py-2.5 text-sm leading-snug text-white"
-                  : "max-w-[85%] whitespace-pre-wrap rounded-[12px] bg-[#1e1e2a] px-3 py-2.5 text-sm leading-snug text-[var(--text)]"
+                  : "max-w-[85%] whitespace-pre-wrap rounded-[12px] bg-[var(--bg-card)] px-3 py-2.5 text-sm leading-snug text-[var(--text)]"
               }
             >
               {m.content}
@@ -315,7 +315,7 @@ export function StartupKevinChatCard({
         ))}
         {loading && (
           <div className="flex justify-start">
-            <div className="flex max-w-[85%] items-center gap-2 rounded-[12px] bg-[#1e1e2a] px-3 py-2.5 text-sm text-[var(--text)]">
+            <div className="flex max-w-[85%] items-center gap-2 rounded-[12px] bg-[var(--bg-card)] px-3 py-2.5 text-sm text-[var(--text)]">
               <span className="text-xs text-[var(--text-muted)]">Thinking</span>
               <span className="inline-flex items-center gap-0.5" aria-hidden>
                 <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--text)]" />

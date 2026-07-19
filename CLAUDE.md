@@ -242,10 +242,10 @@ A metatron white paper rewrite (from V1.3) is pending, targeting institutional p
 - `.orb` glow: 800px, `top: -20vh`, `rgba(108,92,231,0.12)`, fixed position — do not animate
 - Landing page inline glow: `radial-gradient(ellipse 80% 40% at 50% calc(8% + 250px), rgba(108,92,231,0.22), transparent 60%)`
 
-## Architect Rules (Claude workflow)
+## Claude Workflow
 
-- Claude is **architect and planner only** — all code edits go through Cursor
-- Always read the current file before writing Cursor instructions — never rely on memory alone
+- Claude writes and edits code directly (Cursor no longer used, dropped 2026-07-18 to save on costs)
+- Always read the current file before editing — never rely on memory alone
 - Always confirm the plan with Nick before taking any action
 - Only change exactly what was asked — never add unrequested changes
 - All shell commands must be single line (zsh executes line-by-line on paste)

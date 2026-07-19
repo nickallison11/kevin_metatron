@@ -359,7 +359,7 @@ function StartupMatchesPageInner() {
 
   return (
     <main className="flex-1 text-[var(--text)]">
-      <div className="space-y-6 px-6 py-6 md:px-10">
+      <div className="max-w-5xl mx-auto space-y-6 px-6 py-6 md:px-10">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-2xl font-semibold text-[var(--text)]">Kevin&apos;s Investor Matches</h1>

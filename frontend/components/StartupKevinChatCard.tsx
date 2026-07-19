@@ -2,6 +2,7 @@
 
 import { API_BASE, authJsonHeaders } from "@/lib/api";
 import { decodeJwtSub } from "@/lib/auth";
+import { useMode } from "@/lib/mode";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 type Msg = { role: "user" | "assistant"; content: string };
@@ -97,6 +98,7 @@ export function StartupKevinChatCard({
   // every user's chat history in the same localStorage bucket on a shared
   // or reused browser profile.
   const storageKey = `metatron_kevin_chat_card_v1_${(token && decodeJwtSub(token)) || "anon"}`;
+  const { mode } = useMode();
   const [showHistory, setShowHistory] = useState(false);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [input, setInput] = useState("");
@@ -300,41 +302,81 @@ export function StartupKevinChatCard({
               "Ask Kevin anything about your pitch, investors, or fundraising."}
           </p>
         )}
-        {messages.map((m, i) => (
-          <div
-            key={i}
-            className={
-              m.role === "user" ? "flex justify-end" : "flex justify-start"
-            }
-          >
-            <div
-              className={
-                m.role === "user"
-                  ? "max-w-[85%] whitespace-pre-wrap rounded-[12px] bg-metatron-accent px-3 py-2.5 text-sm leading-snug text-white"
-                  : "max-w-[85%] whitespace-pre-wrap rounded-[12px] bg-[var(--bg-card)] px-3 py-2.5 text-sm leading-snug text-[var(--text)]"
-              }
-            >
-              {m.content}
-            </div>
-          </div>
-        ))}
-        {loading && (
-          <div className="flex justify-start">
-            <div className="flex max-w-[85%] items-center gap-2 rounded-[12px] bg-[var(--bg-card)] px-3 py-2.5 text-sm text-[var(--text)]">
-              <span className="text-xs text-[var(--text-muted)]">Thinking</span>
-              <span className="inline-flex items-center gap-0.5" aria-hidden>
-                <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--text)]" />
+        {mode === "advanced" ? (
+          <>
+            {messages.map((m, i) => (
+              <div key={i} className="grid grid-cols-[56px_1fr] items-baseline gap-2 font-mono text-xs">
                 <span
-                  className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--text)]"
-                  style={{ animationDelay: "0.15s" }}
-                />
-                <span
-                  className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--text)]"
-                  style={{ animationDelay: "0.3s" }}
-                />
-              </span>
-            </div>
-          </div>
+                  className={
+                    m.role === "user"
+                      ? "text-right text-metatron-accent"
+                      : "text-right text-[var(--text-muted)]"
+                  }
+                >
+                  {m.role === "user" ? "YOU ›" : "KEVIN ›"}
+                </span>
+                <span className="whitespace-pre-wrap leading-relaxed text-[var(--text)]">
+                  {m.content}
+                </span>
+              </div>
+            ))}
+            {loading && (
+              <div className="grid grid-cols-[56px_1fr] items-baseline gap-2 font-mono text-xs">
+                <span className="text-right text-[var(--text-muted)]">KEVIN ›</span>
+                <span className="inline-flex items-center gap-0.5 text-[var(--text-muted)]" aria-hidden>
+                  thinking
+                  <span className="inline-block h-1 w-1 animate-pulse rounded-full bg-current" />
+                  <span
+                    className="inline-block h-1 w-1 animate-pulse rounded-full bg-current"
+                    style={{ animationDelay: "0.15s" }}
+                  />
+                  <span
+                    className="inline-block h-1 w-1 animate-pulse rounded-full bg-current"
+                    style={{ animationDelay: "0.3s" }}
+                  />
+                </span>
+              </div>
+            )}
+          </>
+        ) : (
+          <>
+            {messages.map((m, i) => (
+              <div
+                key={i}
+                className={
+                  m.role === "user" ? "flex justify-end" : "flex justify-start"
+                }
+              >
+                <div
+                  className={
+                    m.role === "user"
+                      ? "max-w-[85%] whitespace-pre-wrap rounded-[12px] bg-metatron-accent px-3 py-2.5 text-sm leading-snug text-white"
+                      : "max-w-[85%] whitespace-pre-wrap rounded-[12px] bg-[var(--bg-card)] px-3 py-2.5 text-sm leading-snug text-[var(--text)]"
+                  }
+                >
+                  {m.content}
+                </div>
+              </div>
+            ))}
+            {loading && (
+              <div className="flex justify-start">
+                <div className="flex max-w-[85%] items-center gap-2 rounded-[12px] bg-[var(--bg-card)] px-3 py-2.5 text-sm text-[var(--text)]">
+                  <span className="text-xs text-[var(--text-muted)]">Thinking</span>
+                  <span className="inline-flex items-center gap-0.5" aria-hidden>
+                    <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--text)]" />
+                    <span
+                      className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--text)]"
+                      style={{ animationDelay: "0.15s" }}
+                    />
+                    <span
+                      className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--text)]"
+                      style={{ animationDelay: "0.3s" }}
+                    />
+                  </span>
+                </div>
+              </div>
+            )}
+          </>
         )}
         <div ref={bottomRef} />
       </div>

@@ -171,7 +171,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
       <div className="relative min-h-screen">
       <nav className="nav-metatron">
         {/* Logo */}
-        <Link href="/" className="flex shrink-0 items-center gap-2.5">
+        <Link href="/" className="flex shrink-0 items-center gap-2.5 md:flex-1">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={LOGO_URL}
@@ -182,10 +182,13 @@ export default function AppShell({ children }: { children: ReactNode }) {
           />
         </Link>
 
-        {/* Desktop nav links — hidden on mobile */}
-        <div className="ml-6 hidden min-w-0 items-center gap-x-6 md:flex">
+        {/* Desktop nav links — centered, hidden on mobile */}
+        <div className="hidden min-w-0 flex-1 items-center justify-center gap-x-6 md:flex">
           {loggedIn && (
             <>
+              <Link href={dashboardHref} className={navLinkClass}>
+                Dashboard
+              </Link>
               <Link href="/founders" className={navLinkClass}>Founder</Link>
               <Link href="/connectors" className={navLinkClass}>Connector</Link>
               <Link href="/investors" className={navLinkClass}>Investor</Link>
@@ -197,27 +200,20 @@ export default function AppShell({ children }: { children: ReactNode }) {
           )}
         </div>
 
-        <div className="flex-1" aria-hidden />
-
         {/* Desktop right controls — hidden on mobile */}
-        <div className="hidden shrink-0 items-center gap-3 md:flex">
+        <div className="hidden flex-1 items-center justify-end gap-3 md:flex">
           {token ? (
-            <>
-              <Link href={dashboardHref} className={navLinkClass}>
-                Dashboard
-              </Link>
-              <button
-                type="button"
-                onClick={() => {
-                  window.localStorage.removeItem("metatron_token");
-                  setToken(null);
-                  router.push("/");
-                }}
-                className="rounded-lg bg-metatron-accent/10 px-3 py-2 text-sm font-semibold text-metatron-accent transition-colors hover:bg-metatron-accent/15"
-              >
-                Log out
-              </button>
-            </>
+            <button
+              type="button"
+              onClick={() => {
+                window.localStorage.removeItem("metatron_token");
+                setToken(null);
+                router.push("/");
+              }}
+              className="rounded-lg bg-metatron-accent/10 px-3 py-2 text-sm font-semibold text-metatron-accent transition-colors hover:bg-metatron-accent/15"
+            >
+              Log out
+            </button>
           ) : (
             <Link href="/login" className={navLinkClass}>
               Sign in

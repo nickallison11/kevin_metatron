@@ -156,7 +156,7 @@ export default function DashboardChrome({
         className={
           expanded
             ? "hidden md:flex w-52 shrink-0 flex-col bg-[var(--bg)] px-3 py-4 gap-1"
-            : "hidden md:flex w-16 shrink-0 flex-col items-center bg-[var(--bg)] py-4 gap-2"
+            : "hidden md:flex w-16 shrink-0 flex-col items-center bg-[var(--bg)] py-4 gap-1"
         }
       >
         <button
@@ -167,7 +167,7 @@ export default function DashboardChrome({
           className={
             expanded
               ? "mb-2 flex h-10 w-10 items-center justify-center self-start rounded-[10px] text-[var(--text-muted)] transition-colors hover:bg-[var(--border)] hover:text-[var(--text)]"
-              : "mb-1 flex h-10 w-10 items-center justify-center rounded-[10px] text-[var(--text-muted)] transition-colors hover:bg-[var(--border)] hover:text-[var(--text)]"
+              : "mb-2 flex h-10 w-10 items-center justify-center rounded-[10px] text-[var(--text-muted)] transition-colors hover:bg-[var(--border)] hover:text-[var(--text)]"
           }
         >
           {expanded ? (

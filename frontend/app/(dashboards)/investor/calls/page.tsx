@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { API_BASE, authHeaders, authJsonHeaders } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { NotetakerConnections } from "@/components/NotetakerConnections";
 
 type Analysis = {
   summary?: string;
@@ -18,6 +19,13 @@ type CallRow = {
   transcript?: string | null;
   analysis?: Analysis | null;
   created_at: string;
+  source: string;
+};
+
+const SOURCE_LABELS: Record<string, string> = {
+  fireflies: "Fireflies",
+  fathom: "Fathom",
+  tldv: "tl;dv",
 };
 
 export default function InvestorCallsPage() {
@@ -105,31 +113,29 @@ export default function InvestorCallsPage() {
 
   return (
     <main className="flex-1">
-      <header className="border-b border-[var(--border)] px-6 py-4 md:px-10 flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <p className="font-sans text-[11px] font-medium uppercase tracking-[2px] text-[var(--text-muted)] mb-1">
-            Calls
-          </p>
-          <h1 className="text-lg font-semibold">Call intelligence</h1>
+      <section className="p-6 md:p-10 max-w-5xl mx-auto space-y-5">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <h1 className="text-2xl font-semibold text-[var(--text)]">Call intelligence</h1>
+          <label className="cursor-pointer rounded-lg bg-metatron-accent px-4 py-2 text-xs font-semibold text-white hover:bg-metatron-accent-hover disabled:opacity-50">
+            {uploading ? "Processing…" : "Upload recording"}
+            <input
+              type="file"
+              accept=".m4a,.mp3,.wav,audio/*"
+              className="hidden"
+              onChange={onUpload}
+              disabled={uploading}
+            />
+          </label>
         </div>
-        <label className="cursor-pointer rounded-lg bg-metatron-accent px-4 py-2 text-xs font-semibold text-white hover:bg-metatron-accent-hover disabled:opacity-50">
-          {uploading ? "Processing…" : "Upload recording"}
-          <input
-            type="file"
-            accept=".m4a,.mp3,.wav,audio/*"
-            className="hidden"
-            onChange={onUpload}
-            disabled={uploading}
-          />
-        </label>
-      </header>
-      <section className="p-6 md:p-10 max-w-4xl space-y-5">
         <p className="text-xs text-[var(--text-muted)] leading-relaxed">
           Upload founder call recordings to get AI-generated summaries, key
           takeaways, action items, and sentiment signals tailored to your
           diligence workflow.
         </p>
         {msg && <p className="text-xs text-[var(--text-muted)]">{msg}</p>}
+
+        <NotetakerConnections token={token} />
+
         <div className="space-y-5">
           {calls.map((c) => (
             <article
@@ -138,9 +144,16 @@ export default function InvestorCallsPage() {
             >
               <div className="border-b border-[var(--border)] px-4 py-3 flex flex-wrap justify-between gap-2">
                 <div>
-                  <h2 className="text-sm font-semibold text-[var(--text)]">
-                    {c.original_filename}
-                  </h2>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-sm font-semibold text-[var(--text)]">
+                      {c.original_filename}
+                    </h2>
+                    {SOURCE_LABELS[c.source] && (
+                      <span className="rounded-full bg-metatron-accent/10 px-2 py-0.5 text-[10px] font-medium text-metatron-accent">
+                        Imported from {SOURCE_LABELS[c.source]}
+                      </span>
+                    )}
+                  </div>
                   <p className="text-[11px] text-[var(--text-muted)] font-sans">
                     {new Date(c.created_at).toLocaleString()}
                   </p>

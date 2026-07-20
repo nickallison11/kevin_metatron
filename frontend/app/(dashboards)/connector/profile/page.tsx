@@ -219,13 +219,8 @@ export default function ConnectorProfilePage() {
 
   return (
     <main className="flex-1">
-      <header className="border-b border-[var(--border)] px-6 py-4 md:px-10">
-        <p className="mb-1 font-sans text-[11px] font-medium uppercase tracking-[2px] text-[var(--text-muted)]">
-          Profile
-        </p>
-        <h1 className="text-lg font-semibold">Connector profile</h1>
-      </header>
-      <section className="p-6 md:p-10">
+      <section className="p-6 md:p-10 max-w-5xl mx-auto space-y-6">
+        <h1 className="text-2xl font-semibold text-[var(--text)]">Connector profile</h1>
         <div className="grid gap-8 lg:grid-cols-[1fr_320px] items-start">
           <div className="max-w-2xl space-y-6 lg:max-w-none">
             {loading ? (
@@ -259,40 +254,42 @@ export default function ConnectorProfilePage() {
                 onChange={(e) => setP((x) => ({ ...x, bio: e.target.value }))}
               />
             </label>
-            <label className="flex flex-col gap-1 text-xs text-[var(--text-muted)]">
-              Speciality
-              <select
-                className="input-metatron py-2.5 text-sm"
-                value={p.speciality ?? ""}
-                onChange={(e) =>
-                  setP((x) => ({ ...x, speciality: e.target.value || null }))
-                }
-              >
-                <option value="">Select…</option>
-                {SPECIALITIES.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="flex flex-col gap-1 text-xs text-[var(--text-muted)]">
-              Country
-              <select
-                className="input-metatron py-2.5 text-sm"
-                value={p.country ?? ""}
-                onChange={(e) =>
-                  setP((x) => ({ ...x, country: e.target.value || null }))
-                }
-              >
-                <option value="">Select…</option>
-                {COUNTRIES.map((c) => (
-                  <option key={c.code} value={c.code}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className="flex flex-col gap-1 text-xs text-[var(--text-muted)]">
+                Speciality
+                <select
+                  className="input-metatron py-2.5 text-sm"
+                  value={p.speciality ?? ""}
+                  onChange={(e) =>
+                    setP((x) => ({ ...x, speciality: e.target.value || null }))
+                  }
+                >
+                  <option value="">Select…</option>
+                  {SPECIALITIES.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex flex-col gap-1 text-xs text-[var(--text-muted)]">
+                Country
+                <select
+                  className="input-metatron py-2.5 text-sm"
+                  value={p.country ?? ""}
+                  onChange={(e) =>
+                    setP((x) => ({ ...x, country: e.target.value || null }))
+                  }
+                >
+                  <option value="">Select…</option>
+                  {COUNTRIES.map((c) => (
+                    <option key={c.code} value={c.code}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
 
             {msg && (
               <p className="text-xs text-[var(--text-muted)]">{msg}</p>

@@ -28,7 +28,9 @@ function ScoreBadge({ score }: { score: number }) {
         ? "bg-metatron-accent/15 text-metatron-accent"
         : "bg-[var(--border)] text-[var(--text-muted)]";
   return (
-    <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${color}`}>{score}% fit</span>
+    <span className={`mono-num rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${color}`}>
+      {score}%
+    </span>
   );
 }
 
@@ -43,7 +45,8 @@ export default function KevinMatchFeed({
 }) {
   const [matches, setMatches] = useState<KevinMatch[]>([]);
   const [loading, setLoading] = useState(true);
-  const [view, setView] = useState<"card" | "list">("card");
+  const [view, setView] = useState<"card" | "list">("list");
+  const [viewingMatch, setViewingMatch] = useState<KevinMatch | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -132,7 +135,8 @@ export default function KevinMatchFeed({
             return (
               <div
                 key={m.id}
-                className="rounded-[8px] border border-[var(--border)] p-3 flex flex-col gap-2"
+                onClick={() => setViewingMatch(m)}
+                className="cursor-pointer rounded-[8px] border border-[var(--border)] p-3 flex flex-col gap-2 hover:border-metatron-accent/30"
               >
                 <div className="flex items-start justify-between gap-2">
                   <p className="font-semibold text-[var(--text)] text-sm leading-tight truncate">
@@ -144,7 +148,7 @@ export default function KevinMatchFeed({
                 {m.one_liner && (
                   <p className="text-[11px] text-[var(--text-muted)] line-clamp-2">{m.one_liner}</p>
                 )}
-                <div className="mt-auto pt-1">
+                <div className="mt-auto pt-1" onClick={(e) => e.stopPropagation()}>
                   <IntroButton
                     matchId={m.id}
                     alreadyRequested={!!m.intro_requested_at}
@@ -170,7 +174,11 @@ export default function KevinMatchFeed({
             </thead>
             <tbody>
               {top10.map((m) => (
-                <tr key={m.id} className="border-b border-[var(--overlay-3)]">
+                <tr
+                  key={m.id}
+                  onClick={() => setViewingMatch(m)}
+                  className="cursor-pointer border-b border-[var(--overlay-3)] hover:bg-[var(--overlay-2)]"
+                >
                   <td className="py-2 pr-3">
                     <p className="text-[var(--text)] font-medium text-xs">
                       {m.firm_name ?? "Independent investor"}
@@ -188,7 +196,7 @@ export default function KevinMatchFeed({
                   <td className="py-2 pr-3">
                     <ScoreBadge score={m.score} />
                   </td>
-                  <td className="py-2 pr-2">
+                  <td className="py-2 pr-2" onClick={(e) => e.stopPropagation()}>
                     <IntroButton
                       matchId={m.id}
                       alreadyRequested={!!m.intro_requested_at}
@@ -209,7 +217,8 @@ export default function KevinMatchFeed({
             return (
               <div
                 key={m.id}
-                className="flex items-start justify-between gap-4 rounded-[8px] border border-[var(--border)] p-4"
+                onClick={() => setViewingMatch(m)}
+                className="flex cursor-pointer items-start justify-between gap-4 rounded-[8px] border border-[var(--border)] p-4 hover:border-metatron-accent/30"
               >
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
@@ -232,7 +241,10 @@ export default function KevinMatchFeed({
                 {onAddToPipeline && (
                   <button
                     type="button"
-                    onClick={() => onAddToPipeline(m.matched_user_id, m.company_name ?? "Founder")}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onAddToPipeline(m.matched_user_id, m.company_name ?? "Founder");
+                    }}
                     className="shrink-0 rounded-[8px] border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--text)] hover:border-metatron-accent/30"
                   >
                     + Pipeline
@@ -241,6 +253,75 @@ export default function KevinMatchFeed({
               </div>
             );
           })}
+        </div>
+      )}
+
+      {viewingMatch && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto py-8 px-4">
+          <div className="absolute inset-0 bg-black/60" onClick={() => setViewingMatch(null)} />
+          <div className="relative z-10 flex max-h-[min(90vh,800px)] w-full max-w-lg flex-col rounded-xl border border-[var(--border)] bg-[var(--bg-card)]">
+            <div className="flex items-start justify-between gap-3 border-b border-[var(--border)] p-5">
+              <div className="min-w-0">
+                <p className="truncate font-semibold text-[var(--text)]">
+                  {viewingMatch.firm_name ?? viewingMatch.company_name ?? "Unknown"}
+                </p>
+                {viewingMatch.country && (
+                  <p className="text-xs text-[var(--text-muted)]">{viewingMatch.country}</p>
+                )}
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <ScoreBadge score={viewingMatch.score} />
+                <button
+                  type="button"
+                  onClick={() => setViewingMatch(null)}
+                  aria-label="Close"
+                  className="rounded-lg p-1 text-[var(--text-muted)] hover:bg-[var(--overlay-2)] hover:text-[var(--text)]"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 space-y-3 overflow-y-auto p-5">
+              {viewingMatch.one_liner && (
+                <p className="text-sm text-[var(--text)]">{viewingMatch.one_liner}</p>
+              )}
+              {viewingMatch.reasoning && (
+                <p className="text-xs italic text-[var(--text-muted)]">
+                  &ldquo;{viewingMatch.reasoning}&rdquo;
+                </p>
+              )}
+              <div className="flex flex-wrap gap-2 text-[11px] text-[var(--text-muted)]">
+                {viewingMatch.sector && (
+                  <span className="rounded-full border border-[var(--border)] px-2.5 py-0.5">
+                    {viewingMatch.sector}
+                  </span>
+                )}
+                {viewingMatch.stage && (
+                  <span className="rounded-full border border-[var(--border)] px-2.5 py-0.5">
+                    {viewingMatch.stage}
+                  </span>
+                )}
+                {viewingMatch.country && (
+                  <span className="rounded-full border border-[var(--border)] px-2.5 py-0.5">
+                    {viewingMatch.country}
+                  </span>
+                )}
+              </div>
+            </div>
+            <div className="border-t border-[var(--border)] p-5">
+              <IntroButton
+                matchId={viewingMatch.id}
+                alreadyRequested={!!viewingMatch.intro_requested_at}
+                token={token}
+                profileIncomplete={
+                  !viewingMatch.company_name &&
+                  !viewingMatch.one_liner &&
+                  !viewingMatch.stage &&
+                  !viewingMatch.sector
+                }
+              />
+            </div>
+          </div>
         </div>
       )}
     </div>

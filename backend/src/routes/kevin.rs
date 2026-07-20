@@ -1179,6 +1179,64 @@ pub(crate) async fn build_context(state: &AppState, user_id: uuid::Uuid, role: &
         }
     }
 
+    #[derive(sqlx::FromRow)]
+    struct CallCtx {
+        original_filename: String,
+        analysis: Option<sqlx::types::Json<serde_json::Value>>,
+        source: Option<String>,
+    }
+
+    if let Ok(rows) = sqlx::query_as::<_, CallCtx>(
+        r#"
+        SELECT original_filename, analysis, source
+        FROM call_recordings
+        WHERE user_id = $1 AND analysis IS NOT NULL
+        ORDER BY created_at DESC
+        LIMIT 5
+        "#,
+    )
+    .bind(user_id)
+    .fetch_all(&state.db)
+    .await
+    {
+        if !rows.is_empty() {
+            let lines: Vec<String> = rows
+                .into_iter()
+                .map(|c| {
+                    let a = c.analysis.map(|sqlx::types::Json(v)| v).unwrap_or_default();
+                    let mut s = format!(
+                        "Call: {} (source: {})",
+                        c.original_filename,
+                        c.source.as_deref().unwrap_or("manual upload")
+                    );
+                    if let Some(v) = a.get("summary").and_then(|v| v.as_str()) {
+                        s.push_str(&format!("\n  Summary: {v}"));
+                    }
+                    if let Some(v) = a.get("investor_sentiment").and_then(|v| v.as_str()) {
+                        s.push_str(&format!("\n  Investor sentiment: {v}"));
+                    }
+                    if let Some(items) = a.get("key_takeaways").and_then(|v| v.as_array()) {
+                        let items: Vec<&str> = items.iter().filter_map(|x| x.as_str()).collect();
+                        if !items.is_empty() {
+                            s.push_str(&format!("\n  Key takeaways: {}", items.join("; ")));
+                        }
+                    }
+                    if let Some(items) = a.get("action_items").and_then(|v| v.as_array()) {
+                        let items: Vec<&str> = items.iter().filter_map(|x| x.as_str()).collect();
+                        if !items.is_empty() {
+                            s.push_str(&format!("\n  Action items: {}", items.join("; ")));
+                        }
+                    }
+                    s
+                })
+                .collect();
+            parts.push(format!(
+                "Call intelligence (most recent calls, incl. imported Fireflies/Fathom/tl;dv notes):\n{}",
+                lines.join("\n\n")
+            ));
+        }
+    }
+
     if let Ok(row) = sqlx::query_as::<_, InvestorCtx>(
         r#"
         SELECT sectors, stages FROM investor_profiles WHERE user_id = $1

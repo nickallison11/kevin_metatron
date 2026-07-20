@@ -55,6 +55,7 @@ pub struct CallDto {
     pub transcript: Option<String>,
     pub analysis: Option<JsonValue>,
     pub created_at: DateTime<Utc>,
+    pub source: String,
 }
 
 #[derive(sqlx::FromRow)]
@@ -64,6 +65,7 @@ struct CallRow {
     transcript: Option<String>,
     analysis: Option<SqlxJson<JsonValue>>,
     created_at: DateTime<Utc>,
+    source: String,
 }
 
 impl From<CallRow> for CallDto {
@@ -74,6 +76,7 @@ impl From<CallRow> for CallDto {
             transcript: r.transcript,
             analysis: r.analysis.map(|SqlxJson(v)| v),
             created_at: r.created_at,
+            source: r.source,
         }
     }
 }
@@ -93,7 +96,7 @@ async fn list_calls(
 
     let rows = sqlx::query_as::<_, CallRow>(
         r#"
-        SELECT id, original_filename, transcript, analysis, created_at
+        SELECT id, original_filename, transcript, analysis, created_at, source
         FROM call_recordings
         WHERE user_id = $1
         ORDER BY created_at DESC
@@ -209,30 +212,7 @@ async fn upload_call(
         }
     };
 
-    let analysis = if let Some(ref key) = state.ai_api_key {
-        let system = "You are an expert venture analyst. Read call transcripts and extract structured diligence signals.";
-        let prompt = format!(
-            "Transcript:\n{transcript}\n\nReturn JSON with keys: summary (string), key_takeaways (array of strings), action_items (array of strings), investor_sentiment (one of: very_positive, positive, neutral, skeptical, negative)."
-        );
-        match complete_json_object(
-            &state.http_client,
-            "gemini",
-            key,
-            "gemini-2.5-flash",
-            system,
-            &prompt,
-        )
-        .await
-        {
-            Ok(v) => v,
-            Err(e) => {
-                tracing::warn!("gemini analysis failed: {e}");
-                mock_call_analysis_json(&transcript)
-            }
-        }
-    } else {
-        mock_call_analysis_json(&transcript)
-    };
+    let analysis = analyze_transcript(&state, &transcript).await;
 
     sqlx::query(
         r#"
@@ -250,7 +230,7 @@ async fn upload_call(
 
     let row = sqlx::query_as::<_, CallRow>(
         r#"
-        SELECT id, original_filename, transcript, analysis, created_at
+        SELECT id, original_filename, transcript, analysis, created_at, source
         FROM call_recordings WHERE id = $1
         "#,
     )
@@ -260,6 +240,34 @@ async fn upload_call(
     .map_err(internal)?;
 
     Ok(Json(row.into()))
+}
+
+/// Shared by manual audio upload and notetaker-sourced transcript import
+/// (see `notetaker_connections.rs`) so both paths score calls identically.
+pub(crate) async fn analyze_transcript(state: &AppState, transcript: &str) -> JsonValue {
+    let Some(ref key) = state.ai_api_key else {
+        return mock_call_analysis_json(transcript);
+    };
+    let system = "You are an expert venture analyst. Read call transcripts and extract structured diligence signals.";
+    let prompt = format!(
+        "Transcript:\n{transcript}\n\nReturn JSON with keys: summary (string), key_takeaways (array of strings), action_items (array of strings), investor_sentiment (one of: very_positive, positive, neutral, skeptical, negative)."
+    );
+    match complete_json_object(
+        &state.http_client,
+        "gemini",
+        key,
+        "gemini-2.5-flash",
+        system,
+        &prompt,
+    )
+    .await
+    {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::warn!("gemini analysis failed: {e}");
+            mock_call_analysis_json(transcript)
+        }
+    }
 }
 
 async fn whisper_transcribe(

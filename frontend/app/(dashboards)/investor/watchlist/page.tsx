@@ -32,13 +32,8 @@ export default function InvestorWatchlistPage() {
 
   return (
     <main className="flex-1">
-      <header className="border-b border-[var(--border)] px-6 py-4 md:px-10">
-        <p className="mb-1 font-sans text-[11px] font-medium uppercase tracking-[2px] text-[var(--text-muted)]">
-          Follow
-        </p>
-        <h1 className="text-lg font-semibold">Followed founders</h1>
-      </header>
-      <section className="max-w-5xl space-y-6 p-6 md:p-10">
+      <section className="max-w-5xl mx-auto space-y-6 p-6 md:p-10">
+        <h1 className="text-2xl font-semibold text-[var(--text)]">Followed founders</h1>
         <p className="max-w-2xl text-xs leading-relaxed text-[var(--text-muted)]">
           Founders you follow via the Follow action on deal flow or discovery.
         </p>

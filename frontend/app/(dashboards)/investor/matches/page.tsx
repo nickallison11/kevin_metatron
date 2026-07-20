@@ -341,7 +341,7 @@ function InvestorMatchesPageInner() {
 
   return (
     <main className="flex-1 text-[var(--text)]">
-      <div className="space-y-6 px-6 py-6 md:px-10">
+      <div className="max-w-5xl mx-auto space-y-6 px-6 py-6 md:px-10">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-2xl font-semibold text-[var(--text)]">Startup Matches</h1>
@@ -865,7 +865,7 @@ function InvestorMatchesPageInner() {
       </div>
 
       {viewingIntro && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto pt-12 pb-4 px-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto py-8 px-4">
           <div className="absolute inset-0 bg-black/60" onClick={() => setViewingIntro(null)} />
           <div className="relative z-10 w-full max-w-lg max-h-[min(90vh,800px)] flex flex-col rounded-xl border border-[var(--border)] bg-[var(--bg-card)]">
             <div className="flex items-start justify-between gap-3 border-b border-[var(--border)] px-5 py-4">
@@ -965,7 +965,7 @@ function InvestorMatchesPageInner() {
       )}
 
       {viewingMatch && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto pt-12 pb-4 px-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto py-8 px-4">
           <div className="absolute inset-0 bg-black/60" onClick={() => setViewingMatch(null)} />
           <div className="relative z-10 w-full max-w-lg max-h-[min(90vh,800px)] flex flex-col rounded-xl border border-[var(--border)] bg-[var(--bg-card)]">
             <div className="flex items-start justify-between gap-3 border-b border-[var(--border)] px-5 py-4">

@@ -30,7 +30,7 @@ export default function InvestorMemosPage() {
 
   if (investorTier === 'free') {
     return (
-      <div style={{ padding: 40, textAlign: 'center' }}>
+      <div style={{ padding: 40, textAlign: 'center', maxWidth: 1024, margin: '0 auto' }}>
         <div style={{ fontSize: 40 }}>🔒</div>
         <h2 style={{ color: 'var(--text)', marginTop: 16 }}>Investment Memos</h2>
         <p style={{ color: 'var(--muted)', marginTop: 8 }}>
@@ -45,7 +45,7 @@ export default function InvestorMemosPage() {
   }
 
   return (
-    <div style={{ padding: 32 }}>
+    <div style={{ padding: 32, maxWidth: 1024, margin: '0 auto' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
         <h1 style={{ color: 'var(--text)', fontSize: 24, fontWeight: 600 }}>Investment Memos</h1>
         {investorTier === 'basic' && (

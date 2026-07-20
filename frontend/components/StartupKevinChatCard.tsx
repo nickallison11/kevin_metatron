@@ -129,8 +129,13 @@ export function StartupKevinChatCard({
       .catch(() => setSessions([]));
   }, [showHistory, token]);
 
+  const skipNextScroll = useRef(true);
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (skipNextScroll.current) {
+      skipNextScroll.current = false;
+      return;
+    }
+    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }, [messages, loading]);
 
   const newChat = useCallback(() => {
@@ -301,39 +306,36 @@ export function StartupKevinChatCard({
           </p>
         )}
         {messages.map((m, i) => (
-          <div
-            key={i}
-            className={
-              m.role === "user" ? "flex justify-end" : "flex justify-start"
-            }
-          >
-            <div
+          <div key={i} className="grid grid-cols-[56px_1fr] items-baseline gap-2 font-mono text-xs">
+            <span
               className={
                 m.role === "user"
-                  ? "max-w-[85%] whitespace-pre-wrap rounded-[12px] bg-metatron-accent px-3 py-2.5 text-sm leading-snug text-white"
-                  : "max-w-[85%] whitespace-pre-wrap rounded-[12px] bg-[var(--bg-card)] px-3 py-2.5 text-sm leading-snug text-[var(--text)]"
+                  ? "text-right text-metatron-accent"
+                  : "text-right text-[var(--text-muted)]"
               }
             >
+              {m.role === "user" ? "YOU ›" : "KEVIN ›"}
+            </span>
+            <span className="whitespace-pre-wrap leading-relaxed text-[var(--text)]">
               {m.content}
-            </div>
+            </span>
           </div>
         ))}
         {loading && (
-          <div className="flex justify-start">
-            <div className="flex max-w-[85%] items-center gap-2 rounded-[12px] bg-[var(--bg-card)] px-3 py-2.5 text-sm text-[var(--text)]">
-              <span className="text-xs text-[var(--text-muted)]">Thinking</span>
-              <span className="inline-flex items-center gap-0.5" aria-hidden>
-                <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--text)]" />
-                <span
-                  className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--text)]"
-                  style={{ animationDelay: "0.15s" }}
-                />
-                <span
-                  className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--text)]"
-                  style={{ animationDelay: "0.3s" }}
-                />
-              </span>
-            </div>
+          <div className="grid grid-cols-[56px_1fr] items-baseline gap-2 font-mono text-xs">
+            <span className="text-right text-[var(--text-muted)]">KEVIN ›</span>
+            <span className="inline-flex items-center gap-0.5 text-[var(--text-muted)]" aria-hidden>
+              thinking
+              <span className="inline-block h-1 w-1 animate-pulse rounded-full bg-current" />
+              <span
+                className="inline-block h-1 w-1 animate-pulse rounded-full bg-current"
+                style={{ animationDelay: "0.15s" }}
+              />
+              <span
+                className="inline-block h-1 w-1 animate-pulse rounded-full bg-current"
+                style={{ animationDelay: "0.3s" }}
+              />
+            </span>
           </div>
         )}
         <div ref={bottomRef} />

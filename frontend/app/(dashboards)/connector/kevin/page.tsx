@@ -42,6 +42,7 @@ export default function ConnectorKevinPage() {
   const [telegramLoading, setTelegramLoading] = useState(false);
   const [telegramMsg, setTelegramMsg] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [telegramPopupOpen, setTelegramPopupOpen] = useState(false);
 
   useEffect(() => {
     if (!token) return;
@@ -139,39 +140,67 @@ export default function ConnectorKevinPage() {
             </a>
 
             {/* Telegram */}
-            <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-4">
-              <button
-                type="button"
-                onClick={() => {
-                  if (telegramConnected) {
-                    window.open("https://t.me/Kevinmetatron_bot", "_blank", "noopener,noreferrer");
-                  } else {
-                    void onLinkTelegram();
-                  }
-                }}
-                disabled={telegramLoading}
-                className="flex w-full items-center gap-3 text-left disabled:opacity-50"
-              >
-                <span className="shrink-0 text-[#29A9EB]"><TelegramIcon /></span>
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-[var(--text)]">Telegram</p>
-                  {telegramConnected ? (
-                    <p className="text-xs text-green-400 mt-0.5">Connected</p>
-                  ) : (
-                    <p className="text-xs text-[var(--text-muted)] mt-0.5">
-                      {telegramLoading ? "Generating…" : "Not connected"}
-                    </p>
-                  )}
+            <button
+              type="button"
+              onClick={() => {
+                if (telegramConnected) {
+                  window.open("https://t.me/Kevinmetatron_bot", "_blank", "noopener,noreferrer");
+                } else {
+                  setTelegramPopupOpen(true);
+                  if (!telegramLinkCode) void onLinkTelegram();
+                }
+              }}
+              className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-4 flex items-center gap-3 text-left transition-colors hover:border-metatron-accent/30"
+            >
+              <span className="shrink-0 text-[#29A9EB]"><TelegramIcon /></span>
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-[var(--text)]">Telegram</p>
+                {telegramConnected ? (
+                  <p className="text-xs text-green-400 mt-0.5">Connected</p>
+                ) : (
+                  <p className="text-xs text-[var(--text-muted)] mt-0.5">Not connected</p>
+                )}
+              </div>
+            </button>
+
+            {/* Email */}
+            <a
+              href="mailto:kevin@metatron.id"
+              className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-4 flex items-center gap-3 transition-colors hover:border-metatron-accent/30"
+            >
+              <span className="shrink-0 text-[var(--text-muted)]"><EmailIcon /></span>
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-[var(--text)]">Email</p>
+                <p className="text-xs text-[var(--text-muted)] mt-0.5">Always available — no setup needed</p>
+              </div>
+            </a>
+
+          </div>
+        </div>
+
+        {telegramPopupOpen && !telegramConnected && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto py-8 px-4">
+            <div className="absolute inset-0 bg-black/60" onClick={() => setTelegramPopupOpen(false)} />
+            <div className="relative z-10 w-full max-w-sm rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-5">
+              <div className="mb-3 flex items-start justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-[#29A9EB]"><TelegramIcon /></span>
+                  <p className="text-sm font-medium text-[var(--text)]">Connect Telegram</p>
                 </div>
-              </button>
-
-              {telegramMsg && <p className="mt-2 text-xs text-[rgb(254,202,202)]">{telegramMsg}</p>}
-
-              {telegramLinkCode && !telegramConnected && (
-                <div
-                  className="mt-3 rounded-lg border border-[var(--border)] bg-[var(--bg)] p-3 space-y-2"
-                  onClick={(e) => e.stopPropagation()}
+                <button
+                  type="button"
+                  onClick={() => setTelegramPopupOpen(false)}
+                  aria-label="Close"
+                  className="rounded-lg p-1 text-[var(--text-muted)] hover:bg-[var(--overlay-2)] hover:text-[var(--text)]"
                 >
+                  ✕
+                </button>
+              </div>
+
+              {telegramMsg && <p className="mb-2 text-xs text-[rgb(254,202,202)]">{telegramMsg}</p>}
+
+              {telegramLinkCode ? (
+                <div className="space-y-2">
                   <p className="text-xs text-[var(--text-muted)]">
                     Open Kevin on Telegram, then send this code:
                   </p>
@@ -193,23 +222,14 @@ export default function ConnectorKevinPage() {
                   </a>
                   <p className="text-[11px] text-[var(--text-muted)]">Waiting for you to connect… (auto-detects)</p>
                 </div>
+              ) : (
+                <p className="text-xs text-[var(--text-muted)]">
+                  {telegramLoading ? "Generating…" : "Preparing your link…"}
+                </p>
               )}
             </div>
-
-            {/* Email */}
-            <a
-              href="mailto:kevin@metatron.id"
-              className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-4 flex items-center gap-3 transition-colors hover:border-metatron-accent/30"
-            >
-              <span className="shrink-0 text-[var(--text-muted)]"><EmailIcon /></span>
-              <div className="min-w-0">
-                <p className="text-sm font-medium text-[var(--text)]">Email</p>
-                <p className="text-xs text-[var(--text-muted)] mt-0.5">Always available — no setup needed</p>
-              </div>
-            </a>
-
           </div>
-        </div>
+        )}
       </section>
     </main>
   );

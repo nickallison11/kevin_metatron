@@ -171,7 +171,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
       <div className="relative min-h-screen">
       <nav className="nav-metatron">
         {/* Logo */}
-        <Link href="/" className="flex shrink-0 items-center gap-2.5 md:flex-1">
+        <Link href={loggedIn ? dashboardHref : "/"} className="flex shrink-0 items-center gap-2.5 md:flex-1">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={LOGO_URL}
@@ -208,7 +208,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
               onClick={() => {
                 window.localStorage.removeItem("metatron_token");
                 setToken(null);
-                router.push("/");
+                router.push("/login");
               }}
               className="rounded-lg bg-metatron-accent/10 px-3 py-2 text-sm font-semibold text-metatron-accent transition-colors hover:bg-metatron-accent/15"
             >
@@ -334,7 +334,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
                   onClick={() => {
                     window.localStorage.removeItem("metatron_token");
                     setToken(null);
-                    router.push("/");
+                    router.push("/login");
                     setMenuOpen(false);
                   }}
                   className="mt-3 rounded-lg bg-metatron-accent/10 px-3 py-2 text-sm font-semibold text-metatron-accent"

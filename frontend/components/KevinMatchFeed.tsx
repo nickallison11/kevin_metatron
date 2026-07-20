@@ -29,7 +29,7 @@ function ScoreBadge({ score }: { score: number }) {
         : "bg-[var(--border)] text-[var(--text-muted)]";
   return (
     <span className={`mono-num rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${color}`}>
-      {score}% fit
+      {score}%
     </span>
   );
 }

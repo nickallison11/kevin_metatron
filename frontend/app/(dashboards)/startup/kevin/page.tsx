@@ -116,48 +116,60 @@ export default function StartupKevinPage() {
             Kevin lives everywhere. Connect him on Telegram, WhatsApp, or email to reach him without opening the platform.
           </p>
 
-          <div className="space-y-3">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+
+            {/* WhatsApp */}
+            <a
+              href="https://wa.me/27818621473"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-4 flex items-center gap-3 transition-colors hover:border-metatron-accent/30"
+            >
+              <span className="shrink-0 text-[#25D366]"><WhatsAppIcon /></span>
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-[var(--text)]">WhatsApp</p>
+                {whatsappConnected ? (
+                  <p className="text-xs text-green-400 mt-0.5 truncate">Connected — {me?.whatsapp_number}</p>
+                ) : (
+                  <p className="text-xs text-[var(--text-muted)] mt-0.5">Send &quot;Hi Kevin&quot; to get started</p>
+                )}
+              </div>
+            </a>
 
             {/* Telegram */}
             <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-4">
-              <div className="flex items-start justify-between gap-4">
-                <div className="flex items-center gap-3">
-                  <span className="text-[#29A9EB]"><TelegramIcon /></span>
-                  <div>
-                    <p className="text-sm font-medium text-[var(--text)]">Telegram</p>
-                    {telegramConnected ? (
-                      <p className="text-xs text-green-400 mt-0.5">Connected</p>
-                    ) : (
-                      <p className="text-xs text-[var(--text-muted)] mt-0.5">Not connected</p>
-                    )}
-                  </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (telegramConnected) {
+                    window.open("https://t.me/Kevinmetatron_bot", "_blank", "noopener,noreferrer");
+                  } else {
+                    void onLinkTelegram();
+                  }
+                }}
+                disabled={telegramLoading}
+                className="flex w-full items-center gap-3 text-left disabled:opacity-50"
+              >
+                <span className="shrink-0 text-[#29A9EB]"><TelegramIcon /></span>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-[var(--text)]">Telegram</p>
+                  {telegramConnected ? (
+                    <p className="text-xs text-green-400 mt-0.5">Connected</p>
+                  ) : (
+                    <p className="text-xs text-[var(--text-muted)] mt-0.5">
+                      {telegramLoading ? "Generating…" : "Not connected"}
+                    </p>
+                  )}
                 </div>
-                {!telegramConnected && (
-                  <button
-                    type="button"
-                    onClick={() => void onLinkTelegram()}
-                    disabled={telegramLoading}
-                    className="shrink-0 btn-metatron-primary px-4 py-2 text-xs disabled:opacity-50"
-                  >
-                    {telegramLoading ? "Generating…" : "Connect"}
-                  </button>
-                )}
-                {telegramConnected && (
-                  <a
-                    href="https://t.me/Kevinmetatron_bot"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="shrink-0 text-xs text-metatron-accent hover:underline"
-                  >
-                    Open chat
-                  </a>
-                )}
-              </div>
+              </button>
 
               {telegramMsg && <p className="mt-2 text-xs text-[rgb(254,202,202)]">{telegramMsg}</p>}
 
               {telegramLinkCode && !telegramConnected && (
-                <div className="mt-3 rounded-lg border border-[var(--border)] bg-[var(--bg)] p-3 space-y-2">
+                <div
+                  className="mt-3 rounded-lg border border-[var(--border)] bg-[var(--bg)] p-3 space-y-2"
+                  onClick={(e) => e.stopPropagation()}
+                >
                   <p className="text-xs text-[var(--text-muted)]">
                     Open Kevin on Telegram, then send this code:
                   </p>
@@ -182,49 +194,17 @@ export default function StartupKevinPage() {
               )}
             </div>
 
-            {/* WhatsApp */}
-            <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-4">
-              <div className="flex items-start justify-between gap-4">
-                <div className="flex items-center gap-3">
-                  <span className="text-[#25D366]"><WhatsAppIcon /></span>
-                  <div>
-                    <p className="text-sm font-medium text-[var(--text)]">WhatsApp</p>
-                    {whatsappConnected ? (
-                      <p className="text-xs text-green-400 mt-0.5">Connected — {me?.whatsapp_number}</p>
-                    ) : (
-                      <p className="text-xs text-[var(--text-muted)] mt-0.5">Send "Hi Kevin" to get started</p>
-                    )}
-                  </div>
-                </div>
-                <a
-                  href="https://wa.me/27818621473"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="shrink-0 btn-metatron-primary px-4 py-2 text-xs"
-                >
-                  {whatsappConnected ? "Open chat" : "Open WhatsApp"}
-                </a>
-              </div>
-            </div>
-
             {/* Email */}
-            <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-4">
-              <div className="flex items-start justify-between gap-4">
-                <div className="flex items-center gap-3">
-                  <span className="text-[var(--text-muted)]"><EmailIcon /></span>
-                  <div>
-                    <p className="text-sm font-medium text-[var(--text)]">Email</p>
-                    <p className="text-xs text-[var(--text-muted)] mt-0.5">Always available — no setup needed</p>
-                  </div>
-                </div>
-                <a
-                  href="mailto:kevin@metatron.id"
-                  className="shrink-0 text-xs text-metatron-accent hover:underline"
-                >
-                  kevin@metatron.id
-                </a>
+            <a
+              href="mailto:kevin@metatron.id"
+              className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-4 flex items-center gap-3 transition-colors hover:border-metatron-accent/30"
+            >
+              <span className="shrink-0 text-[var(--text-muted)]"><EmailIcon /></span>
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-[var(--text)]">Email</p>
+                <p className="text-xs text-[var(--text-muted)] mt-0.5">Always available — no setup needed</p>
               </div>
-            </div>
+            </a>
 
           </div>
         </div>

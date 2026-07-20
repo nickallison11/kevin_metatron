@@ -289,14 +289,27 @@ export default function StartupProfilePage() {
                 </label>
                 <label className="block space-y-1">
                   <span className="font-sans text-[11px] uppercase text-[var(--text-muted)]">
-                    One-liner
+                    Website
                   </span>
                   <input
                     className="input-metatron"
-                    value={profile.one_liner ?? ""}
+                    type="text"
+                    placeholder="yoursite.com"
+                    value={profile.website ?? ""}
                     onChange={(e) =>
-                      setProfile((p) => ({ ...p, one_liner: e.target.value }))
+                      setProfile((p) => ({ ...p, website: e.target.value }))
                     }
+                    onBlur={(e) => {
+                      const v = e.target.value.trim();
+                      if (!v) {
+                        setProfile((p) => ({ ...p, website: null }));
+                        return;
+                      }
+                      const startsWithHttp =
+                        v.startsWith("http://") || v.startsWith("https://");
+                      if (startsWithHttp) return;
+                      setProfile((p) => ({ ...p, website: `https://${v}` }));
+                    }}
                   />
                 </label>
               </div>
@@ -392,27 +405,14 @@ export default function StartupProfilePage() {
             </div>
             <label className="block space-y-1">
               <span className="font-sans text-[11px] uppercase text-[var(--text-muted)]">
-                Website
+                One-liner
               </span>
               <input
                 className="input-metatron"
-                type="text"
-                placeholder="yoursite.com"
-                value={profile.website ?? ""}
+                value={profile.one_liner ?? ""}
                 onChange={(e) =>
-                  setProfile((p) => ({ ...p, website: e.target.value }))
+                  setProfile((p) => ({ ...p, one_liner: e.target.value }))
                 }
-                onBlur={(e) => {
-                  const v = e.target.value.trim();
-                  if (!v) {
-                    setProfile((p) => ({ ...p, website: null }));
-                    return;
-                  }
-                  const startsWithHttp =
-                    v.startsWith("http://") || v.startsWith("https://");
-                  if (startsWithHttp) return;
-                  setProfile((p) => ({ ...p, website: `https://${v}` }));
-                }}
               />
             </label>
             <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-4 space-y-4">

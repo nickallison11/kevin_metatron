@@ -1791,7 +1791,7 @@ function ConnectorNetworkPageInner() {
       </div>
 
       {viewingContact && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto pt-12 pb-4 px-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto py-8 px-4">
           <div className="absolute inset-0 bg-black/60" aria-hidden onClick={closeContactModal} />
           <div
             role="dialog"

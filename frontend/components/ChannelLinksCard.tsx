@@ -208,7 +208,7 @@ export default function ChannelLinksCard({ token }: { token: string }) {
         <span className="shrink-0 text-[#29A9EB]"><TelegramIcon /></span>
         <div className="min-w-0">
           <p className="text-sm font-medium text-[var(--text)]">Telegram</p>
-          <p className={`text-xs mt-0.5 ${telegramConnected ? "text-green-400" : "text-[var(--text-muted)]"}`}>
+          <p className={`text-xs mt-0.5 truncate ${telegramConnected ? "text-green-400" : "text-[var(--text-muted)]"}`}>
             {telegramConnected ? "Connected" : "Not connected"}
           </p>
         </div>

@@ -6,6 +6,12 @@ import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 
 import { API_BASE } from "@/lib/api";
+import {
+  AUTH_CHANGED_EVENT,
+  clearTokens,
+  getAccessToken,
+  startAutoRefresh,
+} from "@/lib/tokenStore";
 import MessagingWidget from "@/components/MessagingWidget";
 
 const LOGO_URL = "/metatron-logo.png";
@@ -111,21 +117,28 @@ export default function AppShell({ children }: { children: ReactNode }) {
   }, [theme]);
 
   useEffect(() => {
-    const stored = window.localStorage.getItem("metatron_token");
-    setToken(stored);
+    setToken(getAccessToken());
+    startAutoRefresh();
 
     function onStorage(e: StorageEvent) {
       if (e.key === "metatron_token") {
         setToken(e.newValue);
       }
     }
+    function onAuthChanged() {
+      setToken(getAccessToken());
+    }
 
     window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
+    window.addEventListener(AUTH_CHANGED_EVENT, onAuthChanged);
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener(AUTH_CHANGED_EVENT, onAuthChanged);
+    };
   }, []);
 
   useEffect(() => {
-    setToken(window.localStorage.getItem("metatron_token"));
+    setToken(getAccessToken());
     setMenuOpen(false);
   }, [pathname]);
 
@@ -206,7 +219,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
             <button
               type="button"
               onClick={() => {
-                window.localStorage.removeItem("metatron_token");
+                clearTokens();
                 setToken(null);
                 router.push("/login");
               }}
@@ -332,7 +345,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
                 <button
                   type="button"
                   onClick={() => {
-                    window.localStorage.removeItem("metatron_token");
+                    clearTokens();
                     setToken(null);
                     router.push("/login");
                     setMenuOpen(false);

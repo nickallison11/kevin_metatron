@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { API_BASE } from "@/lib/api";
+import { setTokenPair } from "@/lib/tokenStore";
 
 function MessagingSignupInner() {
   const params = useSearchParams();
@@ -12,6 +13,7 @@ function MessagingSignupInner() {
   const [step, setStep] = useState<"loading" | "set-password" | "error" | "done">("loading");
   const [error, setError] = useState<string | null>(null);
   const [jwt, setJwt] = useState<string | null>(null);
+  const [refreshJwt, setRefreshJwt] = useState<string | null>(null);
   const [role, setRole] = useState<string | null>(null);
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -28,8 +30,9 @@ function MessagingSignupInner() {
         if (!r.ok) throw new Error("invalid or expired link");
         return r.json();
       })
-      .then((data: { token?: string; role?: string }) => {
+      .then((data: { token?: string; refresh_token?: string; role?: string }) => {
         setJwt(data.token ?? null);
+        setRefreshJwt(data.refresh_token ?? null);
         setRole(data.role ?? null);
         setStep("set-password");
       })
@@ -43,7 +46,7 @@ function MessagingSignupInner() {
     e.preventDefault();
     if (password.length < 8) return setError("Password must be at least 8 characters.");
     if (password !== confirm) return setError("Passwords do not match.");
-    if (!jwt) return;
+    if (!jwt || !refreshJwt) return;
     setSaving(true);
     setError(null);
     try {
@@ -56,7 +59,7 @@ function MessagingSignupInner() {
         body: JSON.stringify({ current_password: "", new_password: password }),
       });
       if (!res.ok) throw new Error("Could not set password");
-      window.localStorage.setItem("metatron_token", jwt);
+      setTokenPair(jwt, refreshJwt);
       const dest =
         role === "INVESTOR" ? "/investor" : role === "INTERMEDIARY" ? "/connector" : "/startup";
       router.replace(dest);
@@ -68,8 +71,8 @@ function MessagingSignupInner() {
   }
 
   function skipPassword() {
-    if (!jwt) return;
-    window.localStorage.setItem("metatron_token", jwt);
+    if (!jwt || !refreshJwt) return;
+    setTokenPair(jwt, refreshJwt);
     const dest =
       role === "INVESTOR" ? "/investor" : role === "INTERMEDIARY" ? "/connector" : "/startup";
     router.replace(dest);

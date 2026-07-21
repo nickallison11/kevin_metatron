@@ -3,6 +3,7 @@
 import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { API_BASE, authJsonHeaders } from "@/lib/api";
+import { getAccessToken } from "@/lib/tokenStore";
 
 type Msg = { role: "user" | "assistant"; content: string };
 
@@ -90,7 +91,7 @@ export default function KevinChat() {
 
   const token = useMemo(() => {
     if (typeof window === "undefined") return null;
-    return window.localStorage.getItem("metatron_token");
+    return getAccessToken();
   }, []);
 
   const storageKey = `metatron_kevin_widget_v1_${token?.slice(0, 16) ?? "anon"}`;

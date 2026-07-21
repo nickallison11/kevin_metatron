@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { API_BASE, authJsonHeaders } from "@/lib/api";
+import { getAccessToken } from "@/lib/tokenStore";
 
 const freeFeatures = [
   "Kevin AI chat (20 msg/day)",
@@ -168,7 +169,7 @@ function PricingPageInner() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const t = window.localStorage.getItem("metatron_token");
+    const t = getAccessToken();
     if (!t) {
       setUserRole(null);
       return;
@@ -178,7 +179,7 @@ function PricingPageInner() {
 
   useEffect(() => {
     if (searchParams.get("success") !== "1") return;
-    const token = window.localStorage.getItem("metatron_token");
+    const token = getAccessToken();
     if (!token) return;
 
     let cancelled = false;
@@ -253,7 +254,7 @@ function PricingPageInner() {
       role: "founder" | "investor" | "connector",
       bill: "monthly" | "annual",
     ) => {
-      const authToken = window.localStorage.getItem("metatron_token");
+      const authToken = getAccessToken();
       if (!authToken) {
         router.push("/login");
         return;
@@ -289,7 +290,7 @@ function PricingPageInner() {
   const handleZarSubscribe = useCallback(
     async (overrideTier?: "monthly" | "annual") => {
       const tier = overrideTier ?? billing;
-      const authToken = window.localStorage.getItem("metatron_token");
+      const authToken = getAccessToken();
       if (!authToken) {
         router.push("/login");
         return;
@@ -333,7 +334,7 @@ function PricingPageInner() {
   if (
     searchParams.get("success") === "1" &&
     typeof window !== "undefined" &&
-    window.localStorage.getItem("metatron_token")
+    getAccessToken()
   ) {
     return (
       <main className="flex min-h-[calc(100vh-72px)] items-center justify-center">

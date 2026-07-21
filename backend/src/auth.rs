@@ -2,8 +2,10 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use argon2::{password_hash::SaltString, Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use jsonwebtoken::{decode, encode, Algorithm, Header, Validation};
+use rand::RngCore;
 use rand_core::OsRng;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Row};
 use thiserror::Error;
 use uuid::Uuid;
@@ -131,7 +133,7 @@ pub fn issue_jwt(
         .duration_since(UNIX_EPOCH)
         .map_err(|_| AuthError::Internal)?
         .as_secs();
-    let exp = now + Duration::from_secs(30 * 24 * 3600).as_secs();
+    let exp = now + Duration::from_secs(20 * 60).as_secs();
 
     let claims = Claims {
         sub: user_id.to_string(),
@@ -145,6 +147,144 @@ pub fn issue_jwt(
         &state.jwt_encoding,
     )
     .map_err(|_| AuthError::Internal)
+}
+
+fn sha256_hex(raw_hex: &str) -> String {
+    hex::encode(Sha256::digest(raw_hex.as_bytes()))
+}
+
+fn generate_raw_token() -> String {
+    let mut raw = [0u8; 32];
+    rand::thread_rng().fill_bytes(&mut raw);
+    hex::encode(raw)
+}
+
+const REFRESH_TOKEN_TTL_SECS: i64 = 30 * 24 * 3600;
+
+/// Inserts a new refresh token row (30-day sliding expiry) and returns the
+/// raw token to hand to the client. Only the SHA-256 hash is stored.
+async fn create_refresh_token(state: &AppState, user_id: Uuid) -> Result<String, AuthError> {
+    let raw = generate_raw_token();
+    let hash = sha256_hex(&raw);
+
+    sqlx::query(
+        r#"
+        INSERT INTO refresh_tokens (user_id, token_hash, expires_at)
+        VALUES ($1, $2, now() + make_interval(secs => $3))
+        "#,
+    )
+    .bind(user_id)
+    .bind(&hash)
+    .bind(REFRESH_TOKEN_TTL_SECS as f64)
+    .execute(&state.db)
+    .await
+    .map_err(|_| AuthError::Internal)?;
+
+    Ok(raw)
+}
+
+/// Issues a fresh access token + refresh token pair — the standard shape
+/// returned by every login-success path (signup, login, 2FA, telegram,
+/// OAuth).
+pub async fn issue_token_pair(
+    state: &AppState,
+    user_id: Uuid,
+    role: &str,
+) -> Result<(String, String), AuthError> {
+    let access_token = issue_jwt(state, user_id, role)?;
+    let refresh_token = create_refresh_token(state, user_id).await?;
+    Ok((access_token, refresh_token))
+}
+
+/// Validates + rotates a refresh token: the presented token is revoked and
+/// a new one issued in its place (`replaced_by` links them), so a refresh
+/// token is single-use. If a token that's already been rotated is presented
+/// again, that's a strong signal of theft/replay — every refresh token for
+/// that user is revoked as a defense-in-depth response.
+pub async fn rotate_refresh_token(
+    state: &AppState,
+    raw_token: &str,
+) -> Result<(Uuid, String, String, String), AuthError> {
+    let hash = sha256_hex(raw_token);
+
+    let row: Option<(Uuid, Uuid, Option<chrono::DateTime<chrono::Utc>>, chrono::DateTime<chrono::Utc>)> =
+        sqlx::query_as(
+            r#"
+            SELECT id, user_id, revoked_at, expires_at
+            FROM refresh_tokens
+            WHERE token_hash = $1
+            "#,
+        )
+        .bind(&hash)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|_| AuthError::Internal)?;
+
+    let Some((token_id, user_id, revoked_at, expires_at)) = row else {
+        return Err(AuthError::InvalidCredentials);
+    };
+
+    if revoked_at.is_some() {
+        revoke_all_refresh_tokens(state, user_id).await?;
+        return Err(AuthError::InvalidCredentials);
+    }
+
+    if expires_at < chrono::Utc::now() {
+        return Err(AuthError::InvalidCredentials);
+    }
+
+    let role: String = sqlx::query_scalar("SELECT role::text FROM users WHERE id = $1")
+        .bind(user_id)
+        .fetch_one(&state.db)
+        .await
+        .map_err(|_| AuthError::Internal)?;
+
+    let new_raw = generate_raw_token();
+    let new_hash = sha256_hex(&new_raw);
+
+    let new_id: Uuid = sqlx::query_scalar(
+        r#"
+        INSERT INTO refresh_tokens (user_id, token_hash, expires_at)
+        VALUES ($1, $2, now() + make_interval(secs => $3))
+        RETURNING id
+        "#,
+    )
+    .bind(user_id)
+    .bind(&new_hash)
+    .bind(REFRESH_TOKEN_TTL_SECS as f64)
+    .fetch_one(&state.db)
+    .await
+    .map_err(|_| AuthError::Internal)?;
+
+    sqlx::query("UPDATE refresh_tokens SET revoked_at = now(), replaced_by = $1 WHERE id = $2")
+        .bind(new_id)
+        .bind(token_id)
+        .execute(&state.db)
+        .await
+        .map_err(|_| AuthError::Internal)?;
+
+    let access_token = issue_jwt(state, user_id, &role)?;
+
+    Ok((user_id, role, access_token, new_raw))
+}
+
+pub async fn revoke_refresh_token(state: &AppState, raw_token: &str) -> Result<(), AuthError> {
+    let hash = sha256_hex(raw_token);
+    sqlx::query("UPDATE refresh_tokens SET revoked_at = now() WHERE token_hash = $1 AND revoked_at IS NULL")
+        .bind(&hash)
+        .execute(&state.db)
+        .await
+        .map_err(|_| AuthError::Internal)?;
+    Ok(())
+}
+
+pub async fn revoke_all_refresh_tokens(state: &AppState, user_id: Uuid) -> Result<(), AuthError> {
+    sqlx::query("UPDATE refresh_tokens SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL")
+        .bind(user_id)
+        .execute(&state.db)
+        .await
+        .map_err(|_| AuthError::Internal)?;
+    Ok(())
 }
 
 pub fn issue_oauth_state(state: &AppState, provider: &str) -> Result<String, AuthError> {

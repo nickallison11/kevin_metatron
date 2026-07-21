@@ -458,19 +458,22 @@ async fn callback(
             )
         })?;
 
-    let jwt = auth::issue_jwt(&state, user_id, &role).map_err(|_| {
-        (
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            "could not issue jwt".to_string(),
-        )
-    })?;
+    let (jwt, refresh_token) = auth::issue_token_pair(&state, user_id, &role)
+        .await
+        .map_err(|_| {
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "could not issue jwt".to_string(),
+            )
+        })?;
 
     let frontend_base = state.frontend_url.trim_end_matches('/');
     let new_str = if is_new { "true" } else { "false" };
     let redirect = format!(
-        "{}/auth/callback?token={}&new={}",
+        "{}/auth/callback?token={}&refresh={}&new={}",
         frontend_base,
         percent_encode(&jwt),
+        percent_encode(&refresh_token),
         new_str
     );
 

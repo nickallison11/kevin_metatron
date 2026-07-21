@@ -35,6 +35,9 @@ pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/register", post(signup))
         .route("/login", post(login))
+        .route("/refresh", post(refresh))
+        .route("/logout", post(logout))
+        .route("/logout-all", post(logout_all))
         .route("/forgot-password", post(forgot_password))
         .route("/reset-password", post(reset_password))
         .route("/telegram", post(telegram_auth))
@@ -135,12 +138,15 @@ pub struct TwoFaSetupResponse {
 #[derive(Serialize)]
 pub struct AuthResponse {
     pub token: String,
+    pub refresh_token: String,
 }
 
 #[derive(Serialize)]
 struct LoginResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     token: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    refresh_token: Option<String>,
     requires_2fa: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     partial_token: Option<String>,
@@ -254,7 +260,8 @@ async fn signup(
     .execute(&state.db)
     .await;
 
-    let token = auth::issue_jwt(&state, user_id, db_role)
+    let (token, refresh_token) = auth::issue_token_pair(&state, user_id, db_role)
+        .await
         .map_err(|_| {
             (
                 axum::http::StatusCode::INTERNAL_SERVER_ERROR,
@@ -343,7 +350,7 @@ async fn signup(
         }
     }
 
-    Ok(Json(AuthResponse { token }))
+    Ok(Json(AuthResponse { token, refresh_token }))
 }
 
 fn sha256_hex_token(token_hex: &str) -> String {
@@ -547,23 +554,72 @@ async fn login(
         )?;
         return Ok(Json(LoginResponse {
             token: None,
+            refresh_token: None,
             requires_2fa: true,
             partial_token: Some(partial_token),
         }));
     }
 
-    let token = auth::issue_jwt(&state, user_id, &role).map_err(|_| {
-        (
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            "could not issue token".to_string(),
-        )
-    })?;
+    let (token, refresh_token) = auth::issue_token_pair(&state, user_id, &role)
+        .await
+        .map_err(|_| {
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "could not issue token".to_string(),
+            )
+        })?;
 
     Ok(Json(LoginResponse {
         token: Some(token),
+        refresh_token: Some(refresh_token),
         requires_2fa: false,
         partial_token: None,
     }))
+}
+
+#[derive(Deserialize)]
+struct RefreshRequest {
+    refresh_token: String,
+}
+
+async fn refresh(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<RefreshRequest>,
+) -> Result<Json<AuthResponse>, (StatusCode, String)> {
+    let (_, _, token, refresh_token) = auth::rotate_refresh_token(&state, &body.refresh_token)
+        .await
+        .map_err(|_| (StatusCode::UNAUTHORIZED, "invalid refresh token".to_string()))?;
+
+    Ok(Json(AuthResponse { token, refresh_token }))
+}
+
+#[derive(Deserialize)]
+struct LogoutRequest {
+    refresh_token: String,
+}
+
+async fn logout(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<LogoutRequest>,
+) -> StatusCode {
+    let _ = auth::revoke_refresh_token(&state, &body.refresh_token).await;
+    StatusCode::NO_CONTENT
+}
+
+async fn logout_all(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let user = require_user(&state, bearer.token()).await?;
+    auth::revoke_all_refresh_tokens(&state, user.id)
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "could not revoke sessions".to_string(),
+            )
+        })?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 fn issue_two_fa_pending_jwt(
@@ -772,19 +828,21 @@ async fn messaging_signup(
     let (user_id, role) =
         row.ok_or((StatusCode::NOT_FOUND, "invalid or expired link".to_string()))?;
 
-    let jwt = auth::issue_jwt(&state, user_id, &role).map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "token error".to_string(),
-        )
-    })?;
+    let (jwt, refresh_token) = auth::issue_token_pair(&state, user_id, &role)
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "token error".to_string(),
+            )
+        })?;
 
     let _ = sqlx::query("DELETE FROM messaging_onboarding WHERE token = $1")
         .bind(&q.token)
         .execute(&state.db)
         .await;
 
-    Ok(Json(serde_json::json!({ "token": jwt, "role": role })))
+    Ok(Json(serde_json::json!({ "token": jwt, "refresh_token": refresh_token, "role": role })))
 }
 
 #[derive(Serialize, sqlx::FromRow)]
@@ -1124,16 +1182,18 @@ async fn two_fa_login(
         return Err((StatusCode::BAD_REQUEST, "invalid 2FA code".to_string()));
     }
 
-    let token = auth::issue_jwt(&state, user_id, &claims.role).map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "could not issue token".to_string(),
-        )
-    })?;
+    let (token, refresh_token) = auth::issue_token_pair(&state, user_id, &claims.role)
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "could not issue token".to_string(),
+            )
+        })?;
 
     let _ = totp_enabled;
 
-    Ok(Json(AuthResponse { token }))
+    Ok(Json(AuthResponse { token, refresh_token }))
 }
 
 async fn telegram_auth(
@@ -1190,14 +1250,16 @@ async fn telegram_auth(
         (user_id, "STARTUP".to_string())
     };
 
-    let token = auth::issue_jwt(&state, user_id, &role).map_err(|_| {
-        (
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            "could not issue token".to_string(),
-        )
-    })?;
+    let (token, refresh_token) = auth::issue_token_pair(&state, user_id, &role)
+        .await
+        .map_err(|_| {
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "could not issue token".to_string(),
+            )
+        })?;
 
-    Ok(Json(AuthResponse { token }))
+    Ok(Json(AuthResponse { token, refresh_token }))
 }
 
 #[derive(Serialize)]

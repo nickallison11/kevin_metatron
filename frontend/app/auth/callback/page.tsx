@@ -2,6 +2,7 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect } from "react";
+import { setTokenPair } from "@/lib/tokenStore";
 
 function decodeRoleFromJwt(token: string): string | null {
   try {
@@ -37,16 +38,17 @@ function OAuthCallbackContent() {
 
   useEffect(() => {
     const token = searchParams.get("token");
+    const refreshToken = searchParams.get("refresh");
     const newParam = searchParams.get("new");
     const isNew = newParam === "true";
 
-    if (!token) {
+    if (!token || !refreshToken) {
       router.replace("/login?error=oauth_failed");
       return;
     }
 
     try {
-      window.localStorage.setItem("metatron_token", token);
+      setTokenPair(token, refreshToken);
     } catch {
       router.replace("/login?error=oauth_failed");
       return;

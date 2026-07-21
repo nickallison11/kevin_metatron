@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useMemo, useState } from "react";
 import { API_BASE } from "@/lib/api";
+import { setTokenPair } from "@/lib/tokenStore";
 
 function decodeRoleFromJwt(token: string): string | null {
   try {
@@ -140,9 +141,9 @@ export default function LoginPage() {
       });
 
       const text = await res.text();
-      let data: { token?: string } = {};
+      let data: { token?: string; refresh_token?: string } = {};
       try {
-        data = JSON.parse(text) as { token?: string };
+        data = JSON.parse(text) as { token?: string; refresh_token?: string };
       } catch {
         // ignore non-json errors
       }
@@ -156,13 +157,13 @@ export default function LoginPage() {
         return;
       }
 
-      if (!res.ok || !(data as any).token) {
+      if (!res.ok || !data.token || !data.refresh_token) {
         setError(text.trim() || "Login failed");
         return;
       }
 
-      window.localStorage.setItem("metatron_token", (data as any).token);
-      const role = decodeRoleFromJwt((data as any).token);
+      setTokenPair(data.token, data.refresh_token);
+      const role = decodeRoleFromJwt(data.token);
       router.push(dashboardPathForRole(role));
     } catch {
       setError("Login failed");
@@ -184,19 +185,19 @@ export default function LoginPage() {
       });
 
       const text = await res.text();
-      let data: { token?: string } = {};
+      let data: { token?: string; refresh_token?: string } = {};
       try {
-        data = JSON.parse(text) as { token?: string };
+        data = JSON.parse(text) as { token?: string; refresh_token?: string };
       } catch {
         // ignore non-json errors
       }
 
-      if (!res.ok || !data.token) {
+      if (!res.ok || !data.token || !data.refresh_token) {
         setTwoFaError(text.trim() || "Verification failed");
         return;
       }
 
-      window.localStorage.setItem("metatron_token", data.token);
+      setTokenPair(data.token, data.refresh_token);
       const role = decodeRoleFromJwt(data.token);
       router.push(dashboardPathForRole(role));
     } catch {

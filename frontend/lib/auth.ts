@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { API_BASE } from "@/lib/api";
+import { AUTH_CHANGED_EVENT, getAccessToken } from "@/lib/tokenStore";
 
 export type AuthState = {
   token: string | null;
@@ -69,7 +70,22 @@ export function useAuth(
   const [role, setRole] = useState<string | null>(null);
 
   useEffect(() => {
-    const token = window.localStorage.getItem("metatron_token");
+    function onAuthChanged() {
+      const fresh = getAccessToken();
+      if (!fresh) {
+        setState((prev) => ({ ...prev, token: null, loading: false }));
+        setRole(null);
+        router.replace("/login");
+        return;
+      }
+      setState((prev) => ({ ...prev, token: fresh }));
+    }
+    window.addEventListener(AUTH_CHANGED_EVENT, onAuthChanged);
+    return () => window.removeEventListener(AUTH_CHANGED_EVENT, onAuthChanged);
+  }, [router]);
+
+  useEffect(() => {
+    const token = getAccessToken();
     if (!token) {
       setState({
         token: null,

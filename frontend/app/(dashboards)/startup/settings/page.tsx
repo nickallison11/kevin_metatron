@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { API_BASE, authHeaders, authJsonHeaders } from "@/lib/api";
+import { clearTokens } from "@/lib/tokenStore";
 import { useAuth } from "@/lib/auth";
 import type { MeResponse } from "@/lib/me";
 
@@ -274,7 +275,7 @@ export default function StartupSettingsPage() {
         const txt = await res.text();
         throw new Error(txt.trim() || "Could not delete account");
       }
-      window.localStorage.removeItem("metatron_token");
+      clearTokens();
       router.push("/");
     } catch (err) {
       setTwoFaMsg(err instanceof Error ? err.message : "Could not delete account");

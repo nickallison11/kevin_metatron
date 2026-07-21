@@ -4,6 +4,7 @@ import { CardHoverEffect } from "@/components/ui/card-hover-effect";
 import Link from "next/link";
 import { FormEvent, Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { setTokenPair } from "@/lib/tokenStore";
 
 const OAUTH_SIGNUP_ENABLED = false;
 
@@ -187,9 +188,9 @@ function SignupForm() {
         }
       );
       const text = await res.text();
-      let data: { token?: string } = {};
+      let data: { token?: string; refresh_token?: string } = {};
       try {
-        data = JSON.parse(text) as { token?: string };
+        data = JSON.parse(text) as { token?: string; refresh_token?: string };
       } catch {
         /* non-JSON error body */
       }
@@ -197,11 +198,11 @@ function SignupForm() {
         setResult(text.trim() || "Signup failed");
         return;
       }
-      if (!data.token) {
+      if (!data.token || !data.refresh_token) {
         setResult("Signup failed: no token returned");
         return;
       }
-      window.localStorage.setItem("metatron_token", data.token);
+      setTokenPair(data.token, data.refresh_token);
       router.push(dashboardPathForRole(selectedRole));
     } catch {
       setResult("Signup failed");

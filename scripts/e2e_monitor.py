@@ -13,6 +13,16 @@ Current checks:
   5. IMAP scan (last 36h from metatron.id)
   6. Email cadence compliance (7-day, 1-day, expired)
   7. Weekly matches cron (founders + investors)
+  8. Kevin chat — Moderate tier (Hermes 4 70B, falls back to Haiku)
+  9. Kevin chat — Complex/DeepComplex tier (Kimi K3, falls back to Sonnet/Opus)
+  10. kevin-learning cron endpoint reachable + secret-enforced (doesn't trigger
+      a real run daily — that's a real LLM synthesis job, already scheduled
+      weekly via its own crontab entry; this just confirms the route is alive)
+
+Not covered here: the proactive high-value-match notification (fires once
+per match the first time it crosses the score threshold, so it isn't a good
+fit for a repeatable daily check against already-scored test-account
+matches — verify that one manually if it's ever suspect).
 
 Setup on KVM2:
   1. Copy to /root/e2e_monitor.py
@@ -43,6 +53,7 @@ from email.utils import parsedate_to_datetime
 PINATA_GATEWAY     = os.environ.get("PINATA_GATEWAY", "gateway.pinata.cloud")
 BACKEND_URL        = os.environ.get("BACKEND_URL", "http://localhost:4000")
 TEST_PASSWORD      = os.environ["TEST_PASSWORD"]
+CRON_SECRET        = os.environ["CRON_SECRET"]
 GMAIL_USER         = "kevin.metatron.testing@gmail.com"
 GMAIL_APP_PASSWORD = os.environ["GMAIL_APP_PASSWORD"]
 REPORT_TO          = "nick.allison@metatrondao.io"
@@ -99,6 +110,35 @@ def check_subscription(jwt):
     )
     r.raise_for_status()
     return r.json()
+
+
+def check_kevin_chat(jwt, message, timeout=60):
+    """
+    Round-trips a message through /kevin/chat and returns the reply text.
+    Doesn't distinguish which model tier actually answered (Hermes/Kimi vs.
+    their Haiku/Sonnet/Opus fallback) — the API doesn't expose that, and
+    checking would mean SSH log access this script doesn't have. What this
+    does confirm: the tier's whole request pipeline (routing, tool-calling
+    loop, provider call) is healthy enough to produce a real reply.
+    """
+    r = requests.post(
+        f"{BACKEND_URL}/kevin/chat",
+        json={"messages": [{"role": "user", "content": message}], "session_id": None},
+        headers={"Authorization": f"Bearer {jwt}"},
+        timeout=timeout,
+    )
+    r.raise_for_status()
+    return r.json().get("reply", "")
+
+
+def check_kevin_learning_endpoint_secured():
+    """
+    Confirms /cron/kevin-learning is alive and still enforces its secret,
+    without actually triggering a real (costly) synthesis run — that's
+    already scheduled weekly via its own crontab entry.
+    """
+    unauth = requests.post(f"{BACKEND_URL}/cron/kevin-learning", timeout=10)
+    return unauth.status_code
 
 
 def check_investor_profile(jwt):
@@ -380,6 +420,70 @@ def main():
             drifts.append("no weekly-matches email received in last 8 days")
     except Exception as e:
         lines.append(f"- ⚠ IMAP weekly check error: {e}")
+    lines.append("")
+
+    # ── Check 8: Kevin chat — Moderate tier (Hermes 4 70B) ───────────────────
+    lines.append("## Check 8 — Kevin chat, Moderate tier (Hermes 4 70B → Haiku fallback)")
+    if "founderpro" in jwts:
+        try:
+            reply = check_kevin_chat(
+                jwts["founderpro"],
+                "What is the typical timeline for a seed-stage fintech startup to "
+                "close a funding round after first meeting investors?",
+            )
+            if reply.strip():
+                lines.append(f"- reply received ({len(reply)} chars): ✓")
+            else:
+                lines.append("- ⚠ DRIFT — empty reply")
+                drifts.append("kevin chat (moderate tier): empty reply")
+        except Exception as e:
+            lines.append(f"- ⚠ DRIFT — request failed: {e}")
+            drifts.append(f"kevin chat (moderate tier) failed: {e}")
+    else:
+        lines.append("- ⚠ skipped (founderpro login failed)")
+    lines.append("")
+
+    # ── Check 9: Kevin chat — Complex/DeepComplex tier (Kimi K3) ─────────────
+    lines.append("## Check 9 — Kevin chat, DeepComplex tier (Kimi K3 → Sonnet/Opus fallback)")
+    if "founderpro" in jwts:
+        try:
+            reply = check_kevin_chat(
+                jwts["founderpro"],
+                "I'm currently preparing for my seed fundraising round and would like "
+                "your help thinking through several interconnected questions at once. "
+                "First, how many investors should I realistically plan to include in my "
+                "first outreach batch given typical response rates at the seed stage? "
+                "Second, what does a healthy response and meeting-conversion rate usually "
+                "look like for fintech founders at this stage? Third, how long should I "
+                "expect the overall process to take, from the very first investor contact "
+                "through to a signed term sheet? And finally, what are the most common "
+                "reasons seed-stage fintech deals tend to fall through during diligence?",
+                timeout=90,
+            )
+            if reply.strip():
+                lines.append(f"- reply received ({len(reply)} chars): ✓")
+            else:
+                lines.append("- ⚠ DRIFT — empty reply")
+                drifts.append("kevin chat (deepcomplex tier): empty reply")
+        except Exception as e:
+            lines.append(f"- ⚠ DRIFT — request failed: {e}")
+            drifts.append(f"kevin chat (deepcomplex tier) failed: {e}")
+    else:
+        lines.append("- ⚠ skipped (founderpro login failed)")
+    lines.append("")
+
+    # ── Check 10: kevin-learning cron endpoint reachable + secured ───────────
+    lines.append("## Check 10 — kevin-learning cron endpoint (reachability + auth only)")
+    try:
+        status = check_kevin_learning_endpoint_secured()
+        if status == 401:
+            lines.append("- unauthenticated request correctly rejected (401): ✓")
+        else:
+            lines.append(f"- ⚠ DRIFT — expected 401 without secret, got {status}")
+            drifts.append(f"kevin-learning endpoint returned {status} without secret, expected 401")
+    except Exception as e:
+        lines.append(f"- ⚠ DRIFT — request failed: {e}")
+        drifts.append(f"kevin-learning endpoint check failed: {e}")
     lines.append("")
 
     # ── Summary ───────────────────────────────────────────────────────────────

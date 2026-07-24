@@ -987,7 +987,7 @@ Return the top {match_limit} matches only, ranked by score descending."#
 /// this is "Kevin flags something genuinely worth your time," not a
 /// notification on every routine match (the existing weekly digest already
 /// covers the full list).
-const NOTIFY_SCORE_THRESHOLD: i32 = 90;
+const NOTIFY_SCORE_THRESHOLD: i32 = 80;
 
 /// Notifies the user (Telegram if linked, email otherwise — same preference
 /// order as the existing intro-request notification in kevin.rs) the first

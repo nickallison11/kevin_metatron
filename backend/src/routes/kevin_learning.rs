@@ -14,7 +14,7 @@ use std::sync::Arc;
 use axum::{
     extract::State,
     http::{HeaderMap, StatusCode},
-    routing::post,
+    routing::{get, post},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
@@ -23,7 +23,9 @@ use crate::ai;
 use crate::state::AppState;
 
 pub fn router() -> Router<Arc<AppState>> {
-    Router::new().route("/kevin-learning", post(run_kevin_learning))
+    Router::new()
+        .route("/kevin-learning", post(run_kevin_learning))
+        .route("/usage-report", get(usage_report))
 }
 
 fn verify_cron(state: &AppState, headers: &HeaderMap) -> Result<(), (StatusCode, String)> {
@@ -264,4 +266,77 @@ async fn store_insights(state: &AppState, insights: Vec<SynthesizedInsight>) -> 
     tx.commit().await.map_err(|e| e.to_string())?;
 
     Ok(insights.len())
+}
+
+/// How far back model_usage counts look — matches the weekly cadence
+/// everything else in this file runs on.
+const USAGE_WINDOW_DAYS: i32 = 7;
+
+#[derive(Serialize)]
+struct TierCount {
+    role: String,
+    tier: String,
+    count: i64,
+}
+
+#[derive(Serialize)]
+struct ModelUsageCount {
+    tier: String,
+    provider: String,
+    model: String,
+    count: i64,
+}
+
+#[derive(Serialize)]
+struct UsageReport {
+    subscriber_counts: Vec<TierCount>,
+    /// Model usage over the last USAGE_WINDOW_DAYS days.
+    model_usage: Vec<ModelUsageCount>,
+}
+
+/// Read-only reporting endpoint for the e2e monitor: subscriber counts per
+/// role+tier, and which models actually served Kevin chat replies per tier
+/// over the last week (see kevin_model_usage, written from
+/// run_kevin_with_tools in kevin.rs).
+async fn usage_report(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<Json<UsageReport>, (StatusCode, String)> {
+    verify_cron(&state, &headers)?;
+
+    let subscriber_counts: Vec<TierCount> = sqlx::query_as::<_, (String, String, i64)>(
+        r#"
+        SELECT role::text,
+               CASE WHEN is_pro THEN 'pro' WHEN is_basic THEN 'basic' ELSE 'free' END AS tier,
+               COUNT(*)
+        FROM users
+        GROUP BY role, tier
+        ORDER BY role, tier
+        "#,
+    )
+    .fetch_all(&state.db)
+    .await
+    .map_err(internal)?
+    .into_iter()
+    .map(|(role, tier, count)| TierCount { role, tier, count })
+    .collect();
+
+    let model_usage: Vec<ModelUsageCount> = sqlx::query_as::<_, (String, String, String, i64)>(
+        r#"
+        SELECT subscription_tier, provider, model, COUNT(*)
+        FROM kevin_model_usage
+        WHERE created_at > now() - make_interval(days => $1)
+        GROUP BY subscription_tier, provider, model
+        ORDER BY subscription_tier, COUNT(*) DESC
+        "#,
+    )
+    .bind(USAGE_WINDOW_DAYS)
+    .fetch_all(&state.db)
+    .await
+    .map_err(internal)?
+    .into_iter()
+    .map(|(tier, provider, model, count)| ModelUsageCount { tier, provider, model, count })
+    .collect();
+
+    Ok(Json(UsageReport { subscriber_counts, model_usage }))
 }

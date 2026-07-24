@@ -2688,6 +2688,32 @@ pub(crate) async fn run_kevin_with_tools(
         }
     }
 
+    // Records which model actually answered, for the daily usage report
+    // (see kevin_learning.rs's sibling usage-report endpoint). Fire-and-forget
+    // — never blocks or fails the user-facing reply on a logging hiccup.
+    async fn log_model_usage(
+        state: &AppState,
+        user_id: Uuid,
+        role: &str,
+        tier: &str,
+        provider: &str,
+        model: &str,
+    ) {
+        let _ = sqlx::query(
+            r#"INSERT INTO kevin_model_usage (user_id, role, subscription_tier, provider, model)
+               VALUES ($1, $2, $3, $4, $5)"#,
+        )
+        .bind(user_id)
+        .bind(role)
+        .bind(tier)
+        .bind(provider)
+        .bind(model)
+        .execute(&state.db)
+        .await;
+    }
+
+    let usage_tier = if is_pro { "pro" } else if is_basic { "basic" } else { "free" };
+
     // Tier 0: NadirClaw (local, free) for simple queries — no tool use needed
     if complexity == QueryComplexity::Simple {
         // NadirClaw has no concept of tool calls — skip any "tool" rows a
@@ -2717,6 +2743,7 @@ pub(crate) async fn run_kevin_with_tools(
                 persist(state, session_id, user_id, &new_user_row, vec![
                     crate::kevin_context::text_row("assistant", &text),
                 ]).await;
+                log_model_usage(state, user_id, role, usage_tier, "nadirclaw", "auto").await;
                 return text;
             }
             _ => {
@@ -2747,6 +2774,7 @@ pub(crate) async fn run_kevin_with_tools(
                     ).await {
                         Ok((reply, new_rows)) if !reply.is_empty() => {
                             persist(state, session_id, user_id, &new_user_row, new_rows).await;
+                            log_model_usage(state, user_id, role, usage_tier, "openrouter", "nousresearch/hermes-4-70b").await;
                             return reply;
                         }
                         Ok(_) => tracing::warn!("hermes empty, falling back to haiku"),
@@ -2768,6 +2796,7 @@ pub(crate) async fn run_kevin_with_tools(
                     ).await {
                         Ok((reply, new_rows)) if !reply.is_empty() => {
                             persist(state, session_id, user_id, &new_user_row, new_rows).await;
+                            log_model_usage(state, user_id, role, usage_tier, "openrouter", "moonshotai/kimi-k3").await;
                             return reply;
                         }
                         Ok(_) => tracing::warn!("kimi k3 empty, falling back to {model}"),
@@ -2782,6 +2811,7 @@ pub(crate) async fn run_kevin_with_tools(
             ).await {
                 Ok((reply, new_rows)) if !reply.is_empty() => {
                     persist(state, session_id, user_id, &new_user_row, new_rows).await;
+                    log_model_usage(state, user_id, role, usage_tier, "anthropic", model).await;
                     return reply;
                 }
                 Ok(_) => tracing::warn!("anthropic empty response"),
@@ -2801,6 +2831,7 @@ pub(crate) async fn run_kevin_with_tools(
             ).await {
                 Ok((reply, new_rows)) if !reply.is_empty() => {
                     persist(state, session_id, user_id, &new_user_row, new_rows).await;
+                    log_model_usage(state, user_id, role, usage_tier, "anthropic", "claude-haiku-4-5-20251001").await;
                     return reply;
                 }
                 Ok(_) => tracing::warn!("haiku empty, falling back to gemini"),
@@ -2823,6 +2854,7 @@ pub(crate) async fn run_kevin_with_tools(
         )
         .await;
         persist(state, session_id, user_id, &new_user_row, new_rows).await;
+        log_model_usage(state, user_id, role, usage_tier, "gemini", state.gemini_model.as_str()).await;
         return reply;
     }
 

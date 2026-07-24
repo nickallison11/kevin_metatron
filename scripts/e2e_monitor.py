@@ -18,6 +18,8 @@ Current checks:
   10. kevin-learning cron endpoint reachable + secret-enforced (doesn't trigger
       a real run daily — that's a real LLM synthesis job, already scheduled
       weekly via its own crontab entry; this just confirms the route is alive)
+  11. Subscriber counts per role/tier + Kevin chat model usage per tier
+      (last 7 days) — informational, not a pass/fail check
 
 Not covered here: the proactive high-value-match notification (fires once
 per match the first time it crosses the score threshold, so it isn't a good
@@ -139,6 +141,17 @@ def check_kevin_learning_endpoint_secured():
     """
     unauth = requests.post(f"{BACKEND_URL}/cron/kevin-learning", timeout=10)
     return unauth.status_code
+
+
+def fetch_usage_report():
+    """Subscriber counts per role+tier, and model usage per tier (last 7 days)."""
+    r = requests.get(
+        f"{BACKEND_URL}/cron/usage-report",
+        headers={"x-cron-secret": CRON_SECRET},
+        timeout=15,
+    )
+    r.raise_for_status()
+    return r.json()
 
 
 def check_investor_profile(jwt):
@@ -484,6 +497,39 @@ def main():
     except Exception as e:
         lines.append(f"- ⚠ DRIFT — request failed: {e}")
         drifts.append(f"kevin-learning endpoint check failed: {e}")
+    lines.append("")
+
+    # ── Check 11: subscriber + model usage report ────────────────────────────
+    # Informational, not pass/fail — only the request itself can DRIFT.
+    lines.append("## Check 11 — Subscribers per tier + model usage (last 7 days)")
+    try:
+        report = fetch_usage_report()
+
+        lines.append("Subscribers by role/tier:")
+        by_role = {}
+        for row in report.get("subscriber_counts", []):
+            by_role.setdefault(row["role"], []).append((row["tier"], row["count"]))
+        for role, tiers in sorted(by_role.items()):
+            total = sum(c for _, c in tiers)
+            tier_str = ", ".join(f"{t}={c}" for t, c in sorted(tiers))
+            lines.append(f"- {role} ({total} total): {tier_str}")
+
+        lines.append("")
+        lines.append("Kevin chat model usage by tier:")
+        by_tier = {}
+        for row in report.get("model_usage", []):
+            by_tier.setdefault(row["tier"], []).append((row["provider"], row["model"], row["count"]))
+        if not by_tier:
+            lines.append("- (no Kevin chat activity in the last 7 days)")
+        for tier, rows in sorted(by_tier.items()):
+            tier_total = sum(c for _, _, c in rows)
+            lines.append(f"- {tier} ({tier_total} replies):")
+            for provider, model, count in rows:
+                pct = (count / tier_total * 100) if tier_total else 0
+                lines.append(f"    {provider}/{model}: {count} ({pct:.0f}%)")
+    except Exception as e:
+        lines.append(f"- ⚠ DRIFT — usage report request failed: {e}")
+        drifts.append(f"usage report failed: {e}")
     lines.append("")
 
     # ── Summary ───────────────────────────────────────────────────────────────

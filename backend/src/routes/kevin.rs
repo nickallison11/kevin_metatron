@@ -1288,6 +1288,31 @@ pub(crate) async fn build_context(state: &AppState, user_id: uuid::Uuid, role: &
         }
     }
 
+    // Auto-learned patterns from network activity (see kevin_learning.rs) —
+    // same injection shape as kevin_knowledge above, but generated weekly
+    // from outcome data rather than admin-authored. Softer framing since
+    // these are inferred patterns, not hard rules.
+    if let Ok(rows) = sqlx::query_as::<_, (String, String)>(
+        r#"SELECT title, body FROM kevin_insights
+           WHERE role_target = 'all' OR role_target = $1
+           ORDER BY generated_at ASC"#,
+    )
+    .bind(role)
+    .fetch_all(&state.db)
+    .await
+    {
+        if !rows.is_empty() {
+            let insights: Vec<String> = rows
+                .into_iter()
+                .map(|(title, body)| format!("### {title}\n{body}"))
+                .collect();
+            parts.push(format!(
+                "\n## Learned patterns (from network activity — useful context, not hard rules)\n{}",
+                insights.join("\n\n")
+            ));
+        }
+    }
+
     parts.join("\n")
 }
 
@@ -2403,7 +2428,9 @@ fn classify_query_complexity(message: &str) -> QueryComplexity {
 
 async fn run_kevin_openai_tool_loop(
     state: &AppState,
+    base_url: &str,
     api_key: &str,
+    model: &str,
     user_id: Uuid,
     user_email: &str,
     role: &str,
@@ -2419,7 +2446,7 @@ async fn run_kevin_openai_tool_loop(
 
     for _ in 0..4 {
         let request_body = serde_json::json!({
-            "model": "gpt-4.1-mini",
+            "model": model,
             "messages": msgs,
             "tools": tools,
             "tool_choice": "auto"
@@ -2427,7 +2454,7 @@ async fn run_kevin_openai_tool_loop(
 
         let response = match state
             .http_client
-            .post("https://api.openai.com/v1/chat/completions")
+            .post(base_url)
             .header("Authorization", format!("Bearer {api_key}"))
             .header("content-type", "application/json")
             .json(&request_body)
@@ -2435,12 +2462,12 @@ async fn run_kevin_openai_tool_loop(
             .await
         {
             Ok(r) => r,
-            Err(e) => return Err(format!("openai request: {e}")),
+            Err(e) => return Err(format!("openai-compatible request: {e}")),
         };
 
         if !response.status().is_success() {
             let t = response.text().await.unwrap_or_default();
-            return Err(format!("openai error: {t}"));
+            return Err(format!("openai-compatible error: {t}"));
         }
 
         let value: serde_json::Value = match response.json().await {
@@ -2707,19 +2734,44 @@ pub(crate) async fn run_kevin_with_tools(
                 _                            => "claude-haiku-4-5-20251001",
             };
 
-            // Moderate: try GPT-4.1-mini first (cheaper), fall back to Haiku
+            // Moderate: try Hermes 4 70B first (cheap, native tool-calling), fall back to Haiku
             if complexity == QueryComplexity::Moderate {
-                if let Some(openai_key) = &state.openai_api_key {
+                if let Some(openrouter_key) = &state.openrouter_api_key {
                     let seed = crate::kevin_context::to_openai(&seed_rows);
                     match run_kevin_openai_tool_loop(
-                        state, openai_key, user_id, user_email, role, system, seed,
+                        state,
+                        "https://openrouter.ai/api/v1/chat/completions",
+                        openrouter_key,
+                        "nousresearch/hermes-4-70b",
+                        user_id, user_email, role, system, seed,
                     ).await {
                         Ok((reply, new_rows)) if !reply.is_empty() => {
                             persist(state, session_id, user_id, &new_user_row, new_rows).await;
                             return reply;
                         }
-                        Ok(_) => tracing::warn!("openai empty, falling back to haiku"),
-                        Err(e) => tracing::warn!("openai failed ({e}), falling back to haiku"),
+                        Ok(_) => tracing::warn!("hermes empty, falling back to haiku"),
+                        Err(e) => tracing::warn!("hermes failed ({e}), falling back to haiku"),
+                    }
+                }
+            }
+
+            // Complex/DeepComplex: try Kimi K3 first (frontier-tier alternative), fall back to Sonnet/Opus
+            if complexity == QueryComplexity::Complex || complexity == QueryComplexity::DeepComplex {
+                if let Some(openrouter_key) = &state.openrouter_api_key {
+                    let seed = crate::kevin_context::to_openai(&seed_rows);
+                    match run_kevin_openai_tool_loop(
+                        state,
+                        "https://openrouter.ai/api/v1/chat/completions",
+                        openrouter_key,
+                        "moonshotai/kimi-k3",
+                        user_id, user_email, role, system, seed,
+                    ).await {
+                        Ok((reply, new_rows)) if !reply.is_empty() => {
+                            persist(state, session_id, user_id, &new_user_row, new_rows).await;
+                            return reply;
+                        }
+                        Ok(_) => tracing::warn!("kimi k3 empty, falling back to {model}"),
+                        Err(e) => tracing::warn!("kimi k3 failed ({e}), falling back to {model}"),
                     }
                 }
             }

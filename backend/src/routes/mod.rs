@@ -14,6 +14,7 @@ pub mod investor_pipeline;
 pub mod investor_profile;
 pub mod introductions;
 pub mod kevin;
+pub mod kevin_learning;
 pub mod kevin_matches;
 pub mod matches;
 pub mod messages;

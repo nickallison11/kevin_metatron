@@ -911,6 +911,17 @@ Return the top {match_limit} matches only, ranked by score descending."#
         let reasoning = item["reasoning"].as_str().map(str::to_owned);
 
         if info.source == "user" {
+            let prev_score: Option<i32> = sqlx::query_scalar(
+                "SELECT score FROM kevin_matches WHERE for_user_id = $1 AND matched_user_id = $2 AND match_type = $3",
+            )
+            .bind(user.id)
+            .bind(candidate_uuid)
+            .bind(match_type)
+            .fetch_optional(&state.db)
+            .await
+            .ok()
+            .flatten();
+
             let _ = sqlx::query(
                 r#"INSERT INTO kevin_matches
                     (for_user_id, matched_user_id, contact_id, match_type, score, reasoning,
@@ -932,6 +943,15 @@ Return the top {match_limit} matches only, ranked by score descending."#
             .bind(info.display_stage.as_deref())
             .bind(info.display_country.as_deref())
             .execute(&state.db)
+            .await;
+
+            notify_if_newly_high_value(
+                &state,
+                user.id,
+                prev_score,
+                score,
+                info.display_name.as_deref().unwrap_or("a strong match"),
+            )
             .await;
         } else {
             let _ = sqlx::query(
@@ -961,6 +981,84 @@ Return the top {match_limit} matches only, ranked by score descending."#
 
     let rows = fetch_kevin_matches_for_user(&state, user.id, Some(match_type)).await?;
     Ok(Json(rows))
+}
+
+/// Score band worth proactively reaching out about — deliberately high so
+/// this is "Kevin flags something genuinely worth your time," not a
+/// notification on every routine match (the existing weekly digest already
+/// covers the full list).
+const NOTIFY_SCORE_THRESHOLD: i32 = 90;
+
+/// Notifies the user (Telegram if linked, email otherwise — same preference
+/// order as the existing intro-request notification in kevin.rs) the first
+/// time a match crosses NOTIFY_SCORE_THRESHOLD. Fires once per match: a
+/// match that was already above the threshold on a prior regeneration
+/// doesn't re-notify on every subsequent page load/refresh.
+async fn notify_if_newly_high_value(
+    state: &AppState,
+    user_id: Uuid,
+    prev_score: Option<i32>,
+    new_score: i32,
+    match_label: &str,
+) {
+    let newly_crossed = new_score >= NOTIFY_SCORE_THRESHOLD
+        && prev_score.map(|p| p < NOTIFY_SCORE_THRESHOLD).unwrap_or(true);
+    if !newly_crossed {
+        return;
+    }
+
+    #[derive(sqlx::FromRow)]
+    struct NotifyRow {
+        email: String,
+        telegram_id: Option<String>,
+        role: String,
+    }
+    let Ok(Some(recipient)) = sqlx::query_as::<_, NotifyRow>(
+        "SELECT email, telegram_id, role::text FROM users WHERE id = $1",
+    )
+    .bind(user_id)
+    .fetch_optional(&state.db)
+    .await
+    else {
+        return;
+    };
+
+    let matches_href = match recipient.role.as_str() {
+        "INVESTOR" => "https://platform.metatron.id/investor/matches",
+        "INTERMEDIARY" => "https://platform.metatron.id/connector/network",
+        _ => "https://platform.metatron.id/startup/matches",
+    };
+
+    if let (Some(bot_token), Some(chat_id)) = (
+        state.telegram_bot_token.as_deref(),
+        recipient.telegram_id.as_deref().filter(|t| !t.is_empty()),
+    ) {
+        let text = format!(
+            "Kevin found a strong match for you: {match_label} ({new_score}% fit). Take a look: {matches_href}"
+        );
+        let url = format!("https://api.telegram.org/bot{bot_token}/sendMessage");
+        let _ = state
+            .http_client
+            .post(&url)
+            .json(&serde_json::json!({ "chat_id": chat_id, "text": text }))
+            .send()
+            .await;
+        return;
+    }
+
+    let html = format!(
+        "<p>Kevin found a strong match for you: <strong>{match_label}</strong> ({new_score}% fit).</p>\
+         <p><a href=\"{matches_href}\">View it on metatron</a></p>"
+    );
+    crate::email::send_email(
+        &state.http_client,
+        state.resend_api_key.as_deref(),
+        &state.email_from,
+        &recipient.email,
+        "Kevin found a strong match for you",
+        &html,
+    )
+    .await;
 }
 
 async fn request_intro(

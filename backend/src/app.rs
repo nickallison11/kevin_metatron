@@ -38,6 +38,7 @@ pub fn build_app(_settings: &Settings, state: Arc<AppState>) -> Router {
         .nest("/angel-score", routes::angel_score::router())
         .nest("/kevin", routes::kevin::router())
         .nest("/kevin-matches", routes::kevin_matches::router())
+        .nest("/cron", routes::kevin_learning::router())
         .nest("/api/admin", routes::admin::router())
         .nest("/whatsapp", routes::whatsapp::router())
         .nest("/calls", routes::calls::router())

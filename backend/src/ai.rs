@@ -322,6 +322,75 @@ async fn complete_chat_openai(
 }
 
 
+/// OpenRouter — used for Hermes 4 70B and Kimi K3. Wire-compatible with
+/// OpenAI's chat-completions format, so it reuses the same request/response
+/// shapes as `complete_chat_openai`, just pointed at a different host and
+/// with OpenRouter's recommended attribution headers.
+async fn complete_chat_openrouter(
+    client: &reqwest::Client,
+    api_key: &str,
+    system: &str,
+    messages: Vec<(String, String)>,
+    model: &str,
+) -> Result<String, String> {
+    let mut oa_messages: Vec<OpenAiChatMessage> = Vec::new();
+    oa_messages.push(OpenAiChatMessage {
+        role: "system".to_string(),
+        content: system.to_string(),
+    });
+
+    for (role, content) in messages {
+        let role = if role == "assistant" { "assistant" } else { "user" };
+        oa_messages.push(OpenAiChatMessage {
+            role: role.to_string(),
+            content,
+        });
+    }
+
+    let body = OpenAiChatCompletionRequest {
+        model,
+        messages: oa_messages,
+        temperature: 0.2,
+    };
+
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        AUTHORIZATION,
+        HeaderValue::from_str(&format!("Bearer {api_key}")).map_err(|e| e.to_string())?,
+    );
+    headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+    headers.insert("HTTP-Referer", HeaderValue::from_static("https://platform.metatron.id"));
+    headers.insert("X-Title", HeaderValue::from_static("metatron Kevin"));
+
+    let res = client
+        .post("https://openrouter.ai/api/v1/chat/completions")
+        .headers(headers)
+        .timeout(Duration::from_secs(120))
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("openrouter request: {e}"))?;
+
+    if !res.status().is_success() {
+        let t = res.text().await.unwrap_or_default();
+        return Err(format!("openrouter error: {t}"));
+    }
+
+    let parsed: OpenAiChatCompletionResponse = res
+        .json()
+        .await
+        .map_err(|e| format!("openrouter json: {e}"))?;
+
+    let text = parsed
+        .choices
+        .first()
+        .and_then(|c| c.message.content.as_ref())
+        .cloned()
+        .unwrap_or_default();
+
+    Ok(text.trim().to_string())
+}
+
 async fn complete_chat_nadirclaw(
     client: &reqwest::Client,
     base_url: &str,
@@ -386,6 +455,7 @@ pub async fn complete_chat(
         "anthropic" => complete_chat_anthropic(client, api_key, system, messages, model).await,
         "openai" => complete_chat_openai(client, api_key, system, messages, model).await,
         "nadirclaw" => complete_chat_nadirclaw(client, api_key, system, messages, model).await,
+        "openrouter" => complete_chat_openrouter(client, api_key, system, messages, model).await,
         _ => Err("unsupported provider".to_string()),
     }
 }

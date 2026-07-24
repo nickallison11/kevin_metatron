@@ -21,6 +21,8 @@ pub struct Settings {
     pub gemini_embedding_key: Option<String>,
     pub anthropic_api_key: Option<String>,
     pub openai_api_key: Option<String>,
+    /// OpenRouter — used for Hermes 4 70B and Kimi K3. Env: `OPENROUTER_API_KEY`.
+    pub openrouter_api_key: Option<String>,
     pub frontend_url: String,
     pub oauth_google: Option<OAuthProviderConfig>,
     pub oauth_linkedin: Option<OAuthProviderConfig>,
@@ -122,6 +124,9 @@ impl Settings {
             .ok()
             .and_then(|s| (!s.trim().is_empty()).then_some(s));
         let openai_api_key = env::var("OPENAI_API_KEY")
+            .ok()
+            .and_then(|s| (!s.trim().is_empty()).then_some(s));
+        let openrouter_api_key = env::var("OPENROUTER_API_KEY")
             .ok()
             .and_then(|s| (!s.trim().is_empty()).then_some(s));
 
@@ -303,6 +308,7 @@ impl Settings {
             gemini_embedding_key,
             anthropic_api_key,
             openai_api_key,
+            openrouter_api_key,
             frontend_url: frontend_url.trim_end_matches('/').to_string(),
             oauth_google: Self::load_oauth_provider(
                 "OAUTH_GOOGLE_CLIENT_ID",

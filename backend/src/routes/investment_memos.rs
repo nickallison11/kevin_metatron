@@ -172,7 +172,7 @@ async fn generate_memo(
     );
 
     let api_key = state.ai_api_key.as_deref().unwrap_or("");
-    let content = complete_chat(
+    let (content, usage) = complete_chat(
         &state.http_client,
         "gemini",
         api_key,
@@ -182,6 +182,20 @@ async fn generate_memo(
     )
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+    let tier = if user.is_pro { "pro" } else if user.is_basic { "basic" } else { "free" };
+    crate::cost::record_llm_usage(
+        &state.db,
+        Some(user.id),
+        Some(user.role.as_str()),
+        Some(tier),
+        "investment_memo",
+        "gemini",
+        "gemini-2.5-flash",
+        usage.input_tokens,
+        usage.output_tokens,
+    )
+    .await;
 
     let row = sqlx::query_as::<_, MemoRow>(
         r#"INSERT INTO investment_memos (investor_user_id, founder_user_id, content)

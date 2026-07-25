@@ -1559,6 +1559,19 @@ async fn enrich_one_contact(
         }
     };
 
+    crate::cost::record_llm_usage(
+        pool,
+        Some(user_id),
+        None,
+        None,
+        "connector_enrichment",
+        "gemini",
+        "gemini-2.5-flash",
+        body["usageMetadata"]["promptTokenCount"].as_i64().unwrap_or(0) as i32,
+        body["usageMetadata"]["candidatesTokenCount"].as_i64().unwrap_or(0) as i32,
+    )
+    .await;
+
     // Gemini response: skip thought parts, use last non-thought text part
     let text = body["candidates"]
         .as_array()

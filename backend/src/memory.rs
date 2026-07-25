@@ -30,8 +30,17 @@ struct GeminiSummaryRequest {
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct GeminiSummaryResponse {
     candidates: Option<Vec<GeminiSummaryCandidate>>,
+    usage_metadata: Option<GeminiSummaryUsageMetadata>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GeminiSummaryUsageMetadata {
+    prompt_token_count: Option<i32>,
+    candidates_token_count: Option<i32>,
 }
 
 #[derive(Deserialize)]
@@ -52,9 +61,11 @@ struct GeminiSummaryOutPart {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct EmbedContentRequest {
     model: String,
     content: EmbedInputContent,
+    output_dimensionality: i32,
 }
 
 #[derive(Serialize)]
@@ -165,7 +176,7 @@ pub async fn store_memory(
     user_id: Uuid,
     conversation: &str,
 ) -> Result<(), String> {
-    let summary = match summarize_conversation(http, gemini_api_key, conversation).await {
+    let summary = match summarize_conversation(db, http, gemini_api_key, user_id, conversation).await {
         Ok(s) => s,
         Err(e) => {
             tracing::warn!("memory summarize failed: {e}");
@@ -182,7 +193,7 @@ pub async fn store_memory(
         let summary_trim = summary.trim();
         if !summary_trim.is_empty() {
             if let Some(key) = embedding_key {
-                match embed_text(http, key, summary_trim).await {
+                match embed_text(db, http, key, user_id, summary_trim).await {
                     Ok(values) => {
                         let embedding = Vector::from(values);
                         sqlx::query(
@@ -228,7 +239,7 @@ pub async fn recall_memories(
     let mut semantic: Vec<String> = Vec::new();
     if semantic_memory_enabled(is_pro_subscriber, embedding_key) {
         if let Some(key) = embedding_key {
-            match embed_text(http, key, query).await {
+            match embed_text(db, http, key, user_id, query).await {
                 Ok(query_embedding_values) => {
                     let query_embedding = Vector::from(query_embedding_values);
                     semantic = sqlx::query_scalar(
@@ -259,8 +270,10 @@ pub async fn recall_memories(
 }
 
 async fn summarize_conversation(
+    db: &PgPool,
     http: &reqwest::Client,
     ai_api_key: &str,
+    user_id: Uuid,
     conversation: &str,
 ) -> Result<String, String> {
     let req = GeminiSummaryRequest {
@@ -297,6 +310,21 @@ async fn summarize_conversation(
         .await
         .map_err(|e| format!("memory summarize json: {e}"))?;
 
+    if let Some(ref u) = parsed.usage_metadata {
+        crate::cost::record_llm_usage(
+            db,
+            Some(user_id),
+            None,
+            None,
+            "memory_summarize",
+            "gemini",
+            "gemini-2.5-flash",
+            u.prompt_token_count.unwrap_or(0),
+            u.candidates_token_count.unwrap_or(0),
+        )
+        .await;
+    }
+
     let text = parsed
         .candidates
         .as_ref()
@@ -311,24 +339,37 @@ async fn summarize_conversation(
     Ok(text.trim().to_string())
 }
 
+/// `gemini-embedding-001` replaces `text-embedding-004`, which Google shut
+/// down 2026-01-14 — every call to the old model was silently failing.
+/// `outputDimensionality: 768` keeps output compatible with the existing
+/// fixed `vector(768)` `kevin_memories.embedding` column (see
+/// `migrations/0005_kevin_memory.sql`), avoiding a disruptive column-width
+/// migration or invalidating stored embeddings.
+const EMBEDDING_MODEL: &str = "gemini-embedding-001";
+const EMBEDDING_DIMENSIONS: i32 = 768;
+
 async fn embed_text(
+    db: &PgPool,
     http: &reqwest::Client,
     ai_api_key: &str,
+    user_id: Uuid,
     text: &str,
 ) -> Result<Vec<f32>, String> {
     let req = EmbedContentRequest {
-        model: "models/text-embedding-004".to_string(),
+        model: format!("models/{EMBEDDING_MODEL}"),
         content: EmbedInputContent {
             parts: vec![TextPart {
                 text: text.to_string(),
             }],
         },
+        output_dimensionality: EMBEDDING_DIMENSIONS,
     };
 
-    let url =
-        "https://generativelanguage.googleapis.com/v1/models/text-embedding-004:embedContent";
+    let url = format!(
+        "https://generativelanguage.googleapis.com/v1beta/models/{EMBEDDING_MODEL}:embedContent"
+    );
     let res = http
-        .post(url)
+        .post(&url)
         .query(&[("key", ai_api_key)])
         .json(&req)
         .send()
@@ -344,6 +385,23 @@ async fn embed_text(
         .json()
         .await
         .map_err(|e| format!("embedding json: {e}"))?;
+
+    // embedContent doesn't return a usage/token-count field on this API, so
+    // cost is estimated from input length (~4 chars/token, the standard
+    // rough heuristic) rather than an exact provider-reported count.
+    let estimated_tokens = (text.chars().count() as f64 / 4.0).ceil() as i32;
+    crate::cost::record_llm_usage(
+        db,
+        Some(user_id),
+        None,
+        None,
+        "memory_embed",
+        "gemini",
+        EMBEDDING_MODEL,
+        estimated_tokens,
+        0,
+    )
+    .await;
 
     parsed
         .embedding

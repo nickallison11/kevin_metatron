@@ -1031,7 +1031,19 @@ async fn generate_why_blurb(
     .await;
 
     match result {
-        Ok(text) => {
+        Ok((text, usage)) => {
+            crate::cost::record_llm_usage(
+                &state.db,
+                None,
+                None,
+                None,
+                "match_why_blurb",
+                "gemini",
+                &state.gemini_model,
+                usage.input_tokens,
+                usage.output_tokens,
+            )
+            .await;
             let trimmed = text.trim().to_string();
             let _ = sqlx::query("UPDATE kevin_matches SET why_blurb = $1 WHERE id = $2")
                 .bind(&trimmed)

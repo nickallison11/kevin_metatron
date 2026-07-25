@@ -144,7 +144,8 @@ def check_kevin_learning_endpoint_secured():
 
 
 def fetch_usage_report():
-    """Subscriber counts per role+tier, and model usage per tier (last 7 days)."""
+    """Subscriber counts per role+tier, Kevin chat model usage per tier, and
+    platform-wide LLM spend by model/feature (last 7 days)."""
     r = requests.get(
         f"{BACKEND_URL}/cron/usage-report",
         headers={"x-cron-secret": CRON_SECRET},
@@ -527,6 +528,24 @@ def main():
             for provider, model, count in rows:
                 pct = (count / tier_total * 100) if tier_total else 0
                 lines.append(f"    {provider}/{model}: {count} ({pct:.0f}%)")
+
+        lines.append("")
+        lines.append("Platform-wide LLM spend by model (last 7 days):")
+        spend_by_model = report.get("spend_by_model", [])
+        model_total = sum(row["cost_usd"] for row in spend_by_model)
+        if not spend_by_model:
+            lines.append("- (no tracked spend in the last 7 days)")
+        for row in spend_by_model:
+            lines.append(f"- {row['provider']}/{row['model']}: ${row['cost_usd']:.4f}")
+        lines.append(f"- TOTAL: ${model_total:.4f}")
+
+        lines.append("")
+        lines.append("Platform-wide LLM spend by feature (last 7 days):")
+        spend_by_feature = report.get("spend_by_feature", [])
+        if not spend_by_feature:
+            lines.append("- (no tracked spend in the last 7 days)")
+        for row in spend_by_feature:
+            lines.append(f"- {row['feature']}: ${row['cost_usd']:.4f}")
     except Exception as e:
         lines.append(f"- ⚠ DRIFT — usage report request failed: {e}")
         drifts.append(f"usage report failed: {e}")

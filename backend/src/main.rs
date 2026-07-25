@@ -5,6 +5,7 @@ mod auth;
 mod ai;
 mod cleanup;
 mod compliance;
+mod cost;
 mod crypto;
 mod email;
 mod identity;

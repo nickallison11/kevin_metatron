@@ -367,7 +367,22 @@ Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. 
     )
     .await
     {
-        Ok(r) => strip_markdown(&r),
+        Ok((r, usage)) => {
+            let tier = if user.is_pro { "pro" } else if user.is_basic { "basic" } else { "free" };
+            crate::cost::record_llm_usage(
+                &state.db,
+                Some(user.id),
+                Some(user.role.as_str()),
+                Some(tier),
+                "kevin_email",
+                provider,
+                model,
+                usage.input_tokens,
+                usage.output_tokens,
+            )
+            .await;
+            strip_markdown(&r)
+        }
         Err(e) => {
             tracing::error!("inbound-email complete_chat: {e}");
             email::send_kevin_email_reply(
@@ -616,7 +631,22 @@ Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. 
     )
     .await
     {
-        Ok(r) => r,
+        Ok((r, usage)) => {
+            let tier = if user.is_pro { "pro" } else if user.is_basic { "basic" } else { "free" };
+            crate::cost::record_llm_usage(
+                &state.db,
+                Some(user.id),
+                Some(user.role.as_str()),
+                Some(tier),
+                "kevin_telegram_whatsapp",
+                provider,
+                model,
+                usage.input_tokens,
+                usage.output_tokens,
+            )
+            .await;
+            r
+        }
         Err(e) => {
             tracing::error!("kevin linked user: complete_chat failed: {e}");
             return Err(KevinReplyError::BadGateway(e));
@@ -2259,11 +2289,16 @@ async fn run_kevin_with_tools_gemini(
     initial_messages: &[serde_json::Value],
     api_key: &str,
     model: &str,
-) -> (String, Vec<crate::kevin_context::ContextRow>) {
+) -> (String, Vec<crate::kevin_context::ContextRow>, crate::ai::TokenUsage) {
     // `initial_messages` already arrives in Gemini-native {role, parts} shape
     // (built by kevin_context::to_gemini) — used as-is, not re-derived.
     let mut contents: Vec<serde_json::Value> = initial_messages.to_vec();
     let mut new_rows: Vec<crate::kevin_context::ContextRow> = Vec::new();
+    // Each loop iteration is a fully separate, fully-billed API call that
+    // resends the whole growing context — summing every iteration's
+    // reported usage is the correct total spend for this turn, not double
+    // counting.
+    let mut usage = crate::ai::TokenUsage::default();
 
     let tools = kevin_tools_for_gemini(role);
     let url = format!(
@@ -2288,7 +2323,7 @@ async fn run_kevin_with_tools_gemini(
             Ok(r) => r,
             Err(e) => {
                 tracing::error!("gemini tool call request failed: {e}");
-                return ("Kevin is temporarily unavailable.".to_string(), new_rows);
+                return ("Kevin is temporarily unavailable.".to_string(), new_rows, usage);
             }
         };
 
@@ -2296,16 +2331,19 @@ async fn run_kevin_with_tools_gemini(
             let status = response.status();
             let text = response.text().await.unwrap_or_default();
             tracing::error!("gemini tool call error {status}: {text}");
-            return ("Kevin is temporarily unavailable.".to_string(), new_rows);
+            return ("Kevin is temporarily unavailable.".to_string(), new_rows, usage);
         }
 
         let value: serde_json::Value = match response.json().await {
             Ok(v) => v,
             Err(e) => {
                 tracing::error!("gemini tool call json parse failed: {e}");
-                return ("Kevin is temporarily unavailable.".to_string(), new_rows);
+                return ("Kevin is temporarily unavailable.".to_string(), new_rows, usage);
             }
         };
+
+        usage.input_tokens += value["usageMetadata"]["promptTokenCount"].as_i64().unwrap_or(0) as i32;
+        usage.output_tokens += value["usageMetadata"]["candidatesTokenCount"].as_i64().unwrap_or(0) as i32;
 
         let parts = value["candidates"][0]["content"]["parts"]
             .as_array()
@@ -2323,11 +2361,11 @@ async fn run_kevin_with_tools_gemini(
                     if !text.is_empty() {
                         let text = strip_markdown(text);
                         new_rows.push(crate::kevin_context::text_row("assistant", &text));
-                        return (text, new_rows);
+                        return (text, new_rows, usage);
                     }
                 }
             }
-            return ("Kevin is temporarily unavailable.".to_string(), new_rows);
+            return ("Kevin is temporarily unavailable.".to_string(), new_rows, usage);
         }
 
         contents.push(serde_json::json!({
@@ -2363,7 +2401,7 @@ async fn run_kevin_with_tools_gemini(
         new_rows.push(crate::kevin_context::tool_result_row(result_triples));
     }
 
-    ("Kevin reached the tool call limit. Please try again.".to_string(), new_rows)
+    ("Kevin reached the tool call limit. Please try again.".to_string(), new_rows, usage)
 }
 
 
@@ -2436,13 +2474,14 @@ async fn run_kevin_openai_tool_loop(
     role: &str,
     system: &str,
     messages: Vec<serde_json::Value>,
-) -> Result<(String, Vec<crate::kevin_context::ContextRow>), String> {
+) -> Result<(String, Vec<crate::kevin_context::ContextRow>, crate::ai::TokenUsage), String> {
     let tools = kevin_tools_for_openai(role);
     let mut msgs: Vec<serde_json::Value> = vec![
         serde_json::json!({"role": "system", "content": system})
     ];
     msgs.extend(messages);
     let mut new_rows: Vec<crate::kevin_context::ContextRow> = Vec::new();
+    let mut usage = crate::ai::TokenUsage::default();
 
     for _ in 0..4 {
         let request_body = serde_json::json!({
@@ -2475,6 +2514,9 @@ async fn run_kevin_openai_tool_loop(
             Err(e) => return Err(format!("openai json: {e}")),
         };
 
+        usage.input_tokens += value["usage"]["prompt_tokens"].as_i64().unwrap_or(0) as i32;
+        usage.output_tokens += value["usage"]["completion_tokens"].as_i64().unwrap_or(0) as i32;
+
         let choice = match value["choices"].get(0) {
             Some(c) => c.clone(),
             None => return Err("no choices in openai response".to_string()),
@@ -2485,7 +2527,7 @@ async fn run_kevin_openai_tool_loop(
         if finish_reason != "tool_calls" {
             let text = strip_markdown(message["content"].as_str().unwrap_or(""));
             new_rows.push(crate::kevin_context::text_row("assistant", &text));
-            return Ok((text, new_rows));
+            return Ok((text, new_rows, usage));
         }
 
         let tool_calls = match message["tool_calls"].as_array() {
@@ -2531,10 +2573,11 @@ async fn run_kevin_anthropic_tool_loop(
     role: &str,
     system: &str,
     messages: Vec<serde_json::Value>,
-) -> Result<(String, Vec<crate::kevin_context::ContextRow>), String> {
+) -> Result<(String, Vec<crate::kevin_context::ContextRow>, crate::ai::TokenUsage), String> {
     let tools = kevin_tools_for_role(role);
     let mut msgs = messages;
     let mut new_rows: Vec<crate::kevin_context::ContextRow> = Vec::new();
+    let mut usage = crate::ai::TokenUsage::default();
 
     for _ in 0..4 {
         let request_body = serde_json::json!({
@@ -2569,6 +2612,9 @@ async fn run_kevin_anthropic_tool_loop(
             Err(e) => return Err(format!("anthropic json: {e}")),
         };
 
+        usage.input_tokens += value["usage"]["input_tokens"].as_i64().unwrap_or(0) as i32;
+        usage.output_tokens += value["usage"]["output_tokens"].as_i64().unwrap_or(0) as i32;
+
         let stop_reason = value["stop_reason"].as_str().unwrap_or("end_turn");
 
         if stop_reason != "tool_use" {
@@ -2577,7 +2623,7 @@ async fn run_kevin_anthropic_tool_loop(
                     if block["type"].as_str() == Some("text") {
                         let text = strip_markdown(block["text"].as_str().unwrap_or(""));
                         new_rows.push(crate::kevin_context::text_row("assistant", &text));
-                        return Ok((text, new_rows));
+                        return Ok((text, new_rows, usage));
                     }
                 }
             }
@@ -2688,31 +2734,32 @@ pub(crate) async fn run_kevin_with_tools(
         }
     }
 
-    // Records which model actually answered, for the daily usage report
-    // (see kevin_learning.rs's sibling usage-report endpoint). Fire-and-forget
-    // — never blocks or fails the user-facing reply on a logging hiccup.
-    async fn log_model_usage(
+    let usage_tier = if is_pro { "pro" } else if is_basic { "basic" } else { "free" };
+
+    // Records which model actually answered + its spend, for the daily
+    // usage report (see kevin_learning.rs's sibling usage-report endpoint).
+    async fn log_usage(
         state: &AppState,
         user_id: Uuid,
         role: &str,
         tier: &str,
         provider: &str,
         model: &str,
+        usage: crate::ai::TokenUsage,
     ) {
-        let _ = sqlx::query(
-            r#"INSERT INTO kevin_model_usage (user_id, role, subscription_tier, provider, model)
-               VALUES ($1, $2, $3, $4, $5)"#,
+        crate::cost::record_llm_usage(
+            &state.db,
+            Some(user_id),
+            Some(role),
+            Some(tier),
+            "kevin_chat",
+            provider,
+            model,
+            usage.input_tokens,
+            usage.output_tokens,
         )
-        .bind(user_id)
-        .bind(role)
-        .bind(tier)
-        .bind(provider)
-        .bind(model)
-        .execute(&state.db)
         .await;
     }
-
-    let usage_tier = if is_pro { "pro" } else if is_basic { "basic" } else { "free" };
 
     // Tier 0: NadirClaw (local, free) for simple queries — no tool use needed
     if complexity == QueryComplexity::Simple {
@@ -2738,12 +2785,12 @@ pub(crate) async fn run_kevin_with_tools(
         )
         .await
         {
-            Ok(reply) if !reply.is_empty() => {
+            Ok((reply, usage)) if !reply.is_empty() => {
                 let text = strip_markdown(&reply);
                 persist(state, session_id, user_id, &new_user_row, vec![
                     crate::kevin_context::text_row("assistant", &text),
                 ]).await;
-                log_model_usage(state, user_id, role, usage_tier, "nadirclaw", "auto").await;
+                log_usage(state, user_id, role, usage_tier, "nadirclaw", "auto", usage).await;
                 return text;
             }
             _ => {
@@ -2772,9 +2819,9 @@ pub(crate) async fn run_kevin_with_tools(
                         "nousresearch/hermes-4-70b",
                         user_id, user_email, role, system, seed,
                     ).await {
-                        Ok((reply, new_rows)) if !reply.is_empty() => {
+                        Ok((reply, new_rows, usage)) if !reply.is_empty() => {
                             persist(state, session_id, user_id, &new_user_row, new_rows).await;
-                            log_model_usage(state, user_id, role, usage_tier, "openrouter", "nousresearch/hermes-4-70b").await;
+                            log_usage(state, user_id, role, usage_tier, "openrouter", "nousresearch/hermes-4-70b", usage).await;
                             return reply;
                         }
                         Ok(_) => tracing::warn!("hermes empty, falling back to haiku"),
@@ -2794,9 +2841,9 @@ pub(crate) async fn run_kevin_with_tools(
                         "moonshotai/kimi-k3",
                         user_id, user_email, role, system, seed,
                     ).await {
-                        Ok((reply, new_rows)) if !reply.is_empty() => {
+                        Ok((reply, new_rows, usage)) if !reply.is_empty() => {
                             persist(state, session_id, user_id, &new_user_row, new_rows).await;
-                            log_model_usage(state, user_id, role, usage_tier, "openrouter", "moonshotai/kimi-k3").await;
+                            log_usage(state, user_id, role, usage_tier, "openrouter", "moonshotai/kimi-k3", usage).await;
                             return reply;
                         }
                         Ok(_) => tracing::warn!("kimi k3 empty, falling back to {model}"),
@@ -2809,9 +2856,9 @@ pub(crate) async fn run_kevin_with_tools(
             match run_kevin_anthropic_tool_loop(
                 state, anthropic_key, model, user_id, user_email, role, system, seed,
             ).await {
-                Ok((reply, new_rows)) if !reply.is_empty() => {
+                Ok((reply, new_rows, usage)) if !reply.is_empty() => {
                     persist(state, session_id, user_id, &new_user_row, new_rows).await;
-                    log_model_usage(state, user_id, role, usage_tier, "anthropic", model).await;
+                    log_usage(state, user_id, role, usage_tier, "anthropic", model, usage).await;
                     return reply;
                 }
                 Ok(_) => tracing::warn!("anthropic empty response"),
@@ -2829,9 +2876,9 @@ pub(crate) async fn run_kevin_with_tools(
                 state, anthropic_key, "claude-haiku-4-5-20251001",
                 user_id, user_email, role, system, seed,
             ).await {
-                Ok((reply, new_rows)) if !reply.is_empty() => {
+                Ok((reply, new_rows, usage)) if !reply.is_empty() => {
                     persist(state, session_id, user_id, &new_user_row, new_rows).await;
-                    log_model_usage(state, user_id, role, usage_tier, "anthropic", "claude-haiku-4-5-20251001").await;
+                    log_usage(state, user_id, role, usage_tier, "anthropic", "claude-haiku-4-5-20251001", usage).await;
                     return reply;
                 }
                 Ok(_) => tracing::warn!("haiku empty, falling back to gemini"),
@@ -2842,7 +2889,7 @@ pub(crate) async fn run_kevin_with_tools(
 
     if let Some(api_key) = &state.ai_api_key {
         let seed = crate::kevin_context::to_gemini(&seed_rows);
-        let (reply, new_rows) = run_kevin_with_tools_gemini(
+        let (reply, new_rows, usage) = run_kevin_with_tools_gemini(
             state,
             user_id,
             user_email,
@@ -2854,7 +2901,7 @@ pub(crate) async fn run_kevin_with_tools(
         )
         .await;
         persist(state, session_id, user_id, &new_user_row, new_rows).await;
-        log_model_usage(state, user_id, role, usage_tier, "gemini", state.gemini_model.as_str()).await;
+        log_usage(state, user_id, role, usage_tier, "gemini", state.gemini_model.as_str(), usage).await;
         return reply;
     }
 

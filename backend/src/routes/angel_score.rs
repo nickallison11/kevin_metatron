@@ -197,6 +197,21 @@ Return ONLY valid JSON, no markdown, no code fences:
         .json()
         .await
         .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
+
+    let tier = if user.is_pro { "pro" } else if user.is_basic { "basic" } else { "free" };
+    crate::cost::record_llm_usage(
+        &state.db,
+        Some(user.id),
+        Some(user.role.as_str()),
+        Some(tier),
+        "angel_score",
+        "gemini",
+        "gemini-2.5-flash",
+        body["usageMetadata"]["promptTokenCount"].as_i64().unwrap_or(0) as i32,
+        body["usageMetadata"]["candidatesTokenCount"].as_i64().unwrap_or(0) as i32,
+    )
+    .await;
+
     let text = body["candidates"][0]["content"]["parts"][0]["text"]
         .as_str()
         .unwrap_or("{}");

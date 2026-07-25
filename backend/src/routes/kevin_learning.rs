@@ -215,7 +215,7 @@ empty insights array — do not force weak patterns.";
 
     let prompt = format!("Evidence:\n\n{evidence}");
 
-    let value = ai::complete_json_object(
+    let (value, usage) = ai::complete_json_object(
         &state.http_client,
         "gemini",
         key,
@@ -224,6 +224,19 @@ empty insights array — do not force weak patterns.";
         &prompt,
     )
     .await?;
+
+    crate::cost::record_llm_usage(
+        &state.db,
+        None,
+        None,
+        None,
+        "kevin_learning",
+        "gemini",
+        &state.gemini_model,
+        usage.input_tokens,
+        usage.output_tokens,
+    )
+    .await;
 
     let parsed: SynthesisResponse =
         serde_json::from_value(value).map_err(|e| format!("synthesis parse: {e}"))?;
@@ -288,16 +301,37 @@ struct ModelUsageCount {
 }
 
 #[derive(Serialize)]
+struct ModelSpend {
+    provider: String,
+    model: String,
+    cost_usd: f64,
+}
+
+#[derive(Serialize)]
+struct FeatureSpend {
+    feature: String,
+    cost_usd: f64,
+}
+
+#[derive(Serialize)]
 struct UsageReport {
     subscriber_counts: Vec<TierCount>,
     /// Model usage over the last USAGE_WINDOW_DAYS days.
     model_usage: Vec<ModelUsageCount>,
+    /// Spend by (provider, model) over the last USAGE_WINDOW_DAYS days.
+    /// Platform-wide — every feature that calls an LLM, not just Kevin chat.
+    spend_by_model: Vec<ModelSpend>,
+    /// Spend by feature (kevin_chat, angel_score, call_analysis, etc.) over
+    /// the same window.
+    spend_by_feature: Vec<FeatureSpend>,
 }
 
 /// Read-only reporting endpoint for the e2e monitor: subscriber counts per
-/// role+tier, and which models actually served Kevin chat replies per tier
-/// over the last week (see kevin_model_usage, written from
-/// run_kevin_with_tools in kevin.rs).
+/// role+tier, which models actually served Kevin chat replies per tier over
+/// the last week, and platform-wide LLM spend by model and by feature (see
+/// `llm_usage`, written from `cost::record_llm_usage` at every LLM call
+/// site — Kevin chat, Angel Score, Call Intelligence, match ranking, the
+/// weekly learning job, and Kevin's memory summarize/embed calls).
 async fn usage_report(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -323,11 +357,12 @@ async fn usage_report(
 
     let model_usage: Vec<ModelUsageCount> = sqlx::query_as::<_, (String, String, String, i64)>(
         r#"
-        SELECT subscription_tier, provider, model, COUNT(*)
-        FROM kevin_model_usage
+        SELECT COALESCE(subscription_tier, 'n/a'), provider, model, COUNT(*)
+        FROM llm_usage
         WHERE created_at > now() - make_interval(days => $1)
+          AND feature = 'kevin_chat'
         GROUP BY subscription_tier, provider, model
-        ORDER BY subscription_tier, COUNT(*) DESC
+        ORDER BY COUNT(*) DESC
         "#,
     )
     .bind(USAGE_WINDOW_DAYS)
@@ -338,5 +373,39 @@ async fn usage_report(
     .map(|(tier, provider, model, count)| ModelUsageCount { tier, provider, model, count })
     .collect();
 
-    Ok(Json(UsageReport { subscriber_counts, model_usage }))
+    let spend_by_model: Vec<ModelSpend> = sqlx::query_as::<_, (String, String, Option<f64>)>(
+        r#"
+        SELECT provider, model, SUM(cost_usd)
+        FROM llm_usage
+        WHERE created_at > now() - make_interval(days => $1)
+        GROUP BY provider, model
+        ORDER BY SUM(cost_usd) DESC NULLS LAST
+        "#,
+    )
+    .bind(USAGE_WINDOW_DAYS)
+    .fetch_all(&state.db)
+    .await
+    .map_err(internal)?
+    .into_iter()
+    .map(|(provider, model, cost_usd)| ModelSpend { provider, model, cost_usd: cost_usd.unwrap_or(0.0) })
+    .collect();
+
+    let spend_by_feature: Vec<FeatureSpend> = sqlx::query_as::<_, (String, Option<f64>)>(
+        r#"
+        SELECT feature, SUM(cost_usd)
+        FROM llm_usage
+        WHERE created_at > now() - make_interval(days => $1)
+        GROUP BY feature
+        ORDER BY SUM(cost_usd) DESC NULLS LAST
+        "#,
+    )
+    .bind(USAGE_WINDOW_DAYS)
+    .fetch_all(&state.db)
+    .await
+    .map_err(internal)?
+    .into_iter()
+    .map(|(feature, cost_usd)| FeatureSpend { feature, cost_usd: cost_usd.unwrap_or(0.0) })
+    .collect();
+
+    Ok(Json(UsageReport { subscriber_counts, model_usage, spend_by_model, spend_by_feature }))
 }

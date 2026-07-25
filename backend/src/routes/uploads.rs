@@ -257,7 +257,19 @@ async fn upload_pitch_deck(
             )
             .await
             {
-                Ok(v) => {
+                Ok((v, usage)) => {
+                    crate::cost::record_llm_usage(
+                        &state.db,
+                        Some(id),
+                        None,
+                        None,
+                        "pitch_extraction",
+                        "gemini",
+                        state.gemini_model.as_str(),
+                        usage.input_tokens,
+                        usage.output_tokens,
+                    )
+                    .await;
                     extracted = Some(v.clone());
                     match insert_pitch_from_extracted(&state.db, id, &v).await {
                         Ok(pid) => {

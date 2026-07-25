@@ -886,6 +886,21 @@ Return the top {match_limit} matches only, ranked by score descending."#
     .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
 
     let body: Value = res.json().await.map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
+
+    let tier = if user.is_pro { "pro" } else if user.is_basic { "basic" } else { "free" };
+    crate::cost::record_llm_usage(
+        &state.db,
+        Some(user.id),
+        Some(user.role.as_str()),
+        Some(tier),
+        "match_ranking",
+        "gemini",
+        "gemini-2.5-flash",
+        body["usageMetadata"]["promptTokenCount"].as_i64().unwrap_or(0) as i32,
+        body["usageMetadata"]["candidatesTokenCount"].as_i64().unwrap_or(0) as i32,
+    )
+    .await;
+
     let text = body["candidates"][0]["content"]["parts"][0]["text"]
         .as_str()
         .unwrap_or("[]");

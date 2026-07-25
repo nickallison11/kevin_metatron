@@ -262,7 +262,21 @@ pub(crate) async fn analyze_transcript(state: &AppState, transcript: &str) -> Js
     )
     .await
     {
-        Ok(v) => v,
+        Ok((v, usage)) => {
+            crate::cost::record_llm_usage(
+                &state.db,
+                None,
+                None,
+                None,
+                "call_analysis",
+                "gemini",
+                "gemini-2.5-flash",
+                usage.input_tokens,
+                usage.output_tokens,
+            )
+            .await;
+            v
+        }
         Err(e) => {
             tracing::warn!("gemini analysis failed: {e}");
             mock_call_analysis_json(transcript)

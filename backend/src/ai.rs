@@ -4,6 +4,15 @@ use reqwest::header::{HeaderMap, HeaderValue, CONTENT_TYPE, AUTHORIZATION};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
+/// Token counts for one LLM call, for `cost::record_llm_usage`. Every
+/// `complete_*` function here returns this alongside its reply so callers
+/// can log spend without re-parsing the provider response themselves.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct TokenUsage {
+    pub input_tokens: i32,
+    pub output_tokens: i32,
+}
+
 // ----------------------------
 // Gemini request/response
 // ----------------------------
@@ -33,8 +42,27 @@ struct GeminiGenerateRequest {
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct GeminiResponse {
     candidates: Option<Vec<GeminiCandidate>>,
+    usage_metadata: Option<GeminiUsageMetadata>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct GeminiUsageMetadata {
+    prompt_token_count: Option<i32>,
+    candidates_token_count: Option<i32>,
+}
+
+impl GeminiResponse {
+    fn token_usage(&self) -> TokenUsage {
+        let u = self.usage_metadata.as_ref();
+        TokenUsage {
+            input_tokens: u.and_then(|u| u.prompt_token_count).unwrap_or(0),
+            output_tokens: u.and_then(|u| u.candidates_token_count).unwrap_or(0),
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -68,7 +96,7 @@ async fn complete_chat_gemini(
     system: &str,
     messages: Vec<(String, String)>,
     model: &str,
-) -> Result<String, String> {
+) -> Result<(String, TokenUsage), String> {
     let contents: Vec<GeminiContent> = messages
         .into_iter()
         .map(|(role, content)| GeminiContent {
@@ -113,6 +141,7 @@ async fn complete_chat_gemini(
         .await
         .map_err(|e| format!("gemini json: {e}"))?;
 
+    let usage = parsed.token_usage();
     let text = parsed
         .candidates
         .as_ref()
@@ -124,7 +153,7 @@ async fn complete_chat_gemini(
         .cloned()
         .unwrap_or_default();
 
-    Ok(text.trim().to_string())
+    Ok((text.trim().to_string(), usage))
 }
 
 // ----------------------------
@@ -155,6 +184,13 @@ struct AnthropicContent {
 #[derive(Deserialize)]
 struct AnthropicMessagesResponse {
     content: Vec<AnthropicContentBlock>,
+    usage: Option<AnthropicUsage>,
+}
+
+#[derive(Deserialize, Default)]
+struct AnthropicUsage {
+    input_tokens: Option<i32>,
+    output_tokens: Option<i32>,
 }
 
 #[derive(Deserialize)]
@@ -170,7 +206,7 @@ async fn complete_chat_anthropic(
     system: &str,
     messages: Vec<(String, String)>,
     model: &str,
-) -> Result<String, String> {
+) -> Result<(String, TokenUsage), String> {
     let msgs: Vec<AnthropicMessage> = messages
         .into_iter()
         .map(|(role, content)| AnthropicMessage {
@@ -216,6 +252,10 @@ async fn complete_chat_anthropic(
         .await
         .map_err(|e| format!("anthropic json: {e}"))?;
 
+    let usage = parsed.usage.as_ref().map(|u| TokenUsage {
+        input_tokens: u.input_tokens.unwrap_or(0),
+        output_tokens: u.output_tokens.unwrap_or(0),
+    }).unwrap_or_default();
     let text = parsed
         .content
         .into_iter()
@@ -223,7 +263,7 @@ async fn complete_chat_anthropic(
         .collect::<Vec<_>>()
         .join("\n");
 
-    Ok(text.trim().to_string())
+    Ok((text.trim().to_string(), usage))
 }
 
 // ----------------------------
@@ -246,6 +286,7 @@ struct OpenAiChatCompletionRequest<'a> {
 #[derive(Deserialize)]
 struct OpenAiChatCompletionResponse {
     choices: Vec<OpenAiChoice>,
+    usage: Option<OpenAiUsage>,
 }
 
 #[derive(Deserialize)]
@@ -258,13 +299,29 @@ struct OpenAiChatCompletionMessage {
     content: Option<String>,
 }
 
+#[derive(Deserialize, Default)]
+struct OpenAiUsage {
+    prompt_tokens: Option<i32>,
+    completion_tokens: Option<i32>,
+}
+
+impl OpenAiChatCompletionResponse {
+    fn token_usage(&self) -> TokenUsage {
+        let u = self.usage.as_ref();
+        TokenUsage {
+            input_tokens: u.and_then(|u| u.prompt_tokens).unwrap_or(0),
+            output_tokens: u.and_then(|u| u.completion_tokens).unwrap_or(0),
+        }
+    }
+}
+
 async fn complete_chat_openai(
     client: &reqwest::Client,
     api_key: &str,
     system: &str,
     messages: Vec<(String, String)>,
     model: &str,
-) -> Result<String, String> {
+) -> Result<(String, TokenUsage), String> {
     let mut oa_messages: Vec<OpenAiChatMessage> = Vec::new();
     oa_messages.push(OpenAiChatMessage {
         role: "system".to_string(),
@@ -311,6 +368,7 @@ async fn complete_chat_openai(
         .await
         .map_err(|e| format!("openai json: {e}"))?;
 
+    let usage = parsed.token_usage();
     let text = parsed
         .choices
         .first()
@@ -318,7 +376,7 @@ async fn complete_chat_openai(
         .cloned()
         .unwrap_or_default();
 
-    Ok(text.trim().to_string())
+    Ok((text.trim().to_string(), usage))
 }
 
 
@@ -332,7 +390,7 @@ async fn complete_chat_openrouter(
     system: &str,
     messages: Vec<(String, String)>,
     model: &str,
-) -> Result<String, String> {
+) -> Result<(String, TokenUsage), String> {
     let mut oa_messages: Vec<OpenAiChatMessage> = Vec::new();
     oa_messages.push(OpenAiChatMessage {
         role: "system".to_string(),
@@ -381,6 +439,7 @@ async fn complete_chat_openrouter(
         .await
         .map_err(|e| format!("openrouter json: {e}"))?;
 
+    let usage = parsed.token_usage();
     let text = parsed
         .choices
         .first()
@@ -388,7 +447,7 @@ async fn complete_chat_openrouter(
         .cloned()
         .unwrap_or_default();
 
-    Ok(text.trim().to_string())
+    Ok((text.trim().to_string(), usage))
 }
 
 async fn complete_chat_nadirclaw(
@@ -397,7 +456,7 @@ async fn complete_chat_nadirclaw(
     system: &str,
     messages: Vec<(String, String)>,
     model: &str,
-) -> Result<String, String> {
+) -> Result<(String, TokenUsage), String> {
     let mut oa_messages: Vec<OpenAiChatMessage> = Vec::new();
     oa_messages.push(OpenAiChatMessage {
         role: "system".to_string(),
@@ -429,13 +488,14 @@ async fn complete_chat_nadirclaw(
         .json()
         .await
         .map_err(|e| format!("nadirclaw json: {e}"))?;
+    let usage = parsed.token_usage();
     let text = parsed
         .choices
         .first()
         .and_then(|c| c.message.content.as_ref())
         .cloned()
         .unwrap_or_default();
-    Ok(text.trim().to_string())
+    Ok((text.trim().to_string(), usage))
 }
 
 // ----------------------------
@@ -449,7 +509,7 @@ pub async fn complete_chat(
     model: &str,
     system: &str,
     messages: Vec<(String, String)>,
-) -> Result<String, String> {
+) -> Result<(String, TokenUsage), String> {
     match provider {
         "gemini" => complete_chat_gemini(client, api_key, system, messages, model).await,
         "anthropic" => complete_chat_anthropic(client, api_key, system, messages, model).await,
@@ -468,11 +528,11 @@ pub async fn complete_json_object(
     model: &str,
     system: &str,
     user_prompt: &str,
-) -> Result<serde_json::Value, String> {
+) -> Result<(serde_json::Value, TokenUsage), String> {
     let system = format!(
         "{system}\nRespond with ONLY a valid JSON object, no markdown fences or commentary."
     );
-    let text = complete_chat(
+    let (text, usage) = complete_chat(
         client,
         provider,
         api_key,
@@ -489,7 +549,8 @@ pub async fn complete_json_object(
         .trim_end_matches("```")
         .trim();
 
-    serde_json::from_str(cleaned).map_err(|e| format!("json parse: {e}: {cleaned}"))
+    let value = serde_json::from_str(cleaned).map_err(|e| format!("json parse: {e}: {cleaned}"))?;
+    Ok((value, usage))
 }
 
 /// Extract structured pitch fields from a PDF deck using Gemini (multimodal).
@@ -498,7 +559,7 @@ pub async fn extract_pitch_from_deck_pdf(
     api_key: &str,
     pdf_bytes: &[u8],
     gemini_model: &str,
-) -> Result<serde_json::Value, String> {
+) -> Result<(serde_json::Value, TokenUsage), String> {
     use base64::{engine::general_purpose::STANDARD, Engine as _};
     let b64 = STANDARD.encode(pdf_bytes);
 
@@ -541,6 +602,7 @@ pub async fn extract_pitch_from_deck_pdf(
         .await
         .map_err(|e| format!("gemini pdf json: {e}"))?;
 
+    let usage = parsed.token_usage();
     let text = parsed
         .candidates
         .as_ref()
@@ -559,7 +621,8 @@ pub async fn extract_pitch_from_deck_pdf(
         .trim_end_matches("```")
         .trim();
 
-    serde_json::from_str(cleaned).map_err(|e| format!("deck json parse: {e}: {cleaned}"))
+    let value = serde_json::from_str(cleaned).map_err(|e| format!("deck json parse: {e}: {cleaned}"))?;
+    Ok((value, usage))
 }
 
 pub fn mock_call_analysis_json(transcript: &str) -> serde_json::Value {

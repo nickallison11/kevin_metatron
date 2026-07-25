@@ -362,7 +362,19 @@ async fn generate_proactive_suggestions(state: &AppState) {
         .await;
 
         let (fit_reason, draft_message) = match result {
-            Ok(v) => {
+            Ok((v, usage)) => {
+                crate::cost::record_llm_usage(
+                    &state.db,
+                    Some(row.for_user_id),
+                    None,
+                    None,
+                    "kevin_intro_suggestion",
+                    "gemini",
+                    "gemini-2.5-flash",
+                    usage.input_tokens,
+                    usage.output_tokens,
+                )
+                .await;
                 let fr = v["fit_reason"].as_str().unwrap_or(reasoning).to_string();
                 let dm = v["draft_message"].as_str().unwrap_or("").to_string();
                 if dm.is_empty() { continue; }

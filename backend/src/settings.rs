@@ -117,9 +117,14 @@ impl Settings {
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| "gemini-2.5-flash".to_string());
+        // A Gemini API key covers both generateContent and embedContent under
+        // the same project, so GEMINI_EMBEDDING_KEY only needs setting if
+        // someone wants embeddings on a separate key/quota later — otherwise
+        // it silently reuses GEMINI_API_KEY.
         let gemini_embedding_key = env::var("GEMINI_EMBEDDING_KEY")
             .ok()
-            .and_then(|s| (!s.trim().is_empty()).then_some(s));
+            .and_then(|s| (!s.trim().is_empty()).then_some(s))
+            .or_else(|| ai_api_key.clone());
         let anthropic_api_key = env::var("ANTHROPIC_API_KEY")
             .ok()
             .and_then(|s| (!s.trim().is_empty()).then_some(s));

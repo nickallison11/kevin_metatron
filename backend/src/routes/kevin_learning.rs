@@ -375,7 +375,7 @@ async fn usage_report(
 
     let spend_by_model: Vec<ModelSpend> = sqlx::query_as::<_, (String, String, Option<f64>)>(
         r#"
-        SELECT provider, model, SUM(cost_usd)
+        SELECT provider, model, SUM(cost_usd)::float8
         FROM llm_usage
         WHERE created_at > now() - make_interval(days => $1)
         GROUP BY provider, model
@@ -392,7 +392,7 @@ async fn usage_report(
 
     let spend_by_feature: Vec<FeatureSpend> = sqlx::query_as::<_, (String, Option<f64>)>(
         r#"
-        SELECT feature, SUM(cost_usd)
+        SELECT feature, SUM(cost_usd)::float8
         FROM llm_usage
         WHERE created_at > now() - make_interval(days => $1)
         GROUP BY feature

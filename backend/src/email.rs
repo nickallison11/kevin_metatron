@@ -197,23 +197,34 @@ pub async fn send_email(
     }
 }
 
+/// A prior send only counts as evidence of deliverability once it's old
+/// enough that a bounce would plausibly have been reported back by now — a
+/// send from a few hundred milliseconds ago (e.g. an earlier notification in
+/// the same match-generation batch) proves nothing, since Resend's bounce
+/// webhook hasn't had time to fire yet. Without this, multiple notifications
+/// to the same brand-new recipient in one batch would inconsistently flip
+/// from plaintext to rich HTML partway through, purely due to send order.
+const DELIVERABILITY_MIN_AGE_MINUTES: i64 = 15;
+
 /// A recipient counts as known-deliverable once they have at least one prior
-/// tracked send that never bounced. Brand-new recipients (zero prior sends)
-/// and anyone with a bounce on record get the plaintext-only version instead
-/// of rich HTML — the riskiest send is the very first one to an address we
-/// have no delivery history for, so that's the one that stays lightweight
-/// until there's positive evidence the address is good.
+/// tracked send — old enough to trust — that never bounced. Brand-new
+/// recipients and anyone with a bounce on record get the plaintext-only
+/// version instead of rich HTML — the riskiest send is the very first one to
+/// an address we have no delivery history for, so that's the one that stays
+/// lightweight until there's positive evidence the address is good.
 async fn is_known_deliverable(db: &sqlx::PgPool, user_id: uuid::Uuid) -> bool {
     let counts = sqlx::query_as::<_, (i64, i64)>(
-        r#"SELECT COUNT(*), COUNT(*) FILTER (WHERE bounced_at IS NOT NULL)
+        r#"SELECT COUNT(*) FILTER (WHERE sent_at < NOW() - make_interval(mins => $2)),
+                  COUNT(*) FILTER (WHERE bounced_at IS NOT NULL)
            FROM email_send_log WHERE user_id = $1"#,
     )
     .bind(user_id)
+    .bind(DELIVERABILITY_MIN_AGE_MINUTES as i32)
     .fetch_one(db)
     .await;
 
     match counts {
-        Ok((total, bounced)) => total > 0 && bounced == 0,
+        Ok((old_enough, bounced)) => old_enough > 0 && bounced == 0,
         Err(_) => false,
     }
 }

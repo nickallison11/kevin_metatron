@@ -3,9 +3,17 @@ from dotenv import load_dotenv
 
 load_dotenv("/root/.env")
 
+import logging
 import os
 import requests
 import time
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+log = logging.getLogger("kevin_bot")
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 if not BOT_TOKEN:
@@ -18,27 +26,44 @@ WHISPER_URL = "http://localhost:9000/asr"
 API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
 
+def redact(text):
+    """Telegram puts the bot token directly in the request URL, so any
+    connection-level exception (DNS failure, reset, timeout) has it embedded
+    in str(e) via the URL requests/urllib3 report. Strip it before it ever
+    reaches a log line -- this is exactly how the token leaked into bot.log
+    previously."""
+    return str(text).replace(BOT_TOKEN, "***REDACTED***")
+
+
 def send_text(chat_id, text):
     try:
-        requests.post(
+        r = requests.post(
             f"{API}/sendMessage",
             json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"},
             timeout=10,
         )
+        if r.status_code != 200:
+            log.warning("send_text: chat_id=%s status=%s body=%s", chat_id, r.status_code, r.text[:200])
+        else:
+            log.info("send_text: chat_id=%s reply_chars=%s", chat_id, len(text))
     except Exception as e:
-        print(f"send_text error: {e}", flush=True)
+        log.error("send_text error: chat_id=%s %s", chat_id, redact(e))
 
 
 def send_voice(chat_id, audio_bytes):
     try:
-        requests.post(
+        r = requests.post(
             f"{API}/sendVoice",
             files={"voice": ("reply.mp3", audio_bytes, "audio/mpeg")},
             data={"chat_id": chat_id},
             timeout=30,
         )
+        if r.status_code != 200:
+            log.warning("send_voice: chat_id=%s status=%s body=%s", chat_id, r.status_code, r.text[:200])
+        else:
+            log.info("send_voice: chat_id=%s bytes=%s", chat_id, len(audio_bytes))
     except Exception as e:
-        print(f"send_voice error: {e}", flush=True)
+        log.error("send_voice error: chat_id=%s %s", chat_id, redact(e))
 
 
 def typing(chat_id):
@@ -59,9 +84,10 @@ def download_file(file_id):
         r2 = requests.get(
             f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}", timeout=30
         )
+        log.info("download_file: file_id=%s bytes=%s", file_id, len(r2.content))
         return r2.content
     except Exception as e:
-        print(f"download_file error: {e}", flush=True)
+        log.error("download_file error: file_id=%s %s", file_id, redact(e))
         return None
 
 
@@ -72,13 +98,16 @@ def transcribe(audio_bytes):
             files={"audio_file": ("audio.ogg", audio_bytes, "audio/ogg")},
             timeout=60,
         )
-        return r.text.strip()
+        text = r.text.strip()
+        log.info("transcribe: input_bytes=%s output_chars=%s", len(audio_bytes), len(text))
+        return text
     except Exception as e:
-        print(f"transcribe error: {e}", flush=True)
+        log.error("transcribe error: %s", redact(e))
         return None
 
 
 def ask_kevin(telegram_id, message):
+    started = time.monotonic()
     try:
         r = requests.post(
             f"{PLATFORM_URL}/kevin/telegram",
@@ -86,15 +115,21 @@ def ask_kevin(telegram_id, message):
             headers={"X-Bot-Secret": BOT_SECRET, "Content-Type": "application/json"},
             timeout=60,
         )
+        elapsed = time.monotonic() - started
         if r.status_code == 404:
+            log.warning("ask_kevin: telegram_id=%s not_registered (%.1fs)", telegram_id, elapsed)
             return None, "not_registered"
         if r.status_code == 429:
+            log.info("ask_kevin: telegram_id=%s daily_limit_reached (%.1fs)", telegram_id, elapsed)
             return None, r.json().get("message", "Daily limit reached.")
         if r.status_code == 200:
-            return r.json().get("reply", ""), None
+            reply = r.json().get("reply", "")
+            log.info("ask_kevin: telegram_id=%s ok reply_chars=%s (%.1fs)", telegram_id, len(reply), elapsed)
+            return reply, None
+        log.warning("ask_kevin: telegram_id=%s status=%s body=%s (%.1fs)", telegram_id, r.status_code, r.text[:200], elapsed)
         return None, f"Error {r.status_code}"
     except Exception as e:
-        print(f"ask_kevin error: {e}", flush=True)
+        log.error("ask_kevin error: telegram_id=%s %s", telegram_id, redact(e))
         return None, "error"
 
 
@@ -116,29 +151,29 @@ def tts(text):
             timeout=30,
         )
         if r.status_code == 200:
+            log.info("tts: ok bytes=%s", len(r.content))
             return r.content
-        print(f"tts error: {r.status_code} {r.text[:200]}", flush=True)
+        log.warning("tts error: status=%s body=%s", r.status_code, r.text[:200])
         return None
     except Exception as e:
-        print(f"tts error: {e}", flush=True)
+        log.error("tts error: %s", redact(e))
         return None
 
 
 def confirm_link(telegram_id, code):
     try:
         url = f"{PLATFORM_URL}/auth/telegram/confirm"
-        payload = {"telegram_id": telegram_id, "code": code}
-        print(f"confirm_link: POST {url} payload={payload}", flush=True)
         r = requests.post(
             url,
-            json=payload,
+            json={"telegram_id": telegram_id, "code": code},
             headers={"Content-Type": "application/json"},
             timeout=10,
         )
-        print(f"confirm_link: status={r.status_code} body={r.text[:200]}", flush=True)
-        return r.status_code == 200
+        ok = r.status_code == 200
+        log.info("confirm_link: telegram_id=%s status=%s ok=%s", telegram_id, r.status_code, ok)
+        return ok
     except Exception as e:
-        print(f"confirm_link error: {e}", flush=True)
+        log.error("confirm_link error: telegram_id=%s %s", telegram_id, redact(e))
         return False
 
 
@@ -147,6 +182,7 @@ def handle_message(telegram_id, chat_id, text=None, voice_bytes=None, is_voice=F
     if is_voice and voice_bytes:
         text = transcribe(voice_bytes)
         if not text:
+            log.warning("handle_message: telegram_id=%s voice transcription failed", telegram_id)
             send_text(
                 chat_id,
                 "Sorry, I couldn't transcribe your voice note. Please try again.",
@@ -154,6 +190,10 @@ def handle_message(telegram_id, chat_id, text=None, voice_bytes=None, is_voice=F
             return
     if not text:
         return
+    log.info(
+        "handle_message: telegram_id=%s chat_id=%s type=%s chars=%s",
+        telegram_id, chat_id, "voice" if is_voice else "text", len(text),
+    )
     reply, error = ask_kevin(telegram_id, text)
     if error == "not_registered":
         send_text(
@@ -189,60 +229,80 @@ def get_updates(offset=0):
             },
             timeout=35,
         )
-        return r.json().get("result", [])
+        body = r.json()
+        if not body.get("ok"):
+            # Telegram returns 200-with-ok:false or 4xx for problems like a
+            # second concurrent poller (409 Conflict) -- this used to be
+            # silently swallowed since only exceptions were logged, not
+            # unsuccessful-but-non-exception responses.
+            log.warning(
+                "getUpdates: status=%s error_code=%s description=%s",
+                r.status_code, body.get("error_code"), body.get("description"),
+            )
+            return []
+        return body.get("result", [])
+    except requests.exceptions.ReadTimeout:
+        # Expected under normal long-polling -- no update arrived within the
+        # window. Not worth logging every ~30s.
+        return []
     except Exception as e:
-        print(f"getUpdates error: {e}", flush=True)
+        log.warning("getUpdates error: %s", redact(e))
         return []
 
 
 def main():
-    print("Kevin bot started...", flush=True)
+    log.info("Kevin bot started (polling for updates)")
     offset = 0
     while True:
         updates = get_updates(offset)
         for u in updates:
             offset = u["update_id"] + 1
-            msg = u.get("message", {})
-            chat_id = msg.get("chat", {}).get("id")
-            telegram_id = msg.get("from", {}).get("id")
-            if not chat_id or not telegram_id:
-                continue
-            text = msg.get("text", "")
-            voice = msg.get("voice")
-            if text.startswith("/start"):
-                parts = text.split(None, 1)
-                if len(parts) == 2:
-                    code = parts[1].strip()
-                    if confirm_link(telegram_id, code):
-                        send_text(
-                            chat_id,
-                            "✅ Your Telegram is now linked to your metatron account!\n\n"
-                            "You can now chat with Kevin here. What would you like to work on?",
-                        )
+            try:
+                msg = u.get("message", {})
+                chat_id = msg.get("chat", {}).get("id")
+                telegram_id = msg.get("from", {}).get("id")
+                if not chat_id or not telegram_id:
+                    continue
+                text = msg.get("text", "")
+                voice = msg.get("voice")
+                if text.startswith("/start"):
+                    parts = text.split(None, 1)
+                    if len(parts) == 2:
+                        code = parts[1].strip()
+                        if confirm_link(telegram_id, code):
+                            send_text(
+                                chat_id,
+                                "✅ Your Telegram is now linked to your metatron account!\n\n"
+                                "You can now chat with Kevin here. What would you like to work on?",
+                            )
+                        else:
+                            send_text(
+                                chat_id,
+                                "❌ That code is invalid or expired. Go to Settings on "
+                                "platform.metatron.id to get a new one.",
+                            )
                     else:
                         send_text(
                             chat_id,
-                            "❌ That code is invalid or expired. Go to Settings on "
-                            "platform.metatron.id to get a new one.",
+                            "👋 Welcome to *metatron*!\n\n"
+                            "I'm Kevin, your AI copilot for fundraising.\n\n"
+                            "Sign up free at platform.metatron.id and link your Telegram in "
+                            "Settings to get started.",
                         )
-                else:
-                    send_text(
-                        chat_id,
-                        "👋 Welcome to *metatron*!\n\n"
-                        "I'm Kevin, your AI copilot for fundraising.\n\n"
-                        "Sign up free at platform.metatron.id and link your Telegram in "
-                        "Settings to get started.",
-                    )
-                continue
-            if voice:
-                audio_bytes = download_file(voice["file_id"])
-                if audio_bytes:
-                    handle_message(
-                        telegram_id, chat_id, voice_bytes=audio_bytes, is_voice=True
-                    )
-                continue
-            if text:
-                handle_message(telegram_id, chat_id, text=text)
+                    continue
+                if voice:
+                    audio_bytes = download_file(voice["file_id"])
+                    if audio_bytes:
+                        handle_message(
+                            telegram_id, chat_id, voice_bytes=audio_bytes, is_voice=True
+                        )
+                    continue
+                if text:
+                    handle_message(telegram_id, chat_id, text=text)
+            except Exception as e:
+                # A single malformed/unexpected update shouldn't take the
+                # whole poll loop down -- log it and keep going.
+                log.error("update processing error: update_id=%s %s", u.get("update_id"), redact(e))
         if not updates:
             time.sleep(1)
 

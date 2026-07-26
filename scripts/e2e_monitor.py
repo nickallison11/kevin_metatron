@@ -20,6 +20,8 @@ Current checks:
       weekly via its own crontab entry; this just confirms the route is alive)
   11. Subscriber counts per role/tier + Kevin chat model usage per tier
       (last 7 days) — informational, not a pass/fail check
+  12. Telegram bot (kevin-bot.service) health — systemd active state +
+      recent journald error count. Local-only, doesn't call Telegram's API.
 
 Not covered here: the proactive high-value-match notification (fires once
 per match the first time it crosses the score threshold, so it isn't a good
@@ -47,6 +49,7 @@ import email as email_lib
 from email.header import decode_header, make_header
 import requests
 import smtplib
+import subprocess
 import datetime
 from email.mime.text import MIMEText
 from email.utils import parsedate_to_datetime
@@ -141,6 +144,33 @@ def check_kevin_learning_endpoint_secured():
     """
     unauth = requests.post(f"{BACKEND_URL}/cron/kevin-learning", timeout=10)
     return unauth.status_code
+
+
+TELEGRAM_BOT_ERROR_WINDOW_HOURS = 24
+TELEGRAM_BOT_ERROR_THRESHOLD = 10
+
+
+def check_telegram_bot_health():
+    """
+    Runs locally on KVM2 (this script is cron'd there directly), so it can
+    check systemd + journald state without any network call. Deliberately
+    does NOT call Telegram's getUpdates itself -- that would steal the live
+    long-poll connection from kevin-bot.service and cause a 409 Conflict,
+    which is exactly the kind of self-inflicted noise a health check should
+    avoid, not create.
+    """
+    active = subprocess.run(
+        ["systemctl", "is-active", "kevin-bot.service"],
+        capture_output=True, text=True, timeout=10,
+    ).stdout.strip()
+
+    log_out = subprocess.run(
+        ["journalctl", "-u", "kevin-bot.service", "--since", f"-{TELEGRAM_BOT_ERROR_WINDOW_HOURS}h", "--no-pager", "-o", "cat"],
+        capture_output=True, text=True, timeout=15,
+    ).stdout
+    log_lines = log_out.splitlines()
+    error_lines = [l for l in log_lines if "[ERROR]" in l]
+    return active, len(log_lines), error_lines
 
 
 def fetch_usage_report():
@@ -549,6 +579,32 @@ def main():
     except Exception as e:
         lines.append(f"- ⚠ DRIFT — usage report request failed: {e}")
         drifts.append(f"usage report failed: {e}")
+    lines.append("")
+
+    # ── Check 12: Telegram bot service health ───────────────────────────────
+    lines.append("## Check 12 — Telegram bot (kevin-bot.service) health")
+    try:
+        active, log_line_count, error_lines = check_telegram_bot_health()
+        if active != "active":
+            lines.append(f"- ⚠ DRIFT — kevin-bot.service is not active (status: {active})")
+            drifts.append(f"kevin-bot.service not active: {active}")
+        else:
+            lines.append("- kevin-bot.service: ✓ active")
+        lines.append(
+            f"- log lines in last {TELEGRAM_BOT_ERROR_WINDOW_HOURS}h: {log_line_count}, "
+            f"errors: {len(error_lines)}"
+        )
+        if len(error_lines) > TELEGRAM_BOT_ERROR_THRESHOLD:
+            lines.append(
+                f"- ⚠ DRIFT — {len(error_lines)} errors logged in last "
+                f"{TELEGRAM_BOT_ERROR_WINDOW_HOURS}h (threshold {TELEGRAM_BOT_ERROR_THRESHOLD})"
+            )
+            drifts.append(f"kevin-bot.service logged {len(error_lines)} errors in last {TELEGRAM_BOT_ERROR_WINDOW_HOURS}h")
+            for e in error_lines[-3:]:
+                lines.append(f"    {e}")
+    except Exception as e:
+        lines.append(f"- ⚠ DRIFT — telegram bot health check failed: {e}")
+        drifts.append(f"telegram bot health check failed: {e}")
     lines.append("")
 
     # ── Summary ───────────────────────────────────────────────────────────────

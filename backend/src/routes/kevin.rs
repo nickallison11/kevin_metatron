@@ -1108,6 +1108,14 @@ pub(crate) async fn build_context(state: &AppState, user_id: uuid::Uuid, role: &
     };
     let mut parts = vec![format!("Role: {friendly_role}")];
 
+    if let Ok(Some(email)) = sqlx::query_scalar::<_, String>("SELECT email FROM users WHERE id = $1")
+        .bind(user_id)
+        .fetch_optional(&state.db)
+        .await
+    {
+        parts.push(format!("Email: {email}"));
+    }
+
     if let Ok(row) = sqlx::query_as::<_, ProfileCtx>(
         r#"
         SELECT company_name, one_liner, stage, sector, country::text, website, pitch_deck_url,
@@ -1269,7 +1277,7 @@ pub(crate) async fn build_context(state: &AppState, user_id: uuid::Uuid, role: &
 
     if let Ok(row) = sqlx::query_as::<_, InvestorCtx>(
         r#"
-        SELECT sectors, stages FROM investor_profiles WHERE user_id = $1
+        SELECT firm_name, sectors, stages FROM investor_profiles WHERE user_id = $1
         "#,
     )
     .bind(user_id)
@@ -1277,6 +1285,9 @@ pub(crate) async fn build_context(state: &AppState, user_id: uuid::Uuid, role: &
     .await
     {
         if let Some(i) = row {
+            if let Some(v) = i.firm_name {
+                parts.push(format!("Investment firm: {v}"));
+            }
             parts.push(format!(
                 "Investor preferences: sectors={:?} stages={:?}",
                 i.sectors, i.stages
@@ -1375,6 +1386,7 @@ struct PitchCtx {
 
 #[derive(sqlx::FromRow)]
 struct InvestorCtx {
+    firm_name: Option<String>,
     sectors: Option<Vec<String>>,
     stages: Option<Vec<String>>,
 }

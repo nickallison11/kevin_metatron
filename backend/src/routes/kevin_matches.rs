@@ -118,7 +118,7 @@ const FETCH_TYPED_SQL: &str = r#"
     ORDER BY (km.intro_requested_at IS NOT NULL), km.score DESC, km.generated_at DESC
 "#;
 
-async fn fetch_kevin_matches_for_user(
+pub(crate) async fn fetch_kevin_matches_for_user(
     state: &AppState,
     user_id: Uuid,
     match_type: Option<&str>,
@@ -966,6 +966,7 @@ Return the top {match_limit} matches only, ranked by score descending."#
                 prev_score,
                 score,
                 info.display_name.as_deref().unwrap_or("a strong match"),
+                info.display_one_liner.as_deref(),
                 reasoning.as_deref(),
             )
             .await;
@@ -1016,6 +1017,7 @@ async fn notify_if_newly_high_value(
     prev_score: Option<i32>,
     new_score: i32,
     match_label: &str,
+    one_liner: Option<&str>,
     reasoning: Option<&str>,
 ) {
     let newly_crossed = new_score >= NOTIFY_SCORE_THRESHOLD
@@ -1050,8 +1052,13 @@ async fn notify_if_newly_high_value(
         state.telegram_bot_token.as_deref(),
         recipient.telegram_id.as_deref().filter(|t| !t.is_empty()),
     ) {
+        let detail = one_liner
+            .filter(|s| !s.trim().is_empty())
+            .or_else(|| reasoning.filter(|s| !s.trim().is_empty()))
+            .map(|s| format!(" — {s}"))
+            .unwrap_or_default();
         let text = format!(
-            "Kevin found a strong match for you: {match_label} ({new_score}% fit). Take a look: {matches_href}"
+            "Kevin found a strong match for you: {match_label} ({new_score}% fit){detail}\n\nAsk me for more details any time, or see the full picture: {matches_href}"
         );
         let url = format!("https://api.telegram.org/bot{bot_token}/sendMessage");
         let _ = state

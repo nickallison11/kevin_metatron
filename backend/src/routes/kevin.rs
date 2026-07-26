@@ -551,18 +551,13 @@ Metatron is the intelligence layer connecting founders, investors, and ecosystem
 ## Current user context
 {context}{memory_section}
 
-Stay in character as Kevin. You have tools to:
-- Look up and introduce matched investors/founders on the Metatron network (search_network)
-- Search the open web for investors, funds, and companies NOT yet on the platform (search_web)
-- Email pitch decks to interested investors
+Stay in character as Kevin. You are talking to this user over Telegram or WhatsApp, not the web app.
 
 CRITICAL RULES — follow these exactly:
-1. NEVER fabricate investor names, firm names, or any details. If a tool returns empty results, say so honestly: "I did not find any investors matching that in the Metatron network."
-2. NEVER use placeholder text like [Investor Name], [Firm Name], [Details], or any bracket placeholders. Only report information that was actually returned by a tool.
-3. When search_network returns no results, immediately use search_web to find investors on the open web instead. Do not stop at an empty network result.
-4. When reporting tool results, quote the exact names and details returned. Do not paraphrase or invent additional context.
-5. Do not say you cannot search the web — you can, using search_web.
-6. Each message you receive is a fresh request — you do not automatically retain the actual data from tool calls made in earlier messages, only the summary text you wrote. If a user asks for details, names, or specifics about something you previously said you found (e.g. "send me their details," "tell me more about them"), and you do not see the literal tool output for that search earlier in this exact conversation, you must call the tool again before answering. Never answer a follow-up like this from memory of your own prior summary — that is exactly how placeholder text like [Investor Name 1] happens.
+1. Your "Current top matches" above (if present) are this user's real, current matches. When the user asks to see a match, asks "why is this a fit," or asks for details on something already listed there, answer directly from that data — name, fit score, one-liner, sector, stage, reasoning, deck link. Do NOT tell the user to log into the platform to see something that is already listed above.
+2. Only send the user to platform.metatron.id if they want to take an action this chat can't do (e.g. requesting an intro, browsing beyond their current top matches, changing profile settings) — not merely to view a match already in your context.
+3. NEVER fabricate investor names, firm names, scores, or any details not present in the context above. If something isn't there, say so honestly rather than inventing it.
+4. NEVER use placeholder text like [Investor Name], [Firm Name], [Details], or any bracket placeholders.
 
 Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. Plain text only."#
     );
@@ -1291,6 +1286,48 @@ pub(crate) async fn build_context(state: &AppState, user_id: uuid::Uuid, role: &
             parts.push(format!(
                 "Investor preferences: sectors={:?} stages={:?}",
                 i.sectors, i.stages
+            ));
+        }
+    }
+
+    // Current matches — inlined so Kevin can discuss them directly on
+    // Telegram/WhatsApp, which have no tool-calling loop to fetch this
+    // live (unlike the web chat widget's lookup_match tool).
+    if let Ok(matches) = crate::routes::kevin_matches::fetch_kevin_matches_for_user(state, user_id, None).await {
+        let top: Vec<_> = matches.into_iter().take(5).collect();
+        if !top.is_empty() {
+            let lines: Vec<String> = top
+                .into_iter()
+                .map(|m| {
+                    let name = m
+                        .company_name
+                        .or(m.firm_name)
+                        .unwrap_or_else(|| "Unnamed match".to_string());
+                    let mut s = format!("Match: {name} ({}% fit)", m.score);
+                    if let Some(v) = m.one_liner {
+                        s.push_str(&format!("\n  One-liner: {v}"));
+                    }
+                    if let Some(v) = m.sector {
+                        s.push_str(&format!("\n  Sector: {v}"));
+                    }
+                    if let Some(v) = m.stage {
+                        s.push_str(&format!("\n  Stage: {v}"));
+                    }
+                    if let Some(v) = m.country {
+                        s.push_str(&format!("\n  Country: {v}"));
+                    }
+                    if let Some(v) = m.reasoning {
+                        s.push_str(&format!("\n  Why it's a fit: {v}"));
+                    }
+                    if let Some(v) = m.deck_url {
+                        s.push_str(&format!("\n  Deck: {v}"));
+                    }
+                    s
+                })
+                .collect();
+            parts.push(format!(
+                "Current top matches (share these details directly when asked — no need to send the user to the platform to see them):\n{}",
+                lines.join("\n\n")
             ));
         }
     }

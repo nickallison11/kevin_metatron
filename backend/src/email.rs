@@ -1,6 +1,80 @@
 use reqwest::Client;
 use serde_json::json;
 
+/// Derives a plaintext fallback from one of our own HTML templates (not a
+/// general-purpose HTML parser — relies on the tag vocabulary `shell_html`
+/// and friends actually emit). Keeps links readable as "label (href)" since
+/// plaintext clients can't render the anchor.
+fn html_to_text(html: &str) -> String {
+    let mut with_links = String::with_capacity(html.len());
+    let mut rest = html;
+    while let Some(a_start) = rest.find("<a ") {
+        with_links.push_str(&rest[..a_start]);
+        let after_a = &rest[a_start..];
+        let Some(tag_end) = after_a.find('>') else {
+            with_links.push_str(after_a);
+            rest = "";
+            break;
+        };
+        let open_tag = &after_a[..=tag_end];
+        let href = open_tag
+            .find("href=\"")
+            .and_then(|i| {
+                let start = i + 6;
+                open_tag[start..].find('"').map(|end| &open_tag[start..start + end])
+            })
+            .unwrap_or("");
+        let after_open = &after_a[tag_end + 1..];
+        let Some(close_idx) = after_open.find("</a>") else {
+            with_links.push_str(after_a);
+            rest = "";
+            break;
+        };
+        let label = &after_open[..close_idx];
+        if href.is_empty() || href == label {
+            with_links.push_str(label);
+        } else {
+            with_links.push_str(label);
+            with_links.push_str(" (");
+            with_links.push_str(href);
+            with_links.push(')');
+        }
+        rest = &after_open[close_idx + 4..];
+    }
+    with_links.push_str(rest);
+
+    let mut normalized = with_links;
+    for tag in ["<br>", "<br/>", "<br />", "</p>", "</div>", "</h1>", "</h2>", "</h3>", "</li>"] {
+        normalized = normalized.replace(tag, "\n");
+    }
+
+    let mut text = String::with_capacity(normalized.len());
+    let mut in_tag = false;
+    for c in normalized.chars() {
+        match c {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            _ if !in_tag => text.push(c),
+            _ => {}
+        }
+    }
+
+    let decoded = text
+        .replace("&nbsp;", " ")
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'");
+
+    decoded
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
 pub async fn send_email_with_headers(
     http_client: &Client,
     api_key: Option<&str>,
@@ -28,6 +102,7 @@ pub async fn send_email_with_headers(
         "to": [to],
         "subject": subject,
         "html": html,
+        "text": html_to_text(html),
         "headers": headers
     });
 
@@ -86,7 +161,8 @@ pub async fn send_email(
         "from": from,
         "to": [to],
         "subject": subject,
-        "html": html
+        "html": html,
+        "text": html_to_text(html)
     });
 
     match http_client
@@ -121,6 +197,141 @@ pub async fn send_email(
     }
 }
 
+/// A recipient counts as known-deliverable once they have at least one prior
+/// tracked send that never bounced. Brand-new recipients (zero prior sends)
+/// and anyone with a bounce on record get the plaintext-only version instead
+/// of rich HTML — the riskiest send is the very first one to an address we
+/// have no delivery history for, so that's the one that stays lightweight
+/// until there's positive evidence the address is good.
+async fn is_known_deliverable(db: &sqlx::PgPool, user_id: uuid::Uuid) -> bool {
+    let counts = sqlx::query_as::<_, (i64, i64)>(
+        r#"SELECT COUNT(*), COUNT(*) FILTER (WHERE bounced_at IS NOT NULL)
+           FROM email_send_log WHERE user_id = $1"#,
+    )
+    .bind(user_id)
+    .fetch_one(db)
+    .await;
+
+    match counts {
+        Ok((total, bounced)) => total > 0 && bounced == 0,
+        Err(_) => false,
+    }
+}
+
+/// Like `send_email`, but also logs the send to `email_send_log` (recipient,
+/// subject, resend_message_id, and the derived plaintext body) so a later
+/// bounce webhook can find the row and — for transient bounces — retry with
+/// the stored plaintext body via `send_plaintext_email`.
+///
+/// Sends plaintext-only, regardless of `html`, until `is_known_deliverable`
+/// confirms this recipient has a clean send on record.
+pub async fn send_tracked_email(
+    http_client: &Client,
+    api_key: Option<&str>,
+    from: &str,
+    to: &str,
+    subject: &str,
+    html: &str,
+    db: &sqlx::PgPool,
+    user_id: uuid::Uuid,
+    email_type: &str,
+) {
+    let text = html_to_text(html);
+    let send_rich = is_known_deliverable(db, user_id).await;
+
+    let message_id = if send_rich {
+        send_email_with_headers(http_client, api_key, from, to, subject, html, json!({})).await
+    } else {
+        send_plaintext_email(http_client, api_key, from, to, subject, &text).await
+    };
+
+    if let Err(e) = sqlx::query(
+        r#"INSERT INTO email_send_log
+            (user_id, email_type, resend_message_id, recipient_email, subject, plaintext_body, sent_as_html)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)"#,
+    )
+    .bind(user_id)
+    .bind(email_type)
+    .bind(message_id.as_deref())
+    .bind(to)
+    .bind(subject)
+    .bind(&text)
+    .bind(send_rich)
+    .execute(db)
+    .await
+    {
+        tracing::warn!("email_send_log insert failed for {email_type}: {e}");
+    }
+}
+
+/// Sends a plaintext-only email (no `html` field at all) via Resend. Used to
+/// retry a transiently-bounced rich-HTML send with a lighter version that's
+/// less likely to trip the same content/size filter.
+pub async fn send_plaintext_email(
+    http_client: &Client,
+    api_key: Option<&str>,
+    from: &str,
+    to: &str,
+    subject: &str,
+    text: &str,
+) -> Option<String> {
+    let api_key = match api_key {
+        Some(v) if !v.trim().is_empty() => v.trim(),
+        _ => {
+            tracing::warn!("email: RESEND_API_KEY missing; skipping plaintext retry to {}", to);
+            return None;
+        }
+    };
+
+    if to.trim().is_empty() {
+        tracing::warn!("email: empty recipient; skipping plaintext retry subject '{}'", subject);
+        return None;
+    }
+
+    let payload = json!({
+        "from": from,
+        "to": [to],
+        "subject": subject,
+        "text": text
+    });
+
+    match http_client
+        .post("https://api.resend.com/emails")
+        .header("Authorization", format!("Bearer {}", api_key))
+        .header("Content-Type", "application/json")
+        .json(&payload)
+        .send()
+        .await
+    {
+        Ok(resp) => {
+            if resp.status().is_success() {
+                let body: serde_json::Value = resp.json().await.unwrap_or_default();
+                body.get("id").and_then(|v| v.as_str()).map(|s| s.to_string())
+            } else {
+                let status = resp.status();
+                let body = resp.text().await.unwrap_or_default();
+                tracing::warn!(
+                    "email: plaintext retry failed status={} to={} subject='{}' body={}",
+                    status,
+                    to,
+                    subject,
+                    body.chars().take(300).collect::<String>()
+                );
+                None
+            }
+        }
+        Err(e) => {
+            tracing::warn!(
+                "email: plaintext retry request error to={} subject='{}': {}",
+                to,
+                subject,
+                e
+            );
+            None
+        }
+    }
+}
+
 fn shell_html(title: &str, body: &str) -> String {
     format!(
         r#"
@@ -137,6 +348,42 @@ fn shell_html(title: &str, body: &str) -> String {
   </div>
 </div>
 "#
+    )
+}
+
+/// The "Kevin found a strong match" proactive nudge, shared by all roles/tiers.
+pub fn high_value_match_html(
+    match_label: &str,
+    score: i32,
+    reasoning: Option<&str>,
+    matches_href: &str,
+) -> String {
+    let esc = |s: &str| {
+        s.replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;")
+            .replace('"', "&quot;")
+    };
+    let reasoning_html = reasoning
+        .map(|r| {
+            format!(
+                r#"<p style="margin:0 0 16px 0;color:#8888a0;font-size:14px;line-height:1.5;">{}</p>"#,
+                esc(r)
+            )
+        })
+        .unwrap_or_default();
+    shell_html(
+        "Kevin found a strong match for you",
+        &format!(
+            r#"<p style="margin:0 0 10px 0;font-size:16px;color:#e8e8ed;">{}</p>
+<p style="margin:0 0 16px 0;"><span style="display:inline-block;background:rgba(108,92,231,0.2);color:#6c5ce7;font-family:'JetBrains Mono',monospace;font-size:13px;padding:4px 10px;border-radius:6px;">{}% fit</span></p>
+{}
+<p style="margin:0;"><a href="{}" style="color:#6c5ce7;">View it on metatron &rarr;</a></p>"#,
+            esc(match_label),
+            score,
+            reasoning_html,
+            matches_href
+        ),
     )
 }
 

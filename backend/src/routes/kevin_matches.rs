@@ -966,6 +966,7 @@ Return the top {match_limit} matches only, ranked by score descending."#
                 prev_score,
                 score,
                 info.display_name.as_deref().unwrap_or("a strong match"),
+                reasoning.as_deref(),
             )
             .await;
         } else {
@@ -1015,6 +1016,7 @@ async fn notify_if_newly_high_value(
     prev_score: Option<i32>,
     new_score: i32,
     match_label: &str,
+    reasoning: Option<&str>,
 ) {
     let newly_crossed = new_score >= NOTIFY_SCORE_THRESHOLD
         && prev_score.map(|p| p < NOTIFY_SCORE_THRESHOLD).unwrap_or(true);
@@ -1061,17 +1063,17 @@ async fn notify_if_newly_high_value(
         return;
     }
 
-    let html = format!(
-        "<p>Kevin found a strong match for you: <strong>{match_label}</strong> ({new_score}% fit).</p>\
-         <p><a href=\"{matches_href}\">View it on metatron</a></p>"
-    );
-    crate::email::send_email(
+    let html = crate::email::high_value_match_html(match_label, new_score, reasoning, matches_href);
+    crate::email::send_tracked_email(
         &state.http_client,
         state.resend_api_key.as_deref(),
         &state.email_from,
         &recipient.email,
         "Kevin found a strong match for you",
         &html,
+        &state.db,
+        user_id,
+        "high_value_match",
     )
     .await;
 }

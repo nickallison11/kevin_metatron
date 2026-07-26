@@ -1,0 +1,2 @@
+ALTER TABLE email_send_log
+    ADD COLUMN IF NOT EXISTS sent_as_html BOOLEAN NOT NULL DEFAULT true;

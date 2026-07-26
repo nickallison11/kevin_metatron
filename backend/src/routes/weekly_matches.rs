@@ -3,7 +3,7 @@ use std::sync::Arc;
 use chrono::Datelike;
 
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     routing::{get, post},
     Json, Router,
@@ -31,6 +31,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/:user_id/monthly-summary-investor", get(monthly_summary_for_investor))
         .route("/email-log", post(insert_email_log))
         .route("/webhook-event", post(handle_webhook_event))
+        .route("/bounce-report", get(bounce_report))
 }
 
 fn verify_cron(state: &AppState, headers: &HeaderMap) -> Result<(), (StatusCode, String)> {
@@ -1100,6 +1101,7 @@ async fn insert_email_log(
 struct WebhookEventBody {
     resend_message_id: String,
     column: String,
+    bounce_type: Option<String>,
 }
 
 async fn handle_webhook_event(
@@ -1127,5 +1129,118 @@ async fn handle_webhook_event(
             (StatusCode::INTERNAL_SERVER_ERROR, "db error".into())
         })?;
 
+    if body.column == "bounced_at" {
+        let bounce_type = body.bounce_type.as_deref().unwrap_or("");
+        let _ = sqlx::query("UPDATE email_send_log SET bounce_type = $2 WHERE resend_message_id = $1")
+            .bind(&body.resend_message_id)
+            .bind(bounce_type)
+            .execute(&state.db)
+            .await;
+
+        // Only Transient bounces (mailbox full, greylisting, content filter) are worth
+        // retrying — a Permanent bounce (bad address) will just bounce again and only
+        // costs sender reputation.
+        if bounce_type.eq_ignore_ascii_case("transient") {
+            retry_bounced_email_as_plaintext(&state, &body.resend_message_id).await;
+        }
+    }
+
     Ok(StatusCode::OK)
+}
+
+#[derive(sqlx::FromRow)]
+struct BouncedEmailRow {
+    recipient_email: Option<String>,
+    subject: Option<String>,
+    plaintext_body: Option<String>,
+}
+
+/// Fires once per bounced message: re-sends the already-computed plaintext
+/// body (no HTML at all) to the same recipient, then stamps
+/// `plaintext_resent_at` so a second bounce webhook for the same message
+/// can't trigger a duplicate resend.
+async fn retry_bounced_email_as_plaintext(state: &AppState, resend_message_id: &str) {
+    let Ok(Some(row)) = sqlx::query_as::<_, BouncedEmailRow>(
+        r#"SELECT recipient_email, subject, plaintext_body FROM email_send_log
+           WHERE resend_message_id = $1 AND plaintext_resent_at IS NULL"#,
+    )
+    .bind(resend_message_id)
+    .fetch_optional(&state.db)
+    .await
+    else {
+        return;
+    };
+
+    let (Some(to), Some(subject), Some(text)) =
+        (row.recipient_email, row.subject, row.plaintext_body)
+    else {
+        return;
+    };
+    if to.trim().is_empty() || text.trim().is_empty() {
+        return;
+    }
+
+    crate::email::send_plaintext_email(
+        &state.http_client,
+        state.resend_api_key.as_deref(),
+        &state.email_from,
+        &to,
+        &subject,
+        &text,
+    )
+    .await;
+
+    let _ = sqlx::query("UPDATE email_send_log SET plaintext_resent_at = NOW() WHERE resend_message_id = $1")
+        .bind(resend_message_id)
+        .execute(&state.db)
+        .await;
+}
+
+#[derive(Deserialize)]
+struct BounceReportParams {
+    days: Option<i64>,
+}
+
+#[derive(Serialize, sqlx::FromRow)]
+struct BounceReportRow {
+    email_type: String,
+    bounce_type: Option<String>,
+    count: i64,
+    plaintext_resent_count: i64,
+}
+
+/// Cron-secret gated summary of `email_send_log` bounces, grouped by email
+/// type and bounce classification, for the daily e2e monitor report.
+async fn bounce_report(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Query(params): Query<BounceReportParams>,
+) -> Result<Json<Vec<BounceReportRow>>, (StatusCode, String)> {
+    verify_cron(&state, &headers)?;
+
+    let days = params.days.unwrap_or(30).clamp(1, 365) as i32;
+
+    let rows = sqlx::query_as::<_, BounceReportRow>(
+        r#"
+        SELECT
+            email_type,
+            bounce_type,
+            COUNT(*) AS count,
+            COUNT(*) FILTER (WHERE plaintext_resent_at IS NOT NULL) AS plaintext_resent_count
+        FROM email_send_log
+        WHERE bounced_at IS NOT NULL
+          AND sent_at >= NOW() - make_interval(days => $1)
+        GROUP BY email_type, bounce_type
+        ORDER BY count DESC
+        "#,
+    )
+    .bind(days)
+    .fetch_all(&state.db)
+    .await
+    .map_err(|e| {
+        tracing::error!("bounce_report query: {e}");
+        (StatusCode::INTERNAL_SERVER_ERROR, "db error".into())
+    })?;
+
+    Ok(Json(rows))
 }

@@ -10,8 +10,18 @@ interface ResendEvent {
   type: string;
   data: {
     email_id?: string;
+    bounce?: { type?: string; [key: string]: unknown };
+    bounce_type?: string;
     [key: string]: unknown;
   };
+}
+
+// Resend's bounce payload shape isn't fully pinned down here — check both
+// `data.bounce.type` and a flat `data.bounce_type` in case the field lives
+// at either level. An unrecognized/missing type just means the backend
+// won't attempt a plaintext retry (fails safe, no retry).
+function extractBounceType(data: ResendEvent["data"]): string | null {
+  return data.bounce?.type ?? data.bounce_type ?? null;
 }
 
 const EVENT_TO_COLUMN: Record<string, string> = {
@@ -101,6 +111,7 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify({
         resend_message_id: event.data.email_id,
         column,
+        bounce_type: column === "bounced_at" ? extractBounceType(event.data) : undefined,
       }),
     });
   } catch (e) {

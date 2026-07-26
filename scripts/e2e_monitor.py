@@ -22,6 +22,10 @@ Current checks:
       (last 7 days) — informational, not a pass/fail check
   12. Telegram bot (kevin-bot.service) health — systemd active state +
       recent journald error count. Local-only, doesn't call Telegram's API.
+  13. Email bounce report (last 7 days) — bounce counts by email type and
+      Permanent/Transient classification, plus how many Transient bounces
+      were auto-retried as plaintext. Informational, but flags any Transient
+      bounce that's gone unretried (would indicate the retry path broke).
 
 Not covered here: the proactive high-value-match notification (fires once
 per match the first time it crosses the score threshold, so it isn't a good
@@ -179,6 +183,22 @@ def fetch_usage_report():
     r = requests.get(
         f"{BACKEND_URL}/cron/usage-report",
         headers={"x-cron-secret": CRON_SECRET},
+        timeout=15,
+    )
+    r.raise_for_status()
+    return r.json()
+
+
+def fetch_bounce_report(days=7):
+    """Bounce counts per email type + bounce classification (Permanent/Transient),
+    and how many of each were auto-retried as plaintext. Covers only email types
+    sent via the backend's send_tracked_email helper (currently: high_value_match)
+    — the weekly/monthly digest emails are sent directly from Next.js cron routes
+    on a separate code path not yet wired into this tracking."""
+    r = requests.get(
+        f"{BACKEND_URL}/api/founders/bounce-report",
+        headers={"x-cron-secret": CRON_SECRET},
+        params={"days": days},
         timeout=15,
     )
     r.raise_for_status()
@@ -605,6 +625,27 @@ def main():
     except Exception as e:
         lines.append(f"- ⚠ DRIFT — telegram bot health check failed: {e}")
         drifts.append(f"telegram bot health check failed: {e}")
+    lines.append("")
+
+    # ── Check 13: Email bounce report (last 7 days) ───────────────────────────
+    lines.append("## Check 13 — Email bounces + plaintext retries (last 7 days)")
+    try:
+        bounce_rows = fetch_bounce_report(days=7)
+        if not bounce_rows:
+            lines.append("- no bounces in the last 7 days")
+        else:
+            for row in bounce_rows:
+                btype = row.get("bounce_type") or "unknown"
+                count = row.get("count", 0)
+                resent = row.get("plaintext_resent_count", 0)
+                lines.append(
+                    f"- {row.get('email_type', '—')} / {btype}: {count} bounced, {resent} auto-retried as plaintext"
+                )
+                if btype.lower() == "transient" and resent < count:
+                    lines.append(f"    ⚠ {count - resent} transient bounce(s) not yet retried")
+    except Exception as e:
+        lines.append(f"- ⚠ DRIFT — bounce report fetch failed: {e}")
+        drifts.append(f"bounce report fetch failed: {e}")
     lines.append("")
 
     # ── Summary ───────────────────────────────────────────────────────────────

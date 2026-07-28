@@ -270,6 +270,7 @@ async fn confirm_subscription(
                 Some(sig),
                 "USD",
                 invoice_amount,
+                false,
             )
             .await?;
             sqlx::query_scalar::<_, String>(
@@ -301,6 +302,7 @@ async fn confirm_subscription(
                 Some(sig),
                 "USD",
                 invoice_amount,
+                false,
             )
             .await?;
             sqlx::query_scalar::<_, String>(
@@ -335,6 +337,7 @@ async fn confirm_subscription(
                 Some(sig),
                 "USD",
                 invoice_amount,
+                false,
             )
             .await?
         }

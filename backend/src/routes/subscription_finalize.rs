@@ -8,6 +8,14 @@ use crate::email;
 use crate::state::AppState;
 
 /// Activates a founder subscription (basic or pro) and sends the welcome email.
+///
+/// `is_renewal` must reflect the true source of this charge, not just whether
+/// the user has ever paid before: only Paystack's own automatic recurring
+/// billing (the `invoice.payment_success` webhook, ~30 days after the last
+/// charge) is a real renewal. Every user-initiated action — first signup, a
+/// plan/tier change, a manual re-subscribe, a crypto payment — is a fresh
+/// "activated" event even if the user has prior invoices, because nothing
+/// recurred on its own; call it `is_renewal: false` from those call sites.
 pub async fn finalize_pro_subscription(
     state: &AppState,
     user_id: Uuid,
@@ -19,6 +27,7 @@ pub async fn finalize_pro_subscription(
     reference: Option<&str>,
     invoice_currency: &str,
     invoice_amount: Decimal,
+    is_renewal: bool,
 ) -> Result<String, (StatusCode, Json<Value>)> {
     let tier = tier.to_ascii_lowercase();
     if tier != "monthly" && tier != "annual" {
@@ -100,17 +109,6 @@ pub async fn finalize_pro_subscription(
         })?
     };
 
-    // A prior founder invoice (any plan level) means this charge is a renewal
-    // or plan change, not a first-time signup — check before inserting this one.
-    let had_prior_invoice: bool = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*)::bigint FROM subscription_invoices WHERE user_id = $1 AND tier LIKE 'founder_%'",
-    )
-    .bind(user_id)
-    .fetch_one(&state.db)
-    .await
-    .map(|c| c > 0)
-    .unwrap_or(false);
-
     let invoice_tier = format!("founder_{}", plan_level);
     sqlx::query(
         r#"
@@ -135,7 +133,7 @@ pub async fn finalize_pro_subscription(
         )
     })?;
 
-    if had_prior_invoice {
+    if is_renewal {
         email::send_email(
             &state.http_client,
             state.resend_api_key.as_deref(),

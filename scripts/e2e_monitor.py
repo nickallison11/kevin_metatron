@@ -26,6 +26,13 @@ Current checks:
       Permanent/Transient classification, plus how many Transient bounces
       were auto-retried as plaintext. Informational, but flags any Transient
       bounce that's gone unretried (would indicate the retry path broke).
+  14. Dev tier assignments — logs into all 7 dev test accounts (founder/
+      founderbasic/founderpro/investor/investorbasic/investorpro/connector)
+      and verifies is_basic/is_pro match what each account's name promises.
+      Runs against dev (port 4001), not production — see DEV_BACKEND_URL.
+  15. Dev Call Intelligence gating — free tier must get 403, basic/pro must
+      get 200. Also dev-only; this is the exact bug fixed in the 2026-07-28
+      subscription audit (a legacy investor bypass let free investors in).
 
 Not covered here: the proactive high-value-match notification (fires once
 per match the first time it crosses the score threshold, so it isn't a good
@@ -45,6 +52,11 @@ Required env vars:
   PINATA_GATEWAY      — Pinata gateway hostname (default: gateway.pinata.cloud)
   BACKEND_URL         — Backend API base URL (default: http://localhost:4000)
   FRONTEND_URL        — Vercel frontend URL for cron endpoints (default: https://platform.metatron.id)
+
+Dev-environment checks (14-15) don't use the env vars above -- dev has its
+own database with its own TEST_PASSWORD, so those checks read it straight
+out of /root/.env.dev (DEV_ENV_FILE) rather than requiring the crontab to
+source a second env file. DEV_BACKEND_URL defaults to http://localhost:4001.
 """
 
 import os
@@ -73,7 +85,45 @@ ACCOUNTS = {
     "founderpro":   "kevin.metatron.testing+founderpro@gmail.com",
     "investor":     "kevin.metatron.testing+investor@gmail.com",
 }
+
+# Dev environment (separate database + backend, port 4001) — the tier-gating
+# fixes and Investor Pro tier from the 2026-07-28 subscription-engine audit
+# only exist here, not on production yet, so these checks run against dev
+# specifically rather than BACKEND_URL above.
+DEV_BACKEND_URL = os.environ.get("DEV_BACKEND_URL", "http://localhost:4001")
+DEV_ENV_FILE    = os.environ.get("DEV_ENV_FILE", "/root/.env.dev")
+
+# Role/tier ladder — name -> expected (is_basic, is_pro). Free is (False, False).
+DEV_ACCOUNTS = {
+    "founder":      ("kevin.metatron.testing+founder@gmail.com",      (False, False)),
+    "founderbasic": ("kevin.metatron.testing+founderbasic@gmail.com", (True, False)),
+    "founderpro":   ("kevin.metatron.testing+founderpro@gmail.com",   (False, True)),
+    "investor":     ("kevin.metatron.testing+investor@gmail.com",     (False, False)),
+    "investorbasic":("kevin.metatron.testing+investorbasic@gmail.com",(True, False)),
+    "investorpro":  ("kevin.metatron.testing+investorpro@gmail.com",  (False, True)),
+    "connector":    ("kevin.metatron.testing+connector@gmail.com",    (False, False)),
+}
 # ─────────────────────────────────────────────────────────────────────────────
+
+
+def read_env_file_value(path, key):
+    """Reads one KEY=value line out of a raw .env-style file without sourcing
+    the whole thing into the process environment. Used only for DEV_TEST_PASSWORD
+    (dev's TEST_PASSWORD differs from production's, since dev has its own
+    database) -- everything else this script needs still comes from the normal
+    crontab-sourced environment."""
+    try:
+        with open(path) as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith(f"{key}="):
+                    return line.split("=", 1)[1].strip()
+    except OSError:
+        pass
+    return None
+
+
+DEV_TEST_PASSWORD = read_env_file_value(DEV_ENV_FILE, "TEST_PASSWORD")
 
 
 def pinata_url(cid):
@@ -87,6 +137,16 @@ def get_jwt(email):
     r = requests.post(
         f"{BACKEND_URL}/auth/login",
         json={"email": email, "password": TEST_PASSWORD},
+        timeout=10,
+    )
+    r.raise_for_status()
+    return r.json()["token"]
+
+
+def get_dev_jwt(email):
+    r = requests.post(
+        f"{DEV_BACKEND_URL}/auth/login",
+        json={"email": email, "password": DEV_TEST_PASSWORD},
         timeout=10,
     )
     r.raise_for_status()
@@ -249,6 +309,55 @@ def imap_fetch(hours):
     mail.logout()
     return msgs
 
+
+
+def check_dev_tier_assignments():
+    """
+    Logs into every dev test account and compares its actual (is_basic,
+    is_pro) against what its name promises. Would have caught this session's
+    "founder silently drifted to Basic" and "founderpro degraded to Free"
+    incidents on day one instead of being found by hand weeks later.
+    Returns a list of (name, expected, actual) mismatches -- empty if clean.
+    """
+    mismatches = []
+    for name, (email, expected) in DEV_ACCOUNTS.items():
+        jwt = get_dev_jwt(email)
+        r = requests.get(
+            f"{DEV_BACKEND_URL}/auth/me",
+            headers={"Authorization": f"Bearer {jwt}"},
+            timeout=10,
+        )
+        r.raise_for_status()
+        d = r.json()
+        actual = (d.get("is_basic"), d.get("is_pro"))
+        if actual != expected:
+            mismatches.append((name, expected, actual))
+    return mismatches
+
+
+def check_dev_call_intelligence_gating():
+    """
+    Free tier must get 403 from Call Intelligence, Basic/Pro must get 200 --
+    this is the exact bug fixed in the 2026-07-28 audit (a legacy investor
+    bypass could let free-tier investors through). Checks one free + one
+    paid account per role. Returns a list of failure strings, empty if clean.
+    """
+    cases = [
+        ("founder", 403), ("founderbasic", 200),
+        ("investor", 403), ("investorbasic", 200),
+    ]
+    failures = []
+    for name, expected_status in cases:
+        email, _ = DEV_ACCOUNTS[name]
+        jwt = get_dev_jwt(email)
+        r = requests.get(
+            f"{DEV_BACKEND_URL}/calls",
+            headers={"Authorization": f"Bearer {jwt}"},
+            timeout=10,
+        )
+        if r.status_code != expected_status:
+            failures.append(f"{name}: expected {expected_status}, got {r.status_code}")
+    return failures
 
 
 def send_report(subject, body):
@@ -646,6 +755,48 @@ def main():
     except Exception as e:
         lines.append(f"- ⚠ DRIFT — bounce report fetch failed: {e}")
         drifts.append(f"bounce report fetch failed: {e}")
+    lines.append("")
+
+    # ── Check 14: Dev tier assignments (2026-07-28 subscription audit) ─────────
+    # Runs against DEV_BACKEND_URL (port 4001), not BACKEND_URL -- these
+    # accounts and fixes only exist on dev, not production, as of this check
+    # being added.
+    lines.append("## Check 14 — Dev tier assignments (founder/investor free-basic-pro ladder)")
+    if not DEV_TEST_PASSWORD:
+        lines.append(f"- ⚠ skipped — could not read TEST_PASSWORD from {DEV_ENV_FILE}")
+    else:
+        try:
+            mismatches = check_dev_tier_assignments()
+            if not mismatches:
+                lines.append(f"- all {len(DEV_ACCOUNTS)} accounts correctly tiered: ✓")
+            else:
+                for name, expected, actual in mismatches:
+                    lines.append(
+                        f"- ⚠ DRIFT — {name}: expected (is_basic={expected[0]}, is_pro={expected[1]}), "
+                        f"got (is_basic={actual[0]}, is_pro={actual[1]})"
+                    )
+                    drifts.append(f"dev tier mismatch: {name} expected {expected}, got {actual}")
+        except Exception as e:
+            lines.append(f"- ⚠ DRIFT — tier assignment check failed: {e}")
+            drifts.append(f"dev tier assignment check failed: {e}")
+    lines.append("")
+
+    # ── Check 15: Dev Call Intelligence tier gating ─────────────────────────────
+    lines.append("## Check 15 — Dev Call Intelligence gating (free=403, basic/pro=200)")
+    if not DEV_TEST_PASSWORD:
+        lines.append(f"- ⚠ skipped — could not read TEST_PASSWORD from {DEV_ENV_FILE}")
+    else:
+        try:
+            failures = check_dev_call_intelligence_gating()
+            if not failures:
+                lines.append("- free correctly denied, basic/pro correctly allowed: ✓")
+            else:
+                for f in failures:
+                    lines.append(f"- ⚠ DRIFT — {f}")
+                    drifts.append(f"dev call intelligence gating: {f}")
+        except Exception as e:
+            lines.append(f"- ⚠ DRIFT — call intelligence gating check failed: {e}")
+            drifts.append(f"dev call intelligence gating check failed: {e}")
     lines.append("")
 
     # ── Summary ───────────────────────────────────────────────────────────────

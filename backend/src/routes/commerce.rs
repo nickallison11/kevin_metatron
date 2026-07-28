@@ -384,10 +384,16 @@ pub async fn finalize_connector_subscription(
     is_renewal: bool,
 ) -> Result<(), (StatusCode, Json<Value>)> {
     let credits_to_add = if billing == "annual" { 600 } else { 50 };
-    let (period_end, period_start): (String, String) = if billing == "annual" {
+    let (period_end, period_start, period_end_display, period_start_display): (
+        String,
+        String,
+        String,
+        String,
+    ) = if billing == "annual" {
         sqlx::query_as(
             r#"UPDATE users SET pending_payment_nonce = NULL, subscription_tier = 'annual', subscription_plan = 'basic', subscription_status = 'active', cancel_at_period_end = FALSE, subscription_period_end = GREATEST(NOW(), COALESCE(subscription_period_end, NOW())) + INTERVAL '365 days' WHERE id = $1
-     RETURNING subscription_period_end::text, (subscription_period_end - INTERVAL '365 days')::text"#,
+     RETURNING subscription_period_end::text, (subscription_period_end - INTERVAL '365 days')::text,
+               to_char(subscription_period_end, 'DD Mon YYYY'), to_char(subscription_period_end - INTERVAL '365 days', 'DD Mon YYYY')"#,
         )
         .bind(user_id)
         .fetch_one(&state.db)
@@ -396,7 +402,8 @@ pub async fn finalize_connector_subscription(
     } else {
         sqlx::query_as(
             r#"UPDATE users SET pending_payment_nonce = NULL, subscription_tier = 'monthly', subscription_plan = 'basic', subscription_status = 'active', cancel_at_period_end = FALSE, subscription_period_end = GREATEST(NOW(), COALESCE(subscription_period_end, NOW())) + INTERVAL '30 days' WHERE id = $1
-     RETURNING subscription_period_end::text, (subscription_period_end - INTERVAL '30 days')::text"#,
+     RETURNING subscription_period_end::text, (subscription_period_end - INTERVAL '30 days')::text,
+               to_char(subscription_period_end, 'DD Mon YYYY'), to_char(subscription_period_end - INTERVAL '30 days', 'DD Mon YYYY')"#,
         )
         .bind(user_id)
         .fetch_one(&state.db)
@@ -462,8 +469,9 @@ pub async fn finalize_connector_subscription(
                 "Your metatron Connector Basic subscription has renewed",
                 &email::subscription_invoice_email_html(
                     "Connector Basic",
-                    &period_start,
-                    &period_end,
+                    "connector_basic",
+                    &period_start_display,
+                    &period_end_display,
                     &format!("{invoice_amount:.2} {currency}"),
                     reference,
                 ),
@@ -478,7 +486,8 @@ pub async fn finalize_connector_subscription(
                 "Your metatron Connector Basic subscription is active",
                 &email::subscription_activated_email_html(
                     "Connector Basic",
-                    &period_end,
+                    "connector_basic",
+                    &period_end_display,
                     &format!("{invoice_amount:.2} {currency}"),
                 ),
             )
@@ -508,10 +517,16 @@ pub async fn finalize_investor_subscription(
     is_renewal: bool,
 ) -> Result<(), (StatusCode, Json<Value>)> {
     let plan_level = if plan_level == "pro" { "pro" } else { "basic" };
-    let (period_end, period_start): (String, String) = if billing == "annual" {
+    let (period_end, period_start, period_end_display, period_start_display): (
+        String,
+        String,
+        String,
+        String,
+    ) = if billing == "annual" {
         sqlx::query_as(
             r#"UPDATE users SET pending_payment_nonce = NULL, subscription_tier = 'annual', subscription_plan = $2, subscription_status = 'active', cancel_at_period_end = FALSE, subscription_period_end = GREATEST(NOW(), COALESCE(subscription_period_end, NOW())) + INTERVAL '365 days' WHERE id = $1
-     RETURNING subscription_period_end::text, (subscription_period_end - INTERVAL '365 days')::text"#,
+     RETURNING subscription_period_end::text, (subscription_period_end - INTERVAL '365 days')::text,
+               to_char(subscription_period_end, 'DD Mon YYYY'), to_char(subscription_period_end - INTERVAL '365 days', 'DD Mon YYYY')"#,
         )
         .bind(user_id)
         .bind(plan_level)
@@ -521,7 +536,8 @@ pub async fn finalize_investor_subscription(
     } else {
         sqlx::query_as(
             r#"UPDATE users SET pending_payment_nonce = NULL, subscription_tier = 'monthly', subscription_plan = $2, subscription_status = 'active', cancel_at_period_end = FALSE, subscription_period_end = GREATEST(NOW(), COALESCE(subscription_period_end, NOW())) + INTERVAL '30 days' WHERE id = $1
-     RETURNING subscription_period_end::text, (subscription_period_end - INTERVAL '30 days')::text"#,
+     RETURNING subscription_period_end::text, (subscription_period_end - INTERVAL '30 days')::text,
+               to_char(subscription_period_end, 'DD Mon YYYY'), to_char(subscription_period_end - INTERVAL '30 days', 'DD Mon YYYY')"#,
         )
         .bind(user_id)
         .bind(plan_level)
@@ -573,8 +589,9 @@ pub async fn finalize_investor_subscription(
                 &format!("Your metatron {plan_name} subscription has renewed"),
                 &email::subscription_invoice_email_html(
                     plan_name,
-                    &period_start,
-                    &period_end,
+                    &invoice_tier,
+                    &period_start_display,
+                    &period_end_display,
                     &format!("{invoice_amount:.2} {currency}"),
                     reference,
                 ),
@@ -589,7 +606,8 @@ pub async fn finalize_investor_subscription(
                 &format!("Your metatron {plan_name} subscription is active"),
                 &email::subscription_activated_email_html(
                     plan_name,
-                    &period_end,
+                    &invoice_tier,
+                    &period_end_display,
                     &format!("{invoice_amount:.2} {currency}"),
                 ),
             )

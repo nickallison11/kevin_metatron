@@ -55,7 +55,12 @@ pub async fn finalize_pro_subscription(
             )
         })?;
 
-    let (period_end, period_start): (String, String) = if tier == "monthly" {
+    let (period_end, period_start, period_end_display, period_start_display): (
+        String,
+        String,
+        String,
+        String,
+    ) = if tier == "monthly" {
         sqlx::query_as(
             r#"
             UPDATE users
@@ -68,7 +73,9 @@ pub async fn finalize_pro_subscription(
             WHERE id = $1
             RETURNING
                 subscription_period_end::text,
-                (subscription_period_end - INTERVAL '30 days')::text
+                (subscription_period_end - INTERVAL '30 days')::text,
+                to_char(subscription_period_end, 'DD Mon YYYY'),
+                to_char(subscription_period_end - INTERVAL '30 days', 'DD Mon YYYY')
             "#,
         )
         .bind(user_id)
@@ -94,7 +101,9 @@ pub async fn finalize_pro_subscription(
             WHERE id = $1
             RETURNING
                 subscription_period_end::text,
-                (subscription_period_end - INTERVAL '365 days')::text
+                (subscription_period_end - INTERVAL '365 days')::text,
+                to_char(subscription_period_end, 'DD Mon YYYY'),
+                to_char(subscription_period_end - INTERVAL '365 days', 'DD Mon YYYY')
             "#,
         )
         .bind(user_id)
@@ -142,8 +151,9 @@ pub async fn finalize_pro_subscription(
             &format!("Your metatron {} subscription has renewed", plan_name),
             &email::subscription_invoice_email_html(
                 plan_name,
-                &period_start,
-                &period_end,
+                &invoice_tier,
+                &period_start_display,
+                &period_end_display,
                 amount_paid_display,
                 reference,
             ),
@@ -156,7 +166,12 @@ pub async fn finalize_pro_subscription(
             &state.email_from,
             &user_email,
             &format!("Your metatron {} subscription is active", plan_name),
-            &email::pro_activated_email_html(plan_name, &period_end, amount_paid_display),
+            &email::subscription_activated_email_html(
+                plan_name,
+                &invoice_tier,
+                &period_end_display,
+                amount_paid_display,
+            ),
         )
         .await;
     }

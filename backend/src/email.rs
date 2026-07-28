@@ -560,47 +560,67 @@ pub fn welcome_email_html(role: &str) -> String {
     shell_html("Welcome to metatron", body)
 }
 
-pub fn pro_activated_email_html(plan_name: &str, period_end: &str, amount_paid: &str) -> String {
-    shell_html(
-        &format!("{} activated", plan_name),
-        &format!(
-            r#"
-<p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">Thank you for subscribing to <strong>{plan_name}</strong>. Here's what's now unlocked:</p>
-<ul style="margin:0 0 14px 18px;padding:0;color:#e8e8ed;font-size:14px;line-height:1.6;">
-  <li>IPFS pitch deck storage (public or private)</li>
-  <li>Call intelligence - upload recordings for transcription and AI analysis</li>
-  <li>Full pitch management</li>
-  <li>Full contact card shared on investor introductions</li>
-  <li>Priority Kevin AI responses</li>
-</ul>
-<p style="margin:0 0 8px 0;font-size:14px;color:#e8e8ed;">Coming soon for Pro members:</p>
-<ul style="margin:0 0 14px 18px;padding:0;color:#e8e8ed;font-size:14px;line-height:1.6;">
-  <li>startup_name.metatron.id custom subdomain with your own AI agent</li>
-  <li>Custom AI backend (Claude, GPT-4, Gemini)</li>
-  <li>Custom system prompt and knowledge base</li>
-  <li>Embeddable widget for your own website</li>
-  <li>On-chain pitch verification and NFT-anchored profile</li>
-</ul>
-<p style="margin:0 0 6px 0;font-size:13px;color:#8888a0;">Subscription details:</p>
-<p style="margin:0 0 0 0;font-size:13px;color:#e8e8ed;">Period end: {period_end}<br/>Amount paid: {amount_paid}</p>
-<p style="margin:14px 0 0 0;font-size:14px;">
-  <a href="https://platform.metatron.id" style="color:#6c5ce7;text-decoration:none;">Open platform</a> ·
-  <a href="mailto:support@metatron.id" style="color:#6c5ce7;text-decoration:none;">Support</a>
-</p>
-"#
-        ),
+/// Bullet-point benefit list for a plan, shared by the activation and
+/// renewal emails so both say the same thing about what a tier includes.
+/// Keyed as "{role}_{level}" — matches the `tier` values already written to
+/// `subscription_invoices` (e.g. "founder_basic", "investor_pro"), so call
+/// sites can pass that same string straight through.
+fn plan_benefits_html(plan_key: &str) -> String {
+    let items: &[&str] = match plan_key {
+        "founder_basic" => &[
+            "Permanent public IPFS pitch deck storage, unlimited re-uploads",
+            "Call Intelligence — AI summary, key takeaways, and sentiment on every recorded call",
+            "10 Kevin matches a week (vs. 1 on Free), refreshed every 6 hours instead of weekly",
+            "200 Kevin messages a day, across platform, email, Telegram, and WhatsApp",
+        ],
+        "founder_pro" => &[
+            "Permanent private IPFS pitch deck storage, unlimited re-uploads",
+            "Call Intelligence — AI summary, key takeaways, and sentiment on every recorded call",
+            "Unlimited Kevin matches and messages, refreshed every 6 hours",
+            "Full contact card shared automatically on investor introductions",
+            "Priority Kevin AI responses",
+        ],
+        "investor_basic" => &[
+            "10 Kevin matches a week (vs. 1 on Free), refreshed every 6 hours instead of weekly",
+            "Full Angel Score breakdown on every founder, not just a summary",
+            "Call Intelligence — AI summary, key takeaways, and sentiment on every call",
+            "200 Kevin messages a day, across platform, email, Telegram, and WhatsApp",
+        ],
+        "investor_pro" => &[
+            "Unlimited Kevin matches and messages, refreshed every 6 hours",
+            "Full Angel Score breakdown on every founder, not just a summary",
+            "Call Intelligence — AI summary, key takeaways, and sentiment on every call",
+        ],
+        "connector_basic" => &[
+            "Unlimited contact imports & enrichments",
+            "Referral and introduction tracking",
+            "IPFS-anchored network ownership",
+        ],
+        _ => &[],
+    };
+    if items.is_empty() {
+        return String::new();
+    }
+    let lis: String = items.iter().map(|i| format!("  <li>{i}</li>\n")).collect();
+    format!(
+        "<ul style=\"margin:0 0 14px 18px;padding:0;color:#e8e8ed;font-size:14px;line-height:1.6;\">\n{lis}</ul>\n"
     )
 }
 
-pub fn subscription_activated_email_html(plan_name: &str, period_end: &str, amount_paid: &str) -> String {
+pub fn subscription_activated_email_html(
+    plan_name: &str,
+    plan_key: &str,
+    period_end: &str,
+    amount_paid: &str,
+) -> String {
+    let benefits = plan_benefits_html(plan_key);
     shell_html(
         &format!("{plan_name} activated"),
         &format!(
             r#"
-<p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">Thank you for subscribing to <strong>{plan_name}</strong>. Your subscription is now active.</p>
-<p style="margin:0 0 6px 0;font-size:13px;color:#8888a0;">Subscription details:</p>
-<p style="margin:0 0 0 0;font-size:13px;color:#e8e8ed;">Period end: {period_end}<br/>Amount paid: {amount_paid}</p>
-<p style="margin:14px 0 0 0;font-size:14px;">
+<p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">Thank you for subscribing to <strong>{plan_name}</strong> — here's what's unlocked:</p>
+{benefits}<p style="margin:0 0 14px 0;font-size:13px;color:#e8e8ed;">Renews: {period_end} · Amount paid: {amount_paid}</p>
+<p style="margin:0 0 0 0;font-size:14px;">
   <a href="https://platform.metatron.id" style="color:#6c5ce7;text-decoration:none;">Open platform</a> ·
   <a href="mailto:support@metatron.id" style="color:#6c5ce7;text-decoration:none;">Support</a>
 </p>
@@ -611,23 +631,24 @@ pub fn subscription_activated_email_html(plan_name: &str, period_end: &str, amou
 
 pub fn subscription_invoice_email_html(
     plan_name: &str,
+    plan_key: &str,
     period_start: &str,
     period_end: &str,
     amount_paid: &str,
     reference: Option<&str>,
 ) -> String {
     let reference_row = match reference {
-        Some(r) if !r.trim().is_empty() => format!("<br/>Reference: {r}"),
+        Some(r) if !r.trim().is_empty() => format!(" · Reference: {r}"),
         _ => String::new(),
     };
+    let benefits = plan_benefits_html(plan_key);
     shell_html(
         &format!("Your metatron {plan_name} subscription has renewed"),
         &format!(
             r#"
-<p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">Your <strong>{plan_name}</strong> subscription has renewed. Here's your receipt:</p>
-<p style="margin:0 0 6px 0;font-size:13px;color:#8888a0;">Invoice:</p>
-<p style="margin:0 0 0 0;font-size:13px;color:#e8e8ed;">Billing period: {period_start} – {period_end}<br/>Amount paid: {amount_paid}{reference_row}</p>
-<p style="margin:14px 0 0 0;font-size:14px;">
+<p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">Your <strong>{plan_name}</strong> subscription has renewed — here's what you still get:</p>
+{benefits}<p style="margin:0 0 14px 0;font-size:13px;color:#e8e8ed;">Billing period: {period_start} – {period_end} · Amount paid: {amount_paid}{reference_row}</p>
+<p style="margin:0 0 0 0;font-size:14px;">
   <a href="https://platform.metatron.id" style="color:#6c5ce7;text-decoration:none;">Open platform</a> ·
   <a href="mailto:support@metatron.id" style="color:#6c5ce7;text-decoration:none;">Support</a>
 </p>

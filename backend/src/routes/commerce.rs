@@ -367,6 +367,12 @@ fn investor_plan_code_to_billing_and_level(state: &AppState, plan_code: &str) ->
     None
 }
 
+/// `is_renewal` must reflect the true source of this charge: only Paystack's
+/// own automatic recurring billing (the `invoice.payment_success` webhook,
+/// ~30 days after the last charge) is a real renewal. Every user-initiated
+/// action — first signup, a manual re-subscribe, a crypto payment — is a
+/// fresh "activated" event even with prior invoices on file, since nothing
+/// recurred on its own; pass `is_renewal: false` from those call sites.
 pub async fn finalize_connector_subscription(
     state: &AppState,
     user_id: Uuid,
@@ -375,6 +381,7 @@ pub async fn finalize_connector_subscription(
     reference: Option<&str>,
     currency: &str,
     invoice_amount: Decimal,
+    is_renewal: bool,
 ) -> Result<(), (StatusCode, Json<Value>)> {
     let credits_to_add = if billing == "annual" { 600 } else { 50 };
     let (period_end, period_start): (String, String) = if billing == "annual" {
@@ -418,17 +425,6 @@ pub async fn finalize_connector_subscription(
         )
     })?;
 
-    // A prior connector invoice means this charge is a renewal, not a
-    // first-time signup — check before inserting this one.
-    let had_prior_invoice: bool = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*)::bigint FROM subscription_invoices WHERE user_id = $1 AND tier LIKE 'connector_%'",
-    )
-    .bind(user_id)
-    .fetch_one(&state.db)
-    .await
-    .map(|c| c > 0)
-    .unwrap_or(false);
-
     sqlx::query(
         r#"
         INSERT INTO subscription_invoices (user_id, amount, currency, payment_method, tier, period_start, period_end, reference)
@@ -457,7 +453,7 @@ pub async fn finalize_connector_subscription(
         .fetch_one(&state.db)
         .await
     {
-        if had_prior_invoice {
+        if is_renewal {
             email::send_email(
                 &state.http_client,
                 state.resend_api_key.as_deref(),
@@ -493,6 +489,13 @@ pub async fn finalize_connector_subscription(
     Ok(())
 }
 
+/// `is_renewal` must reflect the true source of this charge: only Paystack's
+/// own automatic recurring billing (the `invoice.payment_success` webhook,
+/// ~30 days after the last charge) is a real renewal. Every user-initiated
+/// action — first signup, a tier change, a manual re-subscribe, a crypto
+/// payment — is a fresh "activated" event even with prior invoices on file,
+/// since nothing recurred on its own; pass `is_renewal: false` from those
+/// call sites.
 pub async fn finalize_investor_subscription(
     state: &AppState,
     user_id: Uuid,
@@ -502,6 +505,7 @@ pub async fn finalize_investor_subscription(
     reference: Option<&str>,
     currency: &str,
     invoice_amount: Decimal,
+    is_renewal: bool,
 ) -> Result<(), (StatusCode, Json<Value>)> {
     let plan_level = if plan_level == "pro" { "pro" } else { "basic" };
     let (period_end, period_start): (String, String) = if billing == "annual" {
@@ -537,17 +541,6 @@ pub async fn finalize_investor_subscription(
     .await
     .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": "internal error" }))))?;
 
-    // A prior investor invoice (any plan level) means this charge is a renewal
-    // or plan change, not a first-time signup — check before inserting this one.
-    let had_prior_invoice: bool = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*)::bigint FROM subscription_invoices WHERE user_id = $1 AND tier LIKE 'investor_%'",
-    )
-    .bind(user_id)
-    .fetch_one(&state.db)
-    .await
-    .map(|c| c > 0)
-    .unwrap_or(false);
-
     let invoice_tier = format!("investor_{plan_level}");
     sqlx::query(
         r#"INSERT INTO subscription_invoices (user_id, amount, currency, payment_method, tier, period_start, period_end, reference)
@@ -571,7 +564,7 @@ pub async fn finalize_investor_subscription(
         .fetch_one(&state.db)
         .await
     {
-        if had_prior_invoice {
+        if is_renewal {
             email::send_email(
                 &state.http_client,
                 state.resend_api_key.as_deref(),
@@ -861,6 +854,7 @@ async fn verify_payment(
         Some(ref_trim),
         pay_currency,
         invoice_amount,
+        false,
     )
     .await?;
 
@@ -1030,6 +1024,7 @@ async fn verify_connector_payment(
         Some(ref_trim),
         "ZAR",
         invoice_amount,
+        false,
     )
     .await?;
     Ok(Json(VerifyResponse { status: "active" }))
@@ -1204,6 +1199,7 @@ async fn verify_investor_payment(
         Some(ref_trim),
         "ZAR",
         invoice_amount,
+        false,
     )
     .await?;
     Ok(Json(VerifyResponse { status: "active" }))
@@ -1430,6 +1426,7 @@ async fn finalize_from_paystack_data(
             Some(paystack_ref),
             "ZAR",
             invoice_amount,
+            false,
         )
         .await
         .map_err(|(s, _)| s);
@@ -1453,6 +1450,7 @@ async fn finalize_from_paystack_data(
             Some(paystack_ref),
             "ZAR",
             invoice_amount,
+            false,
         )
         .await
         .map_err(|(s, _)| s);
@@ -1487,6 +1485,7 @@ async fn finalize_from_paystack_data(
         Some(paystack_ref),
         pay_currency,
         invoice_amount,
+        false,
     )
     .await
     .map_err(|(s, _)| s)?;
@@ -1568,6 +1567,9 @@ async fn handle_invoice_payment_success(
         return Ok(());
     }
 
+    // This handler only ever fires from Paystack's own `invoice.payment_success`
+    // webhook -- its own scheduled recurring billing, not a user action -- so
+    // every finalize call from here is a genuine renewal.
     if let Some(billing) = connector_billing {
         let (_, invoice_amount) = zar_amounts_for_billing(billing);
         finalize_connector_subscription(
@@ -1578,6 +1580,7 @@ async fn handle_invoice_payment_success(
             Some(paystack_ref),
             "ZAR",
             invoice_amount,
+            true,
         )
         .await
         .map_err(|(s, _)| s)?;
@@ -1592,6 +1595,7 @@ async fn handle_invoice_payment_success(
             Some(paystack_ref),
             "ZAR",
             invoice_amount,
+            true,
         )
         .await
         .map_err(|(s, _)| s)?;
@@ -1609,6 +1613,7 @@ async fn handle_invoice_payment_success(
             Some(paystack_ref),
             "ZAR",
             invoice_amount,
+            true,
         )
         .await
         .map_err(|(s, _)| s)?;
@@ -2054,6 +2059,7 @@ async fn nowpayments_webhook(
                 Some(reference_owned.as_str()),
                 "USD",
                 invoice_amount,
+                false,
             )
             .await
             .map(|_| ())
@@ -2068,6 +2074,7 @@ async fn nowpayments_webhook(
                 Some(reference_owned.as_str()),
                 "USD",
                 invoice_amount,
+                false,
             )
             .await
         }
@@ -2080,6 +2087,7 @@ async fn nowpayments_webhook(
                 Some(reference_owned.as_str()),
                 "USD",
                 invoice_amount,
+                false,
             )
             .await
         }

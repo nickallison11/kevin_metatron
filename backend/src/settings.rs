@@ -50,6 +50,8 @@ pub struct Settings {
     pub paystack_connector_plan_basic_annual: String,
     pub paystack_investor_plan_basic_monthly: String,
     pub paystack_investor_plan_basic_annual: String,
+    pub paystack_investor_plan_pro_monthly: String,
+    pub paystack_investor_plan_pro_annual: String,
     pub paystack_plan_pro_monthly: String,
     pub paystack_plan_pro_annual: String,
     pub nowpayments_api_key: Option<String>,
@@ -189,11 +191,11 @@ impl Settings {
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| "USD".to_string());
 
-        let paystack_plan_basic_monthly = env::var("PAYSTACK_PLAN_BASIC_MONTHLY")
+        let paystack_plan_basic_monthly = env::var("PAYSTACK_FOUNDER_BASIC_MONTHLY")
             .unwrap_or_default()
             .trim()
             .to_string();
-        let paystack_plan_basic_annual = env::var("PAYSTACK_PLAN_BASIC_ANNUAL")
+        let paystack_plan_basic_annual = env::var("PAYSTACK_FOUNDER_BASIC_ANNUAL")
             .unwrap_or_default()
             .trim()
             .to_string();
@@ -217,14 +219,24 @@ impl Settings {
                 .unwrap_or_default()
                 .trim()
                 .to_string();
-        let paystack_plan_pro_monthly = env::var("PAYSTACK_PLAN_PRO_MONTHLY")
+        let paystack_plan_pro_monthly = env::var("PAYSTACK_FOUNDER_PRO_MONTHLY")
             .unwrap_or_default()
             .trim()
             .to_string();
-        let paystack_plan_pro_annual = env::var("PAYSTACK_PLAN_PRO_ANNUAL")
+        let paystack_plan_pro_annual = env::var("PAYSTACK_FOUNDER_PRO_ANNUAL")
             .unwrap_or_default()
             .trim()
             .to_string();
+        let paystack_investor_plan_pro_monthly =
+            env::var("PAYSTACK_INVESTOR_PLAN_PRO_MONTHLY")
+                .unwrap_or_default()
+                .trim()
+                .to_string();
+        let paystack_investor_plan_pro_annual =
+            env::var("PAYSTACK_INVESTOR_PLAN_PRO_ANNUAL")
+                .unwrap_or_default()
+                .trim()
+                .to_string();
 
         let nowpayments_api_key = env::var("NOWPAYMENTS_API_KEY")
             .ok()
@@ -348,6 +360,8 @@ impl Settings {
             paystack_connector_plan_basic_annual,
             paystack_investor_plan_basic_monthly,
             paystack_investor_plan_basic_annual,
+            paystack_investor_plan_pro_monthly,
+            paystack_investor_plan_pro_annual,
             paystack_plan_pro_monthly,
             paystack_plan_pro_annual,
             nowpayments_api_key,

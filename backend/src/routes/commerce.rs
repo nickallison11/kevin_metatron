@@ -53,6 +53,8 @@ struct ConnectorSubscribeBody {
 #[derive(Deserialize)]
 struct InvestorSubscribeBody {
     billing: String,
+    #[serde(default)]
+    tier: Option<String>,
 }
 
 async fn create_subscription(
@@ -341,16 +343,26 @@ fn connector_plan_code_to_billing(state: &AppState, plan_code: &str) -> Option<&
     None
 }
 
-fn investor_plan_code_to_billing(state: &AppState, plan_code: &str) -> Option<&'static str> {
+fn investor_plan_code_to_billing_and_level(state: &AppState, plan_code: &str) -> Option<(&'static str, &'static str)> {
     if !state.paystack_investor_plan_basic_monthly.is_empty()
         && plan_code == state.paystack_investor_plan_basic_monthly
     {
-        return Some("monthly");
+        return Some(("monthly", "basic"));
     }
     if !state.paystack_investor_plan_basic_annual.is_empty()
         && plan_code == state.paystack_investor_plan_basic_annual
     {
-        return Some("annual");
+        return Some(("annual", "basic"));
+    }
+    if !state.paystack_investor_plan_pro_monthly.is_empty()
+        && plan_code == state.paystack_investor_plan_pro_monthly
+    {
+        return Some(("monthly", "pro"));
+    }
+    if !state.paystack_investor_plan_pro_annual.is_empty()
+        && plan_code == state.paystack_investor_plan_pro_annual
+    {
+        return Some(("annual", "pro"));
     }
     None
 }
@@ -458,26 +470,30 @@ pub async fn finalize_investor_subscription(
     state: &AppState,
     user_id: Uuid,
     billing: &str,
+    plan_level: &str,
     payment_method: &str,
     reference: Option<&str>,
     currency: &str,
     invoice_amount: Decimal,
 ) -> Result<(), (StatusCode, Json<Value>)> {
+    let plan_level = if plan_level == "pro" { "pro" } else { "basic" };
     let (period_end, period_start): (String, String) = if billing == "annual" {
         sqlx::query_as(
-            r#"UPDATE users SET pending_payment_nonce = NULL, subscription_tier = 'annual', subscription_plan = 'basic', subscription_status = 'active', cancel_at_period_end = FALSE, subscription_period_end = GREATEST(NOW(), COALESCE(subscription_period_end, NOW())) + INTERVAL '365 days' WHERE id = $1
+            r#"UPDATE users SET pending_payment_nonce = NULL, subscription_tier = 'annual', subscription_plan = $2, subscription_status = 'active', cancel_at_period_end = FALSE, subscription_period_end = GREATEST(NOW(), COALESCE(subscription_period_end, NOW())) + INTERVAL '365 days' WHERE id = $1
      RETURNING subscription_period_end::text, (subscription_period_end - INTERVAL '365 days')::text"#,
         )
         .bind(user_id)
+        .bind(plan_level)
         .fetch_one(&state.db)
         .await
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": "internal error" }))))?
     } else {
         sqlx::query_as(
-            r#"UPDATE users SET pending_payment_nonce = NULL, subscription_tier = 'monthly', subscription_plan = 'basic', subscription_status = 'active', cancel_at_period_end = FALSE, subscription_period_end = GREATEST(NOW(), COALESCE(subscription_period_end, NOW())) + INTERVAL '30 days' WHERE id = $1
+            r#"UPDATE users SET pending_payment_nonce = NULL, subscription_tier = 'monthly', subscription_plan = $2, subscription_status = 'active', cancel_at_period_end = FALSE, subscription_period_end = GREATEST(NOW(), COALESCE(subscription_period_end, NOW())) + INTERVAL '30 days' WHERE id = $1
      RETURNING subscription_period_end::text, (subscription_period_end - INTERVAL '30 days')::text"#,
         )
         .bind(user_id)
+        .bind(plan_level)
         .fetch_one(&state.db)
         .await
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": "internal error" }))))?
@@ -485,14 +501,16 @@ pub async fn finalize_investor_subscription(
 
     sqlx::query(
         r#"INSERT INTO investor_profiles (user_id, investor_tier)
-           VALUES ($1, 'basic')
-           ON CONFLICT (user_id) DO UPDATE SET investor_tier = 'basic', updated_at = NOW()"#,
+           VALUES ($1, $2)
+           ON CONFLICT (user_id) DO UPDATE SET investor_tier = $2, updated_at = NOW()"#,
     )
     .bind(user_id)
+    .bind(plan_level)
     .execute(&state.db)
     .await
     .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": "internal error" }))))?;
 
+    let invoice_tier = format!("investor_{plan_level}");
     sqlx::query(
         r#"INSERT INTO subscription_invoices (user_id, amount, currency, payment_method, tier, period_start, period_end, reference)
            VALUES ($1, $2, $3, $4, $5, $6::timestamptz, $7::timestamptz, $8)"#,
@@ -501,7 +519,7 @@ pub async fn finalize_investor_subscription(
     .bind(invoice_amount)
     .bind(currency)
     .bind(payment_method)
-    .bind("investor_basic")
+    .bind(&invoice_tier)
     .bind(&period_start)
     .bind(&period_end)
     .bind(reference)
@@ -509,6 +527,7 @@ pub async fn finalize_investor_subscription(
     .await
     .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": "internal error" }))))?;
 
+    let plan_name = if plan_level == "pro" { "Investor Pro" } else { "Investor Basic" };
     if let Ok(user_email) = sqlx::query_scalar::<_, String>("SELECT email FROM users WHERE id = $1")
         .bind(user_id)
         .fetch_one(&state.db)
@@ -519,9 +538,9 @@ pub async fn finalize_investor_subscription(
             state.resend_api_key.as_deref(),
             &state.email_from,
             &user_email,
-            "Your metatron Investor Basic subscription has renewed",
+            &format!("Your metatron {plan_name} subscription has renewed"),
             &email::subscription_invoice_email_html(
-                "Investor Basic",
+                plan_name,
                 &period_start,
                 &period_end,
                 &format!("{invoice_amount:.2} {currency}"),
@@ -954,9 +973,15 @@ async fn create_investor_subscription(
     if billing != "monthly" && billing != "annual" {
         return Err((StatusCode::BAD_REQUEST, Json(json!({ "error": "billing must be monthly or annual" }))));
     }
+    let plan_level = match body.tier.as_deref().map(str::to_ascii_lowercase).as_deref() {
+        Some("pro") => "pro",
+        _ => "basic",
+    };
 
-    let plan_code = match billing.as_str() {
-        "annual" => state.paystack_investor_plan_basic_annual.as_str(),
+    let plan_code = match (plan_level, billing.as_str()) {
+        ("pro", "annual") => state.paystack_investor_plan_pro_annual.as_str(),
+        ("pro", _) => state.paystack_investor_plan_pro_monthly.as_str(),
+        (_, "annual") => state.paystack_investor_plan_basic_annual.as_str(),
         _ => state.paystack_investor_plan_basic_monthly.as_str(),
     };
     if plan_code.is_empty() {
@@ -969,8 +994,14 @@ async fn create_investor_subscription(
         .await
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": "internal error" }))))?;
 
-    let amount_kobo: i64 = if billing == "annual" { 169_999 } else { 16_999 };
+    let amount_kobo: i64 = match (plan_level, billing.as_str()) {
+        ("pro", "annual") => 339_999,
+        ("pro", _) => 33_999,
+        (_, "annual") => 169_999,
+        _ => 16_999,
+    };
     let reference = Uuid::new_v4().to_string();
+    let tier_metadata = if plan_level == "pro" { "investor_pro" } else { "investor_basic" };
     let payload = json!({
         "email": user_email,
         "amount": amount_kobo,
@@ -978,7 +1009,7 @@ async fn create_investor_subscription(
         "plan": plan_code,
         "reference": reference,
         "callback_url": format!("{}/investor/settings/subscription?success=1&reference={}", state.frontend_url, reference),
-        "metadata": { "user_id": user_id.to_string(), "tier": "investor_basic", "billing": billing, "currency": "ZAR" }
+        "metadata": { "user_id": user_id.to_string(), "tier": tier_metadata, "billing": billing, "currency": "ZAR" }
     });
 
     let res = state.http_client.post("https://api.paystack.co/transaction/initialize")
@@ -1048,24 +1079,29 @@ async fn verify_investor_payment(
     if user_id != authed.id {
         return Err((StatusCode::FORBIDDEN, Json(json!({ "error": "payment does not belong to this user" }))));
     }
-    if metadata.get("tier").and_then(|t| t.as_str()).unwrap_or("").to_ascii_lowercase() != "investor_basic" {
+    let tier_str = metadata.get("tier").and_then(|t| t.as_str()).unwrap_or("").to_ascii_lowercase();
+    if tier_str != "investor_basic" && tier_str != "investor_pro" {
         return Err((StatusCode::BAD_REQUEST, Json(json!({ "error": "invalid investor subscription metadata" }))));
     }
+    let plan_level = if tier_str == "investor_pro" { "pro" } else { "basic" };
     let billing = metadata.get("billing").and_then(|b| b.as_str()).unwrap_or("monthly").to_ascii_lowercase();
 
     let customer_code = data.get("customer").and_then(|c| c.get("customer_code")).and_then(|v| v.as_str()).unwrap_or("");
     let authorization_code = data.get("authorization").and_then(|a| a.get("authorization_code")).and_then(|v| v.as_str()).unwrap_or("");
-    let plan_code = match billing.as_str() {
-        "annual" => state.paystack_investor_plan_basic_annual.as_str(),
+    let plan_code = match (plan_level, billing.as_str()) {
+        ("pro", "annual") => state.paystack_investor_plan_pro_annual.as_str(),
+        ("pro", _) => state.paystack_investor_plan_pro_monthly.as_str(),
+        (_, "annual") => state.paystack_investor_plan_basic_annual.as_str(),
         _ => state.paystack_investor_plan_basic_monthly.as_str(),
     };
     create_paystack_subscription(&state, customer_code, plan_code, authorization_code).await;
 
-    let (_, invoice_amount) = zar_amounts_for_billing(billing.as_str());
+    let (_, invoice_amount) = amounts_for_billing_and_level(&billing, plan_level, "ZAR");
     finalize_investor_subscription(
         &state,
         user_id,
         &billing,
+        plan_level,
         "card",
         Some(ref_trim),
         "ZAR",
@@ -1273,21 +1309,25 @@ async fn finalize_from_paystack_data(
 
     // Route connector payments separately
     let tier_str = metadata.get("tier").and_then(|t| t.as_str()).unwrap_or("");
-    if tier_str.eq_ignore_ascii_case("investor_basic") {
+    if tier_str.eq_ignore_ascii_case("investor_basic") || tier_str.eq_ignore_ascii_case("investor_pro") {
+        let plan_level = if tier_str.eq_ignore_ascii_case("investor_pro") { "pro" } else { "basic" };
         let billing = metadata
             .get("billing")
             .and_then(|b| b.as_str())
             .unwrap_or("monthly");
-        let plan_code = match billing {
-            "annual" => state.paystack_investor_plan_basic_annual.as_str(),
+        let plan_code = match (plan_level, billing) {
+            ("pro", "annual") => state.paystack_investor_plan_pro_annual.as_str(),
+            ("pro", _) => state.paystack_investor_plan_pro_monthly.as_str(),
+            (_, "annual") => state.paystack_investor_plan_basic_annual.as_str(),
             _ => state.paystack_investor_plan_basic_monthly.as_str(),
         };
         create_paystack_subscription(state, customer_code, plan_code, authorization_code).await;
-        let (_, invoice_amount) = zar_amounts_for_billing(billing);
+        let (_, invoice_amount) = amounts_for_billing_and_level(billing, plan_level, "ZAR");
         return finalize_investor_subscription(
             state,
             user_id,
             billing,
+            plan_level,
             "card",
             Some(paystack_ref),
             "ZAR",
@@ -1375,8 +1415,8 @@ async fn handle_invoice_payment_success(
 
     let founder_billing_and_level = plan_code_to_billing_and_level(state, plan_code);
     let connector_billing = connector_plan_code_to_billing(state, plan_code);
-    let investor_billing = investor_plan_code_to_billing(state, plan_code);
-    if founder_billing_and_level.is_none() && connector_billing.is_none() && investor_billing.is_none() {
+    let investor_billing_and_level = investor_plan_code_to_billing_and_level(state, plan_code);
+    if founder_billing_and_level.is_none() && connector_billing.is_none() && investor_billing_and_level.is_none() {
         tracing::warn!("invoice.payment_success: unknown plan_code {}", plan_code);
         return Err(StatusCode::BAD_REQUEST);
     }
@@ -1443,12 +1483,13 @@ async fn handle_invoice_payment_success(
         )
         .await
         .map_err(|(s, _)| s)?;
-    } else if let Some(billing) = investor_billing {
-        let (_, invoice_amount) = zar_amounts_for_billing(billing);
+    } else if let Some((billing, plan_level)) = investor_billing_and_level {
+        let (_, invoice_amount) = amounts_for_billing_and_level(billing, plan_level, "ZAR");
         finalize_investor_subscription(
             state,
             user_id,
             billing,
+            plan_level,
             "card",
             Some(paystack_ref),
             "ZAR",
@@ -1924,6 +1965,7 @@ async fn nowpayments_webhook(
                 &state,
                 user_id,
                 billing_lc.as_str(),
+                &plan_level_lc,
                 "nowpayments",
                 Some(reference_owned.as_str()),
                 "USD",

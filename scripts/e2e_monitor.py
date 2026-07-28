@@ -5,21 +5,28 @@ Daily health check covering all test accounts and platform features.
 New feature checks are added here as features ship — one script, one report.
 
 Current checks:
-  1. Account logins (founder free, founder basic, founder pro, investor)
-  2. Free founder — Pinata reachability + profile (14-day deck trial)
-  3. Basic founder — subscription plan + permanent deck
-  3b. Pro founder — subscription plan = pro + is_pro flag
-  4. Investor — role + profile
+  1. Account logins — dev (founder free, founder basic, founder pro,
+     investor free, investor basic, investor pro, connector). Runs against
+     dev, not production: platform.metatron.id has a fresh, intentionally
+     empty database pre-launch, so there's nothing to log into there yet.
+  2. Free founder — Pinata reachability + profile (14-day deck trial) [dev]
+  3. Basic founder — subscription plan + permanent deck [dev]
+  3b. Pro founder — subscription plan = pro + is_pro flag [dev]
+  4. Investor — role + profile [dev]
   5. IMAP scan (last 36h from metatron.id)
   6. Email cadence compliance (7-day, 1-day, expired)
   7. Weekly matches cron (founders + investors)
-  8. Kevin chat — Moderate tier (Hermes 4 70B, falls back to Haiku)
-  9. Kevin chat — Complex/DeepComplex tier (Kimi K3, falls back to Sonnet/Opus)
+  8. Kevin chat — Moderate tier (Hermes 4 70B, falls back to Haiku) [dev]
+  9. Kevin chat — Complex/DeepComplex tier (Kimi K3, falls back to Sonnet/Opus) [dev]
   10. kevin-learning cron endpoint reachable + secret-enforced (doesn't trigger
       a real run daily — that's a real LLM synthesis job, already scheduled
-      weekly via its own crontab entry; this just confirms the route is alive)
+      weekly via its own crontab entry; this just confirms the route is alive).
+      Runs against production (BACKEND_URL) — with the account checks moved to
+      dev, this is the check that actually confirms production is up and
+      enforcing auth correctly.
   11. Subscriber counts per role/tier + Kevin chat model usage per tier
-      (last 7 days) — informational, not a pass/fail check
+      (last 7 days) — informational, not a pass/fail check. Production —
+      will read empty/zero until platform.metatron.id has real users.
   12. Telegram bot (kevin-bot.service) health — systemd active state +
       recent journald error count. Local-only, doesn't call Telegram's API.
   13. Email bounce report (last 7 days) — bounce counts by email type and
@@ -29,10 +36,9 @@ Current checks:
   14. Dev tier assignments — logs into all 7 dev test accounts (founder/
       founderbasic/founderpro/investor/investorbasic/investorpro/connector)
       and verifies is_basic/is_pro match what each account's name promises.
-      Runs against dev (port 4001), not production — see DEV_BACKEND_URL.
   15. Dev Call Intelligence gating — free tier must get 403, basic/pro must
-      get 200. Also dev-only; this is the exact bug fixed in the 2026-07-28
-      subscription audit (a legacy investor bypass let free investors in).
+      get 200. This is the exact bug fixed in the 2026-07-28 subscription
+      audit (a legacy investor bypass let free investors in).
 
 Not covered here: the proactive high-value-match notification (fires once
 per match the first time it crosses the score threshold, so it isn't a good
@@ -42,21 +48,21 @@ matches — verify that one manually if it's ever suspect).
 Setup on KVM2:
   1. Copy to /root/e2e_monitor.py
   2. Add to crontab: 0 8 * * * . /root/.env && /usr/bin/python3 /root/e2e_monitor.py >> /root/e2e_monitor.log 2>&1
-  3. Ensure /root/.env exports: GMAIL_APP_PASSWORD, TEST_PASSWORD, CRON_SECRET
+  3. Ensure /root/.env exports: GMAIL_APP_PASSWORD, CRON_SECRET
      (PINATA_GATEWAY, BACKEND_URL, PLATFORM_URL have sensible defaults)
 
 Required env vars:
   GMAIL_APP_PASSWORD  — Gmail app password for kevin.metatron.testing@gmail.com
-  TEST_PASSWORD       — Shared platform password for all three test accounts
   CRON_SECRET         — Bearer token for /api/cron/* endpoints (from Vercel env)
   PINATA_GATEWAY      — Pinata gateway hostname (default: gateway.pinata.cloud)
-  BACKEND_URL         — Backend API base URL (default: http://localhost:4000)
+  BACKEND_URL         — Backend API base URL, production (default: http://localhost:4000)
   FRONTEND_URL        — Vercel frontend URL for cron endpoints (default: https://platform.metatron.id)
 
-Dev-environment checks (14-15) don't use the env vars above -- dev has its
-own database with its own TEST_PASSWORD, so those checks read it straight
-out of /root/.env.dev (DEV_ENV_FILE) rather than requiring the crontab to
-source a second env file. DEV_BACKEND_URL defaults to http://localhost:4001.
+Dev-environment checks (1-4, 8-9, 14-15) don't use TEST_PASSWORD from the
+shell-sourced env at all -- dev has its own database with its own password,
+so those checks read it straight out of /root/.env.dev (DEV_ENV_FILE) rather
+than requiring the crontab to source a second env file. DEV_BACKEND_URL
+defaults to http://localhost:4001.
 """
 
 import os
@@ -73,18 +79,10 @@ from email.utils import parsedate_to_datetime
 # ── CONFIG ────────────────────────────────────────────────────────────────────
 PINATA_GATEWAY     = os.environ.get("PINATA_GATEWAY", "gateway.pinata.cloud")
 BACKEND_URL        = os.environ.get("BACKEND_URL", "http://localhost:4000")
-TEST_PASSWORD      = os.environ["TEST_PASSWORD"]
 CRON_SECRET        = os.environ["CRON_SECRET"]
 GMAIL_USER         = "kevin.metatron.testing@gmail.com"
 GMAIL_APP_PASSWORD = os.environ["GMAIL_APP_PASSWORD"]
 REPORT_TO          = "nick.allison@metatrondao.io"
-
-ACCOUNTS = {
-    "founder":      "kevin.metatron.testing+founder@gmail.com",
-    "founderbasic": "kevin.metatron.testing+founderbasic@gmail.com",
-    "founderpro":   "kevin.metatron.testing+founderpro@gmail.com",
-    "investor":     "kevin.metatron.testing+investor@gmail.com",
-}
 
 # Dev environment (separate database + backend, port 4001) — the tier-gating
 # fixes and Investor Pro tier from the 2026-07-28 subscription-engine audit
@@ -139,16 +137,6 @@ def pinata_url(cid):
     return f"{gateway}/ipfs/{cid}"
 
 
-def get_jwt(email):
-    r = requests.post(
-        f"{BACKEND_URL}/auth/login",
-        json={"email": email, "password": TEST_PASSWORD},
-        timeout=10,
-    )
-    r.raise_for_status()
-    return r.json()["token"]
-
-
 def get_dev_jwt(email):
     r = requests.post(
         f"{DEV_BACKEND_URL}/auth/login",
@@ -167,9 +155,9 @@ def check_pinata(cid):
         return None, str(e)
 
 
-def check_profile(jwt):
+def check_profile(jwt, base_url=None):
     r = requests.get(
-        f"{BACKEND_URL}/profile",
+        f"{base_url or BACKEND_URL}/profile",
         headers={"Authorization": f"Bearer {jwt}"},
         timeout=10,
     )
@@ -177,9 +165,9 @@ def check_profile(jwt):
     return r.json()
 
 
-def check_subscription(jwt):
+def check_subscription(jwt, base_url=None):
     r = requests.get(
-        f"{BACKEND_URL}/subscriptions/status",
+        f"{base_url or BACKEND_URL}/subscriptions/status",
         headers={"Authorization": f"Bearer {jwt}"},
         timeout=10,
     )
@@ -187,7 +175,7 @@ def check_subscription(jwt):
     return r.json()
 
 
-def check_kevin_chat(jwt, message, timeout=60):
+def check_kevin_chat(jwt, message, timeout=60, base_url=None):
     """
     Round-trips a message through /kevin/chat and returns the reply text.
     Doesn't distinguish which model tier actually answered (Hermes/Kimi vs.
@@ -197,7 +185,7 @@ def check_kevin_chat(jwt, message, timeout=60):
     loop, provider call) is healthy enough to produce a real reply.
     """
     r = requests.post(
-        f"{BACKEND_URL}/kevin/chat",
+        f"{base_url or BACKEND_URL}/kevin/chat",
         json={"messages": [{"role": "user", "content": message}], "session_id": None},
         headers={"Authorization": f"Bearer {jwt}"},
         timeout=timeout,
@@ -271,9 +259,9 @@ def fetch_bounce_report(days=7):
     return r.json()
 
 
-def check_investor_profile(jwt):
+def check_investor_profile(jwt, base_url=None):
     r = requests.get(
-        f"{BACKEND_URL}/investor-profile",
+        f"{base_url or BACKEND_URL}/investor-profile",
         headers={"Authorization": f"Bearer {jwt}"},
         timeout=10,
     )
@@ -387,15 +375,23 @@ def main():
     lines.append("")
 
     # ── Check 1: Account logins ───────────────────────────────────────────────
-    lines.append("## Check 1 — Account logins")
+    # Runs against dev (DEV_BACKEND_URL), not production -- platform.metatron.id
+    # has a fresh, intentionally-empty database pre-launch, so there are no
+    # test accounts to log into there yet. All feature-dependent checks below
+    # (2-4, 8-9) follow suit for the same reason.
+    lines.append("## Check 1 — Account logins (dev)")
     jwts = {}
-    for key, email in ACCOUNTS.items():
-        try:
-            jwts[key] = get_jwt(email)
-            lines.append(f"- {key} ({email}): ✓ login OK")
-        except Exception as e:
-            lines.append(f"- {key} ({email}): ⚠ DRIFT — login failed: {e}")
-            drifts.append(f"{key} login failed: {e}")
+    if not DEV_TEST_PASSWORD:
+        lines.append(f"- ⚠ DRIFT — could not read TEST_PASSWORD from {DEV_ENV_FILE}")
+        drifts.append(f"could not read dev TEST_PASSWORD from {DEV_ENV_FILE}")
+    else:
+        for key, (email, _expected_tier) in DEV_ACCOUNTS.items():
+            try:
+                jwts[key] = get_dev_jwt(email)
+                lines.append(f"- {key} ({email}): ✓ login OK")
+            except Exception as e:
+                lines.append(f"- {key} ({email}): ⚠ DRIFT — login failed: {e}")
+                drifts.append(f"{key} login failed: {e}")
     lines.append("")
 
     # ── Check 2: Free founder — Pinata + profile ──────────────────────────────
@@ -404,7 +400,7 @@ def main():
     days_since = 0
     if "founder" in jwts:
         try:
-            founder_profile = check_profile(jwts["founder"])
+            founder_profile = check_profile(jwts["founder"], base_url=DEV_BACKEND_URL)
             deck_url     = founder_profile.get("pitch_deck_url", "—")
             deck_expires = founder_profile.get("deck_expires_at", "—")
             deck_count   = founder_profile.get("deck_upload_count", "—")
@@ -461,7 +457,7 @@ def main():
     lines.append("## Check 3 — Basic founder: subscription + permanent deck")
     if "founderbasic" in jwts:
         try:
-            sub = check_subscription(jwts["founderbasic"])
+            sub = check_subscription(jwts["founderbasic"], base_url=DEV_BACKEND_URL)
             plan = sub.get("subscription_tier") or sub.get("subscription_plan", "—")
             lines.append(f"- subscription_plan: {plan}")
             if plan != "basic":
@@ -472,7 +468,7 @@ def main():
             drifts.append(f"founderbasic subscription failed: {e}")
 
         try:
-            bp = check_profile(jwts["founderbasic"])
+            bp = check_profile(jwts["founderbasic"], base_url=DEV_BACKEND_URL)
             b_expires = bp.get("deck_expires_at")
             b_vis     = bp.get("ipfs_visibility", "—")
             lines.append(f"- deck_expires_at: {b_expires} (should be null)")
@@ -494,7 +490,7 @@ def main():
     lines.append("## Check 3b — Pro founder: subscription plan = pro")
     if "founderpro" in jwts:
         try:
-            sub = check_subscription(jwts["founderpro"])
+            sub = check_subscription(jwts["founderpro"], base_url=DEV_BACKEND_URL)
             plan = sub.get("subscription_tier") or sub.get("subscription_plan", "—")
             lines.append(f"- subscription_plan: {plan}")
             if plan != "pro":
@@ -505,7 +501,7 @@ def main():
             drifts.append(f"founderpro subscription failed: {e}")
 
         try:
-            pp = check_profile(jwts["founderpro"])
+            pp = check_profile(jwts["founderpro"], base_url=DEV_BACKEND_URL)
             p_expires = pp.get("deck_expires_at")
             lines.append(f"- deck_expires_at: {p_expires} (should be null)")
             if p_expires:
@@ -522,7 +518,7 @@ def main():
     lines.append("## Check 4 — Investor: profile")
     if "investor" in jwts:
         try:
-            ip = check_investor_profile(jwts["investor"])
+            ip = check_investor_profile(jwts["investor"], base_url=DEV_BACKEND_URL)
             sectors = ip.get("sectors", "—")
             stages  = ip.get("stages", "—")
             lines.append(f"- sectors: {sectors}")
@@ -609,6 +605,7 @@ def main():
                 jwts["founderpro"],
                 "What is the typical timeline for a seed-stage fintech startup to "
                 "close a funding round after first meeting investors?",
+                base_url=DEV_BACKEND_URL,
             )
             if reply.strip():
                 lines.append(f"- reply received ({len(reply)} chars): ✓")
@@ -638,6 +635,7 @@ def main():
                 "through to a signed term sheet? And finally, what are the most common "
                 "reasons seed-stage fintech deals tend to fall through during diligence?",
                 timeout=90,
+                base_url=DEV_BACKEND_URL,
             )
             if reply.strip():
                 lines.append(f"- reply received ({len(reply)} chars): ✓")

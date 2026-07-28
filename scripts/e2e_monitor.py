@@ -372,6 +372,12 @@ def main():
     drifts = []
 
     lines.append(f"# {now_utc.strftime('%Y-%m-%d %H:%M')} UTC")
+    lines.append(
+        "[DEV] = dev.metatron.id backend (port 4001, its own database) · "
+        "[PRODUCTION] = platform.metatron.id backend (port 4000) · "
+        "[SHARED] = same check regardless of environment (IMAP inbox scan) — "
+        "see the end of each check title."
+    )
     lines.append("")
 
     # ── Check 1: Account logins ───────────────────────────────────────────────
@@ -379,7 +385,7 @@ def main():
     # has a fresh, intentionally-empty database pre-launch, so there are no
     # test accounts to log into there yet. All feature-dependent checks below
     # (2-4, 8-9) follow suit for the same reason.
-    lines.append("## Check 1 — Account logins (dev)")
+    lines.append("## Check 1 — Account logins [DEV]")
     jwts = {}
     if not DEV_TEST_PASSWORD:
         lines.append(f"- ⚠ DRIFT — could not read TEST_PASSWORD from {DEV_ENV_FILE}")
@@ -395,7 +401,7 @@ def main():
     lines.append("")
 
     # ── Check 2: Free founder — Pinata + profile ──────────────────────────────
-    lines.append("## Check 2 — Free founder: Pinata reachability + profile")
+    lines.append("## Check 2 — Free founder: Pinata reachability + profile [DEV]")
     founder_profile = {}
     days_since = 0
     if "founder" in jwts:
@@ -454,7 +460,7 @@ def main():
     lines.append("")
 
     # ── Check 3: Basic founder — subscription + deck permanence ───────────────
-    lines.append("## Check 3 — Basic founder: subscription + permanent deck")
+    lines.append("## Check 3 — Basic founder: subscription + permanent deck [DEV]")
     if "founderbasic" in jwts:
         try:
             sub = check_subscription(jwts["founderbasic"], base_url=DEV_BACKEND_URL)
@@ -487,7 +493,7 @@ def main():
     lines.append("")
 
     # ── Check 3b: Pro founder — subscription plan = pro ──────────────────────
-    lines.append("## Check 3b — Pro founder: subscription plan = pro")
+    lines.append("## Check 3b — Pro founder: subscription plan = pro [DEV]")
     if "founderpro" in jwts:
         try:
             sub = check_subscription(jwts["founderpro"], base_url=DEV_BACKEND_URL)
@@ -515,7 +521,7 @@ def main():
     lines.append("")
 
     # ── Check 4: Investor — investor-profile endpoint ─────────────────────────
-    lines.append("## Check 4 — Investor: profile")
+    lines.append("## Check 4 — Investor: profile [DEV]")
     if "investor" in jwts:
         try:
             ip = check_investor_profile(jwts["investor"], base_url=DEV_BACKEND_URL)
@@ -533,7 +539,7 @@ def main():
     lines.append("")
 
     # ── Check 5: IMAP scan (last 36h) ────────────────────────────────────────
-    lines.append("## Check 5 — IMAP scan for metatron.id mail (last 36h)")
+    lines.append("## Check 5 — IMAP scan for metatron.id mail (last 36h) [SHARED — reflects dev]")
     try:
         recent = imap_fetch(36)
         metatron = [m for m in recent if "metatron.id" in m.get("from", "")]
@@ -548,7 +554,7 @@ def main():
     lines.append("")
 
     # ── Check 6: Email cadence compliance (free founder) ─────────────────────
-    lines.append("## Check 6 — Email cadence compliance (free founder, last 36h)")
+    lines.append("## Check 6 — Email cadence compliance (free founder, last 36h) [SHARED — reflects dev]")
     cadence = {
         "expires in 7 days":  (7, 13),
         "goes dark tomorrow": (13, 20),
@@ -582,7 +588,7 @@ def main():
     # ── Check 7: Weekly matches email ────────────────────────────────────────
     # Vercel blocks external calls to cron routes — verified by IMAP instead.
     # Cron fires Tuesdays 09:00 UTC via vercel.json schedule.
-    lines.append("## Check 7 — Weekly matches email (IMAP, last 8 days)")
+    lines.append("## Check 7 — Weekly matches email (IMAP, last 8 days) [SHARED — reflects dev]")
     try:
         recent_week = imap_fetch(8 * 24)
         weekly_seen = any(
@@ -598,7 +604,7 @@ def main():
     lines.append("")
 
     # ── Check 8: Kevin chat — Moderate tier (Hermes 4 70B) ───────────────────
-    lines.append("## Check 8 — Kevin chat, Moderate tier (Hermes 4 70B → Haiku fallback)")
+    lines.append("## Check 8 — Kevin chat, Moderate tier (Hermes 4 70B → Haiku fallback) [DEV]")
     if "founderpro" in jwts:
         try:
             reply = check_kevin_chat(
@@ -620,7 +626,7 @@ def main():
     lines.append("")
 
     # ── Check 9: Kevin chat — Complex/DeepComplex tier (Kimi K3) ─────────────
-    lines.append("## Check 9 — Kevin chat, DeepComplex tier (Kimi K3 → Sonnet/Opus fallback)")
+    lines.append("## Check 9 — Kevin chat, DeepComplex tier (Kimi K3 → Sonnet/Opus fallback) [DEV]")
     if "founderpro" in jwts:
         try:
             reply = check_kevin_chat(
@@ -650,7 +656,7 @@ def main():
     lines.append("")
 
     # ── Check 10: kevin-learning cron endpoint reachable + secured ───────────
-    lines.append("## Check 10 — kevin-learning cron endpoint (reachability + auth only)")
+    lines.append("## Check 10 — kevin-learning cron endpoint (reachability + auth only) [PRODUCTION]")
     try:
         status = check_kevin_learning_endpoint_secured()
         if status == 401:
@@ -665,7 +671,7 @@ def main():
 
     # ── Check 11: subscriber + model usage report ────────────────────────────
     # Informational, not pass/fail — only the request itself can DRIFT.
-    lines.append("## Check 11 — Subscribers per tier + model usage (last 7 days)")
+    lines.append("## Check 11 — Subscribers per tier + model usage (last 7 days) [PRODUCTION]")
     try:
         report = fetch_usage_report()
 
@@ -715,7 +721,7 @@ def main():
     lines.append("")
 
     # ── Check 12: Telegram bot service health ───────────────────────────────
-    lines.append("## Check 12 — Telegram bot (kevin-bot.service) health")
+    lines.append("## Check 12 — Telegram bot (kevin-bot.service) health [PRODUCTION — KVM2 local]")
     try:
         active, log_line_count, error_lines = check_telegram_bot_health()
         if active != "active":
@@ -741,7 +747,7 @@ def main():
     lines.append("")
 
     # ── Check 13: Email bounce report (last 7 days) ───────────────────────────
-    lines.append("## Check 13 — Email bounces + plaintext retries (last 7 days)")
+    lines.append("## Check 13 — Email bounces + plaintext retries (last 7 days) [PRODUCTION]")
     try:
         bounce_rows = fetch_bounce_report(days=7)
         if not bounce_rows:
@@ -765,7 +771,7 @@ def main():
     # Runs against DEV_BACKEND_URL (port 4001), not BACKEND_URL -- these
     # accounts and fixes only exist on dev, not production, as of this check
     # being added.
-    lines.append("## Check 14 — Dev tier assignments (founder/investor free-basic-pro ladder)")
+    lines.append("## Check 14 — Dev tier assignments (founder/investor free-basic-pro ladder) [DEV]")
     if not DEV_TEST_PASSWORD:
         lines.append(f"- ⚠ skipped — could not read TEST_PASSWORD from {DEV_ENV_FILE}")
     else:
@@ -786,7 +792,7 @@ def main():
     lines.append("")
 
     # ── Check 15: Dev Call Intelligence tier gating ─────────────────────────────
-    lines.append("## Check 15 — Dev Call Intelligence gating (free=403, basic/pro=200)")
+    lines.append("## Check 15 — Dev Call Intelligence gating (free=403, basic/pro=200) [DEV]")
     if not DEV_TEST_PASSWORD:
         lines.append(f"- ⚠ skipped — could not read TEST_PASSWORD from {DEV_ENV_FILE}")
     else:
@@ -806,6 +812,10 @@ def main():
     # ── Summary ───────────────────────────────────────────────────────────────
     tag = "DRIFT" if drifts else "OK"
     lines.append(f"## Summary: {tag}")
+    lines.append(
+        "(9 checks on [DEV]: 1,2,3,3b,4,8,9,14,15 · 4 on [PRODUCTION]: 10,11,12,13 · "
+        "3 [SHARED]: 5,6,7)"
+    )
     if drifts:
         for d in drifts:
             lines.append(f"- ⚠ {d}")

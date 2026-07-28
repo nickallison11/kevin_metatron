@@ -592,6 +592,23 @@ pub fn pro_activated_email_html(plan_name: &str, period_end: &str, amount_paid: 
     )
 }
 
+pub fn subscription_activated_email_html(plan_name: &str, period_end: &str, amount_paid: &str) -> String {
+    shell_html(
+        &format!("{plan_name} activated"),
+        &format!(
+            r#"
+<p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">Thank you for subscribing to <strong>{plan_name}</strong>. Your subscription is now active.</p>
+<p style="margin:0 0 6px 0;font-size:13px;color:#8888a0;">Subscription details:</p>
+<p style="margin:0 0 0 0;font-size:13px;color:#e8e8ed;">Period end: {period_end}<br/>Amount paid: {amount_paid}</p>
+<p style="margin:14px 0 0 0;font-size:14px;">
+  <a href="https://platform.metatron.id" style="color:#6c5ce7;text-decoration:none;">Open platform</a> ·
+  <a href="mailto:support@metatron.id" style="color:#6c5ce7;text-decoration:none;">Support</a>
+</p>
+"#
+        ),
+    )
+}
+
 pub fn subscription_invoice_email_html(
     plan_name: &str,
     period_start: &str,

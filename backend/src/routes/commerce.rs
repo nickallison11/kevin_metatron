@@ -137,7 +137,8 @@ async fn create_subscription(
         "plan": plan_code,
         "reference": reference,
         "callback_url": format!(
-            "https://platform.metatron.id/pricing?success=1&reference={}&redirect={}",
+            "{}/pricing?success=1&reference={}&redirect={}",
+            state.frontend_url,
             reference,
             urlencoding::encode("/startup/settings/subscription")
         ),
@@ -751,6 +752,16 @@ async fn verify_payment(
     let (amount_paid, invoice_amount) = amounts_for_billing_and_level(&tier_lower, &plan_level, pay_currency);
     let plan_name = if plan_level == "pro" { "Founder Pro" } else { "Founder Basic" };
 
+    let customer_code = data.get("customer").and_then(|c| c.get("customer_code")).and_then(|v| v.as_str()).unwrap_or("");
+    let authorization_code = data.get("authorization").and_then(|a| a.get("authorization_code")).and_then(|v| v.as_str()).unwrap_or("");
+    let plan_code = match (plan_level.as_str(), tier_lower.as_str()) {
+        ("pro", "annual") => state.paystack_plan_pro_annual.as_str(),
+        ("pro", _) => state.paystack_plan_pro_monthly.as_str(),
+        (_, "annual") => state.paystack_plan_basic_annual.as_str(),
+        _ => state.paystack_plan_basic_monthly.as_str(),
+    };
+    create_paystack_subscription(&state, customer_code, plan_code, authorization_code).await;
+
     finalize_pro_subscription(
         &state,
         user_id,
@@ -901,6 +912,14 @@ async fn verify_connector_payment(
         ));
     }
 
+    let customer_code = data.get("customer").and_then(|c| c.get("customer_code")).and_then(|v| v.as_str()).unwrap_or("");
+    let authorization_code = data.get("authorization").and_then(|a| a.get("authorization_code")).and_then(|v| v.as_str()).unwrap_or("");
+    let plan_code = match billing.as_str() {
+        "annual" => state.paystack_connector_plan_basic_annual.as_str(),
+        _ => state.paystack_connector_plan_basic_monthly.as_str(),
+    };
+    create_paystack_subscription(&state, customer_code, plan_code, authorization_code).await;
+
     let (_, invoice_amount) = zar_amounts_for_billing(billing.as_str());
     finalize_connector_subscription(
         &state,
@@ -1034,6 +1053,14 @@ async fn verify_investor_payment(
     }
     let billing = metadata.get("billing").and_then(|b| b.as_str()).unwrap_or("monthly").to_ascii_lowercase();
 
+    let customer_code = data.get("customer").and_then(|c| c.get("customer_code")).and_then(|v| v.as_str()).unwrap_or("");
+    let authorization_code = data.get("authorization").and_then(|a| a.get("authorization_code")).and_then(|v| v.as_str()).unwrap_or("");
+    let plan_code = match billing.as_str() {
+        "annual" => state.paystack_investor_plan_basic_annual.as_str(),
+        _ => state.paystack_investor_plan_basic_monthly.as_str(),
+    };
+    create_paystack_subscription(&state, customer_code, plan_code, authorization_code).await;
+
     let (_, invoice_amount) = zar_amounts_for_billing(billing.as_str());
     finalize_investor_subscription(
         &state,
@@ -1046,6 +1073,61 @@ async fn verify_investor_payment(
     )
     .await?;
     Ok(Json(VerifyResponse { status: "active" }))
+}
+
+/// Paystack does NOT auto-create a Subscription object from `/transaction/initialize`
+/// even when `plan` is passed alongside `amount` on this integration -- confirmed by
+/// three real test-mode charges all completing successfully with an empty `plan`/
+/// `subscription` on the resulting transaction. `POST /subscription` (customer + plan +
+/// authorization) is the one call that actually creates it, so without this, no
+/// checkout -- on any environment -- was ever wired up for real recurring billing;
+/// every subsequent "renewal" would have required someone to notice and manually
+/// re-run checkout. Call this once, right after the first successful charge for a
+/// brand-new subscriber (never from the renewal path -- a renewal firing means a real
+/// Subscription already exists, so creating another here would just duplicate it).
+async fn create_paystack_subscription(
+    state: &AppState,
+    customer_code: &str,
+    plan_code: &str,
+    authorization_code: &str,
+) {
+    let Some(secret) = state.paystack_secret_key.as_deref().filter(|s| !s.is_empty()) else {
+        return;
+    };
+    if customer_code.is_empty() || plan_code.is_empty() || authorization_code.is_empty() {
+        tracing::warn!(
+            "paystack: skipping subscription creation, missing field(s) (customer={customer_code:?} plan={plan_code:?} auth_present={})",
+            !authorization_code.is_empty()
+        );
+        return;
+    }
+
+    let res = state
+        .http_client
+        .post("https://api.paystack.co/subscription")
+        .header("Authorization", format!("Bearer {secret}"))
+        .header("Content-Type", "application/json")
+        .json(&json!({
+            "customer": customer_code,
+            "plan": plan_code,
+            "authorization": authorization_code,
+        }))
+        .send()
+        .await;
+
+    match res {
+        Ok(r) if r.status().is_success() => {
+            tracing::info!("paystack: subscription created for customer {customer_code} plan {plan_code}");
+        }
+        Ok(r) => {
+            let status = r.status();
+            let body = r.text().await.unwrap_or_default();
+            tracing::error!("paystack: subscription creation failed for customer {customer_code} ({status}): {body}");
+        }
+        Err(e) => {
+            tracing::error!("paystack: subscription creation request failed for customer {customer_code}: {e}");
+        }
+    }
 }
 
 async fn store_paystack_subscription_if_present(
@@ -1175,6 +1257,20 @@ async fn finalize_from_paystack_data(
         return Ok(());
     }
 
+    // First-purchase charge.success always carries these (a renewal firing from
+    // Paystack's own billing cycle takes the handle_invoice_payment_success path
+    // instead, where a Subscription already exists -- never create one there).
+    let customer_code = data
+        .get("customer")
+        .and_then(|c| c.get("customer_code"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let authorization_code = data
+        .get("authorization")
+        .and_then(|a| a.get("authorization_code"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
     // Route connector payments separately
     let tier_str = metadata.get("tier").and_then(|t| t.as_str()).unwrap_or("");
     if tier_str.eq_ignore_ascii_case("investor_basic") {
@@ -1182,6 +1278,11 @@ async fn finalize_from_paystack_data(
             .get("billing")
             .and_then(|b| b.as_str())
             .unwrap_or("monthly");
+        let plan_code = match billing {
+            "annual" => state.paystack_investor_plan_basic_annual.as_str(),
+            _ => state.paystack_investor_plan_basic_monthly.as_str(),
+        };
+        create_paystack_subscription(state, customer_code, plan_code, authorization_code).await;
         let (_, invoice_amount) = zar_amounts_for_billing(billing);
         return finalize_investor_subscription(
             state,
@@ -1200,6 +1301,11 @@ async fn finalize_from_paystack_data(
             .get("billing")
             .and_then(|b| b.as_str())
             .unwrap_or("monthly");
+        let plan_code = match billing {
+            "annual" => state.paystack_connector_plan_basic_annual.as_str(),
+            _ => state.paystack_connector_plan_basic_monthly.as_str(),
+        };
+        create_paystack_subscription(state, customer_code, plan_code, authorization_code).await;
         let (_, invoice_amount) = zar_amounts_for_billing(billing);
         return finalize_connector_subscription(
             state,
@@ -1223,6 +1329,14 @@ async fn finalize_from_paystack_data(
 
     let (amount_paid, invoice_amount) = amounts_for_billing_and_level(&tier_lower, &plan_level, pay_currency);
     let plan_name = if plan_level == "pro" { "Founder Pro" } else { "Founder Basic" };
+
+    let plan_code = match (plan_level.as_str(), tier_lower.as_str()) {
+        ("pro", "annual") => state.paystack_plan_pro_annual.as_str(),
+        ("pro", _) => state.paystack_plan_pro_monthly.as_str(),
+        (_, "annual") => state.paystack_plan_basic_annual.as_str(),
+        _ => state.paystack_plan_basic_monthly.as_str(),
+    };
+    create_paystack_subscription(state, customer_code, plan_code, authorization_code).await;
 
     finalize_pro_subscription(
         state,

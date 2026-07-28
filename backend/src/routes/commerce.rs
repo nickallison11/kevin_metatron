@@ -825,6 +825,19 @@ async fn verify_payment(
     let (amount_paid, invoice_amount) = amounts_for_billing_and_level(&tier_lower, &plan_level, pay_currency);
     let plan_name = if plan_level == "pro" { "Founder Pro" } else { "Founder Basic" };
 
+    // A prior founder invoice means this user already has a real Paystack
+    // Subscription object -- creating another here would double-bill them
+    // going forward (this is what verify_investor_payment was missing, which
+    // caused a live duplicate-subscription incident during testing).
+    let had_prior_invoice: bool = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*)::bigint FROM subscription_invoices WHERE user_id = $1 AND tier LIKE 'founder_%'",
+    )
+    .bind(user_id)
+    .fetch_one(&state.db)
+    .await
+    .map(|c| c > 0)
+    .unwrap_or(false);
+
     let customer_code = data.get("customer").and_then(|c| c.get("customer_code")).and_then(|v| v.as_str()).unwrap_or("");
     let authorization_code = data.get("authorization").and_then(|a| a.get("authorization_code")).and_then(|v| v.as_str()).unwrap_or("");
     let plan_code = match (plan_level.as_str(), tier_lower.as_str()) {
@@ -833,7 +846,9 @@ async fn verify_payment(
         (_, "annual") => state.paystack_plan_basic_annual.as_str(),
         _ => state.paystack_plan_basic_monthly.as_str(),
     };
-    create_paystack_subscription(&state, customer_code, plan_code, authorization_code).await;
+    if !had_prior_invoice {
+        create_paystack_subscription(&state, customer_code, plan_code, authorization_code).await;
+    }
 
     finalize_pro_subscription(
         &state,
@@ -985,13 +1000,26 @@ async fn verify_connector_payment(
         ));
     }
 
+    // A prior connector invoice means this user already has a real Paystack
+    // Subscription object -- creating another here would double-bill them.
+    let had_prior_invoice: bool = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*)::bigint FROM subscription_invoices WHERE user_id = $1 AND tier LIKE 'connector_%'",
+    )
+    .bind(user_id)
+    .fetch_one(&state.db)
+    .await
+    .map(|c| c > 0)
+    .unwrap_or(false);
+
     let customer_code = data.get("customer").and_then(|c| c.get("customer_code")).and_then(|v| v.as_str()).unwrap_or("");
     let authorization_code = data.get("authorization").and_then(|a| a.get("authorization_code")).and_then(|v| v.as_str()).unwrap_or("");
     let plan_code = match billing.as_str() {
         "annual" => state.paystack_connector_plan_basic_annual.as_str(),
         _ => state.paystack_connector_plan_basic_monthly.as_str(),
     };
-    create_paystack_subscription(&state, customer_code, plan_code, authorization_code).await;
+    if !had_prior_invoice {
+        create_paystack_subscription(&state, customer_code, plan_code, authorization_code).await;
+    }
 
     let (_, invoice_amount) = zar_amounts_for_billing(billing.as_str());
     finalize_connector_subscription(
@@ -1148,7 +1176,23 @@ async fn verify_investor_payment(
         (_, "annual") => state.paystack_investor_plan_basic_annual.as_str(),
         _ => state.paystack_investor_plan_basic_monthly.as_str(),
     };
-    create_paystack_subscription(&state, customer_code, plan_code, authorization_code).await;
+
+    // A prior investor invoice means this user already has a real Paystack
+    // Subscription object -- creating another here would double-bill them.
+    // This was the actual bug: this call was unconditional before, so a
+    // repeat successful verify (e.g. re-subscribe, tier change) created a
+    // second live recurring subscription on top of the first.
+    let had_prior_invoice: bool = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*)::bigint FROM subscription_invoices WHERE user_id = $1 AND tier LIKE 'investor_%'",
+    )
+    .bind(user_id)
+    .fetch_one(&state.db)
+    .await
+    .map(|c| c > 0)
+    .unwrap_or(false);
+    if !had_prior_invoice {
+        create_paystack_subscription(&state, customer_code, plan_code, authorization_code).await;
+    }
 
     let (_, invoice_amount) = amounts_for_billing_and_level(&billing, plan_level, "ZAR");
     finalize_investor_subscription(

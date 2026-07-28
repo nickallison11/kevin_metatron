@@ -717,6 +717,7 @@ def parse_report_sections(lines):
     """
     dev, shared, production = [], [], []
     current = None
+    order = 0
 
     def bucket_for(tag):
         if tag.startswith("DEV"):
@@ -729,7 +730,8 @@ def parse_report_sections(lines):
         m = CHECK_HEADER_RE.match(line)
         if m:
             number, title, tag = m.groups()
-            current = {"number": number, "title": title, "tag": tag, "body": [], "status": "ok"}
+            current = {"number": number, "title": title, "tag": tag, "body": [], "status": "ok", "order": order}
+            order += 1
             bucket_for(tag).append(current)
             continue
         if line.startswith("## Summary"):
@@ -808,7 +810,7 @@ def render_html_report(now_utc, overall_tag, dev, shared, production):
     overall_ok = overall_tag == "OK"
     badge_bg = "#16a34a" if overall_ok else "#dc2626"
     badge_text = "ALL SYSTEMS OK" if overall_ok else "DRIFT DETECTED"
-    dev_and_shared = dev + shared
+    dev_and_shared = sorted(dev + shared, key=lambda c: c["order"])
 
     sections = "".join([
         _render_section(

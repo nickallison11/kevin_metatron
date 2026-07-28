@@ -43,6 +43,21 @@ fn internal(e: impl std::fmt::Display) -> (StatusCode, String) {
     )
 }
 
+/// Free tier sees the overall score + narrative reasoning only; Basic and Pro
+/// see the full team/market/traction/pitch sub-score breakdown. Gated on the
+/// viewer's own tier, not whichever founder's score is being viewed -- detail
+/// level is a perk of the viewer's subscription, same as everywhere else in
+/// the tier matrix.
+fn redact_breakdown_if_free(mut score: AngelScore, is_basic: bool, is_pro: bool) -> AngelScore {
+    if !is_basic && !is_pro {
+        score.team_score = None;
+        score.market_score = None;
+        score.traction_score = None;
+        score.pitch_score = None;
+    }
+    score
+}
+
 async fn get_own_score(
     State(state): State<Arc<AppState>>,
     TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
@@ -56,7 +71,7 @@ async fn get_own_score(
     .fetch_optional(&state.db)
     .await
     .map_err(internal)?;
-    Ok(Json(row))
+    Ok(Json(row.map(|s| redact_breakdown_if_free(s, user.is_basic, user.is_pro))))
 }
 
 async fn get_score_by_id(
@@ -64,7 +79,7 @@ async fn get_score_by_id(
     TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
     Path(user_id): Path<Uuid>,
 ) -> Result<Json<Option<AngelScore>>, (StatusCode, String)> {
-    let _user = require_user(&state, bearer.token()).await?;
+    let user = require_user(&state, bearer.token()).await?;
     let row = sqlx::query_as::<_, AngelScore>(
         "SELECT founder_user_id, score, team_score, market_score, traction_score, pitch_score, reasoning, generated_at \
          FROM angel_scores WHERE founder_user_id = $1",
@@ -73,7 +88,7 @@ async fn get_score_by_id(
     .fetch_optional(&state.db)
     .await
     .map_err(internal)?;
-    Ok(Json(row))
+    Ok(Json(row.map(|s| redact_breakdown_if_free(s, user.is_basic, user.is_pro))))
 }
 
 async fn generate_score(
@@ -97,7 +112,7 @@ async fn generate_score(
     .await
     .map_err(internal)?;
     if let Some(score) = existing {
-        return Ok(Json(score));
+        return Ok(Json(redact_breakdown_if_free(score, user.is_basic, user.is_pro)));
     }
 
     let gemini_key = std::env::var("GEMINI_API_KEY")
@@ -253,5 +268,5 @@ Return ONLY valid JSON, no markdown, no code fences:
     .await
     .map_err(internal)?;
 
-    Ok(Json(row))
+    Ok(Json(redact_breakdown_if_free(row, user.is_basic, user.is_pro)))
 }

@@ -47,6 +47,8 @@ pub struct AppState {
     pub paystack_connector_plan_basic_annual: String,
     pub paystack_investor_plan_basic_monthly: String,
     pub paystack_investor_plan_basic_annual: String,
+    pub paystack_investor_plan_pro_monthly: String,
+    pub paystack_investor_plan_pro_annual: String,
     pub paystack_plan_pro_monthly: String,
     pub paystack_plan_pro_annual: String,
     pub nowpayments_api_key: Option<String>,
@@ -136,6 +138,12 @@ impl AppState {
                 .clone(),
             paystack_investor_plan_basic_annual: settings
                 .paystack_investor_plan_basic_annual
+                .clone(),
+            paystack_investor_plan_pro_monthly: settings
+                .paystack_investor_plan_pro_monthly
+                .clone(),
+            paystack_investor_plan_pro_annual: settings
+                .paystack_investor_plan_pro_annual
                 .clone(),
             paystack_plan_pro_monthly: settings.paystack_plan_pro_monthly.clone(),
             paystack_plan_pro_annual: settings.paystack_plan_pro_annual.clone(),

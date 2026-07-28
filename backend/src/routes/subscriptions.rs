@@ -265,6 +265,7 @@ async fn confirm_subscription(
                 &state,
                 authed.id,
                 &tier,
+                "basic",
                 payment_method,
                 Some(sig),
                 "USD",

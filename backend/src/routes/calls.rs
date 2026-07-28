@@ -21,22 +21,13 @@ use crate::ai::{complete_json_object, mock_call_analysis_json};
 use crate::identity::{require_role, AuthedUser};
 use crate::state::AppState;
 
-async fn calls_access_allowed(state: &AppState, user: &AuthedUser) -> bool {
-    if user.is_pro || user.is_basic {
-        return true;
-    }
-    if user.role == "INVESTOR" {
-        return sqlx::query_scalar::<_, String>(
-            "SELECT investor_tier FROM investor_profiles WHERE user_id = $1",
-        )
-        .bind(user.id)
-        .fetch_optional(&state.db)
-        .await
-        .unwrap_or(None)
-        .map(|t| t == "basic")
-        .unwrap_or(false);
-    }
-    false
+/// Free tier (any role) never gets Call Intelligence -- is_pro/is_basic on
+/// `users` is the single source of truth. This used to also grant access to
+/// any investor whose (separate, redundant) investor_profiles.investor_tier
+/// column said "basic", which could let a genuinely free-tier investor in if
+/// that column ever drifted from the real subscription state.
+async fn calls_access_allowed(_state: &AppState, user: &AuthedUser) -> bool {
+    user.is_pro || user.is_basic
 }
 
 const MAX_AUDIO_BYTES: usize = 80 * 1024 * 1024;

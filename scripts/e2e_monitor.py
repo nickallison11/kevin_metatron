@@ -24,15 +24,18 @@ Current checks:
       Runs against production (BACKEND_URL) — with the account checks moved to
       dev, this is the check that actually confirms production is up and
       enforcing auth correctly.
-  11. Subscriber counts per role/tier + Kevin chat model usage per tier
-      (last 7 days) — informational, not a pass/fail check. Production —
-      will read empty/zero until platform.metatron.id has real users.
+  11a/11b. Subscriber counts per role/tier + Kevin chat model usage per tier
+      (last 7 days) — informational, not a pass/fail check. Shown for dev
+      (11a) and production (11b) separately, side by side, rather than only
+      ever reflecting one environment — production genuinely reads empty/
+      zero right now, dev has real numbers from actual testing.
   12. Telegram bot (kevin-bot.service) health — systemd active state +
       recent journald error count. Local-only, doesn't call Telegram's API.
-  13. Email bounce report (last 7 days) — bounce counts by email type and
-      Permanent/Transient classification, plus how many Transient bounces
-      were auto-retried as plaintext. Informational, but flags any Transient
-      bounce that's gone unretried (would indicate the retry path broke).
+      Production infra (the real bot) — not user-dependent.
+  13a/13b. Email bounce report (last 7 days) — bounce counts by email type
+      and Permanent/Transient classification, plus how many Transient
+      bounces were auto-retried as plaintext. Same dev/production split as
+      11a/11b, for the same reason.
   14. Dev tier assignments — logs into all 7 dev test accounts (founder/
       founderbasic/founderpro/investor/investorbasic/investorpro/connector)
       and verifies is_basic/is_pro match what each account's name promises.
@@ -58,11 +61,11 @@ Required env vars:
   BACKEND_URL         — Backend API base URL, production (default: http://localhost:4000)
   FRONTEND_URL        — Vercel frontend URL for cron endpoints (default: https://platform.metatron.id)
 
-Dev-environment checks (1-4, 8-9, 14-15) don't use TEST_PASSWORD from the
-shell-sourced env at all -- dev has its own database with its own password,
-so those checks read it straight out of /root/.env.dev (DEV_ENV_FILE) rather
-than requiring the crontab to source a second env file. DEV_BACKEND_URL
-defaults to http://localhost:4001.
+Dev-environment checks (1-4, 8-9, 11a, 13a, 14-15) don't use TEST_PASSWORD or
+CRON_SECRET from the shell-sourced env at all -- dev has its own database
+with its own credentials, so those checks read them straight out of
+/root/.env.dev (DEV_ENV_FILE) rather than requiring the crontab to source a
+second env file. DEV_BACKEND_URL defaults to http://localhost:4001.
 """
 
 import os
@@ -130,6 +133,7 @@ def read_env_file_value(path, key):
 
 
 DEV_TEST_PASSWORD = read_env_file_value(DEV_ENV_FILE, "TEST_PASSWORD")
+DEV_CRON_SECRET   = read_env_file_value(DEV_ENV_FILE, "CRON_SECRET")
 
 
 def pinata_url(cid):
@@ -233,32 +237,113 @@ def check_telegram_bot_health():
     return active, len(log_lines), error_lines
 
 
-def fetch_usage_report():
+def fetch_usage_report(base_url=None, cron_secret=None):
     """Subscriber counts per role+tier, Kevin chat model usage per tier, and
     platform-wide LLM spend by model/feature (last 7 days)."""
     r = requests.get(
-        f"{BACKEND_URL}/cron/usage-report",
-        headers={"x-cron-secret": CRON_SECRET},
+        f"{base_url or BACKEND_URL}/cron/usage-report",
+        headers={"x-cron-secret": cron_secret or CRON_SECRET},
         timeout=15,
     )
     r.raise_for_status()
     return r.json()
 
 
-def fetch_bounce_report(days=7):
+def render_usage_report_check(lines, drifts, number, tag, base_url, cron_secret):
+    """Shared body for Check 11 -- called once per environment so dev and
+    production always show their own real (or genuinely zero) numbers side
+    by side, instead of only ever reflecting whichever single BACKEND_URL
+    happened to be configured."""
+    lines.append(f"## Check {number} — Subscribers per tier + model usage (last 7 days) [{tag}]")
+    try:
+        report = fetch_usage_report(base_url=base_url, cron_secret=cron_secret)
+
+        lines.append("Subscribers by role/tier:")
+        by_role = {}
+        for row in report.get("subscriber_counts", []):
+            by_role.setdefault(row["role"], []).append((row["tier"], row["count"]))
+        if not by_role:
+            lines.append("- (no users yet)")
+        for role, tiers in sorted(by_role.items()):
+            total = sum(c for _, c in tiers)
+            tier_str = ", ".join(f"{t}={c}" for t, c in sorted(tiers))
+            lines.append(f"- {role} ({total} total): {tier_str}")
+
+        lines.append("")
+        lines.append("Kevin chat model usage by tier:")
+        by_tier = {}
+        for row in report.get("model_usage", []):
+            by_tier.setdefault(row["tier"], []).append((row["provider"], row["model"], row["count"]))
+        if not by_tier:
+            lines.append("- (no Kevin chat activity in the last 7 days)")
+        for tier, rows in sorted(by_tier.items()):
+            tier_total = sum(c for _, _, c in rows)
+            lines.append(f"- {tier} ({tier_total} replies):")
+            for provider, model, count in rows:
+                pct = (count / tier_total * 100) if tier_total else 0
+                lines.append(f"    {provider}/{model}: {count} ({pct:.0f}%)")
+
+        lines.append("")
+        lines.append("Platform-wide LLM spend by model (last 7 days):")
+        spend_by_model = report.get("spend_by_model", [])
+        model_total = sum(row["cost_usd"] for row in spend_by_model)
+        if not spend_by_model:
+            lines.append("- (no tracked spend in the last 7 days)")
+        for row in spend_by_model:
+            lines.append(f"- {row['provider']}/{row['model']}: ${row['cost_usd']:.4f}")
+        lines.append(f"- TOTAL: ${model_total:.4f}")
+
+        lines.append("")
+        lines.append("Platform-wide LLM spend by feature (last 7 days):")
+        spend_by_feature = report.get("spend_by_feature", [])
+        if not spend_by_feature:
+            lines.append("- (no tracked spend in the last 7 days)")
+        for row in spend_by_feature:
+            lines.append(f"- {row['feature']}: ${row['cost_usd']:.4f}")
+    except Exception as e:
+        lines.append(f"- ⚠ DRIFT — usage report request failed: {e}")
+        drifts.append(f"usage report ({tag}) failed: {e}")
+    lines.append("")
+
+
+def fetch_bounce_report(days=7, base_url=None, cron_secret=None):
     """Bounce counts per email type + bounce classification (Permanent/Transient),
     and how many of each were auto-retried as plaintext. Covers only email types
     sent via the backend's send_tracked_email helper (currently: high_value_match)
     — the weekly/monthly digest emails are sent directly from Next.js cron routes
     on a separate code path not yet wired into this tracking."""
     r = requests.get(
-        f"{BACKEND_URL}/api/founders/bounce-report",
-        headers={"x-cron-secret": CRON_SECRET},
+        f"{base_url or BACKEND_URL}/api/founders/bounce-report",
+        headers={"x-cron-secret": cron_secret or CRON_SECRET},
         params={"days": days},
         timeout=15,
     )
     r.raise_for_status()
     return r.json()
+
+
+def render_bounce_report_check(lines, drifts, number, tag, base_url, cron_secret):
+    """Shared body for Check 13, called once per environment for the same
+    reason as render_usage_report_check above."""
+    lines.append(f"## Check {number} — Email bounces + plaintext retries (last 7 days) [{tag}]")
+    try:
+        bounce_rows = fetch_bounce_report(days=7, base_url=base_url, cron_secret=cron_secret)
+        if not bounce_rows:
+            lines.append("- no bounces in the last 7 days")
+        else:
+            for row in bounce_rows:
+                btype = row.get("bounce_type") or "unknown"
+                count = row.get("count", 0)
+                resent = row.get("plaintext_resent_count", 0)
+                lines.append(
+                    f"- {row.get('email_type', '—')} / {btype}: {count} bounced, {resent} auto-retried as plaintext"
+                )
+                if btype.lower() == "transient" and resent < count:
+                    lines.append(f"    ⚠ {count - resent} transient bounce(s) not yet retried")
+    except Exception as e:
+        lines.append(f"- ⚠ DRIFT — bounce report fetch failed: {e}")
+        drifts.append(f"bounce report ({tag}) fetch failed: {e}")
+    lines.append("")
 
 
 def check_investor_profile(jwt, base_url=None):
@@ -828,56 +913,12 @@ def main():
         drifts.append(f"kevin-learning endpoint check failed: {e}")
     lines.append("")
 
-    # ── Check 11: subscriber + model usage report ────────────────────────────
-    # Informational, not pass/fail — only the request itself can DRIFT.
-    lines.append("## Check 11 — Subscribers per tier + model usage (last 7 days) [PRODUCTION]")
-    try:
-        report = fetch_usage_report()
-
-        lines.append("Subscribers by role/tier:")
-        by_role = {}
-        for row in report.get("subscriber_counts", []):
-            by_role.setdefault(row["role"], []).append((row["tier"], row["count"]))
-        for role, tiers in sorted(by_role.items()):
-            total = sum(c for _, c in tiers)
-            tier_str = ", ".join(f"{t}={c}" for t, c in sorted(tiers))
-            lines.append(f"- {role} ({total} total): {tier_str}")
-
-        lines.append("")
-        lines.append("Kevin chat model usage by tier:")
-        by_tier = {}
-        for row in report.get("model_usage", []):
-            by_tier.setdefault(row["tier"], []).append((row["provider"], row["model"], row["count"]))
-        if not by_tier:
-            lines.append("- (no Kevin chat activity in the last 7 days)")
-        for tier, rows in sorted(by_tier.items()):
-            tier_total = sum(c for _, _, c in rows)
-            lines.append(f"- {tier} ({tier_total} replies):")
-            for provider, model, count in rows:
-                pct = (count / tier_total * 100) if tier_total else 0
-                lines.append(f"    {provider}/{model}: {count} ({pct:.0f}%)")
-
-        lines.append("")
-        lines.append("Platform-wide LLM spend by model (last 7 days):")
-        spend_by_model = report.get("spend_by_model", [])
-        model_total = sum(row["cost_usd"] for row in spend_by_model)
-        if not spend_by_model:
-            lines.append("- (no tracked spend in the last 7 days)")
-        for row in spend_by_model:
-            lines.append(f"- {row['provider']}/{row['model']}: ${row['cost_usd']:.4f}")
-        lines.append(f"- TOTAL: ${model_total:.4f}")
-
-        lines.append("")
-        lines.append("Platform-wide LLM spend by feature (last 7 days):")
-        spend_by_feature = report.get("spend_by_feature", [])
-        if not spend_by_feature:
-            lines.append("- (no tracked spend in the last 7 days)")
-        for row in spend_by_feature:
-            lines.append(f"- {row['feature']}: ${row['cost_usd']:.4f}")
-    except Exception as e:
-        lines.append(f"- ⚠ DRIFT — usage report request failed: {e}")
-        drifts.append(f"usage report failed: {e}")
-    lines.append("")
+    # ── Check 11: subscriber + model usage report, dev and production ───────
+    # Informational, not pass/fail — only the request itself can DRIFT. Shown
+    # separately for both environments so each displays its own real numbers
+    # (or a genuine zero) rather than only ever reflecting one of them.
+    render_usage_report_check(lines, drifts, "11a", "DEV", DEV_BACKEND_URL, DEV_CRON_SECRET)
+    render_usage_report_check(lines, drifts, "11b", "PRODUCTION", BACKEND_URL, CRON_SECRET)
 
     # ── Check 12: Telegram bot service health ───────────────────────────────
     lines.append("## Check 12 — Telegram bot (kevin-bot.service) health [PRODUCTION — KVM2 local]")
@@ -905,26 +946,9 @@ def main():
         drifts.append(f"telegram bot health check failed: {e}")
     lines.append("")
 
-    # ── Check 13: Email bounce report (last 7 days) ───────────────────────────
-    lines.append("## Check 13 — Email bounces + plaintext retries (last 7 days) [PRODUCTION]")
-    try:
-        bounce_rows = fetch_bounce_report(days=7)
-        if not bounce_rows:
-            lines.append("- no bounces in the last 7 days")
-        else:
-            for row in bounce_rows:
-                btype = row.get("bounce_type") or "unknown"
-                count = row.get("count", 0)
-                resent = row.get("plaintext_resent_count", 0)
-                lines.append(
-                    f"- {row.get('email_type', '—')} / {btype}: {count} bounced, {resent} auto-retried as plaintext"
-                )
-                if btype.lower() == "transient" and resent < count:
-                    lines.append(f"    ⚠ {count - resent} transient bounce(s) not yet retried")
-    except Exception as e:
-        lines.append(f"- ⚠ DRIFT — bounce report fetch failed: {e}")
-        drifts.append(f"bounce report fetch failed: {e}")
-    lines.append("")
+    # ── Check 13: Email bounce report, dev and production ────────────────────
+    render_bounce_report_check(lines, drifts, "13a", "DEV", DEV_BACKEND_URL, DEV_CRON_SECRET)
+    render_bounce_report_check(lines, drifts, "13b", "PRODUCTION", BACKEND_URL, CRON_SECRET)
 
     # ── Check 14: Dev tier assignments (2026-07-28 subscription audit) ─────────
     # Runs against DEV_BACKEND_URL (port 4001), not BACKEND_URL -- these
@@ -972,8 +996,8 @@ def main():
     tag = "DRIFT" if drifts else "OK"
     lines.append(f"## Summary: {tag}")
     lines.append(
-        "(9 checks on [DEV]: 1,2,3,3b,4,8,9,14,15 · 4 on [PRODUCTION]: 10,11,12,13 · "
-        "3 [SHARED]: 5,6,7)"
+        "(11 checks on [DEV]: 1,2,3,3b,4,8,9,11a,13a,14,15 · "
+        "4 on [PRODUCTION]: 10,11b,12,13b · 3 [SHARED]: 5,6,7)"
     )
     if drifts:
         for d in drifts:

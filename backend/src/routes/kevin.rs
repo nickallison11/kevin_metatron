@@ -1159,6 +1159,62 @@ pub(crate) async fn build_context(state: &AppState, user_id: uuid::Uuid, role: &
         }
     }
 
+    if role == "STARTUP" {
+        #[derive(sqlx::FromRow)]
+        struct AngelScoreCtx {
+            score: i32,
+            team_score: Option<i32>,
+            market_score: Option<i32>,
+            traction_score: Option<i32>,
+            pitch_score: Option<i32>,
+            reasoning: Option<String>,
+        }
+        if let Ok(Some(a)) = sqlx::query_as::<_, AngelScoreCtx>(
+            r#"
+            SELECT score, team_score, market_score, traction_score, pitch_score, reasoning
+            FROM angel_scores WHERE founder_user_id = $1
+            "#,
+        )
+        .bind(user_id)
+        .fetch_optional(&state.db)
+        .await
+        {
+            // Mirrors redact_breakdown_if_free in angel_score.rs: free tier
+            // sees the overall score + reasoning only, Basic/Pro see the
+            // full team/market/traction/pitch sub-score breakdown.
+            let (is_basic, is_pro): (bool, bool) =
+                sqlx::query_as("SELECT is_basic, is_pro FROM users WHERE id = $1")
+                    .bind(user_id)
+                    .fetch_optional(&state.db)
+                    .await
+                    .ok()
+                    .flatten()
+                    .unwrap_or((false, false));
+
+            let mut s = format!("Angel Score: {}/100", a.score);
+            if is_basic || is_pro {
+                if let Some(v) = a.team_score {
+                    s.push_str(&format!("\n  Team: {v}/25"));
+                }
+                if let Some(v) = a.market_score {
+                    s.push_str(&format!("\n  Market: {v}/25"));
+                }
+                if let Some(v) = a.traction_score {
+                    s.push_str(&format!("\n  Traction: {v}/25"));
+                }
+                if let Some(v) = a.pitch_score {
+                    s.push_str(&format!("\n  Pitch: {v}/25"));
+                }
+            } else {
+                s.push_str("\n  (Sub-score breakdown is a Basic/Pro feature -- only the overall score and reasoning are visible on Free)");
+            }
+            if let Some(v) = a.reasoning {
+                s.push_str(&format!("\n  Reasoning: {v}"));
+            }
+            parts.push(s);
+        }
+    }
+
     if let Ok(rows) = sqlx::query_as::<_, PitchCtx>(
         r#"
         SELECT title, description, problem, solution, market_size, business_model,

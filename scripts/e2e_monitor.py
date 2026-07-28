@@ -117,7 +117,13 @@ def read_env_file_value(path, key):
             for line in f:
                 line = line.strip()
                 if line.startswith(f"{key}="):
-                    return line.split("=", 1)[1].strip()
+                    value = line.split("=", 1)[1].strip()
+                    # Mirror shell `source` behavior: strip one layer of
+                    # matching quotes, since bash does this automatically
+                    # but a naive split doesn't.
+                    if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+                        value = value[1:-1]
+                    return value
     except OSError:
         pass
     return None

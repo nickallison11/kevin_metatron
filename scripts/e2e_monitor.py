@@ -66,6 +66,7 @@ defaults to http://localhost:4001.
 """
 
 import os
+import re
 import imaplib
 import email as email_lib
 from email.header import decode_header, make_header
@@ -74,6 +75,7 @@ import smtplib
 import subprocess
 import datetime
 from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from email.utils import parsedate_to_datetime
 
 # ── CONFIG ────────────────────────────────────────────────────────────────────
@@ -354,14 +356,171 @@ def check_dev_call_intelligence_gating():
     return failures
 
 
-def send_report(subject, body):
-    msg = MIMEText(body, "plain", "utf-8")
+def send_report(subject, plain_body, html_body=None):
+    if html_body:
+        msg = MIMEMultipart("alternative")
+        msg.attach(MIMEText(plain_body, "plain", "utf-8"))
+        msg.attach(MIMEText(html_body, "html", "utf-8"))
+    else:
+        msg = MIMEText(plain_body, "plain", "utf-8")
     msg["Subject"] = subject
     msg["From"] = GMAIL_USER
     msg["To"] = REPORT_TO
     with smtplib.SMTP_SSL("smtp.gmail.com", 465) as s:
         s.login(GMAIL_USER, GMAIL_APP_PASSWORD)
         s.sendmail(GMAIL_USER, REPORT_TO, msg.as_string())
+
+
+CHECK_HEADER_RE = re.compile(r"^## (Check \S+) — (.*?)\s*\[([^\]]+)\]\s*$")
+
+
+def parse_report_sections(lines):
+    """
+    Splits the flat report `lines` (as built by main()) into dev/shared/
+    production buckets, one entry per check: {number, title, tag, status,
+    body} where status is "drift" if any line in that check's body starts
+    with the ⚠ marker already used throughout, "ok" otherwise. Section
+    membership is read directly from each check header's trailing [TAG] --
+    the exact same tags a human reads in the plain-text version, so the two
+    can never silently drift apart from each other.
+    """
+    dev, shared, production = [], [], []
+    current = None
+
+    def bucket_for(tag):
+        if tag.startswith("DEV"):
+            return dev
+        if tag.startswith("PRODUCTION"):
+            return production
+        return shared
+
+    for line in lines:
+        m = CHECK_HEADER_RE.match(line)
+        if m:
+            number, title, tag = m.groups()
+            current = {"number": number, "title": title, "tag": tag, "body": [], "status": "ok"}
+            bucket_for(tag).append(current)
+            continue
+        if line.startswith("## Summary"):
+            current = None
+            continue
+        if current is not None:
+            if line.strip():
+                current["body"].append(line)
+            if "⚠" in line:
+                current["status"] = "drift"
+
+    return dev, shared, production
+
+
+def _html_escape(s):
+    return (
+        str(s)
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
+
+
+def _render_check_card(check):
+    ok = check["status"] == "ok"
+    dot_color = "#22c55e" if ok else "#ef4444"
+    body_html = "<br>".join(_html_escape(b) for b in check["body"]) or "<span style=\"color:#94a3b8;\">no output</span>"
+    return f"""
+    <tr>
+      <td style="padding:14px 16px;border-bottom:1px solid #e5e7eb;vertical-align:top;width:22px;">
+        <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:{dot_color};margin-top:4px;"></span>
+      </td>
+      <td style="padding:14px 16px 14px 0;border-bottom:1px solid #e5e7eb;vertical-align:top;">
+        <div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:13.5px;font-weight:600;color:#111827;margin-bottom:4px;">
+          {_html_escape(check['number'])} — {_html_escape(check['title'])}
+        </div>
+        <div style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.6;color:#4b5563;">
+          {body_html}
+        </div>
+      </td>
+    </tr>"""
+
+
+def _render_section(title, subtitle, accent, checks):
+    if not checks:
+        return ""
+    passed = sum(1 for c in checks if c["status"] == "ok")
+    total = len(checks)
+    pill_bg = "#dcfce7" if passed == total else "#fee2e2"
+    pill_fg = "#166534" if passed == total else "#991b1b"
+    rows = "".join(_render_check_card(c) for c in checks)
+    return f"""
+  <tr><td style="padding:28px 0 10px 0;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
+      <tr>
+        <td style="border-left:4px solid {accent};padding:0 0 0 14px;">
+          <div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:17px;font-weight:700;color:#111827;">
+            {_html_escape(title)}
+            <span style="display:inline-block;margin-left:10px;padding:3px 10px;border-radius:999px;font-size:11.5px;font-weight:700;background:{pill_bg};color:{pill_fg};vertical-align:middle;">
+              {passed}/{total} passing
+            </span>
+          </div>
+          <div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:12.5px;color:#6b7280;margin-top:2px;">
+            {_html_escape(subtitle)}
+          </div>
+        </td>
+      </tr>
+    </table>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin-top:12px;background:#ffffff;border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;">
+      {rows}
+    </table>
+  </td></tr>"""
+
+
+def render_html_report(now_utc, overall_tag, dev, shared, production):
+    overall_ok = overall_tag == "OK"
+    badge_bg = "#16a34a" if overall_ok else "#dc2626"
+    badge_text = "ALL SYSTEMS OK" if overall_ok else "DRIFT DETECTED"
+    dev_and_shared = dev + shared
+
+    sections = "".join([
+        _render_section(
+            "Dev", "dev.metatron.id · port 4001 · its own database — where real feature testing happens",
+            "#6c5ce7", dev_and_shared,
+        ),
+        _render_section(
+            "Production", "platform.metatron.id · port 4000 — infrastructure-only for now, no real users yet",
+            "#0ea5e9", production,
+        ),
+    ])
+
+    return f"""<!DOCTYPE html>
+<html>
+<body style="margin:0;padding:0;background:#f3f4f6;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;padding:24px 0;">
+    <tr><td align="center">
+      <table role="presentation" width="640" cellpadding="0" cellspacing="0" style="width:640px;max-width:92vw;">
+        <tr><td style="padding-bottom:18px;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+            <tr>
+              <td style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">
+                <div style="font-size:20px;font-weight:800;color:#111827;">metatron e2e monitor</div>
+                <div style="font-size:13px;color:#6b7280;margin-top:2px;">{now_utc.strftime('%Y-%m-%d %H:%M')} UTC</div>
+              </td>
+              <td align="right" style="vertical-align:top;">
+                <span style="display:inline-block;padding:7px 14px;border-radius:8px;background:{badge_bg};color:#ffffff;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:12.5px;font-weight:700;letter-spacing:.03em;">
+                  {badge_text}
+                </span>
+              </td>
+            </tr>
+          </table>
+        </td></tr>
+        {sections}
+        <tr><td style="padding:26px 4px 0 4px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:11.5px;color:#9ca3af;">
+          Dev and Shared checks are grouped together above since Shared (IMAP inbox scan) checks currently reflect dev activity.
+          Production stays infra-only until platform.metatron.id has real users. Generated by e2e_monitor.py on KVM2.
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>"""
 
 
 def main():
@@ -824,7 +983,17 @@ def main():
 
     body = "\n".join(lines)
     subject = f"{today.strftime('%Y-%m-%d')} | metatron e2e monitor | {tag}"
-    send_report(subject, body)
+
+    try:
+        dev_checks, shared_checks, production_checks = parse_report_sections(lines)
+        html_body = render_html_report(now_utc, tag, dev_checks, shared_checks, production_checks)
+    except Exception as e:
+        # The plain-text body is the source of truth; a rendering bug in the
+        # HTML layer should never cost Nick the actual report.
+        print(f"HTML render failed, sending plain-text only: {e}")
+        html_body = None
+
+    send_report(subject, body, html_body)
     print(f"Sent: {subject}")
 
 

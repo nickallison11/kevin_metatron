@@ -4,9 +4,10 @@ metatron KVM2 end-to-end monitor
 Daily health check covering all test accounts and platform features.
 New feature checks are added here as features ship — one script, one report.
 
-Current checks — every check 1-14 runs against BOTH dev and production
+Current checks — every check 1-16 runs against BOTH dev and production
 (suffix "a" = dev, "b" = production), except 6-8 which scan one shared
-Gmail inbox and so aren't meaningfully duplicable:
+Gmail inbox and so are only run once but shown in both dashboard sections
+for a consistent 16-check count either way:
   1a/1b. Account logins (founder free, founder basic, founder pro,
      investor free, investor basic, investor pro, connector). Production
      genuinely has no accounts yet (fresh pre-launch database), so its
@@ -38,14 +39,14 @@ Gmail inbox and so aren't meaningfully duplicable:
       and Permanent/Transient classification, plus how many Transient
       bounces were auto-retried as plaintext. Same dev/production split
       as 12a/12b, for the same reason.
-  15. Dev tier assignments — logs into all 7 dev test accounts (founder/
+  15a/15b. Tier assignments — logs into all 7 test accounts (founder/
       founderbasic/founderpro/investor/investorbasic/investorpro/connector)
       and verifies is_basic/is_pro match what each account's name promises.
-      Dev-only: these fixes and accounts don't exist on production yet.
-  16. Dev Call Intelligence gating — free tier must get 403, basic/pro must
+      15b fails/skips on production the same way checks 1b-5b do, until it
+      has real accounts.
+  16a/16b. Call Intelligence gating — free tier must get 403, basic/pro must
       get 200. This is the exact bug fixed in the 2026-07-28 subscription
-      audit (a legacy investor bypass let free investors in). Dev-only for
-      the same reason as check 15.
+      audit (a legacy investor bypass let free investors in).
 
 Not covered here: the proactive high-value-match notification (fires once
 per match the first time it crosses the score threshold, so it isn't a good
@@ -407,19 +408,19 @@ def imap_fetch(hours):
 
 
 
-def check_dev_tier_assignments():
+def check_tier_assignments(base_url, password, accounts=DEV_ACCOUNTS):
     """
-    Logs into every dev test account and compares its actual (is_basic,
+    Logs into every test account and compares its actual (is_basic,
     is_pro) against what its name promises. Would have caught this session's
     "founder silently drifted to Basic" and "founderpro degraded to Free"
     incidents on day one instead of being found by hand weeks later.
     Returns a list of (name, expected, actual) mismatches -- empty if clean.
     """
     mismatches = []
-    for name, (email, expected) in DEV_ACCOUNTS.items():
-        jwt = get_dev_jwt(email)
+    for name, (email, expected) in accounts.items():
+        jwt = get_jwt(email, base_url=base_url, password=password)
         r = requests.get(
-            f"{DEV_BACKEND_URL}/auth/me",
+            f"{base_url}/auth/me",
             headers={"Authorization": f"Bearer {jwt}"},
             timeout=10,
         )
@@ -431,7 +432,7 @@ def check_dev_tier_assignments():
     return mismatches
 
 
-def check_dev_call_intelligence_gating():
+def check_call_intelligence_gating(base_url, password, accounts=DEV_ACCOUNTS):
     """
     Free tier must get 403 from Call Intelligence, Basic/Pro must get 200 --
     this is the exact bug fixed in the 2026-07-28 audit (a legacy investor
@@ -444,10 +445,10 @@ def check_dev_call_intelligence_gating():
     ]
     failures = []
     for name, expected_status in cases:
-        email, _ = DEV_ACCOUNTS[name]
-        jwt = get_dev_jwt(email)
+        email, _ = accounts[name]
+        jwt = get_jwt(email, base_url=base_url, password=password)
         r = requests.get(
-            f"{DEV_BACKEND_URL}/calls",
+            f"{base_url}/calls",
             headers={"Authorization": f"Bearer {jwt}"},
             timeout=10,
         )
@@ -687,6 +688,53 @@ def render_telegram_bot_check(lines, drifts, number, tag, service_name):
     lines.append("")
 
 
+def render_tier_assignment_check(lines, drifts, number, tag, base_url, password):
+    """Check 15a/15b."""
+    lines.append(f"## Check {number} — Tier assignments (founder/investor free-basic-pro ladder) [{tag}]")
+    if not password:
+        lines.append(f"- ⚠ DRIFT — no password available for {tag}")
+        drifts.append(f"tier assignment check ({tag}): no password available")
+        lines.append("")
+        return
+    try:
+        mismatches = check_tier_assignments(base_url, password)
+        if not mismatches:
+            lines.append(f"- all {len(DEV_ACCOUNTS)} accounts correctly tiered: ✓")
+        else:
+            for name, expected, actual in mismatches:
+                lines.append(
+                    f"- ⚠ DRIFT — {name}: expected (is_basic={expected[0]}, is_pro={expected[1]}), "
+                    f"got (is_basic={actual[0]}, is_pro={actual[1]})"
+                )
+                drifts.append(f"tier mismatch ({tag}): {name} expected {expected}, got {actual}")
+    except Exception as e:
+        lines.append(f"- ⚠ DRIFT — tier assignment check failed: {e}")
+        drifts.append(f"tier assignment check ({tag}) failed: {e}")
+    lines.append("")
+
+
+def render_call_intelligence_gating_check(lines, drifts, number, tag, base_url, password):
+    """Check 16a/16b."""
+    lines.append(f"## Check {number} — Call Intelligence gating (free=403, basic/pro=200) [{tag}]")
+    if not password:
+        lines.append(f"- ⚠ DRIFT — no password available for {tag}")
+        drifts.append(f"call intelligence gating check ({tag}): no password available")
+        lines.append("")
+        return
+    try:
+        failures = check_call_intelligence_gating(base_url, password)
+        if not failures:
+            lines.append("- free correctly denied, basic/pro correctly allowed: ✓")
+        else:
+            for f in failures:
+                lines.append(f"- ⚠ DRIFT — {f}")
+                drifts.append(f"call intelligence gating ({tag}): {f}")
+    except Exception as e:
+        lines.append(f"- ⚠ DRIFT — call intelligence gating check failed: {e}")
+        drifts.append(f"call intelligence gating check ({tag}) failed: {e}")
+    lines.append("")
+
+
 def send_report(subject, plain_body, html_body=None):
     if html_body:
         msg = MIMEMultipart("alternative")
@@ -810,7 +858,11 @@ def render_html_report(now_utc, overall_tag, dev, shared, production):
     overall_ok = overall_tag == "OK"
     badge_bg = "#16a34a" if overall_ok else "#dc2626"
     badge_text = "ALL SYSTEMS OK" if overall_ok else "DRIFT DETECTED"
+    # Shared checks (one shared Gmail inbox scan) appear in both sections so
+    # each shows the full 1-16 check list, not just its own environment-
+    # specific subset.
     dev_and_shared = sorted(dev + shared, key=lambda c: c["order"])
+    production_and_shared = sorted(production + shared, key=lambda c: c["order"])
 
     sections = "".join([
         _render_section(
@@ -819,7 +871,7 @@ def render_html_report(now_utc, overall_tag, dev, shared, production):
         ),
         _render_section(
             "Production", "platform.metatron.id · port 4000 — infrastructure-only for now, no real users yet",
-            "#0ea5e9", production,
+            "#0ea5e9", production_and_shared,
         ),
     ])
 
@@ -1000,55 +1052,19 @@ def main():
     render_bounce_report_check(lines, drifts, "14a", "DEV", DEV_BACKEND_URL, DEV_CRON_SECRET)
     render_bounce_report_check(lines, drifts, "14b", "PRODUCTION", BACKEND_URL, CRON_SECRET)
 
-    # ── Check 15: Dev tier assignments (2026-07-28 subscription audit) ─────────
-    # Runs against DEV_BACKEND_URL (port 4001), not BACKEND_URL -- these
-    # accounts and fixes only exist on dev, not production, as of this check
-    # being added.
-    lines.append("## Check 15 — Dev tier assignments (founder/investor free-basic-pro ladder) [DEV]")
-    if not DEV_TEST_PASSWORD:
-        lines.append(f"- ⚠ skipped — could not read TEST_PASSWORD from {DEV_ENV_FILE}")
-    else:
-        try:
-            mismatches = check_dev_tier_assignments()
-            if not mismatches:
-                lines.append(f"- all {len(DEV_ACCOUNTS)} accounts correctly tiered: ✓")
-            else:
-                for name, expected, actual in mismatches:
-                    lines.append(
-                        f"- ⚠ DRIFT — {name}: expected (is_basic={expected[0]}, is_pro={expected[1]}), "
-                        f"got (is_basic={actual[0]}, is_pro={actual[1]})"
-                    )
-                    drifts.append(f"dev tier mismatch: {name} expected {expected}, got {actual}")
-        except Exception as e:
-            lines.append(f"- ⚠ DRIFT — tier assignment check failed: {e}")
-            drifts.append(f"dev tier assignment check failed: {e}")
-    lines.append("")
+    render_tier_assignment_check(lines, drifts, "15a", "DEV", DEV_BACKEND_URL, DEV_TEST_PASSWORD)
+    render_tier_assignment_check(lines, drifts, "15b", "PRODUCTION", BACKEND_URL, TEST_PASSWORD)
 
-    # ── Check 16: Dev Call Intelligence tier gating ─────────────────────────────
-    lines.append("## Check 16 — Dev Call Intelligence gating (free=403, basic/pro=200) [DEV]")
-    if not DEV_TEST_PASSWORD:
-        lines.append(f"- ⚠ skipped — could not read TEST_PASSWORD from {DEV_ENV_FILE}")
-    else:
-        try:
-            failures = check_dev_call_intelligence_gating()
-            if not failures:
-                lines.append("- free correctly denied, basic/pro correctly allowed: ✓")
-            else:
-                for f in failures:
-                    lines.append(f"- ⚠ DRIFT — {f}")
-                    drifts.append(f"dev call intelligence gating: {f}")
-        except Exception as e:
-            lines.append(f"- ⚠ DRIFT — call intelligence gating check failed: {e}")
-            drifts.append(f"dev call intelligence gating check failed: {e}")
-    lines.append("")
+    render_call_intelligence_gating_check(lines, drifts, "16a", "DEV", DEV_BACKEND_URL, DEV_TEST_PASSWORD)
+    render_call_intelligence_gating_check(lines, drifts, "16b", "PRODUCTION", BACKEND_URL, TEST_PASSWORD)
 
     # ── Summary ───────────────────────────────────────────────────────────────
     tag = "DRIFT" if drifts else "OK"
     lines.append(f"## Summary: {tag}")
     lines.append(
-        "(13 checks on [DEV]: 1a,2a,3a,4a,5a,9a,10a,11a,12a,13a,14a,15,16 · "
-        "11 on [PRODUCTION]: 1b,2b,3b,4b,5b,9b,10b,11b,12b,13b,14b · "
-        "3 [SHARED]: 6,7,8)"
+        "(13 checks on [DEV]: 1a,2a,3a,4a,5a,9a,10a,11a,12a,13a,14a,15a,16a · "
+        "13 on [PRODUCTION]: 1b,2b,3b,4b,5b,9b,10b,11b,12b,13b,14b,15b,16b · "
+        "3 [SHARED] shown in both: 6,7,8 · 16 checks per environment)"
     )
     if drifts:
         for d in drifts:

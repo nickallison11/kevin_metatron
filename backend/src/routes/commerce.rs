@@ -418,6 +418,17 @@ pub async fn finalize_connector_subscription(
         )
     })?;
 
+    // A prior connector invoice means this charge is a renewal, not a
+    // first-time signup — check before inserting this one.
+    let had_prior_invoice: bool = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*)::bigint FROM subscription_invoices WHERE user_id = $1 AND tier LIKE 'connector_%'",
+    )
+    .bind(user_id)
+    .fetch_one(&state.db)
+    .await
+    .map(|c| c > 0)
+    .unwrap_or(false);
+
     sqlx::query(
         r#"
         INSERT INTO subscription_invoices (user_id, amount, currency, payment_method, tier, period_start, period_end, reference)
@@ -446,21 +457,37 @@ pub async fn finalize_connector_subscription(
         .fetch_one(&state.db)
         .await
     {
-        email::send_email(
-            &state.http_client,
-            state.resend_api_key.as_deref(),
-            &state.email_from,
-            &user_email,
-            "Your metatron Connector Basic subscription has renewed",
-            &email::subscription_invoice_email_html(
-                "Connector Basic",
-                &period_start,
-                &period_end,
-                &format!("{invoice_amount:.2} {currency}"),
-                reference,
-            ),
-        )
-        .await;
+        if had_prior_invoice {
+            email::send_email(
+                &state.http_client,
+                state.resend_api_key.as_deref(),
+                &state.email_from,
+                &user_email,
+                "Your metatron Connector Basic subscription has renewed",
+                &email::subscription_invoice_email_html(
+                    "Connector Basic",
+                    &period_start,
+                    &period_end,
+                    &format!("{invoice_amount:.2} {currency}"),
+                    reference,
+                ),
+            )
+            .await;
+        } else {
+            email::send_email(
+                &state.http_client,
+                state.resend_api_key.as_deref(),
+                &state.email_from,
+                &user_email,
+                "Your metatron Connector Basic subscription is active",
+                &email::subscription_activated_email_html(
+                    "Connector Basic",
+                    &period_end,
+                    &format!("{invoice_amount:.2} {currency}"),
+                ),
+            )
+            .await;
+        }
     }
 
     Ok(())
@@ -510,6 +537,17 @@ pub async fn finalize_investor_subscription(
     .await
     .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": "internal error" }))))?;
 
+    // A prior investor invoice (any plan level) means this charge is a renewal
+    // or plan change, not a first-time signup — check before inserting this one.
+    let had_prior_invoice: bool = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*)::bigint FROM subscription_invoices WHERE user_id = $1 AND tier LIKE 'investor_%'",
+    )
+    .bind(user_id)
+    .fetch_one(&state.db)
+    .await
+    .map(|c| c > 0)
+    .unwrap_or(false);
+
     let invoice_tier = format!("investor_{plan_level}");
     sqlx::query(
         r#"INSERT INTO subscription_invoices (user_id, amount, currency, payment_method, tier, period_start, period_end, reference)
@@ -533,21 +571,37 @@ pub async fn finalize_investor_subscription(
         .fetch_one(&state.db)
         .await
     {
-        email::send_email(
-            &state.http_client,
-            state.resend_api_key.as_deref(),
-            &state.email_from,
-            &user_email,
-            &format!("Your metatron {plan_name} subscription has renewed"),
-            &email::subscription_invoice_email_html(
-                plan_name,
-                &period_start,
-                &period_end,
-                &format!("{invoice_amount:.2} {currency}"),
-                reference,
-            ),
-        )
-        .await;
+        if had_prior_invoice {
+            email::send_email(
+                &state.http_client,
+                state.resend_api_key.as_deref(),
+                &state.email_from,
+                &user_email,
+                &format!("Your metatron {plan_name} subscription has renewed"),
+                &email::subscription_invoice_email_html(
+                    plan_name,
+                    &period_start,
+                    &period_end,
+                    &format!("{invoice_amount:.2} {currency}"),
+                    reference,
+                ),
+            )
+            .await;
+        } else {
+            email::send_email(
+                &state.http_client,
+                state.resend_api_key.as_deref(),
+                &state.email_from,
+                &user_email,
+                &format!("Your metatron {plan_name} subscription is active"),
+                &email::subscription_activated_email_html(
+                    plan_name,
+                    &period_end,
+                    &format!("{invoice_amount:.2} {currency}"),
+                ),
+            )
+            .await;
+        }
     }
 
     Ok(())

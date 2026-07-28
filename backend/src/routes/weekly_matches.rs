@@ -272,10 +272,17 @@ async fn refresh_matches(
     .map_err(|_| (StatusCode::NOT_FOUND, "user not found".into()))?;
 
     let match_type = if role == "INVESTOR" { "investor_founder" } else { "founder_investor" };
-    let limit = if role == "INVESTOR" {
-        if is_basic || is_pro { state.investor_match_limit_basic } else { state.investor_match_limit_free }
+    let (limit_free, limit_basic, limit_pro) = if role == "INVESTOR" {
+        (state.investor_match_limit_free, state.investor_match_limit_basic, state.investor_match_limit_pro)
     } else {
-        if is_basic || is_pro { state.match_limit_basic } else { state.match_limit_free }
+        (state.match_limit_free, state.match_limit_basic, state.match_limit_pro)
+    };
+    let limit = if is_pro {
+        if limit_pro == 0 { i64::MAX } else { limit_pro }
+    } else if is_basic {
+        limit_basic
+    } else {
+        limit_free
     };
 
     // Count currently unsent matches
@@ -358,8 +365,8 @@ async fn weekly_matches_for_user(
 ) -> Result<Json<WeeklyMatchesResponse>, (StatusCode, String)> {
     verify_cron(&state, &headers)?;
 
-    let user_row = sqlx::query_as::<_, (bool,)>(
-        "SELECT is_basic FROM users WHERE id = $1 AND role = 'STARTUP'",
+    let user_row = sqlx::query_as::<_, (bool, bool)>(
+        "SELECT is_basic, COALESCE(is_pro, false) FROM users WHERE id = $1 AND role = 'STARTUP'",
     )
     .bind(user_id)
     .fetch_optional(&state.db)
@@ -369,13 +376,19 @@ async fn weekly_matches_for_user(
         (StatusCode::INTERNAL_SERVER_ERROR, "db error".into())
     })?;
 
-    let is_basic = match user_row {
-        Some((b,)) => b,
+    let (is_basic, is_pro) = match user_row {
+        Some((b, p)) => (b, p),
         None => return Err((StatusCode::NOT_FOUND, "user not found or not a founder".into())),
     };
 
-    let tier = if is_basic { "basic" } else { "free" };
-    let limit: i64 = if is_basic { state.match_limit_basic } else { state.match_limit_free };
+    let tier = if is_pro { "pro" } else if is_basic { "basic" } else { "free" };
+    let limit: i64 = if is_pro {
+        if state.match_limit_pro == 0 { i64::MAX } else { state.match_limit_pro }
+    } else if is_basic {
+        state.match_limit_basic
+    } else {
+        state.match_limit_free
+    };
 
     let candidates = sqlx::query_as::<_, (Uuid, Option<String>, i32, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>)>(
         r#"
@@ -527,8 +540,8 @@ async fn weekly_matches_for_investor(
 ) -> Result<Json<InvestorWeeklyMatchesResponse>, (StatusCode, String)> {
     verify_cron(&state, &headers)?;
 
-    let user_row = sqlx::query_as::<_, (bool, Option<Vec<String>>, Option<Vec<String>>)>(
-        r#"SELECT u.is_basic, ip.sectors, ip.stages
+    let user_row = sqlx::query_as::<_, (bool, bool, Option<Vec<String>>, Option<Vec<String>>)>(
+        r#"SELECT u.is_basic, COALESCE(u.is_pro, false), ip.sectors, ip.stages
            FROM users u
            LEFT JOIN investor_profiles ip ON ip.user_id = u.id
            WHERE u.id = $1 AND u.role = 'INVESTOR'"#,
@@ -541,14 +554,19 @@ async fn weekly_matches_for_investor(
         (StatusCode::INTERNAL_SERVER_ERROR, "db error".into())
     })?;
 
-    let (is_basic, inv_sectors, inv_stages) = match user_row {
+    let (is_basic, is_pro, inv_sectors, inv_stages) = match user_row {
         Some(r) => r,
         None => return Err((StatusCode::NOT_FOUND, "user not found or not an investor".into())),
     };
 
-    let tier = if is_basic { "basic" } else { "free" };
-    let limit: i64 =
-        if is_basic { state.investor_match_limit_basic } else { state.investor_match_limit_free };
+    let tier = if is_pro { "pro" } else if is_basic { "basic" } else { "free" };
+    let limit: i64 = if is_pro {
+        if state.investor_match_limit_pro == 0 { i64::MAX } else { state.investor_match_limit_pro }
+    } else if is_basic {
+        state.investor_match_limit_basic
+    } else {
+        state.investor_match_limit_free
+    };
 
     let candidates = sqlx::query_as::<_, (Uuid, Option<String>, Option<String>, Option<String>, Option<String>, Option<i32>)>(
         r#"
@@ -696,8 +714,8 @@ async fn monthly_summary_for_user(
 ) -> Result<Json<MonthlySummaryResponse>, (StatusCode, String)> {
     verify_cron(&state, &headers)?;
 
-    let user_row = sqlx::query_as::<_, (bool,)>(
-        "SELECT is_basic FROM users WHERE id = $1 AND role = 'STARTUP'",
+    let user_row = sqlx::query_as::<_, (bool, bool)>(
+        "SELECT is_basic, COALESCE(is_pro, false) FROM users WHERE id = $1 AND role = 'STARTUP'",
     )
     .bind(user_id)
     .fetch_optional(&state.db)
@@ -707,13 +725,19 @@ async fn monthly_summary_for_user(
         (StatusCode::INTERNAL_SERVER_ERROR, "db error".into())
     })?;
 
-    let is_basic = match user_row {
-        Some((b,)) => b,
+    let (is_basic, is_pro) = match user_row {
+        Some((b, p)) => (b, p),
         None => return Err((StatusCode::NOT_FOUND, "user not found or not a founder".into())),
     };
 
-    let tier = if is_basic { "basic" } else { "free" };
-    let limit: i64 = if is_basic { state.match_limit_basic } else { state.match_limit_free };
+    let tier = if is_pro { "pro" } else if is_basic { "basic" } else { "free" };
+    let limit: i64 = if is_pro {
+        if state.match_limit_pro == 0 { i64::MAX } else { state.match_limit_pro }
+    } else if is_basic {
+        state.match_limit_basic
+    } else {
+        state.match_limit_free
+    };
 
     let now = chrono::Utc::now();
     let first_of_last_month = chrono::NaiveDate::from_ymd_opt(
@@ -864,8 +888,8 @@ async fn monthly_summary_for_investor(
 ) -> Result<Json<InvestorMonthlySummaryResponse>, (StatusCode, String)> {
     verify_cron(&state, &headers)?;
 
-    let user_row = sqlx::query_as::<_, (bool, Option<Vec<String>>, Option<Vec<String>>)>(
-        r#"SELECT u.is_basic, ip.sectors, ip.stages
+    let user_row = sqlx::query_as::<_, (bool, bool, Option<Vec<String>>, Option<Vec<String>>)>(
+        r#"SELECT u.is_basic, COALESCE(u.is_pro, false), ip.sectors, ip.stages
            FROM users u
            LEFT JOIN investor_profiles ip ON ip.user_id = u.id
            WHERE u.id = $1 AND u.role = 'INVESTOR'"#,
@@ -878,14 +902,19 @@ async fn monthly_summary_for_investor(
         (StatusCode::INTERNAL_SERVER_ERROR, "db error".into())
     })?;
 
-    let (is_basic, inv_sectors, inv_stages) = match user_row {
+    let (is_basic, is_pro, inv_sectors, inv_stages) = match user_row {
         Some(r) => r,
         None => return Err((StatusCode::NOT_FOUND, "user not found or not an investor".into())),
     };
 
-    let tier = if is_basic { "basic" } else { "free" };
-    let limit: i64 =
-        if is_basic { state.investor_match_limit_basic } else { state.investor_match_limit_free };
+    let tier = if is_pro { "pro" } else if is_basic { "basic" } else { "free" };
+    let limit: i64 = if is_pro {
+        if state.investor_match_limit_pro == 0 { i64::MAX } else { state.investor_match_limit_pro }
+    } else if is_basic {
+        state.investor_match_limit_basic
+    } else {
+        state.investor_match_limit_free
+    };
 
     let now = chrono::Utc::now();
     let first_of_last_month = chrono::NaiveDate::from_ymd_opt(

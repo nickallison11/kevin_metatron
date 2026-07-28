@@ -35,12 +35,9 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/telegram", post(telegram_kevin))
 }
 
-fn kevin_daily_limit(is_basic: bool, is_pro: bool, subscription_tier: &str) -> i32 {
+fn kevin_daily_limit(is_basic: bool, is_pro: bool) -> i32 {
     if is_pro {
-        match subscription_tier.to_ascii_lowercase().as_str() {
-            "pro" => i32::MAX,
-            _ => 200,
-        }
+        i32::MAX
     } else if is_basic {
         200
     } else {
@@ -217,7 +214,7 @@ async fn inbound_email_process(state: Arc<AppState>, body: InboundEmailRequest) 
         None => None,
     };
 
-    let daily_limit = kevin_daily_limit(user.is_basic, user.is_pro, &user.subscription_tier);
+    let daily_limit = kevin_daily_limit(user.is_basic, user.is_pro);
 
     if daily_limit < i32::MAX {
         let count: i32 = match sqlx::query_scalar(
@@ -576,7 +573,7 @@ Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. 
         return Err(KevinReplyError::ServiceUnavailable);
     };
 
-    let daily_limit = kevin_daily_limit(user.is_basic, user.is_pro, &user.subscription_tier);
+    let daily_limit = kevin_daily_limit(user.is_basic, user.is_pro);
 
     if daily_limit < i32::MAX {
         let count: i32 = match sqlx::query_scalar(
@@ -867,7 +864,7 @@ CRITICAL RULES — follow these exactly:
 Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. Plain text only."#
     );
 
-    let daily_limit = kevin_daily_limit(user.is_basic, user.is_pro, &user.subscription_tier);
+    let daily_limit = kevin_daily_limit(user.is_basic, user.is_pro);
 
     if daily_limit < i32::MAX {
         let count: i32 = sqlx::query_scalar(

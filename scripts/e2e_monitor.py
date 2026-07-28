@@ -4,44 +4,48 @@ metatron KVM2 end-to-end monitor
 Daily health check covering all test accounts and platform features.
 New feature checks are added here as features ship — one script, one report.
 
-Current checks:
-  1. Account logins — dev (founder free, founder basic, founder pro,
-     investor free, investor basic, investor pro, connector). Runs against
-     dev, not production: platform.metatron.id has a fresh, intentionally
-     empty database pre-launch, so there's nothing to log into there yet.
-  2. Free founder — Pinata reachability + profile (14-day deck trial) [dev]
-  3. Basic founder — subscription plan + permanent deck [dev]
-  3b. Pro founder — subscription plan = pro + is_pro flag [dev]
-  4. Investor — role + profile [dev]
-  5. IMAP scan (last 36h from metatron.id)
-  6. Email cadence compliance (7-day, 1-day, expired)
-  7. Weekly matches cron (founders + investors)
-  8. Kevin chat — Moderate tier (Hermes 4 70B, falls back to Haiku) [dev]
-  9. Kevin chat — Complex/DeepComplex tier (Kimi K3, falls back to Sonnet/Opus) [dev]
-  10. kevin-learning cron endpoint reachable + secret-enforced (doesn't trigger
-      a real run daily — that's a real LLM synthesis job, already scheduled
-      weekly via its own crontab entry; this just confirms the route is alive).
-      Runs against production (BACKEND_URL) — with the account checks moved to
-      dev, this is the check that actually confirms production is up and
-      enforcing auth correctly.
-  11a/11b. Subscriber counts per role/tier + Kevin chat model usage per tier
-      (last 7 days) — informational, not a pass/fail check. Shown for dev
-      (11a) and production (11b) separately, side by side, rather than only
-      ever reflecting one environment — production genuinely reads empty/
-      zero right now, dev has real numbers from actual testing.
-  12. Telegram bot (kevin-bot.service) health — systemd active state +
-      recent journald error count. Local-only, doesn't call Telegram's API.
-      Production infra (the real bot) — not user-dependent.
-  13a/13b. Email bounce report (last 7 days) — bounce counts by email type
+Current checks — every check 1-14 runs against BOTH dev and production
+(suffix "a" = dev, "b" = production), except 6-8 which scan one shared
+Gmail inbox and so aren't meaningfully duplicable:
+  1a/1b. Account logins (founder free, founder basic, founder pro,
+     investor free, investor basic, investor pro, connector). Production
+     genuinely has no accounts yet (fresh pre-launch database), so its
+     half legitimately shows failed logins until that changes.
+  2a/2b. Free founder — Pinata reachability + profile (14-day deck trial)
+  3a/3b. Basic founder — subscription plan + permanent deck
+  4a/4b. Pro founder — subscription plan = pro + is_pro flag
+  5a/5b. Investor — role + profile
+  6. IMAP scan (last 36h from metatron.id) [shared — reflects dev]
+  7. Email cadence compliance (7-day, 1-day, expired) [shared — reflects dev]
+  8. Weekly matches cron (founders + investors) [shared — reflects dev]
+  9a/9b. Kevin chat — Moderate tier (Hermes 4 70B, falls back to Haiku)
+  10a/10b. Kevin chat — Complex/DeepComplex tier (Kimi K3, falls back to
+      Sonnet/Opus)
+  11a/11b. kevin-learning cron endpoint reachable + secret-enforced
+      (doesn't trigger a real run daily — that's a real LLM synthesis job,
+      already scheduled weekly via its own crontab entry; this just
+      confirms the route is alive and enforcing auth correctly).
+  12a/12b. Subscriber counts per role/tier + Kevin chat model usage per
+      tier (last 7 days) — informational, not a pass/fail check. Shown for
+      dev and production separately, side by side, rather than only ever
+      reflecting one environment — production genuinely reads empty/zero
+      right now, dev has real numbers from actual testing.
+  13a/13b. Telegram bot health — systemd active state + recent journald
+      error count. 13a checks kevin-bot-dev.service, 13b checks
+      kevin-bot.service (the real production bot). Local-only, doesn't
+      call Telegram's API.
+  14a/14b. Email bounce report (last 7 days) — bounce counts by email type
       and Permanent/Transient classification, plus how many Transient
-      bounces were auto-retried as plaintext. Same dev/production split as
-      11a/11b, for the same reason.
-  14. Dev tier assignments — logs into all 7 dev test accounts (founder/
+      bounces were auto-retried as plaintext. Same dev/production split
+      as 12a/12b, for the same reason.
+  15. Dev tier assignments — logs into all 7 dev test accounts (founder/
       founderbasic/founderpro/investor/investorbasic/investorpro/connector)
       and verifies is_basic/is_pro match what each account's name promises.
-  15. Dev Call Intelligence gating — free tier must get 403, basic/pro must
+      Dev-only: these fixes and accounts don't exist on production yet.
+  16. Dev Call Intelligence gating — free tier must get 403, basic/pro must
       get 200. This is the exact bug fixed in the 2026-07-28 subscription
-      audit (a legacy investor bypass let free investors in).
+      audit (a legacy investor bypass let free investors in). Dev-only for
+      the same reason as check 15.
 
 Not covered here: the proactive high-value-match notification (fires once
 per match the first time it crosses the score threshold, so it isn't a good
@@ -61,11 +65,11 @@ Required env vars:
   BACKEND_URL         — Backend API base URL, production (default: http://localhost:4000)
   FRONTEND_URL        — Vercel frontend URL for cron endpoints (default: https://platform.metatron.id)
 
-Dev-environment checks (1-4, 8-9, 11a, 13a, 14-15) don't use TEST_PASSWORD or
-CRON_SECRET from the shell-sourced env at all -- dev has its own database
-with its own credentials, so those checks read them straight out of
-/root/.env.dev (DEV_ENV_FILE) rather than requiring the crontab to source a
-second env file. DEV_BACKEND_URL defaults to http://localhost:4001.
+Dev-environment checks don't use TEST_PASSWORD or CRON_SECRET from the
+shell-sourced env at all -- dev has its own database with its own
+credentials, so those checks read them straight out of /root/.env.dev
+(DEV_ENV_FILE) rather than requiring the crontab to source a second env
+file. DEV_BACKEND_URL defaults to http://localhost:4001.
 """
 
 import os
@@ -85,6 +89,12 @@ from email.utils import parsedate_to_datetime
 PINATA_GATEWAY     = os.environ.get("PINATA_GATEWAY", "gateway.pinata.cloud")
 BACKEND_URL        = os.environ.get("BACKEND_URL", "http://localhost:4000")
 CRON_SECRET        = os.environ["CRON_SECRET"]
+# Production's copy of the same shared password -- present in /root/.env, but
+# as of 2026-07-28 platform.metatron.id's database is fresh and none of the
+# accounts below exist there yet. Checks 1-4/8-9/12's production half will
+# legitimately show "account not found" until that changes -- that's real
+# signal (not provisioned yet), not a bug to hide.
+TEST_PASSWORD      = os.environ.get("TEST_PASSWORD", "")
 GMAIL_USER         = "kevin.metatron.testing@gmail.com"
 GMAIL_APP_PASSWORD = os.environ["GMAIL_APP_PASSWORD"]
 REPORT_TO          = "nick.allison@metatrondao.io"
@@ -144,9 +154,13 @@ def pinata_url(cid):
 
 
 def get_dev_jwt(email):
+    return get_jwt(email, base_url=DEV_BACKEND_URL, password=DEV_TEST_PASSWORD)
+
+
+def get_jwt(email, base_url=None, password=None):
     r = requests.post(
-        f"{DEV_BACKEND_URL}/auth/login",
-        json={"email": email, "password": DEV_TEST_PASSWORD},
+        f"{base_url or BACKEND_URL}/auth/login",
+        json={"email": email, "password": password if password is not None else TEST_PASSWORD},
         timeout=10,
     )
     r.raise_for_status()
@@ -200,13 +214,13 @@ def check_kevin_chat(jwt, message, timeout=60, base_url=None):
     return r.json().get("reply", "")
 
 
-def check_kevin_learning_endpoint_secured():
+def check_kevin_learning_endpoint_secured(base_url=None):
     """
     Confirms /cron/kevin-learning is alive and still enforces its secret,
     without actually triggering a real (costly) synthesis run — that's
     already scheduled weekly via its own crontab entry.
     """
-    unauth = requests.post(f"{BACKEND_URL}/cron/kevin-learning", timeout=10)
+    unauth = requests.post(f"{base_url or BACKEND_URL}/cron/kevin-learning", timeout=10)
     return unauth.status_code
 
 
@@ -214,22 +228,23 @@ TELEGRAM_BOT_ERROR_WINDOW_HOURS = 24
 TELEGRAM_BOT_ERROR_THRESHOLD = 10
 
 
-def check_telegram_bot_health():
+def check_telegram_bot_health(service_name="kevin-bot.service"):
     """
     Runs locally on KVM2 (this script is cron'd there directly), so it can
     check systemd + journald state without any network call. Deliberately
     does NOT call Telegram's getUpdates itself -- that would steal the live
-    long-poll connection from kevin-bot.service and cause a 409 Conflict,
+    long-poll connection from the bot service and cause a 409 Conflict,
     which is exactly the kind of self-inflicted noise a health check should
-    avoid, not create.
+    avoid, not create. service_name is kevin-bot.service (production, the
+    real bot) or kevin-bot-dev.service (dev, its own separate bot + token).
     """
     active = subprocess.run(
-        ["systemctl", "is-active", "kevin-bot.service"],
+        ["systemctl", "is-active", service_name],
         capture_output=True, text=True, timeout=10,
     ).stdout.strip()
 
     log_out = subprocess.run(
-        ["journalctl", "-u", "kevin-bot.service", "--since", f"-{TELEGRAM_BOT_ERROR_WINDOW_HOURS}h", "--no-pager", "-o", "cat"],
+        ["journalctl", "-u", service_name, "--since", f"-{TELEGRAM_BOT_ERROR_WINDOW_HOURS}h", "--no-pager", "-o", "cat"],
         capture_output=True, text=True, timeout=15,
     ).stdout
     log_lines = log_out.splitlines()
@@ -441,6 +456,237 @@ def check_dev_call_intelligence_gating():
     return failures
 
 
+def render_login_check(lines, drifts, number, tag, base_url, password, accounts):
+    """Checks 1a/1b. Returns a jwts dict (fewer entries than `accounts` if
+    some logins fail -- expected on production until it has real accounts)."""
+    lines.append(f"## Check {number} — Account logins [{tag}]")
+    jwts = {}
+    if not password:
+        lines.append(f"- ⚠ DRIFT — no password available for {tag}")
+        drifts.append(f"account logins ({tag}): no password available")
+        lines.append("")
+        return jwts
+    for key, (email, _expected_tier) in accounts.items():
+        try:
+            jwts[key] = get_jwt(email, base_url=base_url, password=password)
+            lines.append(f"- {key} ({email}): ✓ login OK")
+        except Exception as e:
+            lines.append(f"- {key} ({email}): ⚠ DRIFT — login failed: {e}")
+            drifts.append(f"{key} login failed ({tag}): {e}")
+    lines.append("")
+    return jwts
+
+
+def render_free_founder_check(lines, drifts, today, number, tag, base_url, jwts):
+    """Checks 2a/2b. Returns (founder_profile, days_since) for Check 7's
+    email-cadence check to reuse -- only the dev run's values matter there,
+    since the shared inbox currently reflects dev activity."""
+    lines.append(f"## Check {number} — Free founder: Pinata reachability + profile [{tag}]")
+    founder_profile = {}
+    days_since = 0
+    if "founder" in jwts:
+        try:
+            founder_profile = check_profile(jwts["founder"], base_url=base_url)
+            deck_url     = founder_profile.get("pitch_deck_url", "—")
+            deck_expires = founder_profile.get("deck_expires_at", "—")
+            deck_count   = founder_profile.get("deck_upload_count", "—")
+            ipfs_vis     = founder_profile.get("ipfs_visibility", "—")
+            lines.append(f"- pitch_deck_url: {deck_url}")
+            lines.append(f"- deck_expires_at: {deck_expires}")
+            lines.append(f"- deck_upload_count: {deck_count}")
+            lines.append(f"- ipfs_visibility: {ipfs_vis}")
+
+            upload_date = None
+            if deck_expires and deck_expires != "—":
+                try:
+                    exp_date = datetime.datetime.fromisoformat(
+                        str(deck_expires).replace(" ", "T").split("+")[0]
+                    ).date()
+                    upload_date = exp_date - datetime.timedelta(days=14)
+                    days_since = (today - upload_date).days
+                    days_until = 14 - days_since
+                    lines.append(f"- upload_date (derived): {upload_date} | day {days_since} of 14 | {days_until} days left")
+                except Exception:
+                    pass
+
+            if deck_url and deck_url != "—":
+                cid = deck_url.split("/ipfs/")[-1]
+                s1, sz1 = check_pinata(cid)
+                if s1 == 200:
+                    lines.append(f"- deck CID: HTTP {s1}, {sz1}B ✓")
+                else:
+                    lines.append(f"- deck CID: ⚠ DRIFT — HTTP {s1}: {sz1}")
+                    drifts.append(f"deck Pinata unreachable ({tag}): {s1}")
+
+            context_url = founder_profile.get("context_ipfs_url")
+            if context_url:
+                cid = context_url.split("/ipfs/")[-1]
+                s2, sz2 = check_pinata(cid)
+                if s2 == 200:
+                    lines.append(f"- context CID: HTTP {s2}, {sz2}B ✓")
+                else:
+                    lines.append(f"- context CID: ⚠ DRIFT — HTTP {s2}: {sz2}")
+                    drifts.append(f"context Pinata unreachable ({tag}): {s2}")
+            else:
+                lines.append("- context CID: ⚠ DRIFT — no context_ipfs_url in profile")
+                drifts.append(f"no context_ipfs_url ({tag})")
+        except Exception as e:
+            lines.append(f"- ⚠ DRIFT — profile fetch failed: {e}")
+            drifts.append(f"founder profile failed ({tag}): {e}")
+    else:
+        lines.append("- ⚠ skipped (login failed)")
+    lines.append("")
+    return founder_profile, days_since
+
+
+def render_basic_founder_check(lines, drifts, number, tag, base_url, jwts):
+    """Check 3a/3b."""
+    lines.append(f"## Check {number} — Basic founder: subscription + permanent deck [{tag}]")
+    if "founderbasic" in jwts:
+        try:
+            sub = check_subscription(jwts["founderbasic"], base_url=base_url)
+            plan = sub.get("subscription_tier") or sub.get("subscription_plan", "—")
+            lines.append(f"- subscription_plan: {plan}")
+            if plan != "basic":
+                drifts.append(f"founderbasic plan is '{plan}', expected 'basic' ({tag})")
+                lines.append("  ⚠ DRIFT — expected 'basic'")
+        except Exception as e:
+            lines.append(f"- ⚠ subscription check failed: {e}")
+            drifts.append(f"founderbasic subscription failed ({tag}): {e}")
+
+        try:
+            bp = check_profile(jwts["founderbasic"], base_url=base_url)
+            b_expires = bp.get("deck_expires_at")
+            b_vis     = bp.get("ipfs_visibility", "—")
+            lines.append(f"- deck_expires_at: {b_expires} (should be null)")
+            lines.append(f"- ipfs_visibility: {b_vis} (should be public)")
+            if b_expires:
+                drifts.append(f"founderbasic deck has expiry set ({tag}): {b_expires}")
+                lines.append("  ⚠ DRIFT — basic deck should not expire")
+            if b_vis != "public":
+                drifts.append(f"founderbasic ipfs_visibility is '{b_vis}', expected 'public' ({tag})")
+                lines.append("  ⚠ DRIFT — basic tier should have public IPFS visibility")
+        except Exception as e:
+            lines.append(f"- ⚠ profile check failed: {e}")
+            drifts.append(f"founderbasic profile failed ({tag}): {e}")
+    else:
+        lines.append("- ⚠ skipped (login failed)")
+    lines.append("")
+
+
+def render_pro_founder_check(lines, drifts, number, tag, base_url, jwts):
+    """Check 4a/4b (was Check 3b before the dev/production split)."""
+    lines.append(f"## Check {number} — Pro founder: subscription plan = pro [{tag}]")
+    if "founderpro" in jwts:
+        try:
+            sub = check_subscription(jwts["founderpro"], base_url=base_url)
+            plan = sub.get("subscription_tier") or sub.get("subscription_plan", "—")
+            lines.append(f"- subscription_plan: {plan}")
+            if plan != "pro":
+                drifts.append(f"founderpro plan is '{plan}', expected 'pro' ({tag})")
+                lines.append("  ⚠ DRIFT — expected 'pro'")
+        except Exception as e:
+            lines.append(f"- ⚠ subscription check failed: {e}")
+            drifts.append(f"founderpro subscription failed ({tag}): {e}")
+
+        try:
+            pp = check_profile(jwts["founderpro"], base_url=base_url)
+            p_expires = pp.get("deck_expires_at")
+            lines.append(f"- deck_expires_at: {p_expires} (should be null)")
+            if p_expires:
+                drifts.append(f"founderpro deck has expiry set ({tag}): {p_expires}")
+                lines.append("  ⚠ DRIFT — pro deck should not expire")
+        except Exception as e:
+            lines.append(f"- ⚠ profile check failed: {e}")
+            drifts.append(f"founderpro profile failed ({tag}): {e}")
+    else:
+        lines.append("- ⚠ skipped (login failed)")
+    lines.append("")
+
+
+def render_investor_profile_check(lines, drifts, number, tag, base_url, jwts):
+    """Check 5a/5b."""
+    lines.append(f"## Check {number} — Investor: profile [{tag}]")
+    if "investor" in jwts:
+        try:
+            ip = check_investor_profile(jwts["investor"], base_url=base_url)
+            sectors = ip.get("sectors", "—")
+            stages  = ip.get("stages", "—")
+            lines.append(f"- sectors: {sectors}")
+            lines.append(f"- stages: {stages}")
+            if not sectors and not stages:
+                drifts.append(f"investor profile empty ({tag}) — no sectors or stages")
+        except Exception as e:
+            lines.append(f"- ⚠ profile check failed: {e}")
+            drifts.append(f"investor profile failed ({tag}): {e}")
+    else:
+        lines.append("- ⚠ skipped (login failed)")
+    lines.append("")
+
+
+def render_kevin_chat_check(lines, drifts, number, tag, base_url, jwts, title, message, timeout=60):
+    """Checks 9a/9b and 10a/10b."""
+    lines.append(f"## Check {number} — {title} [{tag}]")
+    if "founderpro" in jwts:
+        try:
+            reply = check_kevin_chat(jwts["founderpro"], message, timeout=timeout, base_url=base_url)
+            if reply.strip():
+                lines.append(f"- reply received ({len(reply)} chars): ✓")
+            else:
+                lines.append("- ⚠ DRIFT — empty reply")
+                drifts.append(f"kevin chat ({tag}) {title}: empty reply")
+        except Exception as e:
+            lines.append(f"- ⚠ DRIFT — request failed: {e}")
+            drifts.append(f"kevin chat ({tag}) {title} failed: {e}")
+    else:
+        lines.append("- ⚠ skipped (founderpro login failed)")
+    lines.append("")
+
+
+def render_kevin_learning_check(lines, drifts, number, tag, base_url):
+    """Check 11a/11b."""
+    lines.append(f"## Check {number} — kevin-learning cron endpoint (reachability + auth only) [{tag}]")
+    try:
+        status = check_kevin_learning_endpoint_secured(base_url=base_url)
+        if status == 401:
+            lines.append("- unauthenticated request correctly rejected (401): ✓")
+        else:
+            lines.append(f"- ⚠ DRIFT — expected 401 without secret, got {status}")
+            drifts.append(f"kevin-learning endpoint ({tag}) returned {status} without secret, expected 401")
+    except Exception as e:
+        lines.append(f"- ⚠ DRIFT — request failed: {e}")
+        drifts.append(f"kevin-learning endpoint check ({tag}) failed: {e}")
+    lines.append("")
+
+
+def render_telegram_bot_check(lines, drifts, number, tag, service_name):
+    """Check 13a/13b."""
+    lines.append(f"## Check {number} — Telegram bot ({service_name}) health [{tag}]")
+    try:
+        active, log_line_count, error_lines = check_telegram_bot_health(service_name)
+        if active != "active":
+            lines.append(f"- ⚠ DRIFT — {service_name} is not active (status: {active})")
+            drifts.append(f"{service_name} not active: {active}")
+        else:
+            lines.append(f"- {service_name}: ✓ active")
+        lines.append(
+            f"- log lines in last {TELEGRAM_BOT_ERROR_WINDOW_HOURS}h: {log_line_count}, "
+            f"errors: {len(error_lines)}"
+        )
+        if len(error_lines) > TELEGRAM_BOT_ERROR_THRESHOLD:
+            lines.append(
+                f"- ⚠ DRIFT — {len(error_lines)} errors logged in last "
+                f"{TELEGRAM_BOT_ERROR_WINDOW_HOURS}h (threshold {TELEGRAM_BOT_ERROR_THRESHOLD})"
+            )
+            drifts.append(f"{service_name} logged {len(error_lines)} errors in last {TELEGRAM_BOT_ERROR_WINDOW_HOURS}h")
+            for e in error_lines[-3:]:
+                lines.append(f"    {e}")
+    except Exception as e:
+        lines.append(f"- ⚠ DRIFT — telegram bot health check failed: {e}")
+        drifts.append(f"telegram bot health check ({tag}) failed: {e}")
+    lines.append("")
+
+
 def send_report(subject, plain_body, html_body=None):
     if html_body:
         msg = MIMEMultipart("alternative")
@@ -624,166 +870,31 @@ def main():
     )
     lines.append("")
 
-    # ── Check 1: Account logins ───────────────────────────────────────────────
-    # Runs against dev (DEV_BACKEND_URL), not production -- platform.metatron.id
-    # has a fresh, intentionally-empty database pre-launch, so there are no
-    # test accounts to log into there yet. All feature-dependent checks below
-    # (2-4, 8-9) follow suit for the same reason.
-    lines.append("## Check 1 — Account logins [DEV]")
-    jwts = {}
-    if not DEV_TEST_PASSWORD:
-        lines.append(f"- ⚠ DRIFT — could not read TEST_PASSWORD from {DEV_ENV_FILE}")
-        drifts.append(f"could not read dev TEST_PASSWORD from {DEV_ENV_FILE}")
-    else:
-        for key, (email, _expected_tier) in DEV_ACCOUNTS.items():
-            try:
-                jwts[key] = get_dev_jwt(email)
-                lines.append(f"- {key} ({email}): ✓ login OK")
-            except Exception as e:
-                lines.append(f"- {key} ({email}): ⚠ DRIFT — login failed: {e}")
-                drifts.append(f"{key} login failed: {e}")
-    lines.append("")
+    # ── Checks 1-14: every check runs against both dev and production ────────
+    # Production genuinely has no accounts yet (fresh pre-launch database), so
+    # its half of each check will legitimately show "no account"/failed login
+    # until that changes -- that's real signal, not something to hide. Checks
+    # 6-8 (IMAP-based) stay a single shared check since they scan one shared
+    # inbox that currently reflects dev activity; running the identical scan
+    # twice would just duplicate the same output.
 
-    # ── Check 2: Free founder — Pinata + profile ──────────────────────────────
-    lines.append("## Check 2 — Free founder: Pinata reachability + profile [DEV]")
-    founder_profile = {}
-    days_since = 0
-    if "founder" in jwts:
-        try:
-            founder_profile = check_profile(jwts["founder"], base_url=DEV_BACKEND_URL)
-            deck_url     = founder_profile.get("pitch_deck_url", "—")
-            deck_expires = founder_profile.get("deck_expires_at", "—")
-            deck_count   = founder_profile.get("deck_upload_count", "—")
-            ipfs_vis     = founder_profile.get("ipfs_visibility", "—")
-            lines.append(f"- pitch_deck_url: {deck_url}")
-            lines.append(f"- deck_expires_at: {deck_expires}")
-            lines.append(f"- deck_upload_count: {deck_count}")
-            lines.append(f"- ipfs_visibility: {ipfs_vis}")
+    jwts_dev = render_login_check(lines, drifts, "1a", "DEV", DEV_BACKEND_URL, DEV_TEST_PASSWORD, DEV_ACCOUNTS)
+    jwts_prod = render_login_check(lines, drifts, "1b", "PRODUCTION", BACKEND_URL, TEST_PASSWORD, DEV_ACCOUNTS)
 
-            # Derive upload date from expiry (expiry = upload + 14 days)
-            upload_date = None
-            if deck_expires and deck_expires != "—":
-                try:
-                    exp_date = datetime.datetime.fromisoformat(
-                        str(deck_expires).replace(" ", "T").split("+")[0]
-                    ).date()
-                    upload_date = exp_date - datetime.timedelta(days=14)
-                    days_since = (today - upload_date).days
-                    days_until = 14 - days_since
-                    lines.append(f"- upload_date (derived): {upload_date} | day {days_since} of 14 | {days_until} days left")
-                except Exception:
-                    pass
+    founder_profile, days_since = render_free_founder_check(lines, drifts, today, "2a", "DEV", DEV_BACKEND_URL, jwts_dev)
+    render_free_founder_check(lines, drifts, today, "2b", "PRODUCTION", BACKEND_URL, jwts_prod)
 
-            # Check deck CID from profile URL
-            if deck_url and deck_url != "—":
-                cid = deck_url.split("/ipfs/")[-1]
-                s1, sz1 = check_pinata(cid)
-                if s1 == 200:
-                    lines.append(f"- deck CID: HTTP {s1}, {sz1}B ✓")
-                else:
-                    lines.append(f"- deck CID: ⚠ DRIFT — HTTP {s1}: {sz1}")
-                    drifts.append(f"deck Pinata unreachable: {s1}")
+    render_basic_founder_check(lines, drifts, "3a", "DEV", DEV_BACKEND_URL, jwts_dev)
+    render_basic_founder_check(lines, drifts, "3b", "PRODUCTION", BACKEND_URL, jwts_prod)
 
-            context_url = founder_profile.get("context_ipfs_url")
-            if context_url:
-                cid = context_url.split("/ipfs/")[-1]
-                s2, sz2 = check_pinata(cid)
-                if s2 == 200:
-                    lines.append(f"- context CID: HTTP {s2}, {sz2}B ✓")
-                else:
-                    lines.append(f"- context CID: ⚠ DRIFT — HTTP {s2}: {sz2}")
-                    drifts.append(f"context Pinata unreachable: {s2}")
-            else:
-                lines.append("- context CID: ⚠ DRIFT — no context_ipfs_url in profile")
-                drifts.append("no context_ipfs_url")
-        except Exception as e:
-            lines.append(f"- ⚠ DRIFT — profile fetch failed: {e}")
-            drifts.append(f"founder profile failed: {e}")
-    else:
-        lines.append("- ⚠ skipped (login failed)")
-    lines.append("")
+    render_pro_founder_check(lines, drifts, "4a", "DEV", DEV_BACKEND_URL, jwts_dev)
+    render_pro_founder_check(lines, drifts, "4b", "PRODUCTION", BACKEND_URL, jwts_prod)
 
-    # ── Check 3: Basic founder — subscription + deck permanence ───────────────
-    lines.append("## Check 3 — Basic founder: subscription + permanent deck [DEV]")
-    if "founderbasic" in jwts:
-        try:
-            sub = check_subscription(jwts["founderbasic"], base_url=DEV_BACKEND_URL)
-            plan = sub.get("subscription_tier") or sub.get("subscription_plan", "—")
-            lines.append(f"- subscription_plan: {plan}")
-            if plan != "basic":
-                drifts.append(f"founderbasic plan is '{plan}', expected 'basic'")
-                lines.append(f"  ⚠ DRIFT — expected 'basic'")
-        except Exception as e:
-            lines.append(f"- ⚠ subscription check failed: {e}")
-            drifts.append(f"founderbasic subscription failed: {e}")
+    render_investor_profile_check(lines, drifts, "5a", "DEV", DEV_BACKEND_URL, jwts_dev)
+    render_investor_profile_check(lines, drifts, "5b", "PRODUCTION", BACKEND_URL, jwts_prod)
 
-        try:
-            bp = check_profile(jwts["founderbasic"], base_url=DEV_BACKEND_URL)
-            b_expires = bp.get("deck_expires_at")
-            b_vis     = bp.get("ipfs_visibility", "—")
-            lines.append(f"- deck_expires_at: {b_expires} (should be null)")
-            lines.append(f"- ipfs_visibility: {b_vis} (should be public)")
-            if b_expires:
-                drifts.append(f"founderbasic deck has expiry set: {b_expires}")
-                lines.append("  ⚠ DRIFT — basic deck should not expire")
-            if b_vis != "public":
-                drifts.append(f"founderbasic ipfs_visibility is '{b_vis}', expected 'public'")
-                lines.append("  ⚠ DRIFT — basic tier should have public IPFS visibility")
-        except Exception as e:
-            lines.append(f"- ⚠ profile check failed: {e}")
-            drifts.append(f"founderbasic profile failed: {e}")
-    else:
-        lines.append("- ⚠ skipped (login failed)")
-    lines.append("")
-
-    # ── Check 3b: Pro founder — subscription plan = pro ──────────────────────
-    lines.append("## Check 3b — Pro founder: subscription plan = pro [DEV]")
-    if "founderpro" in jwts:
-        try:
-            sub = check_subscription(jwts["founderpro"], base_url=DEV_BACKEND_URL)
-            plan = sub.get("subscription_tier") or sub.get("subscription_plan", "—")
-            lines.append(f"- subscription_plan: {plan}")
-            if plan != "pro":
-                drifts.append(f"founderpro plan is '{plan}', expected 'pro'")
-                lines.append("  ⚠ DRIFT — expected 'pro'")
-        except Exception as e:
-            lines.append(f"- ⚠ subscription check failed: {e}")
-            drifts.append(f"founderpro subscription failed: {e}")
-
-        try:
-            pp = check_profile(jwts["founderpro"], base_url=DEV_BACKEND_URL)
-            p_expires = pp.get("deck_expires_at")
-            lines.append(f"- deck_expires_at: {p_expires} (should be null)")
-            if p_expires:
-                drifts.append(f"founderpro deck has expiry set: {p_expires}")
-                lines.append("  ⚠ DRIFT — pro deck should not expire")
-        except Exception as e:
-            lines.append(f"- ⚠ profile check failed: {e}")
-            drifts.append(f"founderpro profile failed: {e}")
-    else:
-        lines.append("- ⚠ skipped (login failed)")
-    lines.append("")
-
-    # ── Check 4: Investor — investor-profile endpoint ─────────────────────────
-    lines.append("## Check 4 — Investor: profile [DEV]")
-    if "investor" in jwts:
-        try:
-            ip = check_investor_profile(jwts["investor"], base_url=DEV_BACKEND_URL)
-            sectors = ip.get("sectors", "—")
-            stages  = ip.get("stages", "—")
-            lines.append(f"- sectors: {sectors}")
-            lines.append(f"- stages: {stages}")
-            if not sectors and not stages:
-                drifts.append("investor profile empty — no sectors or stages")
-        except Exception as e:
-            lines.append(f"- ⚠ profile check failed: {e}")
-            drifts.append(f"investor profile failed: {e}")
-    else:
-        lines.append("- ⚠ skipped (login failed)")
-    lines.append("")
-
-    # ── Check 5: IMAP scan (last 36h) ────────────────────────────────────────
-    lines.append("## Check 5 — IMAP scan for metatron.id mail (last 36h) [SHARED — reflects dev]")
+    # ── Check 6: IMAP scan (last 36h) ────────────────────────────────────────
+    lines.append("## Check 6 — IMAP scan for metatron.id mail (last 36h) [SHARED — reflects dev]")
     try:
         recent = imap_fetch(36)
         metatron = [m for m in recent if "metatron.id" in m.get("from", "")]
@@ -797,8 +908,8 @@ def main():
         drifts.append(f"IMAP error: {e}")
     lines.append("")
 
-    # ── Check 6: Email cadence compliance (free founder) ─────────────────────
-    lines.append("## Check 6 — Email cadence compliance (free founder, last 36h) [SHARED — reflects dev]")
+    # ── Check 7: Email cadence compliance (free founder) ─────────────────────
+    lines.append("## Check 7 — Email cadence compliance (free founder, last 36h) [SHARED — reflects dev]")
     cadence = {
         "expires in 7 days":  (7, 13),
         "goes dark tomorrow": (13, 20),
@@ -829,10 +940,10 @@ def main():
         lines.append(f"- ⚠ cadence check error: {e}")
     lines.append("")
 
-    # ── Check 7: Weekly matches email ────────────────────────────────────────
+    # ── Check 8: Weekly matches email ────────────────────────────────────────
     # Vercel blocks external calls to cron routes — verified by IMAP instead.
     # Cron fires Tuesdays 09:00 UTC via vercel.json schedule.
-    lines.append("## Check 7 — Weekly matches email (IMAP, last 8 days) [SHARED — reflects dev]")
+    lines.append("## Check 8 — Weekly matches email (IMAP, last 8 days) [SHARED — reflects dev]")
     try:
         recent_week = imap_fetch(8 * 24)
         weekly_seen = any(
@@ -847,114 +958,51 @@ def main():
         lines.append(f"- ⚠ IMAP weekly check error: {e}")
     lines.append("")
 
-    # ── Check 8: Kevin chat — Moderate tier (Hermes 4 70B) ───────────────────
-    lines.append("## Check 8 — Kevin chat, Moderate tier (Hermes 4 70B → Haiku fallback) [DEV]")
-    if "founderpro" in jwts:
-        try:
-            reply = check_kevin_chat(
-                jwts["founderpro"],
-                "What is the typical timeline for a seed-stage fintech startup to "
-                "close a funding round after first meeting investors?",
-                base_url=DEV_BACKEND_URL,
-            )
-            if reply.strip():
-                lines.append(f"- reply received ({len(reply)} chars): ✓")
-            else:
-                lines.append("- ⚠ DRIFT — empty reply")
-                drifts.append("kevin chat (moderate tier): empty reply")
-        except Exception as e:
-            lines.append(f"- ⚠ DRIFT — request failed: {e}")
-            drifts.append(f"kevin chat (moderate tier) failed: {e}")
-    else:
-        lines.append("- ⚠ skipped (founderpro login failed)")
-    lines.append("")
+    moderate_msg = (
+        "What is the typical timeline for a seed-stage fintech startup to "
+        "close a funding round after first meeting investors?"
+    )
+    deepcomplex_msg = (
+        "I'm currently preparing for my seed fundraising round and would like "
+        "your help thinking through several interconnected questions at once. "
+        "First, how many investors should I realistically plan to include in my "
+        "first outreach batch given typical response rates at the seed stage? "
+        "Second, what does a healthy response and meeting-conversion rate usually "
+        "look like for fintech founders at this stage? Third, how long should I "
+        "expect the overall process to take, from the very first investor contact "
+        "through to a signed term sheet? And finally, what are the most common "
+        "reasons seed-stage fintech deals tend to fall through during diligence?"
+    )
+    render_kevin_chat_check(lines, drifts, "9a", "DEV", DEV_BACKEND_URL, jwts_dev,
+                             "Kevin chat, Moderate tier (Hermes 4 70B → Haiku fallback)", moderate_msg)
+    render_kevin_chat_check(lines, drifts, "9b", "PRODUCTION", BACKEND_URL, jwts_prod,
+                             "Kevin chat, Moderate tier (Hermes 4 70B → Haiku fallback)", moderate_msg)
 
-    # ── Check 9: Kevin chat — Complex/DeepComplex tier (Kimi K3) ─────────────
-    lines.append("## Check 9 — Kevin chat, DeepComplex tier (Kimi K3 → Sonnet/Opus fallback) [DEV]")
-    if "founderpro" in jwts:
-        try:
-            reply = check_kevin_chat(
-                jwts["founderpro"],
-                "I'm currently preparing for my seed fundraising round and would like "
-                "your help thinking through several interconnected questions at once. "
-                "First, how many investors should I realistically plan to include in my "
-                "first outreach batch given typical response rates at the seed stage? "
-                "Second, what does a healthy response and meeting-conversion rate usually "
-                "look like for fintech founders at this stage? Third, how long should I "
-                "expect the overall process to take, from the very first investor contact "
-                "through to a signed term sheet? And finally, what are the most common "
-                "reasons seed-stage fintech deals tend to fall through during diligence?",
-                timeout=90,
-                base_url=DEV_BACKEND_URL,
-            )
-            if reply.strip():
-                lines.append(f"- reply received ({len(reply)} chars): ✓")
-            else:
-                lines.append("- ⚠ DRIFT — empty reply")
-                drifts.append("kevin chat (deepcomplex tier): empty reply")
-        except Exception as e:
-            lines.append(f"- ⚠ DRIFT — request failed: {e}")
-            drifts.append(f"kevin chat (deepcomplex tier) failed: {e}")
-    else:
-        lines.append("- ⚠ skipped (founderpro login failed)")
-    lines.append("")
+    render_kevin_chat_check(lines, drifts, "10a", "DEV", DEV_BACKEND_URL, jwts_dev,
+                             "Kevin chat, DeepComplex tier (Kimi K3 → Sonnet/Opus fallback)", deepcomplex_msg, timeout=90)
+    render_kevin_chat_check(lines, drifts, "10b", "PRODUCTION", BACKEND_URL, jwts_prod,
+                             "Kevin chat, DeepComplex tier (Kimi K3 → Sonnet/Opus fallback)", deepcomplex_msg, timeout=90)
 
-    # ── Check 10: kevin-learning cron endpoint reachable + secured ───────────
-    lines.append("## Check 10 — kevin-learning cron endpoint (reachability + auth only) [PRODUCTION]")
-    try:
-        status = check_kevin_learning_endpoint_secured()
-        if status == 401:
-            lines.append("- unauthenticated request correctly rejected (401): ✓")
-        else:
-            lines.append(f"- ⚠ DRIFT — expected 401 without secret, got {status}")
-            drifts.append(f"kevin-learning endpoint returned {status} without secret, expected 401")
-    except Exception as e:
-        lines.append(f"- ⚠ DRIFT — request failed: {e}")
-        drifts.append(f"kevin-learning endpoint check failed: {e}")
-    lines.append("")
+    render_kevin_learning_check(lines, drifts, "11a", "DEV", DEV_BACKEND_URL)
+    render_kevin_learning_check(lines, drifts, "11b", "PRODUCTION", BACKEND_URL)
 
-    # ── Check 11: subscriber + model usage report, dev and production ───────
-    # Informational, not pass/fail — only the request itself can DRIFT. Shown
-    # separately for both environments so each displays its own real numbers
-    # (or a genuine zero) rather than only ever reflecting one of them.
-    render_usage_report_check(lines, drifts, "11a", "DEV", DEV_BACKEND_URL, DEV_CRON_SECRET)
-    render_usage_report_check(lines, drifts, "11b", "PRODUCTION", BACKEND_URL, CRON_SECRET)
+    # ── Check 12: subscriber + model usage report, dev and production ───────
+    # Informational, not pass/fail — only the request itself can DRIFT.
+    render_usage_report_check(lines, drifts, "12a", "DEV", DEV_BACKEND_URL, DEV_CRON_SECRET)
+    render_usage_report_check(lines, drifts, "12b", "PRODUCTION", BACKEND_URL, CRON_SECRET)
 
-    # ── Check 12: Telegram bot service health ───────────────────────────────
-    lines.append("## Check 12 — Telegram bot (kevin-bot.service) health [PRODUCTION — KVM2 local]")
-    try:
-        active, log_line_count, error_lines = check_telegram_bot_health()
-        if active != "active":
-            lines.append(f"- ⚠ DRIFT — kevin-bot.service is not active (status: {active})")
-            drifts.append(f"kevin-bot.service not active: {active}")
-        else:
-            lines.append("- kevin-bot.service: ✓ active")
-        lines.append(
-            f"- log lines in last {TELEGRAM_BOT_ERROR_WINDOW_HOURS}h: {log_line_count}, "
-            f"errors: {len(error_lines)}"
-        )
-        if len(error_lines) > TELEGRAM_BOT_ERROR_THRESHOLD:
-            lines.append(
-                f"- ⚠ DRIFT — {len(error_lines)} errors logged in last "
-                f"{TELEGRAM_BOT_ERROR_WINDOW_HOURS}h (threshold {TELEGRAM_BOT_ERROR_THRESHOLD})"
-            )
-            drifts.append(f"kevin-bot.service logged {len(error_lines)} errors in last {TELEGRAM_BOT_ERROR_WINDOW_HOURS}h")
-            for e in error_lines[-3:]:
-                lines.append(f"    {e}")
-    except Exception as e:
-        lines.append(f"- ⚠ DRIFT — telegram bot health check failed: {e}")
-        drifts.append(f"telegram bot health check failed: {e}")
-    lines.append("")
+    render_telegram_bot_check(lines, drifts, "13a", "DEV", "kevin-bot-dev.service")
+    render_telegram_bot_check(lines, drifts, "13b", "PRODUCTION", "kevin-bot.service")
 
-    # ── Check 13: Email bounce report, dev and production ────────────────────
-    render_bounce_report_check(lines, drifts, "13a", "DEV", DEV_BACKEND_URL, DEV_CRON_SECRET)
-    render_bounce_report_check(lines, drifts, "13b", "PRODUCTION", BACKEND_URL, CRON_SECRET)
+    # ── Check 14: Email bounce report, dev and production ────────────────────
+    render_bounce_report_check(lines, drifts, "14a", "DEV", DEV_BACKEND_URL, DEV_CRON_SECRET)
+    render_bounce_report_check(lines, drifts, "14b", "PRODUCTION", BACKEND_URL, CRON_SECRET)
 
-    # ── Check 14: Dev tier assignments (2026-07-28 subscription audit) ─────────
+    # ── Check 15: Dev tier assignments (2026-07-28 subscription audit) ─────────
     # Runs against DEV_BACKEND_URL (port 4001), not BACKEND_URL -- these
     # accounts and fixes only exist on dev, not production, as of this check
     # being added.
-    lines.append("## Check 14 — Dev tier assignments (founder/investor free-basic-pro ladder) [DEV]")
+    lines.append("## Check 15 — Dev tier assignments (founder/investor free-basic-pro ladder) [DEV]")
     if not DEV_TEST_PASSWORD:
         lines.append(f"- ⚠ skipped — could not read TEST_PASSWORD from {DEV_ENV_FILE}")
     else:
@@ -974,8 +1022,8 @@ def main():
             drifts.append(f"dev tier assignment check failed: {e}")
     lines.append("")
 
-    # ── Check 15: Dev Call Intelligence tier gating ─────────────────────────────
-    lines.append("## Check 15 — Dev Call Intelligence gating (free=403, basic/pro=200) [DEV]")
+    # ── Check 16: Dev Call Intelligence tier gating ─────────────────────────────
+    lines.append("## Check 16 — Dev Call Intelligence gating (free=403, basic/pro=200) [DEV]")
     if not DEV_TEST_PASSWORD:
         lines.append(f"- ⚠ skipped — could not read TEST_PASSWORD from {DEV_ENV_FILE}")
     else:
@@ -996,8 +1044,9 @@ def main():
     tag = "DRIFT" if drifts else "OK"
     lines.append(f"## Summary: {tag}")
     lines.append(
-        "(11 checks on [DEV]: 1,2,3,3b,4,8,9,11a,13a,14,15 · "
-        "4 on [PRODUCTION]: 10,11b,12,13b · 3 [SHARED]: 5,6,7)"
+        "(13 checks on [DEV]: 1a,2a,3a,4a,5a,9a,10a,11a,12a,13a,14a,15,16 · "
+        "11 on [PRODUCTION]: 1b,2b,3b,4b,5b,9b,10b,11b,12b,13b,14b · "
+        "3 [SHARED]: 6,7,8)"
     )
     if drifts:
         for d in drifts:

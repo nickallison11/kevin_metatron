@@ -675,6 +675,24 @@ pub fn subscription_cancelled_email_html(period_end: &str) -> String {
     )
 }
 
+pub fn subscription_downgrade_scheduled_email_html(period_end: &str) -> String {
+    shell_html(
+        "Your downgrade to Basic is scheduled",
+        &format!(
+            r#"
+<p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">Your subscription has been set to move to <strong>Basic</strong> at the end of your current billing period.</p>
+<p style="margin:0 0 12px 0;font-size:13px;color:#e8e8ed;">You'll keep full Pro access until: <strong>{period_end}</strong></p>
+<p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">After that date your plan switches to Basic and you'll be billed at the Basic rate going forward — you won't lose access, just the Pro-only features.</p>
+<p style="margin:0 0 0 0;font-size:14px;">
+  <a href="https://platform.metatron.id/pricing" style="color:#6c5ce7;text-decoration:none;">Stay on Pro instead</a> ·
+  <a href="mailto:support@metatron.id" style="color:#6c5ce7;text-decoration:none;">Support</a>
+</p>
+"#,
+            period_end = period_end
+        ),
+    )
+}
+
 pub fn renewal_reminder_email_html(expiry_date: &str, role: &str) -> String {
     let (heading, bullets) = match role.to_ascii_uppercase().as_str() {
         "INVESTOR" => (

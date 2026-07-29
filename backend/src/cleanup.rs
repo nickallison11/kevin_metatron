@@ -79,6 +79,97 @@ pub fn start_cleanup_task(state: Arc<AppState>) {
                 }
             }
 
+            // ----------------------------------------------------------------
+            // Pro -> Basic downgrades: period end has arrived, switch them over
+            // ----------------------------------------------------------------
+            match sqlx::query_as::<_, (sqlx::types::Uuid, String, String, Option<String>, Option<String>)>(
+                r#"
+                SELECT id, role::text, subscription_tier, paystack_customer_code, paystack_authorization_code
+                FROM users
+                WHERE pending_downgrade_to = 'basic'
+                AND subscription_period_end < NOW()
+                AND subscription_status = 'active'
+                "#,
+            )
+            .fetch_all(&state.db)
+            .await
+            {
+                Ok(rows) => {
+                    for (id, role, subscription_tier, customer_code, authorization_code) in rows {
+                        let billing = if subscription_tier == "annual" { "annual" } else { "monthly" };
+
+                        let (customer_code, authorization_code) = match (customer_code, authorization_code) {
+                            (Some(c), Some(a)) if !c.is_empty() && !a.is_empty() => (c, a),
+                            _ => {
+                                tracing::error!(
+                                    "cleanup: downgrade for user {id} has no saved payment method, falling back to free"
+                                );
+                                let _ = sqlx::query(
+                                    r#"UPDATE users SET subscription_status = 'inactive', is_pro = FALSE,
+                                       subscription_plan = 'free', pending_downgrade_to = NULL WHERE id = $1"#,
+                                )
+                                .bind(id)
+                                .execute(&state.db)
+                                .await;
+                                continue;
+                            }
+                        };
+
+                        let plan_code = if role == "INVESTOR" {
+                            if billing == "annual" {
+                                state.paystack_investor_plan_basic_annual.clone()
+                            } else {
+                                state.paystack_investor_plan_basic_monthly.clone()
+                            }
+                        } else if billing == "annual" {
+                            state.paystack_plan_basic_annual.clone()
+                        } else {
+                            state.paystack_plan_basic_monthly.clone()
+                        };
+
+                        crate::routes::commerce::create_paystack_subscription(
+                            &state,
+                            &customer_code,
+                            &plan_code,
+                            &authorization_code,
+                        )
+                        .await;
+
+                        let (amount_display, invoice_amount) = crate::routes::commerce::zar_amounts_for_billing(billing);
+
+                        let finalize_res = if role == "INVESTOR" {
+                            crate::routes::commerce::finalize_investor_subscription(
+                                &state, id, billing, "basic", "card", None, "ZAR", invoice_amount, false,
+                            )
+                            .await
+                        } else {
+                            crate::routes::subscription_finalize::finalize_pro_subscription(
+                                &state, id, "Founder Basic", "basic", billing, amount_display, "card", None, "ZAR",
+                                invoice_amount, false,
+                            )
+                            .await
+                            .map(|_| ())
+                        };
+
+                        match finalize_res {
+                            Ok(()) => {
+                                let _ = sqlx::query("UPDATE users SET pending_downgrade_to = NULL WHERE id = $1")
+                                    .bind(id)
+                                    .execute(&state.db)
+                                    .await;
+                                tracing::info!("cleanup: downgraded user {id} to Basic at period end");
+                            }
+                            Err(e) => {
+                                tracing::error!("cleanup: downgrade finalize failed for user {id}: {e:?}");
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("cleanup: failed loading pending downgrades: {e}");
+                }
+            }
+
             match sqlx::query_as::<_, (sqlx::types::Uuid, String, String, Option<String>)>(
                 r#"
                 SELECT id, email, role::text, to_char(subscription_period_end, 'DD Mon YYYY') FROM users

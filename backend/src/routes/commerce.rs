@@ -684,7 +684,7 @@ fn resolve_finalize_tier_and_level(
     ))
 }
 
-fn zar_amounts_for_billing(billing: &str) -> (&'static str, Decimal) {
+pub(crate) fn zar_amounts_for_billing(billing: &str) -> (&'static str, Decimal) {
     match billing {
         "annual" => ("R1,699.99 ZAR", Decimal::from_str("1699.99").unwrap()),
         _ => ("R169.99 ZAR", Decimal::from_str("169.99").unwrap()),
@@ -851,6 +851,7 @@ async fn verify_payment(
 
     let customer_code = data.get("customer").and_then(|c| c.get("customer_code")).and_then(|v| v.as_str()).unwrap_or("");
     let authorization_code = data.get("authorization").and_then(|a| a.get("authorization_code")).and_then(|v| v.as_str()).unwrap_or("");
+    save_paystack_payment_method(&state, user_id, customer_code, authorization_code).await;
     let plan_code = match (plan_level.as_str(), tier_lower.as_str()) {
         ("pro", "annual") => state.paystack_plan_pro_annual.as_str(),
         ("pro", _) => state.paystack_plan_pro_monthly.as_str(),
@@ -1025,6 +1026,7 @@ async fn verify_connector_payment(
 
     let customer_code = data.get("customer").and_then(|c| c.get("customer_code")).and_then(|v| v.as_str()).unwrap_or("");
     let authorization_code = data.get("authorization").and_then(|a| a.get("authorization_code")).and_then(|v| v.as_str()).unwrap_or("");
+    save_paystack_payment_method(&state, user_id, customer_code, authorization_code).await;
     let plan_code = match billing.as_str() {
         "annual" => state.paystack_connector_plan_basic_annual.as_str(),
         _ => state.paystack_connector_plan_basic_monthly.as_str(),
@@ -1183,6 +1185,7 @@ async fn verify_investor_payment(
 
     let customer_code = data.get("customer").and_then(|c| c.get("customer_code")).and_then(|v| v.as_str()).unwrap_or("");
     let authorization_code = data.get("authorization").and_then(|a| a.get("authorization_code")).and_then(|v| v.as_str()).unwrap_or("");
+    save_paystack_payment_method(&state, user_id, customer_code, authorization_code).await;
     let plan_code = match (plan_level, billing.as_str()) {
         ("pro", "annual") => state.paystack_investor_plan_pro_annual.as_str(),
         ("pro", _) => state.paystack_investor_plan_pro_monthly.as_str(),
@@ -1233,7 +1236,7 @@ async fn verify_investor_payment(
 /// re-run checkout. Call this once, right after the first successful charge for a
 /// brand-new subscriber (never from the renewal path -- a renewal firing means a real
 /// Subscription already exists, so creating another here would just duplicate it).
-async fn create_paystack_subscription(
+pub(crate) async fn create_paystack_subscription(
     state: &AppState,
     customer_code: &str,
     plan_code: &str,
@@ -1276,6 +1279,30 @@ async fn create_paystack_subscription(
             tracing::error!("paystack: subscription creation request failed for customer {customer_code}: {e}");
         }
     }
+}
+
+/// Saves the reusable customer/authorization codes from a successful charge so a
+/// later self-serve action (currently: Pro → Basic downgrade) can start a new
+/// Paystack subscription without asking the user for their card again. Safe to
+/// call on every successful charge, not just first purchases -- overwriting with
+/// the latest values is correct since Paystack only needs one valid saved card.
+async fn save_paystack_payment_method(
+    state: &AppState,
+    user_id: Uuid,
+    customer_code: &str,
+    authorization_code: &str,
+) {
+    if customer_code.is_empty() || authorization_code.is_empty() {
+        return;
+    }
+    let _ = sqlx::query(
+        "UPDATE users SET paystack_customer_code = $1, paystack_authorization_code = $2 WHERE id = $3",
+    )
+    .bind(customer_code)
+    .bind(authorization_code)
+    .bind(user_id)
+    .execute(&state.db)
+    .await;
 }
 
 async fn store_paystack_subscription_if_present(
@@ -1418,6 +1445,7 @@ async fn finalize_from_paystack_data(
         .and_then(|a| a.get("authorization_code"))
         .and_then(|v| v.as_str())
         .unwrap_or("");
+    save_paystack_payment_method(state, user_id, customer_code, authorization_code).await;
 
     // Route connector payments separately
     let tier_str = metadata.get("tier").and_then(|t| t.as_str()).unwrap_or("");

@@ -33,6 +33,10 @@ pub fn router() -> Router<Arc<AppState>> {
             "/cancel",
             post(cancel_subscription).delete(undo_cancel_subscription),
         )
+        .route(
+            "/downgrade",
+            post(downgrade_subscription).delete(undo_downgrade_subscription),
+        )
         .route("/email-preferences", get(get_email_prefs).put(update_email_prefs))
 }
 
@@ -660,6 +664,123 @@ async fn undo_cancel_subscription(
 
     if n == 0 {
         return Err((StatusCode::BAD_REQUEST, "no active subscription".to_string()));
+    }
+
+    Ok(StatusCode::OK)
+}
+
+/// Pro → Basic downgrade, scheduled for the end of the current billing period
+/// (never immediately — matches how cancel already works, and avoids clawing
+/// back access the user already paid for). Disables the current Pro Paystack
+/// subscription now so it stops recurring; cleanup.rs's period-end job does
+/// the actual switch to Basic, using the saved customer/authorization codes
+/// so the user isn't asked to re-enter their card.
+async fn downgrade_subscription(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let authed = require_user(&state, bearer.token()).await?;
+
+    let row: Option<(Option<String>, Option<String>)> = sqlx::query_as(
+        "SELECT paystack_customer_code, paystack_authorization_code FROM users WHERE id = $1 AND subscription_plan = 'pro' AND subscription_status = 'active'",
+    )
+    .bind(authed.id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string()))?;
+
+    let Some((customer_code, authorization_code)) = row else {
+        return Err((StatusCode::BAD_REQUEST, "no active Pro subscription".to_string()));
+    };
+
+    if customer_code.as_deref().unwrap_or("").is_empty() || authorization_code.as_deref().unwrap_or("").is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "no saved payment method on file for this subscription — please contact support to downgrade".to_string(),
+        ));
+    }
+
+    if let Some(secret) = state.paystack_secret_key.as_deref().filter(|s| !s.is_empty()) {
+        let sub_row: Option<(Option<String>, Option<String>)> = sqlx::query_as(
+            "SELECT paystack_subscription_code, paystack_email_token FROM users WHERE id = $1",
+        )
+        .bind(authed.id)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten();
+
+        if let Some((Some(code), Some(token))) = sub_row {
+            if !code.is_empty() && !token.is_empty() {
+                let _ = state
+                    .http_client
+                    .post("https://api.paystack.co/subscription/disable")
+                    .header("Authorization", format!("Bearer {}", secret))
+                    .header("Content-Type", "application/json")
+                    .json(&json!({ "code": code, "token": token }))
+                    .send()
+                    .await;
+            }
+        }
+    }
+
+    let period_end: Option<String> = sqlx::query_scalar(
+        r#"
+        UPDATE users
+        SET pending_downgrade_to = 'basic'
+        WHERE id = $1 AND subscription_plan = 'pro' AND subscription_status = 'active'
+        RETURNING to_char(subscription_period_end, 'DD Mon YYYY')
+        "#,
+    )
+    .bind(authed.id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string()))?;
+
+    let Some(period_end_display) = period_end else {
+        return Err((StatusCode::BAD_REQUEST, "no active Pro subscription".to_string()));
+    };
+
+    let user_email: String = sqlx::query_scalar("SELECT email FROM users WHERE id = $1")
+        .bind(authed.id)
+        .fetch_one(&state.db)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string()))?;
+
+    email::send_email(
+        &state.http_client,
+        state.resend_api_key.as_deref(),
+        &state.email_from,
+        &user_email,
+        "Your metatron downgrade to Basic is scheduled",
+        &email::subscription_downgrade_scheduled_email_html(&period_end_display),
+    )
+    .await;
+
+    Ok(StatusCode::OK)
+}
+
+async fn undo_downgrade_subscription(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let authed = require_user(&state, bearer.token()).await?;
+
+    let n = sqlx::query(
+        r#"
+        UPDATE users
+        SET pending_downgrade_to = NULL
+        WHERE id = $1 AND subscription_status = 'active'
+        "#,
+    )
+    .bind(authed.id)
+    .execute(&state.db)
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string()))?
+    .rows_affected();
+
+    if n == 0 {
+        return Err((StatusCode::BAD_REQUEST, "no scheduled downgrade".to_string()));
     }
 
     Ok(StatusCode::OK)

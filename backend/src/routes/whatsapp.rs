@@ -81,6 +81,8 @@ async fn process_whatsapp_webhook(state: &Arc<AppState>, body: Value) -> Result<
                     .map(|s| s.to_string());
                 let Some(from_id) = from else { continue };
 
+                let msg_id = msg.get("id").and_then(|x| x.as_str()).map(|s| s.to_string());
+
                 let msg_type = msg.get("type").and_then(|t| t.as_str());
 
                 let text_opt: Option<String> = if msg_type == Some("text") {
@@ -109,6 +111,12 @@ async fn process_whatsapp_webhook(state: &Arc<AppState>, body: Value) -> Result<
                 };
                 if text.trim().is_empty() {
                     continue;
+                }
+
+                if let Some(mid) = &msg_id {
+                    if let Err(e) = mark_read_and_typing(state, mid).await {
+                        tracing::warn!("whatsapp mark_read_and_typing: {e}");
+                    }
                 }
 
                 let _ = handle_whatsapp_message(state, &from_id, text).await;
@@ -235,6 +243,43 @@ async fn handle_whatsapp_message(
             send_whatsapp_text(state, from_wa_id, "Something went wrong. Please try again.").await
         }
     }
+}
+
+async fn mark_read_and_typing(state: &AppState, message_id: &str) -> Result<(), String> {
+    let token = state
+        .whatsapp_access_token
+        .as_deref()
+        .ok_or_else(|| "WHATSAPP_ACCESS_TOKEN not set".to_string())?;
+    let phone_id = state
+        .whatsapp_phone_number_id
+        .as_deref()
+        .ok_or_else(|| "WHATSAPP_PHONE_NUMBER_ID not set".to_string())?;
+
+    let url = format!("https://graph.facebook.com/v18.0/{}/messages", phone_id);
+    let payload = json!({
+        "messaging_product": "whatsapp",
+        "status": "read",
+        "message_id": message_id,
+        "typing_indicator": { "type": "text" }
+    });
+
+    let r = state
+        .http_client
+        .post(url)
+        .bearer_auth(token)
+        .json(&payload)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if !r.status().is_success() {
+        let t = r.text().await.unwrap_or_default();
+        return Err(format!(
+            "whatsapp mark read: {}",
+            t.chars().take(300).collect::<String>()
+        ));
+    }
+    Ok(())
 }
 
 async fn send_whatsapp_text(state: &AppState, to: &str, body: &str) -> Result<(), String> {

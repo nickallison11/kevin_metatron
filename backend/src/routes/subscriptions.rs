@@ -593,12 +593,12 @@ async fn cancel_subscription(
         }
     }
 
-    let period_end: Option<String> = sqlx::query_scalar(
+    let row: Option<(String, String, String)> = sqlx::query_as(
         r#"
         UPDATE users
         SET cancel_at_period_end = TRUE
         WHERE id = $1 AND subscription_status = 'active'
-        RETURNING subscription_period_end::text
+        RETURNING to_char(subscription_period_end, 'DD Mon YYYY'), role::text, subscription_plan
         "#,
     )
     .bind(authed.id)
@@ -606,9 +606,19 @@ async fn cancel_subscription(
     .await
     .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string()))?;
 
-    let Some(period_end) = period_end else {
+    let Some((period_end_display, role, subscription_plan)) = row else {
         return Err((StatusCode::BAD_REQUEST, "no active subscription".to_string()));
     };
+
+    let role_name = match role.as_str() {
+        "INVESTOR" => "Investor",
+        "INTERMEDIARY" => "Connector",
+        _ => "Founder",
+    };
+    let plan_name = format!(
+        "{role_name} {}",
+        if subscription_plan == "pro" { "Pro" } else { "Basic" }
+    );
 
     let user_email: String = sqlx::query_scalar("SELECT email FROM users WHERE id = $1")
         .bind(authed.id)
@@ -621,8 +631,8 @@ async fn cancel_subscription(
         state.resend_api_key.as_deref(),
         &state.email_from,
         &user_email,
-        "Your metatron Pro cancellation is confirmed",
-        &email::subscription_cancelled_email_html(&period_end),
+        &format!("Your metatron {plan_name} cancellation is confirmed"),
+        &email::subscription_cancelled_email_html(&period_end_display),
     )
     .await;
 

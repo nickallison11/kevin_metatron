@@ -81,7 +81,7 @@ pub fn start_cleanup_task(state: Arc<AppState>) {
 
             match sqlx::query_as::<_, (sqlx::types::Uuid, String, String, Option<String>)>(
                 r#"
-                SELECT id, email, role::text, subscription_period_end::text FROM users
+                SELECT id, email, role::text, to_char(subscription_period_end, 'DD Mon YYYY') FROM users
                 WHERE subscription_status = 'active'
                 AND subscription_period_end BETWEEN NOW() + INTERVAL '3 days' AND NOW() + INTERVAL '4 days'
                 "#,

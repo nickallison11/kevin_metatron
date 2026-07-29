@@ -127,23 +127,42 @@ async fn download_whatsapp_media(state: &AppState, media_id: &str) -> Result<Vec
     let r = state
         .http_client
         .get(&meta_url)
-        .query(&[("access_token", token)])
+        .bearer_auth(token)
         .send()
         .await
         .map_err(|e| e.to_string())?;
-    let v: Value = r.json().await.map_err(|e| e.to_string())?;
+    let status = r.status();
+    let body = r.text().await.map_err(|e| e.to_string())?;
+    if !status.is_success() {
+        return Err(format!(
+            "whatsapp media metadata: {} {}",
+            status,
+            body.chars().take(200).collect::<String>()
+        ));
+    }
+    let v: Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
     let media_url = v
         .get("url")
         .and_then(|x| x.as_str())
         .ok_or_else(|| "missing media url".to_string())?;
+    // The CDN download step requires the token as an Authorization header --
+    // passing it as a query param (as the metadata call above also used to)
+    // gets silently rejected, which is why WhatsApp voice notes were failing
+    // while Telegram's (a completely different download path) worked fine.
     let r2 = state
         .http_client
         .get(media_url)
-        .query(&[("access_token", token)])
+        .bearer_auth(token)
         .send()
         .await
         .map_err(|e| e.to_string())?;
-    Ok(r2.bytes().await.map_err(|e| e.to_string())?.to_vec())
+    let status2 = r2.status();
+    let bytes = r2.bytes().await.map_err(|e| e.to_string())?;
+    if !status2.is_success() {
+        let preview = String::from_utf8_lossy(&bytes[..bytes.len().min(200)]).to_string();
+        return Err(format!("whatsapp media download: {} {}", status2, preview));
+    }
+    Ok(bytes.to_vec())
 }
 
 async fn transcribe_whisper(state: &AppState, audio_bytes: &[u8]) -> Result<String, String> {

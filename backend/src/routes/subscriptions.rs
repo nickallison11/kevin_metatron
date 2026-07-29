@@ -369,6 +369,7 @@ struct StatusResponse {
     subscription_status: String,
     subscription_period_end: Option<String>,
     cancel_at_period_end: bool,
+    pending_downgrade_to: Option<String>,
 }
 
 async fn get_status(
@@ -377,18 +378,20 @@ async fn get_status(
 ) -> Result<Json<StatusResponse>, (StatusCode, String)> {
     let authed = require_user(&state, bearer.token()).await?;
 
-    let (subscription_tier, subscription_status, subscription_period_end, cancel_at_period_end): (
+    let (subscription_tier, subscription_status, subscription_period_end, cancel_at_period_end, pending_downgrade_to): (
         String,
         String,
         Option<String>,
         bool,
+        Option<String>,
     ) = sqlx::query_as(
         r#"
         SELECT
             subscription_plan AS subscription_tier,
             subscription_status,
             subscription_period_end::text,
-            cancel_at_period_end
+            cancel_at_period_end,
+            pending_downgrade_to
         FROM users
         WHERE id = $1
         "#,
@@ -403,6 +406,7 @@ async fn get_status(
         subscription_status,
         subscription_period_end,
         cancel_at_period_end,
+        pending_downgrade_to,
     }))
 }
 

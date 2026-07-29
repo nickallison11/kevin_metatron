@@ -35,11 +35,12 @@ export type SubscriptionPricingContentProps = {
   invoices: InvoiceRow[];
   extraPaidInfo?: React.ReactNode;
   onVerifySuccess: () => void;
-  /** Founder subscription status (cancel / period); only used when role is STARTUP and isPaid. */
-  startupMeta?: {
+  /** Subscription status (cancel / downgrade / period end); used whenever isPaid, for any role. */
+  subMeta?: {
     periodEnd: string | null;
     cancelAtPeriodEnd: boolean;
     subscriptionTier: string;
+    pendingDowngradeTo: string | null;
   };
 };
 
@@ -184,7 +185,7 @@ export default function SubscriptionPricingContent(
     invoices,
     extraPaidInfo,
     onVerifySuccess,
-    startupMeta,
+    subMeta,
   } = props;
 
   const [currency, setCurrency] = useState<"ZAR" | "USD">("ZAR");
@@ -192,6 +193,7 @@ export default function SubscriptionPricingContent(
   const [verifying, setVerifying] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
+  const [showDowngradeChoice, setShowDowngradeChoice] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined" || !token) return;
@@ -290,10 +292,11 @@ export default function SubscriptionPricingContent(
       setSubmitting(true);
       setError(null);
       try {
+        const proTier = role === "INVESTOR" ? "pro" : "founder_pro";
         const res = await fetch(`${API_BASE}${zarSubscribeEndpoint}`, {
           method: "POST",
           headers: authJsonHeaders(token),
-          body: JSON.stringify({ tier: "founder_pro", billing: bill, currency: "ZAR" }),
+          body: JSON.stringify({ tier: proTier, billing: bill, currency: "ZAR" }),
         });
         const data = (await res.json().catch(() => ({}))) as {
           hosted_url?: string;
@@ -310,7 +313,7 @@ export default function SubscriptionPricingContent(
         setSubmitting(false);
       }
     },
-    [token, zarSubscribeEndpoint],
+    [token, zarSubscribeEndpoint, role],
   );
 
   const handleNowpaymentsSubscribe = useCallback(
@@ -354,10 +357,11 @@ export default function SubscriptionPricingContent(
       setSubmitting(true);
       setError(null);
       try {
+        const nowpaymentsRole = role === "INVESTOR" ? "investor" : "founder";
         const res = await fetch(`${API_BASE}/commerce/nowpayments/subscribe`, {
           method: "POST",
           headers: authJsonHeaders(token),
-          body: JSON.stringify({ billing: bill, role: "founder", plan: "pro" }),
+          body: JSON.stringify({ billing: bill, role: nowpaymentsRole, plan: "pro" }),
         });
         const data = (await res.json().catch(() => ({}))) as {
           invoice_url?: string;
@@ -377,7 +381,7 @@ export default function SubscriptionPricingContent(
         setSubmitting(false);
       }
     },
-    [token],
+    [token, role],
   );
 
   const onCancel = async () => {
@@ -418,6 +422,49 @@ export default function SubscriptionPricingContent(
     }
   };
 
+  const onDowngrade = async () => {
+    if (
+      !confirm(
+        "Move to Basic at the end of this billing period? You'll keep full Pro access until then.",
+      )
+    )
+      return;
+    setActionBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`${API_BASE}/subscriptions/downgrade`, {
+        method: "POST",
+        headers: authJsonHeaders(token),
+      });
+      if (res.ok) {
+        setShowDowngradeChoice(false);
+        onVerifySuccess();
+      } else {
+        const data = (await res.json().catch(() => ({}))) as {
+          error?: string;
+        };
+        setError(data.error || "Could not schedule downgrade.");
+      }
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const onUndoDowngrade = async () => {
+    if (!confirm("Stay on Pro and remove the scheduled downgrade to Basic?"))
+      return;
+    setActionBusy(true);
+    try {
+      const res = await fetch(`${API_BASE}/subscriptions/downgrade`, {
+        method: "DELETE",
+        headers: authJsonHeaders(token),
+      });
+      if (res.ok) onVerifySuccess();
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
   const card =
     "rounded-[12px] border border-[var(--border)] bg-[var(--bg-card)] p-6";
 
@@ -426,12 +473,16 @@ export default function SubscriptionPricingContent(
   const proMonthly = formatProDisplay(currency, "monthly");
   const proAnnual = formatProDisplay(currency, "annual");
 
-  const startupTier = (startupMeta?.subscriptionTier ?? "free").toLowerCase();
+  const billingPeriod = (subMeta?.subscriptionTier ?? "free").toLowerCase();
 
-  // Show the upgrade section for: free users, or basic founders who can upgrade to Pro
-  const showUpgradeSection = !isPaid || (role === "STARTUP" && planLevel === "basic");
+  // Connector has no real Pro tier on the backend (always basic when paid) --
+  // only founder and investor can see the Pro upgrade card.
+  const roleHasProTier = role === "STARTUP" || role === "INVESTOR";
+
+  // Show the upgrade section for: free users, or basic subscribers (founder/investor) who can upgrade to Pro
+  const showUpgradeSection = !isPaid || (roleHasProTier && planLevel === "basic");
   const showBasicCard = !isPaid; // only for free users, not basic→pro upgraders
-  const showProCard = role === "STARTUP" && planLevel !== "pro";
+  const showProCard = roleHasProTier && planLevel !== "pro";
 
   return (
     <div className="mx-auto w-full max-w-5xl px-5 py-10 space-y-6">
@@ -459,12 +510,11 @@ export default function SubscriptionPricingContent(
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <span className="text-lg font-semibold text-[var(--text)]">
                 {planName}
-                {role === "STARTUP" &&
-                  startupMeta &&
-                  (startupTier === "monthly" || startupTier === "annual") && (
+                {subMeta &&
+                  (billingPeriod === "monthly" || billingPeriod === "annual") && (
                     <span className="text-[var(--text-muted)]">
                       {" "}
-                      · {startupTier === "annual" ? "Annual" : "Monthly"}
+                      · {billingPeriod === "annual" ? "Annual" : "Monthly"}
                     </span>
                   )}
               </span>
@@ -473,27 +523,33 @@ export default function SubscriptionPricingContent(
               </span>
             </div>
             {extraPaidInfo && <div className="mt-2">{extraPaidInfo}</div>}
-            {role === "STARTUP" && startupMeta && (
+            {subMeta && (
               <p className="mt-2 text-sm text-[var(--text-muted)]">
-                Active until: {formatDate(startupMeta.periodEnd)}
+                Active until: {formatDate(subMeta.periodEnd)}
               </p>
             )}
-            {role === "STARTUP" && startupMeta && (
+            {subMeta && (
               <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-                {!startupMeta.cancelAtPeriodEnd ? (
-                  <button
-                    type="button"
-                    disabled={actionBusy}
-                    onClick={() => void onCancel()}
-                    className="rounded-[12px] border border-[var(--border)] px-4 py-2 text-sm font-semibold text-[var(--text)] transition-colors hover:border-metatron-accent/30 disabled:opacity-60"
-                  >
-                    Cancel at end of term
-                  </button>
-                ) : (
+                {subMeta.pendingDowngradeTo === "basic" ? (
+                  <>
+                    <p className="text-sm text-[var(--text-muted)]">
+                      Downgrade scheduled — moves to Basic on{" "}
+                      {formatDate(subMeta.periodEnd)}
+                    </p>
+                    <button
+                      type="button"
+                      disabled={actionBusy}
+                      onClick={() => void onUndoDowngrade()}
+                      className="rounded-[12px] bg-metatron-accent px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-metatron-accent-hover disabled:opacity-60"
+                    >
+                      Stay on Pro
+                    </button>
+                  </>
+                ) : subMeta.cancelAtPeriodEnd ? (
                   <>
                     <p className="text-sm text-[var(--text-muted)]">
                       Cancellation scheduled — access ends{" "}
-                      {formatDate(startupMeta.periodEnd)}
+                      {formatDate(subMeta.periodEnd)}
                     </p>
                     <button
                       type="button"
@@ -504,13 +560,53 @@ export default function SubscriptionPricingContent(
                       Undo cancellation
                     </button>
                   </>
+                ) : planLevel === "pro" && !showDowngradeChoice ? (
+                  <button
+                    type="button"
+                    disabled={actionBusy}
+                    onClick={() => setShowDowngradeChoice(true)}
+                    className="rounded-[12px] border border-[var(--border)] px-4 py-2 text-sm font-semibold text-[var(--text)] transition-colors hover:border-metatron-accent/30 disabled:opacity-60"
+                  >
+                    Cancel or downgrade
+                  </button>
+                ) : planLevel === "pro" && showDowngradeChoice ? (
+                  <>
+                    <button
+                      type="button"
+                      disabled={actionBusy}
+                      onClick={() => void onDowngrade()}
+                      className="rounded-[12px] bg-metatron-accent px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-metatron-accent-hover disabled:opacity-60"
+                    >
+                      Downgrade to Basic
+                    </button>
+                    <button
+                      type="button"
+                      disabled={actionBusy}
+                      onClick={() => void onCancel()}
+                      className="rounded-[12px] border border-[var(--border)] px-4 py-2 text-sm font-semibold text-[var(--text)] transition-colors hover:border-metatron-accent/30 disabled:opacity-60"
+                    >
+                      Cancel completely
+                    </button>
+                    <button
+                      type="button"
+                      disabled={actionBusy}
+                      onClick={() => setShowDowngradeChoice(false)}
+                      className="text-sm text-[var(--text-muted)] hover:text-[var(--text)]"
+                    >
+                      Never mind
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={actionBusy}
+                    onClick={() => void onCancel()}
+                    className="rounded-[12px] border border-[var(--border)] px-4 py-2 text-sm font-semibold text-[var(--text)] transition-colors hover:border-metatron-accent/30 disabled:opacity-60"
+                  >
+                    Cancel at end of term
+                  </button>
                 )}
               </div>
-            )}
-            {(role === "INVESTOR" || role === "INTERMEDIARY") && (
-              <p className="mt-4 text-xs text-[var(--text-muted)]">
-                To manage or cancel, contact support.
-              </p>
             )}
           </>
         ) : (

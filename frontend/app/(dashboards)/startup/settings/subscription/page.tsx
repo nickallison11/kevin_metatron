@@ -12,6 +12,7 @@ type SubStatus = {
   subscription_status: string;
   subscription_period_end: string | null;
   cancel_at_period_end: boolean;
+  pending_downgrade_to: string | null;
 };
 
 const basicFeatures = [
@@ -95,12 +96,13 @@ export default function StartupSubscriptionPage() {
       basePath="/startup/settings/subscription"
       invoices={invoices}
       onVerifySuccess={loadData}
-      startupMeta={
+      subMeta={
         isPaid && status
           ? {
               periodEnd: status.subscription_period_end,
               cancelAtPeriodEnd: status.cancel_at_period_end,
               subscriptionTier: status.subscription_tier,
+              pendingDowngradeTo: status.pending_downgrade_to,
             }
           : undefined
       }

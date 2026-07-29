@@ -12,6 +12,14 @@ type ConnectorProfile = {
   enrichment_credits?: number | null;
 };
 
+type SubStatus = {
+  subscription_tier: string;
+  subscription_status: string;
+  subscription_period_end: string | null;
+  cancel_at_period_end: boolean;
+  pending_downgrade_to: string | null;
+};
+
 const basicFeatures = [
   "Unlimited contacts",
   "50 enrichment credits/month",
@@ -31,14 +39,18 @@ const proFeatures = [
 export default function ConnectorSubscriptionPage() {
   const { token, loading } = useAuth("INTERMEDIARY");
   const [profile, setProfile] = useState<ConnectorProfile | null>(null);
+  const [status, setStatus] = useState<SubStatus | null>(null);
   const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
   const [dataLoading, setDataLoading] = useState(true);
 
   const loadData = useCallback(async () => {
     if (!token) return;
     try {
-      const [pRes, iRes] = await Promise.all([
+      const [pRes, sRes, iRes] = await Promise.all([
         fetch(`${API_BASE}/connector-profile`, {
+          headers: authJsonHeaders(token),
+        }),
+        fetch(`${API_BASE}/subscriptions/status`, {
           headers: authJsonHeaders(token),
         }),
         fetch(`${API_BASE}/subscriptions/invoices`, {
@@ -46,6 +58,7 @@ export default function ConnectorSubscriptionPage() {
         }),
       ]);
       if (pRes.ok) setProfile((await pRes.json()) as ConnectorProfile);
+      if (sRes.ok) setStatus((await sRes.json()) as SubStatus);
       if (iRes.ok) setInvoices((await iRes.json()) as InvoiceRow[]);
     } finally {
       setDataLoading(false);
@@ -84,6 +97,16 @@ export default function ConnectorSubscriptionPage() {
       basePath="/connector/settings/subscription"
       invoices={invoices}
       extraPaidInfo={<p className="text-sm text-[var(--text-muted)]">Credits remaining: {credits}</p>}
+      subMeta={
+        isPaid && status
+          ? {
+              periodEnd: status.subscription_period_end,
+              cancelAtPeriodEnd: status.cancel_at_period_end,
+              subscriptionTier: status.subscription_tier,
+              pendingDowngradeTo: status.pending_downgrade_to,
+            }
+          : undefined
+      }
       onVerifySuccess={loadData}
     />
   );

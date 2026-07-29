@@ -570,7 +570,7 @@ fn plan_benefits_html(plan_key: &str) -> String {
         "founder_basic" => &[
             "Permanent public IPFS pitch deck storage, unlimited re-uploads",
             "Call Intelligence — AI summary, key takeaways, and sentiment on every recorded call",
-            "10 Kevin matches a week (vs. 1 on Free), refreshed every 6 hours instead of weekly",
+            "10 Kevin matches a week (vs. 1 on Free)",
             "200 Kevin messages a day, across platform, email, Telegram, and WhatsApp",
         ],
         "founder_pro" => &[

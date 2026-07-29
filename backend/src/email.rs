@@ -576,18 +576,18 @@ fn plan_benefits_html(plan_key: &str) -> String {
         "founder_pro" => &[
             "Permanent private IPFS pitch deck storage, unlimited re-uploads",
             "Call Intelligence — AI summary, key takeaways, and sentiment on every recorded call",
-            "Unlimited Kevin matches and messages, refreshed every 6 hours",
+            "Unlimited Kevin matches and messages",
             "Full contact card shared automatically on investor introductions",
             "Priority Kevin AI responses",
         ],
         "investor_basic" => &[
-            "10 Kevin matches a week (vs. 1 on Free), refreshed every 6 hours instead of weekly",
+            "10 Kevin matches a week (vs. 1 on Free)",
             "Full Angel Score breakdown on every founder, not just a summary",
             "Call Intelligence — AI summary, key takeaways, and sentiment on every call",
             "200 Kevin messages a day, across platform, email, Telegram, and WhatsApp",
         ],
         "investor_pro" => &[
-            "Unlimited Kevin matches and messages, refreshed every 6 hours",
+            "Unlimited Kevin matches and messages",
             "Full Angel Score breakdown on every founder, not just a summary",
             "Call Intelligence — AI summary, key takeaways, and sentiment on every call",
         ],

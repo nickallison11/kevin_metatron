@@ -1663,6 +1663,25 @@ async fn delete_account(
         }
     }
 
+    // investor_profiles, startup_profiles, and kyc_profiles predate the
+    // ON DELETE CASCADE convention used elsewhere (e.g. connector_profiles)
+    // -- without this, deleting an account that has any of these rows fails
+    // on the FK constraint below. Delete explicitly rather than migrating
+    // the constraints, since these deletes need to run in this handler
+    // regardless.
+    for table in ["investor_profiles", "startup_profiles", "kyc_profiles"] {
+        let query = format!("DELETE FROM {table} WHERE user_id = $1");
+        if let Err(e) = sqlx::query(&query).bind(authed.id).execute(&state.db).await {
+            tracing::error!("delete account: failed deleting {table} for {}: {e}", authed.id);
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "internal error".to_string(),
+                }),
+            ));
+        }
+    }
+
     sqlx::query("DELETE FROM users WHERE id = $1")
         .bind(authed.id)
         .execute(&state.db)

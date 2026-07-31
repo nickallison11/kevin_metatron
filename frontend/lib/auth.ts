@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { API_BASE } from "@/lib/api";
+import { apiFetch } from "@/lib/api";
 import { AUTH_CHANGED_EVENT, getAccessToken } from "@/lib/tokenStore";
 
 export type AuthState = {
@@ -114,9 +114,15 @@ export function useAuth(
       return;
     }
 
-    fetch(`${API_BASE}/subscriptions/status`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
+    // Goes through apiFetch, not a raw fetch: a 401 here means the access
+    // token has expired, and this is the very first authenticated call the
+    // app makes on load — apiFetch transparently refreshes and retries, or
+    // (if the refresh token itself is expired/revoked/idle-timed-out)
+    // clears tokens and lets the AUTH_CHANGED_EVENT listener above redirect
+    // to /login. Either way this resolves within one round-trip, instead of
+    // silently rendering as "logged in" until the 5-minute background
+    // refresh interval eventually notices.
+    apiFetch("/subscriptions/status")
       .then((res) => (res.ok ? res.json() : null))
       .then(
         (
@@ -125,6 +131,10 @@ export function useAuth(
             subscription_tier?: string;
           } | null,
         ) => {
+          // getAccessToken() is re-read (not the `token` closed over above)
+          // since apiFetch may have rotated it via a silent refresh, or
+          // cleared it entirely if the session turned out to be dead.
+          const current = getAccessToken();
           const active = data?.subscription_status === "active";
           const tier = (data?.subscription_tier ?? "free").toLowerCase();
           const isProTier = active && tier === "pro";
@@ -135,7 +145,7 @@ export function useAuth(
               tier === "monthly" ||
               tier === "annual");
           setState({
-            token,
+            token: current,
             isPro: active,
             isBasic,
             isProTier,
@@ -145,7 +155,7 @@ export function useAuth(
       )
       .catch(() => {
         setState({
-          token,
+          token: getAccessToken(),
           isPro: false,
           isBasic: false,
           isProTier: false,

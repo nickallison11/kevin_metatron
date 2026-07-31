@@ -55,8 +55,28 @@ export function clearTokens(): void {
  * Returns false (and clears tokens) if the refresh token is missing,
  * expired, revoked, or reused — the caller should treat that as "logged
  * out" and redirect to /login.
+ *
+ * Refresh tokens are single-use/rotating server-side (each call revokes the
+ * old one and issues a new one) — if two callers both try to refresh with
+ * the same stored token at once (e.g. the background interval fires the
+ * same moment a component's API call 401s), the second to reach the server
+ * would find its token already revoked and get treated as replay/theft,
+ * revoking the whole session. `inFlightRefresh` makes every caller in this
+ * tab share one in-progress request instead, so that race can't happen.
  */
+let inFlightRefresh: Promise<boolean> | null = null;
+
 export async function refreshAccessToken(): Promise<boolean> {
+  if (inFlightRefresh) return inFlightRefresh;
+  inFlightRefresh = doRefresh();
+  try {
+    return await inFlightRefresh;
+  } finally {
+    inFlightRefresh = null;
+  }
+}
+
+async function doRefresh(): Promise<boolean> {
   const refreshToken = getRefreshToken();
   if (!refreshToken) return false;
 

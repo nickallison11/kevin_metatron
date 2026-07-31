@@ -82,6 +82,21 @@ pub async fn require_user(
         return Err((StatusCode::FORBIDDEN, "account suspended".to_string()));
     }
 
+    // Real activity signal for idle-timeout (see `auth::rotate_refresh_token`)
+    // — every protected route goes through `require_user`, but the silent
+    // token-refresh endpoint does not (it takes the refresh token directly,
+    // no bearer auth), so this can't be gamed by just leaving a tab open.
+    // Throttled to avoid a write on every single request from active users.
+    if let Err(e) = sqlx::query(
+        "UPDATE users SET last_active_at = now() WHERE id = $1 AND last_active_at < now() - INTERVAL '2 minutes'",
+    )
+    .bind(uid)
+    .execute(&state.db)
+    .await
+    {
+        tracing::warn!("require_user: last_active_at update failed for {}: {}", uid, e);
+    }
+
     let custom_ai_api_key = match custom_ai_api_key {
         Some(encrypted) => match crypto::decrypt(&state.encryption_key, &encrypted) {
             Ok(value) => Some(value),

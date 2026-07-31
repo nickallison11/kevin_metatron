@@ -161,6 +161,12 @@ fn generate_raw_token() -> String {
 
 const REFRESH_TOKEN_TTL_SECS: i64 = 30 * 24 * 3600;
 
+/// Real inactivity limit — separate from `REFRESH_TOKEN_TTL_SECS`, which is
+/// just the token's own absolute lifetime and slides forward on every
+/// silent refresh regardless of whether the user has done anything. See
+/// `rotate_refresh_token`.
+const IDLE_TIMEOUT_SECS: i64 = 7 * 24 * 3600;
+
 /// Inserts a new refresh token row (30-day sliding expiry) and returns the
 /// raw token to hand to the client. Only the SHA-256 hash is stored.
 async fn create_refresh_token(state: &AppState, user_id: Uuid) -> Result<String, AuthError> {
@@ -233,11 +239,23 @@ pub async fn rotate_refresh_token(
         return Err(AuthError::InvalidCredentials);
     }
 
-    let role: String = sqlx::query_scalar("SELECT role::text FROM users WHERE id = $1")
-        .bind(user_id)
-        .fetch_one(&state.db)
-        .await
-        .map_err(|_| AuthError::Internal)?;
+    let (role, last_active_at): (String, chrono::DateTime<chrono::Utc>) =
+        sqlx::query_as("SELECT role::text, last_active_at FROM users WHERE id = $1")
+            .bind(user_id)
+            .fetch_one(&state.db)
+            .await
+            .map_err(|_| AuthError::Internal)?;
+
+    // Idle timeout: the refresh token's own 30-day expiry is a sliding
+    // window with no activity signal (the silent-refresh timer alone keeps
+    // it alive forever), so it can't detect a genuinely idle account. This
+    // checks real activity instead — `last_active_at` is only touched by
+    // `require_user`, which the refresh endpoint itself never goes through.
+    // Idle-expiring ends the whole session (all devices), not just this token.
+    if chrono::Utc::now() - last_active_at > chrono::Duration::seconds(IDLE_TIMEOUT_SECS) {
+        revoke_all_refresh_tokens(state, user_id).await?;
+        return Err(AuthError::InvalidCredentials);
+    }
 
     let new_raw = generate_raw_token();
     let new_hash = sha256_hex(&new_raw);

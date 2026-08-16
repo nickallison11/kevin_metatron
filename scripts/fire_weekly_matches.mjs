@@ -8,15 +8,21 @@
 // frontend/app/api/cron/weekly-matches-{founders,investors}/route.ts
 // exactly; keep the two in sync if the route logic changes.
 //
-// Usage: node fire_weekly_matches.mjs <founders|investors>
+// Usage: bun fire_weekly_matches.mjs <founders|investors>
 // Required env: API_BASE, PLATFORM_URL, CRON_SECRET, RESEND_API_KEY
-// Run from inside frontend/ so react/react-dom/@react-email/render and the
-// email templates resolve from frontend/node_modules.
+// Must be run with bun (not plain node) since the imported .tsx email
+// templates need bun's built-in JSX/TS transpilation. The import paths
+// below are relative to this file's own location, not the process cwd --
+// ES module imports always resolve that way -- so they point at
+// ../frontend/emails/ regardless of where the script is invoked from.
+// react/react-dom/@react-email/render resolve from frontend/node_modules
+// because each imported module's own dependencies resolve relative to
+// where THAT module lives, i.e. inside frontend/.
 
 import { render } from "@react-email/render";
 import React from "react";
-import FounderWeeklyMatches from "./emails/founder-weekly-matches.tsx";
-import InvestorWeeklyMatches from "./emails/investor-weekly-matches.tsx";
+import FounderWeeklyMatches from "../frontend/emails/founder-weekly-matches.tsx";
+import InvestorWeeklyMatches from "../frontend/emails/investor-weekly-matches.tsx";
 
 const API_BASE = process.env.API_BASE;
 const PLATFORM_URL = process.env.PLATFORM_URL;

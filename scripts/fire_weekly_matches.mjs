@@ -8,7 +8,7 @@
 // frontend/app/api/cron/weekly-matches-{founders,investors}/route.ts
 // exactly; keep the two in sync if the route logic changes.
 //
-// Usage: bun fire_weekly_matches.mjs <founders|investors>
+// Usage: bun fire_weekly_matches.mjs <founders|investors> [--force]
 // Required env: API_BASE, PLATFORM_URL, CRON_SECRET, RESEND_API_KEY
 // Must be run with bun (not plain node) since the imported .tsx email
 // templates need bun's built-in JSX/TS transpilation. The import paths
@@ -18,11 +18,20 @@
 // react/react-dom/@react-email/render resolve from frontend/node_modules
 // because each imported module's own dependencies resolve relative to
 // where THAT module lives, i.e. inside frontend/.
+//
+// Meant to run on an hourly crontab tick, not once a week at a fixed time
+// -- each person only actually receives an email when
+// isLocalMonday8amWindow says it's currently Monday 8am in THEIR country
+// (from their profile's ISO-2 country code; no country set falls back to
+// UTC). Same gate as the real production route, kept in sync deliberately
+// -- see frontend/app/api/cron/weekly-matches-founders/route.ts.
+// Pass --force to bypass the local-time gate for manual verification runs.
 
 import { render } from "@react-email/render";
 import React from "react";
 import FounderWeeklyMatches from "../frontend/emails/founder-weekly-matches.tsx";
 import InvestorWeeklyMatches from "../frontend/emails/investor-weekly-matches.tsx";
+import { isLocalMonday8amWindow } from "../frontend/lib/country-timezone.ts";
 
 const API_BASE = process.env.API_BASE;
 const PLATFORM_URL = process.env.PLATFORM_URL;
@@ -37,12 +46,13 @@ if (!API_BASE || !PLATFORM_URL || !CRON_SECRET || !RESEND_API_KEY) {
 }
 
 const kind = process.argv[2]; // "founders" | "investors"
+const force = process.argv.includes("--force");
 if (kind !== "founders" && kind !== "investors") {
-  console.error("usage: node fire_weekly_matches.mjs <founders|investors>");
+  console.error("usage: bun fire_weekly_matches.mjs <founders|investors> [--force]");
   process.exit(1);
 }
 
-const summary = { sent: 0, skipped: 0, errors: [] };
+const summary = { sent: 0, skipped: 0, waitingForLocalTime: 0, errors: [] };
 
 const eligiblePath =
   kind === "founders"
@@ -60,6 +70,11 @@ const eligible = await resp.json();
 console.log(`eligible ${kind}: ${eligible.length}`);
 
 for (const person of eligible) {
+  if (!force && !isLocalMonday8amWindow(person.country)) {
+    summary.waitingForLocalTime++;
+    continue;
+  }
+
   await fetch(`${API_BASE}/api/founders/${person.user_id}/refresh-matches`, {
     method: "POST",
     headers: { "x-cron-secret": CRON_SECRET },

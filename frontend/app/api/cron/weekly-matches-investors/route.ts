@@ -1,8 +1,15 @@
+// cron: weekly match digest for investors
+//
+// Fires every hour (see vercel.json), not once at a fixed weekly time --
+// each investor only actually receives an email when isLocalMonday8amWindow
+// says it's currently Monday 8am in THEIR country. See the founders
+// version of this route for the full rationale.
 import { NextRequest, NextResponse } from "next/server";
 import { render } from "@react-email/render";
 import React from "react";
 import InvestorWeeklyMatches from "../../../../emails/investor-weekly-matches";
 import type { InvestorMatchCard } from "../../../../emails/investor-weekly-matches";
+import { isLocalMonday8amWindow } from "../../../../lib/country-timezone";
 
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "https://platform.metatron.id";
@@ -14,6 +21,7 @@ const PLATFORM_URL =
 interface EligibleInvestor {
   user_id: string;
   email: string;
+  country: string | null;
   is_basic: boolean;
   unsubscribe_token: string;
 }
@@ -31,7 +39,12 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  const summary = { sent: 0, skipped: 0, errors: [] as string[] };
+  const summary = {
+    sent: 0,
+    skipped: 0,
+    waitingForLocalTime: 0,
+    errors: [] as string[],
+  };
 
   let investors: EligibleInvestor[];
   try {
@@ -54,6 +67,11 @@ export async function GET(req: NextRequest) {
   }
 
   for (const inv of investors) {
+    if (!isLocalMonday8amWindow(inv.country)) {
+      summary.waitingForLocalTime++;
+      continue;
+    }
+
     // Refresh match pool — recycle old matches and trigger AI generation if needed
     await fetch(`${API_BASE}/api/founders/${inv.user_id}/refresh-matches`, {
       method: "POST",

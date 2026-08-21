@@ -57,7 +57,11 @@ fn verify_cron(state: &AppState, headers: &HeaderMap) -> Result<(), (StatusCode,
 struct EligibleFounder {
     user_id: Uuid,
     email: String,
-    timezone: Option<String>,
+    /// ISO-2 country code from the founder's profile, used by the calling
+    /// cron to gate the send to the founder's own local Monday 8am rather
+    /// than a single fixed UTC time. None (no country set) falls back to
+    /// UTC in that gating logic.
+    country: Option<String>,
     is_basic: bool,
     unsubscribe_token: String,
 }
@@ -68,11 +72,12 @@ async fn eligible_for_weekly_matches(
 ) -> Result<Json<Vec<EligibleFounder>>, (StatusCode, String)> {
     verify_cron(&state, &headers)?;
 
-    let rows = sqlx::query_as::<_, (Uuid, String, bool)>(
+    let rows = sqlx::query_as::<_, (Uuid, String, bool, Option<String>)>(
         r#"
-        SELECT u.id, u.email, u.is_basic
+        SELECT u.id, u.email, u.is_basic, p.country
         FROM users u
         JOIN email_preferences ep ON ep.user_id = u.id
+        LEFT JOIN profiles p ON p.user_id = u.id
         WHERE u.role = 'STARTUP'
           AND ep.weekly_matches = TRUE
           AND ep.unsubscribed_all = FALSE
@@ -94,10 +99,10 @@ async fn eligible_for_weekly_matches(
 
     let founders = rows
         .into_iter()
-        .map(|(user_id, email, is_basic)| {
+        .map(|(user_id, email, is_basic, country)| {
             let unsubscribe_token =
                 generate_token(&state.unsubscribe_secret, user_id, "weekly_matches_founder");
-            EligibleFounder { user_id, email, timezone: None, is_basic, unsubscribe_token }
+            EligibleFounder { user_id, email, country, is_basic, unsubscribe_token }
         })
         .collect();
 
@@ -108,6 +113,9 @@ async fn eligible_for_weekly_matches(
 struct EligibleInvestor {
     user_id: Uuid,
     email: String,
+    /// ISO-2 country code from the investor's profile; same purpose as
+    /// EligibleFounder::country.
+    country: Option<String>,
     is_basic: bool,
     unsubscribe_token: String,
 }
@@ -118,15 +126,15 @@ async fn eligible_for_weekly_matches_investors(
 ) -> Result<Json<Vec<EligibleInvestor>>, (StatusCode, String)> {
     verify_cron(&state, &headers)?;
 
-    let rows = sqlx::query_as::<_, (Uuid, String, bool)>(
+    let rows = sqlx::query_as::<_, (Uuid, String, bool, Option<String>)>(
         r#"
-        SELECT u.id, u.email, u.is_basic
+        SELECT u.id, u.email, u.is_basic, ip.country
         FROM users u
         JOIN email_preferences ep ON ep.user_id = u.id
+        JOIN investor_profiles ip ON ip.user_id = u.id
         WHERE u.role = 'INVESTOR'
           AND ep.weekly_matches = TRUE
           AND ep.unsubscribed_all = FALSE
-          AND EXISTS (SELECT 1 FROM investor_profiles ip WHERE ip.user_id = u.id)
           AND NOT EXISTS (
               SELECT 1 FROM email_send_log esl
               WHERE esl.user_id = u.id
@@ -144,10 +152,10 @@ async fn eligible_for_weekly_matches_investors(
 
     let investors = rows
         .into_iter()
-        .map(|(user_id, email, is_basic)| {
+        .map(|(user_id, email, is_basic, country)| {
             let unsubscribe_token =
                 generate_token(&state.unsubscribe_secret, user_id, "weekly_matches_investor");
-            EligibleInvestor { user_id, email, is_basic, unsubscribe_token }
+            EligibleInvestor { user_id, email, country, is_basic, unsubscribe_token }
         })
         .collect();
 
@@ -160,11 +168,12 @@ async fn eligible_for_monthly_summary(
 ) -> Result<Json<Vec<EligibleFounder>>, (StatusCode, String)> {
     verify_cron(&state, &headers)?;
 
-    let rows = sqlx::query_as::<_, (Uuid, String, bool)>(
+    let rows = sqlx::query_as::<_, (Uuid, String, bool, Option<String>)>(
         r#"
-        SELECT u.id, u.email, u.is_basic
+        SELECT u.id, u.email, u.is_basic, p.country
         FROM users u
         JOIN email_preferences ep ON ep.user_id = u.id
+        LEFT JOIN profiles p ON p.user_id = u.id
         WHERE u.role = 'STARTUP'
           AND ep.weekly_matches = TRUE
           AND ep.unsubscribed_all = FALSE
@@ -191,10 +200,10 @@ async fn eligible_for_monthly_summary(
 
     let founders = rows
         .into_iter()
-        .map(|(user_id, email, is_basic)| {
+        .map(|(user_id, email, is_basic, country)| {
             let unsubscribe_token =
                 generate_token(&state.unsubscribe_secret, user_id, "monthly_summary_founder");
-            EligibleFounder { user_id, email, timezone: None, is_basic, unsubscribe_token }
+            EligibleFounder { user_id, email, country, is_basic, unsubscribe_token }
         })
         .collect();
 
@@ -207,11 +216,12 @@ async fn eligible_for_monthly_summary_investors(
 ) -> Result<Json<Vec<EligibleInvestor>>, (StatusCode, String)> {
     verify_cron(&state, &headers)?;
 
-    let rows = sqlx::query_as::<_, (Uuid, String, bool)>(
+    let rows = sqlx::query_as::<_, (Uuid, String, bool, Option<String>)>(
         r#"
-        SELECT u.id, u.email, u.is_basic
+        SELECT u.id, u.email, u.is_basic, ip.country
         FROM users u
         JOIN email_preferences ep ON ep.user_id = u.id
+        LEFT JOIN investor_profiles ip ON ip.user_id = u.id
         WHERE u.role = 'INVESTOR'
           AND ep.weekly_matches = TRUE
           AND ep.unsubscribed_all = FALSE
@@ -238,10 +248,10 @@ async fn eligible_for_monthly_summary_investors(
 
     let investors = rows
         .into_iter()
-        .map(|(user_id, email, is_basic)| {
+        .map(|(user_id, email, is_basic, country)| {
             let unsubscribe_token =
                 generate_token(&state.unsubscribe_secret, user_id, "monthly_summary_investor");
-            EligibleInvestor { user_id, email, is_basic, unsubscribe_token }
+            EligibleInvestor { user_id, email, country, is_basic, unsubscribe_token }
         })
         .collect();
 

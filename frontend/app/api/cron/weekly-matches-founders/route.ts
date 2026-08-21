@@ -1,9 +1,17 @@
 // cron: weekly match digest for founders
+//
+// Fires every hour (see vercel.json), not once at a fixed weekly time --
+// each founder only actually receives an email when isLocalMonday8amWindow
+// says it's currently Monday 8am in THEIR country. A founder whose local
+// time hasn't hit that window yet this run is simply skipped and
+// re-evaluated next hour, with no side effects (they stay in the eligible
+// list until they're actually sent to).
 import { NextRequest, NextResponse } from "next/server";
 import { render } from "@react-email/render";
 import React from "react";
 import FounderWeeklyMatches from "../../../../emails/founder-weekly-matches";
 import type { MatchCard } from "../../../../emails/founder-weekly-matches";
+import { isLocalMonday8amWindow } from "../../../../lib/country-timezone";
 
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "https://platform.metatron.id";
@@ -15,7 +23,7 @@ const PLATFORM_URL =
 interface EligibleFounder {
   user_id: string;
   email: string;
-  timezone: string | null;
+  country: string | null;
   is_basic: boolean;
   unsubscribe_token: string;
 }
@@ -33,7 +41,12 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  const summary = { sent: 0, skipped: 0, errors: [] as string[] };
+  const summary = {
+    sent: 0,
+    skipped: 0,
+    waitingForLocalTime: 0,
+    errors: [] as string[],
+  };
 
   let founders: EligibleFounder[];
   try {
@@ -56,6 +69,11 @@ export async function GET(req: NextRequest) {
   }
 
   for (const f of founders) {
+    if (!isLocalMonday8amWindow(f.country)) {
+      summary.waitingForLocalTime++;
+      continue;
+    }
+
     // Refresh match pool — recycle old matches and trigger AI generation if needed
     await fetch(`${API_BASE}/api/founders/${f.user_id}/refresh-matches`, {
       method: "POST",

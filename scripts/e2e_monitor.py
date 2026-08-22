@@ -19,6 +19,10 @@ for a consistent 16-check count either way:
   6. IMAP scan (last 36h from metatron.id) [shared — reflects dev]
   7. Email cadence compliance (7-day, 1-day, expired) [shared — reflects dev]
   8. Weekly matches cron (founders + investors) [shared — reflects dev]
+  8b. Weekly matches per-country coverage — one basic founder per African
+     country (54) + one basic investor per US/UK/major-EU country (6),
+     added 2026-08-22 to verify isLocalMonday8amWindow fires correctly
+     across timezones, not just a single fixed UTC time. [shared — reflects dev]
   9a/9b. Kevin chat — Moderate tier (Hermes 4 70B, falls back to Haiku)
   10a/10b. Kevin chat — Complex/DeepComplex tier (Kimi K3, falls back to
       Sonnet/Opus)
@@ -373,7 +377,7 @@ def check_investor_profile(jwt, base_url=None):
 
 
 def imap_fetch(hours):
-    """Returns list of {from, subject, date} for all mail (all folders) in last N hours."""
+    """Returns list of {from, to, subject, date} for all mail (all folders) in last N hours."""
     mail = imaplib.IMAP4_SSL("imap.gmail.com")
     mail.login(GMAIL_USER, GMAIL_APP_PASSWORD)
     mail.select('"[Gmail]/All Mail"')
@@ -400,6 +404,7 @@ def imap_fetch(hours):
             decoded_subj = raw_subj
         msgs.append({
             "from": msg.get("From", ""),
+            "to": msg.get("To", ""),
             "subject": decoded_subj,
             "date": date_str,
         })
@@ -996,7 +1001,10 @@ def main():
 
     # ── Check 8: Weekly matches email ────────────────────────────────────────
     # Vercel blocks external calls to cron routes — verified by IMAP instead.
-    # Cron fires Tuesdays 09:00 UTC via vercel.json schedule.
+    # Not a Vercel cron at all anymore: fires hourly via a KVM2 root crontab
+    # running scripts/fire_weekly_matches.mjs, which gates each send on
+    # isLocalMonday8amWindow (per-recipient local Monday 8am), not a single
+    # fixed UTC time. See Check 8b for per-country coverage of that.
     lines.append("## Check 8 — Weekly matches email (IMAP, last 8 days) [SHARED — reflects dev]")
     try:
         recent_week = imap_fetch(8 * 24)
@@ -1005,11 +1013,55 @@ def main():
             for m in recent_week
             if "metatron.id" in m.get("from", "")
         )
-        lines.append(f"- weekly-matches email received: {'✓ seen' if weekly_seen else '⚠ not seen since last Tuesday'}")
+        lines.append(f"- weekly-matches email received: {'✓ seen' if weekly_seen else '⚠ not seen in last 8 days'}")
         if not weekly_seen:
             drifts.append("no weekly-matches email received in last 8 days")
     except Exception as e:
         lines.append(f"- ⚠ IMAP weekly check error: {e}")
+        recent_week = []
+    lines.append("")
+
+    # ── Check 8b: Weekly matches per-country coverage ──────────────────────────
+    # One basic founder per African country + one basic investor per
+    # US/UK/major-EU country (added 2026-08-22) to verify the local-Monday-8am
+    # gate actually fires across a real spread of timezones, not just once at
+    # a fixed UTC hour. Reuses the same IMAP fetch as Check 8 — matches on the
+    # "To" header since all these test addresses share the one Gmail inbox via
+    # plus-addressing.
+    AFRICA_FOUNDER_COUNTRY_CODES = [
+        "dz", "ao", "bj", "bw", "bf", "bi", "cv", "cm", "cf", "td", "km", "cg",
+        "cd", "ci", "dj", "eg", "gq", "er", "sz", "et", "ga", "gm", "gh", "gn",
+        "gw", "ke", "ls", "lr", "ly", "mg", "mw", "ml", "mr", "mu", "ma", "mz",
+        "na", "ne", "ng", "rw", "st", "sn", "sc", "sl", "so", "za", "ss", "sd",
+        "tz", "tg", "tn", "ug", "zm", "zw",
+    ]
+    WESTERN_INVESTOR_COUNTRY_CODES = ["us", "gb", "de", "fr", "nl", "ch"]
+    lines.append(
+        "## Check 8b — Weekly matches per-country coverage "
+        "(54 African founders, 6 US/UK/EU investors) [SHARED — reflects dev]"
+    )
+    try:
+        def received(addr_fragment):
+            return any(addr_fragment in m.get("to", "").lower() for m in recent_week)
+
+        founder_hits = [cc for cc in AFRICA_FOUNDER_COUNTRY_CODES if received(f"+founder-{cc}@")]
+        investor_hits = [cc for cc in WESTERN_INVESTOR_COUNTRY_CODES if received(f"+investor-{cc}@")]
+        lines.append(
+            f"- founder accounts with a weekly-matches email in last 8 days: "
+            f"{len(founder_hits)}/{len(AFRICA_FOUNDER_COUNTRY_CODES)}"
+        )
+        lines.append(
+            f"- investor accounts with a weekly-matches email in last 8 days: "
+            f"{len(investor_hits)}/{len(WESTERN_INVESTOR_COUNTRY_CODES)}"
+        )
+        missing_founders = [cc.upper() for cc in AFRICA_FOUNDER_COUNTRY_CODES if cc not in founder_hits]
+        missing_investors = [cc.upper() for cc in WESTERN_INVESTOR_COUNTRY_CODES if cc not in investor_hits]
+        if missing_founders:
+            lines.append(f"    not yet received (founders): {', '.join(missing_founders)}")
+        if missing_investors:
+            lines.append(f"    not yet received (investors): {', '.join(missing_investors)}")
+    except Exception as e:
+        lines.append(f"- ⚠ per-country coverage check error: {e}")
     lines.append("")
 
     moderate_msg = (

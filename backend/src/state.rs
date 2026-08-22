@@ -16,6 +16,11 @@ pub struct AppState {
     pub encryption_key: [u8; 32],
     pub upload_dir: PathBuf,
     pub public_base_url: String,
+    /// This process's own listen port. Used to build internal self-calls
+    /// (e.g. refresh_matches triggering /kevin-matches) so they hit this
+    /// same backend instance instead of a hardcoded port that only matches
+    /// production — dev listens on 4001, not 4000.
+    pub port: u16,
     pub ai_api_key: Option<String>,
     pub gemini_model: String,
     pub gemini_embedding_key: Option<String>,
@@ -100,6 +105,7 @@ impl AppState {
             encryption_key,
             upload_dir: settings.upload_dir.clone(),
             public_base_url: settings.public_base_url.clone(),
+            port: settings.port,
             ai_api_key: settings.ai_api_key.clone(),
             gemini_model: settings.gemini_model.clone(),
             gemini_embedding_key: settings.gemini_embedding_key.clone(),

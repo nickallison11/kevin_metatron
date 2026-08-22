@@ -2,11 +2,11 @@
   "crons": [
     {
       "path": "/api/cron/weekly-matches-founders",
-      "schedule": "0 8 * * 1"
+      "schedule": "0 * * * *"
     },
     {
       "path": "/api/cron/weekly-matches-investors",
-      "schedule": "0 8 * * 1"
+      "schedule": "0 * * * *"
     },
     {
       "path": "/api/cron/monthly-summary-founders",

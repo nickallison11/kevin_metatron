@@ -1419,6 +1419,63 @@ pub(crate) async fn build_context(state: &AppState, user_id: uuid::Uuid, role: &
         }
     }
 
+    if role == "INVESTOR" {
+        #[derive(sqlx::FromRow)]
+        struct PendingIntroCtx {
+            id: Uuid,
+            note: Option<String>,
+            company_name: Option<String>,
+            one_liner: Option<String>,
+            stage: Option<String>,
+            sector: Option<String>,
+        }
+        let pending: Vec<PendingIntroCtx> = sqlx::query_as(
+            r#"
+            SELECT i.id, i.note, p.company_name, p.one_liner, p.stage, p.sector
+            FROM introductions i
+            LEFT JOIN profiles p ON p.user_id = i.startup_user_id
+            WHERE i.investor_user_id = $1 AND i.status = 'PENDING'
+            ORDER BY i.created_at DESC
+            "#,
+        )
+        .bind(user_id)
+        .fetch_all(&state.db)
+        .await
+        .unwrap_or_default();
+
+        if !pending.is_empty() {
+            let lines: Vec<String> = pending
+                .iter()
+                .map(|p| {
+                    let company = p.company_name.as_deref().unwrap_or("A founder");
+                    let mut s = format!("- introduction_id {}: {}", p.id, company);
+                    if let Some(v) = &p.one_liner {
+                        s.push_str(&format!(" — {v}"));
+                    }
+                    if p.stage.is_some() || p.sector.is_some() {
+                        s.push_str(&format!(
+                            " ({}{}{})",
+                            p.stage.as_deref().unwrap_or(""),
+                            if p.stage.is_some() && p.sector.is_some() { " · " } else { "" },
+                            p.sector.as_deref().unwrap_or("")
+                        ));
+                    }
+                    if let Some(v) = &p.note {
+                        if !v.trim().is_empty() {
+                            s.push_str(&format!(" — note: \"{v}\""));
+                        }
+                    }
+                    s
+                })
+                .collect();
+            parts.push(format!(
+                "You have {} pending introduction request(s) awaiting your response. Bring these up naturally if relevant, and use accept_introduction or decline_introduction (with the introduction_id below) when the user tells you what to do with one:\n{}",
+                pending.len(),
+                lines.join("\n")
+            ));
+        }
+    }
+
     // Gospel knowledge injected by admin
     if let Ok(rows) = sqlx::query_as::<_, (String, String)>(
         r#"SELECT title, body FROM kevin_knowledge
@@ -1547,6 +1604,34 @@ pub(crate) fn kevin_tools_for_role(role: &str) -> serde_json::Value {
                 "required": ["matched_user_id"]
             }
         }));
+        tools.push(serde_json::json!({
+            "name": "accept_introduction",
+            "description": "Accept a pending introduction request from a founder. Use the introduction_id given in the pending-introductions context.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "introduction_id": {
+                        "type": "string",
+                        "description": "The UUID of the pending introduction to accept"
+                    }
+                },
+                "required": ["introduction_id"]
+            }
+        }));
+        tools.push(serde_json::json!({
+            "name": "decline_introduction",
+            "description": "Decline a pending introduction request from a founder. Use the introduction_id given in the pending-introductions context.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "introduction_id": {
+                        "type": "string",
+                        "description": "The UUID of the pending introduction to decline"
+                    }
+                },
+                "required": ["introduction_id"]
+            }
+        }));
     }
 
     tools.push(serde_json::json!({
@@ -1632,6 +1717,34 @@ pub(crate) fn kevin_tools_for_gemini(role: &str) -> serde_json::Value {
                     }
                 },
                 "required": ["matched_user_id"]
+            }
+        }));
+        declarations.push(serde_json::json!({
+            "name": "accept_introduction",
+            "description": "Accept a pending introduction request from a founder. Use the introduction_id given in the pending-introductions context.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "introduction_id": {
+                        "type": "string",
+                        "description": "The UUID of the pending introduction to accept"
+                    }
+                },
+                "required": ["introduction_id"]
+            }
+        }));
+        declarations.push(serde_json::json!({
+            "name": "decline_introduction",
+            "description": "Decline a pending introduction request from a founder. Use the introduction_id given in the pending-introductions context.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "introduction_id": {
+                        "type": "string",
+                        "description": "The UUID of the pending introduction to decline"
+                    }
+                },
+                "required": ["introduction_id"]
             }
         }));
     }
@@ -2101,6 +2214,128 @@ pub(crate) async fn execute_kevin_tool(
             format!("Intro request sent to {}.", matched_name)
         }
 
+        "accept_introduction" | "decline_introduction" => {
+            if role != "INVESTOR" {
+                return "This action is only available to investors.".to_string();
+            }
+
+            let intro_id_str = tool_input["introduction_id"].as_str().unwrap_or("");
+            let intro_id: Uuid = match intro_id_str.parse() {
+                Ok(id) => id,
+                Err(_) => return "Invalid introduction_id.".to_string(),
+            };
+
+            let new_status = if tool_name == "accept_introduction" { "accepted" } else { "declined" };
+
+            #[derive(sqlx::FromRow)]
+            struct IntroRow {
+                startup_user_id: Uuid,
+            }
+            let intro: Option<IntroRow> = sqlx::query_as(
+                "SELECT startup_user_id FROM introductions WHERE id = $1 AND investor_user_id = $2 AND status = 'PENDING'",
+            )
+            .bind(intro_id)
+            .bind(user_id)
+            .fetch_optional(&state.db)
+            .await
+            .ok()
+            .flatten();
+
+            let Some(intro) = intro else {
+                return "That introduction request wasn't found, isn't yours to act on, or has already been responded to.".to_string();
+            };
+
+            let updated = sqlx::query("UPDATE introductions SET status = $1 WHERE id = $2")
+                .bind(new_status)
+                .bind(intro_id)
+                .execute(&state.db)
+                .await;
+
+            if updated.is_err() {
+                return "Failed to update the introduction.".to_string();
+            }
+
+            #[derive(sqlx::FromRow)]
+            struct FounderRow {
+                email: String,
+                telegram_id: Option<String>,
+            }
+            let founder: Option<FounderRow> = sqlx::query_as(
+                "SELECT email, telegram_id FROM users WHERE id = $1",
+            )
+            .bind(intro.startup_user_id)
+            .fetch_optional(&state.db)
+            .await
+            .ok()
+            .flatten();
+
+            let investor_name: String = sqlx::query_scalar(
+                "SELECT firm_name FROM investor_profiles WHERE user_id = $1",
+            )
+            .bind(user_id)
+            .fetch_optional(&state.db)
+            .await
+            .ok()
+            .flatten()
+            .flatten()
+            .unwrap_or_else(|| user_email.to_string());
+
+            if let Some(f) = &founder {
+                if let (Some(bot_token), Some(chat_id)) = (
+                    state.telegram_bot_token.as_deref(),
+                    f.telegram_id.as_deref().filter(|t| !t.is_empty()),
+                ) {
+                    let text = if new_status == "accepted" {
+                        format!(
+                            "Good news — {investor_name} accepted your intro request on metatron. Their contact: {user_email}. Reach out directly.",
+                        )
+                    } else {
+                        format!("{investor_name} passed on your intro request on metatron this time.")
+                    };
+                    let url = format!("https://api.telegram.org/bot{bot_token}/sendMessage");
+                    let _ = state
+                        .http_client
+                        .post(&url)
+                        .json(&serde_json::json!({ "chat_id": chat_id, "text": text }))
+                        .send()
+                        .await;
+                }
+
+                let subject = if new_status == "accepted" {
+                    format!("{investor_name} accepted your intro request")
+                } else {
+                    format!("Update on your intro request to {investor_name}")
+                };
+                let html = if new_status == "accepted" {
+                    format!(
+                        "<p>{investor_name} accepted your introduction request on metatron.</p><p>Their contact: <a href=\"mailto:{user_email}\">{user_email}</a></p><p>Reach out directly to get the conversation going.</p>",
+                    )
+                } else {
+                    format!(
+                        "<p>{investor_name} passed on your introduction request on metatron this time.</p><p>Keep building — new matches come in every week.</p>",
+                    )
+                };
+                crate::email::send_tracked_email(
+                    &state.http_client,
+                    state.resend_api_key.as_deref(),
+                    "Kevin <kevin@metatron.id>",
+                    &f.email,
+                    &subject,
+                    &html,
+                    &state.db,
+                    intro.startup_user_id,
+                    "intro_response",
+                )
+                .await;
+            }
+
+            if new_status == "accepted" {
+                "Accepted. The founder has been notified and given your contact so they can reach out.".to_string()
+            } else {
+                "Declined. The founder has been notified.".to_string()
+            }
+        }
+
         "email_pitch_deck" => {
             if role != "INVESTOR" {
                 return "This action is only available to investors.".to_string();
@@ -2550,7 +2785,21 @@ fn classify_query_complexity(message: &str) -> QueryComplexity {
         "find me a vc", "find me a fund", "who should i talk to", "who should i speak",
         "find startups", "research the market", "look up",
     ];
-    let needs_tools = tool_triggers.iter().any(|kw| msg.contains(kw));
+    // Accept/decline-an-introduction intent, matched as a word combination
+    // rather than a fixed phrase — exact substrings like "accept my intro"
+    // miss real phrasing ("accept my *pending* introduction request"), and
+    // under-matching here is the dangerous direction: it silently drops the
+    // message into the Simple/NadirClaw tier, which has no tool-calling
+    // capability at all, so Kevin ends up narrating a confident but
+    // entirely fake success. Found live: NadirClaw told an investor it had
+    // accepted an intro that stayed PENDING in the database the whole time.
+    let intro_action_verbs = ["accept", "decline", "approve", "reject", "pass on", "pass"];
+    let mentions_intro = msg.contains("intro"); // matches "intro" and "introduction"
+    let needs_intro_action_tool =
+        mentions_intro && intro_action_verbs.iter().any(|v| msg.contains(v));
+
+    let needs_tools =
+        tool_triggers.iter().any(|kw| msg.contains(kw)) || needs_intro_action_tool;
 
     // Deep analysis keywords — need Opus for Pro
     let deep_triggers = [

@@ -1385,16 +1385,35 @@ pub(crate) async fn build_context(state: &AppState, user_id: uuid::Uuid, role: &
         }
     }
 
-    // Network-level ambient awareness
+    // Network-level ambient awareness — this user's own connections/intros,
+    // not a platform-wide total. The previous version of this query had no
+    // WHERE clause at all, so every user on the platform was told the exact
+    // same "13 founders · 4 investors" regardless of who they actually are.
     if let Ok(row) = sqlx::query_as::<_, (i64, i64, i64)>(
-        "SELECT (SELECT COUNT(*) FROM profiles WHERE company_name IS NOT NULL), (SELECT COUNT(*) FROM investor_profiles), (SELECT COUNT(*) FROM introductions WHERE status = 'accepted')"
+        r#"
+        SELECT
+          (SELECT COUNT(*) FROM connections c
+             JOIN users u ON u.id = CASE WHEN c.from_user_id = $1 THEN c.to_user_id ELSE c.from_user_id END
+             WHERE (c.from_user_id = $1 OR c.to_user_id = $1)
+               AND c.connection_type = 'connect' AND c.status = 'accepted'
+               AND u.role = 'STARTUP'),
+          (SELECT COUNT(*) FROM connections c
+             JOIN users u ON u.id = CASE WHEN c.from_user_id = $1 THEN c.to_user_id ELSE c.from_user_id END
+             WHERE (c.from_user_id = $1 OR c.to_user_id = $1)
+               AND c.connection_type = 'connect' AND c.status = 'accepted'
+               AND u.role = 'INVESTOR'),
+          (SELECT COUNT(*) FROM introductions
+             WHERE status = 'accepted'
+               AND (investor_user_id = $1 OR startup_user_id = $1 OR broker_user_id = $1))
+        "#
     )
+    .bind(user_id)
     .fetch_optional(&state.db)
     .await
     {
         if let Some((founders, investors, intros)) = row {
             parts.push(format!(
-                "Network: {} founders · {} investors · {} accepted intros on metatron",
+                "Your network on metatron: {} founder connections · {} investor connections · {} accepted intros",
                 founders, investors, intros
             ));
         }

@@ -945,7 +945,10 @@ Return the top {match_limit} matches only, ranked by score descending."#
                    ON CONFLICT (for_user_id, matched_user_id, match_type) WHERE matched_user_id IS NOT NULL
                    DO UPDATE SET score = EXCLUDED.score, reasoning = EXCLUDED.reasoning,
                      generated_at = NOW(), display_name = EXCLUDED.display_name,
-                     display_one_liner = EXCLUDED.display_one_liner"#,
+                     display_one_liner = EXCLUDED.display_one_liner,
+                     weekly_email_sent_at = CASE
+                       WHEN kevin_matches.weekly_email_sent_at < NOW() - INTERVAL '7 days'
+                       THEN NULL ELSE kevin_matches.weekly_email_sent_at END"#,
             )
             .bind(user.id)
             .bind(candidate_uuid)
@@ -979,7 +982,10 @@ Return the top {match_limit} matches only, ranked by score descending."#
                    ON CONFLICT (for_user_id, contact_id, match_type) WHERE contact_id IS NOT NULL
                    DO UPDATE SET score = EXCLUDED.score, reasoning = EXCLUDED.reasoning,
                      generated_at = NOW(), display_name = EXCLUDED.display_name,
-                     display_one_liner = EXCLUDED.display_one_liner"#,
+                     display_one_liner = EXCLUDED.display_one_liner,
+                     weekly_email_sent_at = CASE
+                       WHEN kevin_matches.weekly_email_sent_at < NOW() - INTERVAL '7 days'
+                       THEN NULL ELSE kevin_matches.weekly_email_sent_at END"#,
             )
             .bind(user.id)
             .bind(candidate_uuid)

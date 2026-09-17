@@ -71,6 +71,16 @@ async fn process_whatsapp_webhook(state: &Arc<AppState>, body: Value) -> Result<
             let Some(value) = ch.get("value") else {
                 continue;
             };
+            if let Some(statuses) = value.get("statuses").and_then(|s| s.as_array()) {
+                for st in statuses {
+                    let sid = st.get("id").and_then(|x| x.as_str()).unwrap_or("?");
+                    let status = st.get("status").and_then(|x| x.as_str()).unwrap_or("?");
+                    let recipient = st.get("recipient_id").and_then(|x| x.as_str()).unwrap_or("?");
+                    let errors = st.get("errors");
+                    tracing::info!("whatsapp status callback: id={sid} status={status} recipient={recipient} errors={errors:?}");
+                }
+            }
+
             let Some(messages) = value.get("messages").and_then(|m| m.as_array()) else {
                 continue;
             };

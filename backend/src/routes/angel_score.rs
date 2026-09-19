@@ -48,7 +48,7 @@ fn internal(e: impl std::fmt::Display) -> (StatusCode, String) {
 /// viewer's own tier, not whichever founder's score is being viewed -- detail
 /// level is a perk of the viewer's subscription, same as everywhere else in
 /// the tier matrix.
-fn redact_breakdown_if_free(mut score: AngelScore, is_basic: bool, is_pro: bool) -> AngelScore {
+pub(crate) fn redact_breakdown_if_free(mut score: AngelScore, is_basic: bool, is_pro: bool) -> AngelScore {
     if !is_basic && !is_pro {
         score.team_score = None;
         score.market_score = None;

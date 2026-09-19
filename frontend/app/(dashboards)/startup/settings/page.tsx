@@ -47,6 +47,11 @@ export default function StartupSettingsPage() {
   const [emailPrefsMsg, setEmailPrefsMsg] = useState<string | null>(null);
   const [emailPrefsSaving, setEmailPrefsSaving] = useState(false);
 
+  const [publicListingLoaded, setPublicListingLoaded] = useState(false);
+  const [isPubliclyListed, setIsPubliclyListed] = useState(true);
+  const [publicListingMsg, setPublicListingMsg] = useState<string | null>(null);
+  const [publicListingSaving, setPublicListingSaving] = useState(false);
+
   const qrDataUrl = useMemo(() => {
     if (!otpauthUri) return null;
     return `https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(
@@ -90,6 +95,18 @@ export default function StartupSettingsPage() {
           setWeeklyMatches(ep.weekly_matches ?? true);
           setUnsubscribedAll(ep.unsubscribed_all ?? false);
           setEmailPrefsLoaded(true);
+        }
+      } catch {
+        // non-fatal
+      }
+      try {
+        const profileRes = await fetch(`${API_BASE}/profile`, {
+          headers: authHeaders(token),
+        });
+        if (profileRes.ok) {
+          const profile = await profileRes.json();
+          setIsPubliclyListed(profile.is_publicly_listed ?? true);
+          setPublicListingLoaded(true);
         }
       } catch {
         // non-fatal
@@ -705,6 +722,66 @@ export default function StartupSettingsPage() {
 
               {emailPrefsMsg && (
                 <p className="text-xs text-[var(--text-muted)]">{emailPrefsMsg}</p>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-6 space-y-5">
+          <h2 className="text-sm font-semibold">Public directory</h2>
+          {!publicListingLoaded ? (
+            <p className="text-xs text-[var(--text-muted)]">Loading…</p>
+          ) : (
+            <div className="space-y-4">
+              <label className="flex items-center justify-between gap-4 cursor-pointer">
+                <div>
+                  <p className="text-sm font-medium">List my startup in the public directory</p>
+                  <p className="text-xs text-[var(--text-muted)]">
+                    Show your profile at metatron.id/startups so investors and the public can
+                    find and rate your startup. On by default.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={isPubliclyListed}
+                  disabled={publicListingSaving}
+                  onClick={async () => {
+                    const next = !isPubliclyListed;
+                    setIsPubliclyListed(next);
+                    setPublicListingSaving(true);
+                    setPublicListingMsg(null);
+                    try {
+                      const res = await fetch(`${API_BASE}/profile/public-listing`, {
+                        method: "PUT",
+                        headers: authJsonHeaders(token!),
+                        body: JSON.stringify({ is_publicly_listed: next }),
+                      });
+                      if (!res.ok) throw new Error();
+                      setPublicListingMsg("Saved.");
+                    } catch {
+                      setIsPubliclyListed(!next);
+                      setPublicListingMsg("Could not save preference.");
+                    } finally {
+                      setPublicListingSaving(false);
+                    }
+                  }}
+                  className={[
+                    "relative inline-flex h-5 w-9 flex-shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none disabled:opacity-40",
+                    isPubliclyListed ? "bg-metatron-accent" : "bg-[var(--border)]",
+                  ].join(" ")}
+                >
+                  <span
+                    className={[
+                      "inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform duration-200",
+                      isPubliclyListed ? "translate-x-4" : "translate-x-0",
+                    ].join(" ")}
+                  />
+                </button>
+              </label>
+
+              {publicListingMsg && (
+                <p className="text-xs text-[var(--text-muted)]">{publicListingMsg}</p>
               )}
             </div>
           )}

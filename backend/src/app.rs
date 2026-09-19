@@ -49,6 +49,8 @@ pub fn build_app(_settings: &Settings, state: Arc<AppState>) -> Router {
         .nest("/api/founders", routes::weekly_matches::router())
         .nest("/unsubscribe", routes::unsubscribe::router())
         .nest("/internal/email-ignore", routes::email_ignore::router())
+        .nest("/ratings", routes::ratings::router())
+        .nest("/reviewer-accounts", routes::reviewer_accounts::router())
         .layer(cors)
         .layer(DefaultBodyLimit::max(55 * 1024 * 1024))
         .with_state(state)

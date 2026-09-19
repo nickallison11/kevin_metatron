@@ -24,6 +24,8 @@ pub mod onboarding;
 pub mod pitches;
 pub mod pools;
 pub mod profile;
+pub mod ratings;
+pub mod reviewer_accounts;
 pub mod subscription_finalize;
 pub mod subscriptions;
 pub mod uploads;

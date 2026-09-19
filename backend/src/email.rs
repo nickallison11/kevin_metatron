@@ -887,6 +887,78 @@ pub async fn send_password_reset_email(
     .await;
 }
 
+fn reviewer_magic_link_email_html(link_url: &str) -> String {
+    shell_html(
+        "Sign in to metatron reviews",
+        &format!(
+            r#"
+<p style="margin:0 0 16px 0;font-size:14px;color:#e8e8ed;">Click the button below to sign in and save your startup review on metatron.</p>
+<p style="margin:0 0 20px 0;">
+  <a href="{link_url}" style="display:inline-block;background:#6c5ce7;color:#ffffff;text-decoration:none;font-size:14px;font-weight:600;padding:12px 20px;border-radius:12px;">Sign in</a>
+</p>
+<p style="margin:0 0 0 0;font-size:13px;color:#8888a0;">This link expires in 30 days. If you didn't request this, ignore this email.</p>
+"#,
+            link_url = link_url,
+        ),
+    )
+}
+
+pub async fn send_reviewer_magic_link_email(
+    http_client: &Client,
+    api_key: Option<&str>,
+    from: &str,
+    to_email: &str,
+    link_url: &str,
+) {
+    let html = reviewer_magic_link_email_html(link_url);
+    send_email(
+        http_client,
+        api_key,
+        from,
+        to_email,
+        "Sign in to metatron reviews",
+        &html,
+    )
+    .await;
+}
+
+fn review_verification_email_html(startup_name: &str, verify_url: &str) -> String {
+    shell_html(
+        "Confirm your review",
+        &format!(
+            r#"
+<p style="margin:0 0 16px 0;font-size:14px;color:#e8e8ed;">Please confirm the review you left for {startup_name} on metatron. Unconfirmed reviews don't count toward the public Community Score.</p>
+<p style="margin:0 0 20px 0;">
+  <a href="{verify_url}" style="display:inline-block;background:#6c5ce7;color:#ffffff;text-decoration:none;font-size:14px;font-weight:600;padding:12px 20px;border-radius:12px;">Confirm review</a>
+</p>
+<p style="margin:0 0 0 0;font-size:13px;color:#8888a0;">If you didn't leave this review, ignore this email and it will expire automatically.</p>
+"#,
+            startup_name = startup_name,
+            verify_url = verify_url,
+        ),
+    )
+}
+
+pub async fn send_review_verification_email(
+    http_client: &Client,
+    api_key: Option<&str>,
+    from: &str,
+    to_email: &str,
+    startup_name: &str,
+    verify_url: &str,
+) {
+    let html = review_verification_email_html(startup_name, verify_url);
+    send_email(
+        http_client,
+        api_key,
+        from,
+        to_email,
+        "Confirm your metatron review",
+        &html,
+    )
+    .await;
+}
+
 pub fn intro_investor_email_html(
     investor_name: &str,
     company_name: &str,

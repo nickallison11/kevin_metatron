@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use axum::{
     extract::State,
-    routing::get,
+    routing::{get, put},
     Json, Router,
 };
 use axum_extra::{
@@ -20,9 +20,10 @@ pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/", get(get_profile).put(put_profile))
         .route("/founders/all", get(list_founders))
+        .route("/public-listing", put(put_public_listing))
 }
 
-#[derive(Debug, Serialize, Deserialize, Default, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ProfileDto {
     pub company_name: Option<String>,
     pub one_liner: Option<String>,
@@ -41,6 +42,35 @@ pub struct ProfileDto {
     /// IPFS gateway URL for the latest JSON context snapshot (profile + pitches + memory summary).
     #[serde(default)]
     pub context_ipfs_url: Option<String>,
+    /// Public startup directory listing -- opt-out, defaults TRUE.
+    #[serde(default = "default_true")]
+    pub is_publicly_listed: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+// Matches the `is_publicly_listed BOOLEAN NOT NULL DEFAULT TRUE` column --
+// a founder with no profile row yet is opted in by default, same as one
+// who has saved a profile without touching the toggle.
+impl Default for ProfileDto {
+    fn default() -> Self {
+        ProfileDto {
+            company_name: None,
+            one_liner: None,
+            stage: None,
+            sector: None,
+            country: None,
+            website: None,
+            pitch_deck_url: None,
+            ipfs_visibility: None,
+            deck_expires_at: None,
+            deck_upload_count: 0,
+            context_ipfs_url: None,
+            is_publicly_listed: true,
+        }
+    }
 }
 
 async fn get_profile(
@@ -62,7 +92,7 @@ async fn fetch_profile(
                website, pitch_deck_url, ipfs_visibility,
                deck_expires_at::text as deck_expires_at,
                COALESCE(deck_upload_count, 0)::int as deck_upload_count,
-               context_ipfs_url
+               context_ipfs_url, is_publicly_listed
         FROM profiles WHERE user_id = $1
         "#,
     )
@@ -87,6 +117,7 @@ struct ProfileRow {
     deck_expires_at: Option<String>,
     deck_upload_count: i32,
     context_ipfs_url: Option<String>,
+    is_publicly_listed: bool,
 }
 
 impl From<ProfileRow> for ProfileDto {
@@ -103,8 +134,42 @@ impl From<ProfileRow> for ProfileDto {
             deck_expires_at: r.deck_expires_at,
             deck_upload_count: r.deck_upload_count,
             context_ipfs_url: r.context_ipfs_url,
+            is_publicly_listed: r.is_publicly_listed,
         }
     }
+}
+
+#[derive(Deserialize)]
+struct PublicListingRequest {
+    is_publicly_listed: bool,
+}
+
+// Kept separate from `put_profile`'s upsert so a client that omits this
+// field on a normal profile save can't silently flip it back to the
+// column's DB default.
+async fn put_public_listing(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+    Json(body): Json<PublicListingRequest>,
+) -> Result<Json<ProfileDto>, (axum::http::StatusCode, String)> {
+    let AuthedUser { id, .. } = require_role(&state, bearer.token(), &["STARTUP"]).await?;
+
+    sqlx::query(
+        r#"
+        INSERT INTO profiles (user_id, is_publicly_listed)
+        VALUES ($1, $2)
+        ON CONFLICT (user_id) DO UPDATE SET
+            is_publicly_listed = EXCLUDED.is_publicly_listed,
+            updated_at = now()
+        "#,
+    )
+    .bind(id)
+    .bind(body.is_publicly_listed)
+    .execute(&state.db)
+    .await
+    .map_err(internal)?;
+
+    fetch_profile(&state, id).await
 }
 
 async fn put_profile(

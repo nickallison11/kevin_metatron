@@ -7,6 +7,7 @@ pub mod compliance;
 pub mod connector_profile;
 pub mod connections;
 pub mod deals;
+pub mod deck_views;
 pub mod email_ignore;
 pub mod investments;
 pub mod investment_memos;

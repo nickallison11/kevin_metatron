@@ -11,7 +11,7 @@ use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::email;
-use crate::identity::{require_reviewer, require_user_optional};
+use crate::identity::{require_reviewer, require_role, require_user_optional};
 use crate::state::AppState;
 
 use super::angel_score::{redact_breakdown_if_free, AngelScore};
@@ -21,6 +21,7 @@ pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/startups", get(list_startups))
         .route("/startups/:startup_user_id", get(get_startup).post(submit_rating))
+        .route("/mine", get(my_reviews))
         .route("/verify", put(verify_rating))
 }
 
@@ -37,7 +38,7 @@ const ANON_WEIGHT: f64 = 0.15;
 const MIN_ACCOUNT_AGE_DAYS: i64 = 7;
 const ANON_VERIFY_WINDOW_DAYS: i64 = 14;
 
-fn bearer_token(headers: &HeaderMap) -> Option<&str> {
+pub(crate) fn bearer_token(headers: &HeaderMap) -> Option<&str> {
     headers
         .get(axum::http::header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
@@ -53,7 +54,7 @@ fn ip_hash(state: &AppState, ip: &str) -> String {
     hex::encode(Sha256::digest(data.as_bytes()))
 }
 
-fn client_ip(headers: &HeaderMap) -> String {
+pub(crate) fn client_ip(headers: &HeaderMap) -> String {
     headers
         .get("x-forwarded-for")
         .and_then(|v| v.to_str().ok())
@@ -617,4 +618,58 @@ async fn verify_rating(
     .map_err(internal)?;
 
     Ok(StatusCode::OK)
+}
+
+// ---------------------------------------------------------------------
+// Founder-facing reviewer identity (never exposed on the public endpoints
+// above -- this is the one place a review's real identity is returned)
+// ---------------------------------------------------------------------
+
+#[derive(Serialize, sqlx::FromRow)]
+struct MyReviewRow {
+    id: Uuid,
+    tier: String,
+    overall_stars: i16,
+    team_score: Option<i16>,
+    market_score: Option<i16>,
+    traction_score: Option<i16>,
+    product_score: Option<i16>,
+    comment: Option<String>,
+    is_flagged: bool,
+    created_at: chrono::DateTime<chrono::Utc>,
+    reviewer_name: Option<String>,
+    reviewer_email: Option<String>,
+}
+
+async fn my_reviews(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<MyReviewRow>>, (StatusCode, String)> {
+    let token = bearer_token(&headers)
+        .ok_or((StatusCode::UNAUTHORIZED, "missing token".to_string()))?;
+    let user = require_role(&state, token, &["STARTUP"]).await?;
+
+    let rows = sqlx::query_as::<_, MyReviewRow>(
+        r#"
+        SELECT
+            r.id, r.tier, r.overall_stars, r.team_score, r.market_score,
+            r.traction_score, r.product_score, r.comment, r.is_flagged, r.created_at,
+            COALESCE(ip.firm_name, pp.company_name, ra.name, r.anon_name) AS reviewer_name,
+            COALESCE(pu.email, ra.email, r.anon_email) AS reviewer_email
+        FROM startup_ratings r
+        LEFT JOIN users pu ON pu.id = r.platform_user_id
+        LEFT JOIN investor_profiles ip ON ip.user_id = r.platform_user_id
+        LEFT JOIN profiles pp ON pp.user_id = r.platform_user_id
+        LEFT JOIN reviewer_accounts ra ON ra.id = r.reviewer_account_id
+        WHERE r.startup_user_id = $1
+        ORDER BY r.created_at DESC
+        LIMIT 50
+        "#,
+    )
+    .bind(user.id)
+    .fetch_all(&state.db)
+    .await
+    .map_err(internal)?;
+
+    Ok(Json(rows))
 }

@@ -233,6 +233,19 @@ async fn view_deck(
     let (founder_id, deck_viewed_at, deck_url) =
         row.ok_or((StatusCode::NOT_FOUND, "match not found".to_string()))?;
 
+    // Feeds the founder's unified "who viewed my deck" log (`GET
+    // /deck-views/mine`) -- logged on every view, not just the first one,
+    // unlike `kevin_matches.deck_viewed_at` below which stays first-view-only
+    // since it only gates the one-time email notification.
+    sqlx::query(
+        "INSERT INTO deck_views (startup_user_id, viewer_user_id, source) VALUES ($1, $2, 'matched_intro')",
+    )
+    .bind(founder_id)
+    .bind(user.id)
+    .execute(&state.db)
+    .await
+    .map_err(internal)?;
+
     let firm_name: Option<String> = sqlx::query_scalar::<_, Option<String>>(
         "SELECT firm_name FROM investor_profiles WHERE user_id = $1",
     )

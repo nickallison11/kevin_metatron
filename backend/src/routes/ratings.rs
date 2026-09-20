@@ -108,7 +108,9 @@ async fn list_startups(
             p.stage,
             p.sector,
             p.country::text AS country,
-            p.pitch_deck_url,
+            CASE WHEN u.is_pro = TRUE THEN NULL
+                 WHEN p.deck_expires_at IS NOT NULL AND p.deck_expires_at <= NOW() THEN NULL
+                 ELSE p.pitch_deck_url END AS pitch_deck_url,
             a.score AS angel_score,
             c.community_score::float8 AS community_score,
             COALESCE(c.rating_count, 0) AS rating_count
@@ -199,7 +201,10 @@ async fn get_startup(
     let profile = sqlx::query_as::<_, StartupProfilePublic>(
         r#"
         SELECT p.user_id, p.company_name, p.one_liner, p.stage, p.sector,
-               p.country::text AS country, p.website, p.pitch_deck_url
+               p.country::text AS country, p.website,
+               CASE WHEN u.is_pro = TRUE THEN NULL
+                    WHEN p.deck_expires_at IS NOT NULL AND p.deck_expires_at <= NOW() THEN NULL
+                    ELSE p.pitch_deck_url END AS pitch_deck_url
         FROM profiles p
         INNER JOIN users u ON u.id = p.user_id
         WHERE p.user_id = $1 AND u.role = 'STARTUP' AND p.is_publicly_listed = TRUE

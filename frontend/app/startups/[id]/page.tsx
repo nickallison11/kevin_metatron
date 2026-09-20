@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { API_BASE } from "@/lib/api";
 import { RatingForm } from "@/components/RatingForm";
+import { TrackedDeckLink } from "@/components/TrackedDeckLink";
 
 type AngelScore = {
   score: number;
@@ -113,14 +114,13 @@ export default async function StartupDetailPage({
               </a>
             )}
             {profile.pitch_deck_url && (
-              <a
+              <TrackedDeckLink
+                startupUserId={profile.user_id}
                 href={profile.pitch_deck_url}
-                target="_blank"
-                rel="noreferrer"
                 className="text-xs text-metatron-accent hover:underline"
               >
                 Pitch deck
-              </a>
+              </TrackedDeckLink>
             )}
           </div>
         </div>

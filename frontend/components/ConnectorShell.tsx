@@ -3,6 +3,7 @@
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import {
+  IconBuilding,
   IconCreditCard,
   IconLayoutDashboard,
   IconNetwork,
@@ -20,6 +21,7 @@ const FREE_NAV = [
   { href: "/connector/kevin", label: "Chat with Kevin", icon: IconRobot },
   { href: "/connector/profile", label: "Profile Settings", icon: IconUserCircle },
   { href: "/connector/network", label: "My Network", icon: IconNetwork },
+  { href: "/startups", label: "Browse Startups", icon: IconBuilding },
 ];
 
 export default function ConnectorShell({ children }: { children: ReactNode }) {

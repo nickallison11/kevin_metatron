@@ -3,6 +3,7 @@
 import AngelScoreCard from "@/components/AngelScoreCard";
 import ChannelLinksCard from "@/components/ChannelLinksCard";
 import KevinMatchFeed from "@/components/KevinMatchFeed";
+import ShareProfileCard from "@/components/ShareProfileCard";
 import { useAuth } from "@/lib/auth";
 
 export default function StartupDashboardPage() {
@@ -19,6 +20,7 @@ export default function StartupDashboardPage() {
           <div className="space-y-4">
             <AngelScoreCard token={token} />
             <ChannelLinksCard token={token} />
+            <ShareProfileCard token={token} />
           </div>
           <KevinMatchFeed token={token} role="founder" />
         </div>

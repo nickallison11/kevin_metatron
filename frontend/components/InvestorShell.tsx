@@ -5,6 +5,7 @@ import { type ReactNode } from "react";
 import {
   IconArrowsExchange,
   IconBriefcase,
+  IconBuilding,
   IconCreditCard,
   IconLayoutDashboard,
   IconRobot,
@@ -19,6 +20,7 @@ const FREE_NAV = [
   { href: "/investor/kevin", label: "Chat with Kevin", icon: IconRobot },
   { href: "/investor/profile", label: "Profile Settings", icon: IconUserCircle },
   { href: "/investor/matches", label: "Startup Matches", icon: IconArrowsExchange },
+  { href: "/startups", label: "Browse Startups", icon: IconBuilding },
 ];
 
 // Portfolio doesn't exist yet, so it's a hard lock for everyone (button, not

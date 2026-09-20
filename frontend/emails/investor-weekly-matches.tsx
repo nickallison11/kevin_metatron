@@ -100,6 +100,16 @@ export default function InvestorWeeklyMatches({
             </Section>
           )}
 
+          <Section style={directorySection}>
+            <Text style={directoryText}>
+              See every startup on metatron, not just this week's matches —
+              decks, Angel Score, and Community Score, all public.
+            </Text>
+            <Link href={`${platformUrl}/startups`} style={matchButton}>
+              Browse the public directory
+            </Link>
+          </Section>
+
           <Hr style={divider} />
           <Text style={footer}>
             You are receiving this because you signed up on metatron and opted
@@ -222,6 +232,17 @@ const upgradeButton: React.CSSProperties = {
   fontSize: "16px",
   fontWeight: 600,
   textDecoration: "none",
+};
+
+const directorySection: React.CSSProperties = {
+  textAlign: "center" as const,
+  padding: "12px 0 24px",
+};
+
+const directoryText: React.CSSProperties = {
+  color: "#8888a0",
+  fontSize: "13px",
+  marginBottom: "12px",
 };
 
 const divider: React.CSSProperties = {

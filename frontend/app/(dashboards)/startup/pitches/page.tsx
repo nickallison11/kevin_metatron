@@ -28,6 +28,26 @@ type FounderProfile = {
   deck_upload_count?: number;
 };
 
+type DeckView = {
+  id: string;
+  viewed_at: string;
+  source: string;
+  viewer_email: string | null;
+  viewer_role: string | null;
+  viewer_org: string | null;
+};
+
+type MyReview = {
+  id: string;
+  tier: string;
+  overall_stars: number;
+  comment: string | null;
+  is_flagged: boolean;
+  created_at: string;
+  reviewer_name: string | null;
+  reviewer_email: string | null;
+};
+
 function hasDeckOnProfile(
   loaded: boolean,
   p: FounderProfile | null,
@@ -97,6 +117,10 @@ export default function StartupPitchesPage() {
   const [pitchesLoaded, setPitchesLoaded] = useState(false);
   const [profile, setProfile] = useState<FounderProfile | null>(null);
   const [profileLoaded, setProfileLoaded] = useState(false);
+  const [deckViews, setDeckViews] = useState<DeckView[]>([]);
+  const [deckViewsLoaded, setDeckViewsLoaded] = useState(false);
+  const [myReviews, setMyReviews] = useState<MyReview[]>([]);
+  const [myReviewsLoaded, setMyReviewsLoaded] = useState(false);
   const [tab, setTab] = useState<FormTab>("overview");
   const [msg, setMsg] = useState<string | null>(null);
 
@@ -148,12 +172,42 @@ export default function StartupPitchesPage() {
     }
   }, [token]);
 
+  const loadDeckViews = useCallback(async () => {
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_BASE}/deck-views/mine`, {
+        headers: authHeaders(token),
+      });
+      if (res.ok) setDeckViews(await res.json());
+    } catch {
+      /* non-fatal */
+    } finally {
+      setDeckViewsLoaded(true);
+    }
+  }, [token]);
+
+  const loadMyReviews = useCallback(async () => {
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_BASE}/ratings/mine`, {
+        headers: authHeaders(token),
+      });
+      if (res.ok) setMyReviews(await res.json());
+    } catch {
+      /* non-fatal */
+    } finally {
+      setMyReviewsLoaded(true);
+    }
+  }, [token]);
+
   useEffect(() => {
     if (!loading && token) {
       loadPitches();
       loadProfile();
+      loadDeckViews();
+      loadMyReviews();
     }
-  }, [loading, token, loadPitches, loadProfile]);
+  }, [loading, token, loadPitches, loadProfile, loadDeckViews, loadMyReviews]);
 
   // Show the full form by default instead of the collapsed summary list —
   // open the existing pitch for editing, or the empty create form if none
@@ -700,6 +754,62 @@ export default function StartupPitchesPage() {
             )}
           </ul>
         </div>
+
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-5">
+            <h2 className="text-sm font-semibold mb-3">Deck activity</h2>
+            {!deckViewsLoaded ? (
+              <p className="text-xs text-[var(--text-muted)]">Loading…</p>
+            ) : deckViews.length === 0 ? (
+              <p className="text-xs text-[var(--text-muted)]">No deck views yet.</p>
+            ) : (
+              <ul className="space-y-2 text-xs">
+                {deckViews.map((v) => (
+                  <li
+                    key={v.id}
+                    className="rounded-lg border border-[var(--border)] bg-[var(--overlay-2)] px-3 py-2"
+                  >
+                    <p className="font-medium text-[var(--text)]">
+                      {v.viewer_org || v.viewer_email || "Anonymous visitor"}
+                    </p>
+                    <p className="text-[var(--text-muted)]">
+                      {new Date(v.viewed_at).toLocaleString()}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-5">
+            <h2 className="text-sm font-semibold mb-3">Reviews of your startup</h2>
+            {!myReviewsLoaded ? (
+              <p className="text-xs text-[var(--text-muted)]">Loading…</p>
+            ) : myReviews.length === 0 ? (
+              <p className="text-xs text-[var(--text-muted)]">No reviews yet.</p>
+            ) : (
+              <ul className="space-y-2 text-xs">
+                {myReviews.map((r) => (
+                  <li
+                    key={r.id}
+                    className="rounded-lg border border-[var(--border)] bg-[var(--overlay-2)] px-3 py-2 space-y-1"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="font-medium text-[var(--text)]">
+                        {"★".repeat(r.overall_stars)}
+                      </p>
+                      <p className="text-[var(--text-muted)]">
+                        {r.reviewer_name || r.reviewer_email || "Unknown"}
+                      </p>
+                    </div>
+                    {r.comment && <p className="text-[var(--text-muted)]">{r.comment}</p>}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+
         {msg && (
           <p className="text-xs text-[var(--text-muted)]">{msg}</p>
         )}

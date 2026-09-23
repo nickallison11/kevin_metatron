@@ -4,51 +4,66 @@ metatron KVM2 end-to-end monitor
 Daily health check covering all test accounts and platform features.
 New feature checks are added here as features ship — one script, one report.
 
-Current checks — every check 1-16 runs against BOTH dev and production
-(suffix "a" = dev, "b" = production), except 6-8 which scan one shared
-Gmail inbox and so are only run once but shown in both dashboard sections
-for a consistent 16-check count either way:
-  1a/1b. Account logins (founder free, founder basic, founder pro,
-     investor free, investor basic, investor pro, connector). Production
-     genuinely has no accounts yet (fresh pre-launch database), so its
-     half legitimately shows failed logins until that changes.
-  2a/2b. Free founder — Pinata reachability + profile (14-day deck trial)
-  3a/3b. Basic founder — subscription plan + permanent deck
-  4a/4b. Pro founder — subscription plan = pro + is_pro flag
-  5a/5b. Investor — role + profile
+Current checks — checks 1-5, 9-10, 15-16 run against dev with real test
+accounts ("a" suffix); production ("b" suffix) never uses the
+kevin.metatron.testing+* accounts at all (a stray one from 2026-07-29 was
+found on production and removed 2026-09-23 -- test accounts must never
+exist there). Checks 6-8 scan one shared Gmail inbox and so run once but
+are shown in both dashboard sections. Checks 11-14 need no login at all and
+run identically against both environments.
+
+  1a. Account logins (founder free/basic/pro, investor free/basic/pro,
+     connector) against dev.
+  1b. Auth endpoint health on production instead of a login attempt --
+     confirms /auth/login is alive and correctly rejects bad credentials.
+     Does NOT try to log into any named account (see the 2026-09-23 note
+     above for why).
+  2a-5a, 9a-10a, 15a-16a. Free/basic/pro founder profile+deck, investor
+     profile, Kevin chat by tier, tier-assignment ladder, Call Intelligence
+     gating -- all against dev's real test accounts.
+  2b-5b, 9b-10b, 15b-16b. Rendered as an explicit N/A on production, not a
+     DRIFT: every one of these fundamentally requires a specific logged-in
+     test account's tier/role behavior, which can't exist on production.
+     "No test accounts on production" is the correct, desired state now --
+     signaling it as a daily failure for over a month (since the 2026-07-27
+     dev/prod split added a "b" check for each) was the actual bug, not a
+     real product regression. See project-launch-checklist memory,
+     2026-09-23 entry, for the incident that surfaced this.
   6. IMAP scan (last 36h from metatron.id) [shared — reflects dev]
   7. Email cadence compliance (7-day, 1-day, expired) [shared — reflects dev]
-  8. Weekly matches cron (founders + investors) [shared — reflects dev]
+  8. Weekly matches cron (founders + investors) [shared — reflects dev].
+     Requires "weekly" AND "match" in the subject, not either alone -- the
+     proactive single-match notification ("Kevin found a strong match for
+     you") was satisfying this on its own without a real weekly digest ever
+     going out, until 2026-09-23.
   8b. Weekly matches per-country coverage — one basic founder per African
      country (54) + one basic investor per US/UK/major-EU country (6),
      added 2026-08-22 to verify isLocalMonday8amWindow fires correctly
      across timezones, not just a single fixed UTC time. [shared — reflects dev]
-  9a/9b. Kevin chat — Moderate tier (Hermes 4 70B, falls back to Haiku)
-  10a/10b. Kevin chat — Complex/DeepComplex tier (Kimi K3, falls back to
-      Sonnet/Opus)
+  9a-10a. Kevin chat — Moderate tier (Hermes 4 70B → Haiku) and
+      Complex/DeepComplex tier (Kimi K3 → Sonnet/Opus), against dev.
   11a/11b. kevin-learning cron endpoint reachable + secret-enforced
       (doesn't trigger a real run daily — that's a real LLM synthesis job,
       already scheduled weekly via its own crontab entry; this just
-      confirms the route is alive and enforcing auth correctly).
+      confirms the route is alive and enforcing auth correctly). Needs no
+      login, so it's the same real check on both environments.
   12a/12b. Subscriber counts per role/tier + Kevin chat model usage per
       tier (last 7 days) — informational, not a pass/fail check. Shown for
       dev and production separately, side by side, rather than only ever
       reflecting one environment — production genuinely reads empty/zero
-      right now, dev has real numbers from actual testing.
+      right now, dev has real numbers from actual testing. Needs no login.
   13a/13b. Telegram bot health — systemd active state + recent journald
       error count. 13a checks kevin-bot-dev.service, 13b checks
       kevin-bot.service (the real production bot). Local-only, doesn't
-      call Telegram's API.
+      call Telegram's API or need a login.
   14a/14b. Email bounce report (last 7 days) — bounce counts by email type
       and Permanent/Transient classification, plus how many Transient
       bounces were auto-retried as plaintext. Same dev/production split
-      as 12a/12b, for the same reason.
-  15a/15b. Tier assignments — logs into all 7 test accounts (founder/
+      as 12a/12b, for the same reason. Needs no login.
+  15a. Tier assignments — logs into all 7 dev test accounts (founder/
       founderbasic/founderpro/investor/investorbasic/investorpro/connector)
       and verifies is_basic/is_pro match what each account's name promises.
-      15b fails/skips on production the same way checks 1b-5b do, until it
-      has real accounts.
-  16a/16b. Call Intelligence gating — free tier must get 403, basic/pro must
+  16a. Call Intelligence gating — free tier must get 403, basic/pro must
       get 200. This is the exact bug fixed in the 2026-07-28 subscription
       audit (a legacy investor bypass let free investors in).
 
@@ -94,12 +109,11 @@ from email.utils import parsedate_to_datetime
 PINATA_GATEWAY     = os.environ.get("PINATA_GATEWAY", "gateway.pinata.cloud")
 BACKEND_URL        = os.environ.get("BACKEND_URL", "http://localhost:4000")
 CRON_SECRET        = os.environ["CRON_SECRET"]
-# Production's copy of the same shared password -- present in /root/.env, but
-# as of 2026-07-28 platform.metatron.id's database is fresh and none of the
-# accounts below exist there yet. Checks 1-4/8-9/12's production half will
-# legitimately show "account not found" until that changes -- that's real
-# signal (not provisioned yet), not a bug to hide.
-TEST_PASSWORD      = os.environ.get("TEST_PASSWORD", "")
+# No production equivalent of TEST_PASSWORD/DEV_ACCOUNTS on purpose as of
+# 2026-09-23: production must never have the kevin.metatron.testing+* dev
+# test accounts on it (a stray one from 2026-07-29 was found and removed).
+# See render_production_auth_health_check / render_na_check below for what
+# production actually gets checked instead.
 GMAIL_USER         = "kevin.metatron.testing@gmail.com"
 GMAIL_APP_PASSWORD = os.environ["GMAIL_APP_PASSWORD"]
 REPORT_TO          = "nick.allison@metatrondao.io"
@@ -162,10 +176,10 @@ def get_dev_jwt(email):
     return get_jwt(email, base_url=DEV_BACKEND_URL, password=DEV_TEST_PASSWORD)
 
 
-def get_jwt(email, base_url=None, password=None):
+def get_jwt(email, password, base_url=None):
     r = requests.post(
         f"{base_url or BACKEND_URL}/auth/login",
-        json={"email": email, "password": password if password is not None else TEST_PASSWORD},
+        json={"email": email, "password": password},
         timeout=10,
     )
     r.raise_for_status()
@@ -377,39 +391,56 @@ def check_investor_profile(jwt, base_url=None):
 
 
 def imap_fetch(hours):
-    """Returns list of {from, to, subject, date} for all mail (all folders) in last N hours."""
+    """Returns list of {from, to, subject, date} for all mail (all folders) in
+    last N hours. A single flaky/malformed message's FETCH must never abort
+    the whole scan -- a busy day can have 80+ messages to fetch one at a
+    time, and Gmail occasionally errors on one of them (seen 2026-09-22:
+    "command: FETCH => System Error" took out checks 6, 7, 8, and 8b all at
+    once from a single bad fetch). Skip just that message and keep going."""
     mail = imaplib.IMAP4_SSL("imap.gmail.com")
-    mail.login(GMAIL_USER, GMAIL_APP_PASSWORD)
-    mail.select('"[Gmail]/All Mail"')
-    cutoff_dt = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=hours)
-    since_str = cutoff_dt.strftime("%d-%b-%Y")
-    _, data = mail.search(None, f'(SINCE "{since_str}")')
-    msgs = []
-    for num in (data[0].split() if data[0] else []):
-        _, msg_data = mail.fetch(num, "(RFC822)")
-        if not msg_data or not msg_data[0]:
-            continue
-        msg = email_lib.message_from_bytes(msg_data[0][1])
-        date_str = msg.get("Date", "")
-        try:
-            dt = parsedate_to_datetime(date_str).astimezone(datetime.timezone.utc)
-            if dt < cutoff_dt:
+    try:
+        mail.login(GMAIL_USER, GMAIL_APP_PASSWORD)
+        mail.select('"[Gmail]/All Mail"')
+        cutoff_dt = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=hours)
+        since_str = cutoff_dt.strftime("%d-%b-%Y")
+        _, data = mail.search(None, f'(SINCE "{since_str}")')
+        msgs = []
+        skipped = 0
+        for num in (data[0].split() if data[0] else []):
+            try:
+                _, msg_data = mail.fetch(num, "(RFC822)")
+            except Exception:
+                skipped += 1
                 continue
+            if not msg_data or not msg_data[0]:
+                continue
+            msg = email_lib.message_from_bytes(msg_data[0][1])
+            date_str = msg.get("Date", "")
+            try:
+                dt = parsedate_to_datetime(date_str).astimezone(datetime.timezone.utc)
+                if dt < cutoff_dt:
+                    continue
+            except Exception:
+                pass
+            raw_subj = msg.get("Subject", "")
+            try:
+                decoded_subj = str(make_header(decode_header(raw_subj)))
+            except Exception:
+                decoded_subj = raw_subj
+            msgs.append({
+                "from": msg.get("From", ""),
+                "to": msg.get("To", ""),
+                "subject": decoded_subj,
+                "date": date_str,
+            })
+        if skipped:
+            print(f"imap_fetch: skipped {skipped} message(s) that failed to FETCH")
+        return msgs
+    finally:
+        try:
+            mail.logout()
         except Exception:
             pass
-        raw_subj = msg.get("Subject", "")
-        try:
-            decoded_subj = str(make_header(decode_header(raw_subj)))
-        except Exception:
-            decoded_subj = raw_subj
-        msgs.append({
-            "from": msg.get("From", ""),
-            "to": msg.get("To", ""),
-            "subject": decoded_subj,
-            "date": date_str,
-        })
-    mail.logout()
-    return msgs
 
 
 
@@ -463,8 +494,8 @@ def check_call_intelligence_gating(base_url, password, accounts=DEV_ACCOUNTS):
 
 
 def render_login_check(lines, drifts, number, tag, base_url, password, accounts):
-    """Checks 1a/1b. Returns a jwts dict (fewer entries than `accounts` if
-    some logins fail -- expected on production until it has real accounts)."""
+    """Check 1a (dev only -- see render_production_auth_health_check for 1b).
+    Returns a jwts dict (fewer entries than `accounts` if some logins fail)."""
     lines.append(f"## Check {number} — Account logins [{tag}]")
     jwts = {}
     if not password:
@@ -481,6 +512,45 @@ def render_login_check(lines, drifts, number, tag, base_url, password, accounts)
             drifts.append(f"{key} login failed ({tag}): {e}")
     lines.append("")
     return jwts
+
+
+def render_production_auth_health_check(lines, drifts, number, tag, base_url):
+    """Check 1b. Production must never have the `kevin.metatron.testing+*`
+    dev test accounts on it (found and removed a stray one 2026-09-23) --
+    so unlike 1a, this doesn't attempt any login. It instead confirms the
+    auth endpoint itself is alive and correctly rejects bad credentials,
+    which is the only thing genuinely testable here without real users.
+    Every check that depends on a *specific* test account's tier/role
+    behavior (2b-5b, 9b, 10b, 15b, 16b) has nothing to attach to on
+    production and is rendered as an explicit N/A via render_na_check
+    instead of attempting -- and always failing -- a fake login."""
+    lines.append(f"## Check {number} — Auth endpoint health (no test accounts on production by design) [{tag}]")
+    try:
+        r = requests.post(
+            f"{base_url}/auth/login",
+            json={"email": "e2e-monitor-nonexistent@example.com", "password": "wrong"},
+            timeout=10,
+        )
+        if r.status_code == 401:
+            lines.append("- /auth/login correctly rejects invalid credentials (401): ✓")
+        else:
+            lines.append(f"- ⚠ DRIFT — expected 401 for invalid credentials, got {r.status_code}")
+            drifts.append(f"production auth endpoint returned {r.status_code} for invalid credentials, expected 401")
+    except Exception as e:
+        lines.append(f"- ⚠ DRIFT — auth endpoint unreachable: {e}")
+        drifts.append(f"production auth endpoint unreachable ({tag}): {e}")
+    lines.append("")
+
+
+def render_na_check(lines, number, tag, title):
+    """Used for the production half of any check that fundamentally
+    requires a specific logged-in test account (tier/role behavior,
+    Kevin chat by tier, gating) -- which must never exist on production.
+    Deliberately does NOT touch `drifts`: "no test accounts on production"
+    is the correct, desired state now, not a problem to signal daily."""
+    lines.append(f"## Check {number} — {title} [{tag}]")
+    lines.append("- N/A — no test accounts exist on production by design; verified on dev only (see the matching \"a\" check)")
+    lines.append("")
 
 
 def render_free_founder_check(lines, drifts, today, number, tag, base_url, jwts):
@@ -938,19 +1008,19 @@ def main():
     # twice would just duplicate the same output.
 
     jwts_dev = render_login_check(lines, drifts, "1a", "DEV", DEV_BACKEND_URL, DEV_TEST_PASSWORD, DEV_ACCOUNTS)
-    jwts_prod = render_login_check(lines, drifts, "1b", "PRODUCTION", BACKEND_URL, TEST_PASSWORD, DEV_ACCOUNTS)
+    render_production_auth_health_check(lines, drifts, "1b", "PRODUCTION", BACKEND_URL)
 
     founder_profile, days_since = render_free_founder_check(lines, drifts, today, "2a", "DEV", DEV_BACKEND_URL, jwts_dev)
-    render_free_founder_check(lines, drifts, today, "2b", "PRODUCTION", BACKEND_URL, jwts_prod)
+    render_na_check(lines, "2b", "PRODUCTION", "Free founder: Pinata reachability + profile")
 
     render_basic_founder_check(lines, drifts, "3a", "DEV", DEV_BACKEND_URL, jwts_dev)
-    render_basic_founder_check(lines, drifts, "3b", "PRODUCTION", BACKEND_URL, jwts_prod)
+    render_na_check(lines, "3b", "PRODUCTION", "Basic founder: subscription + permanent deck")
 
     render_pro_founder_check(lines, drifts, "4a", "DEV", DEV_BACKEND_URL, jwts_dev)
-    render_pro_founder_check(lines, drifts, "4b", "PRODUCTION", BACKEND_URL, jwts_prod)
+    render_na_check(lines, "4b", "PRODUCTION", "Pro founder: subscription plan = pro")
 
     render_investor_profile_check(lines, drifts, "5a", "DEV", DEV_BACKEND_URL, jwts_dev)
-    render_investor_profile_check(lines, drifts, "5b", "PRODUCTION", BACKEND_URL, jwts_prod)
+    render_na_check(lines, "5b", "PRODUCTION", "Investor: profile")
 
     # ── Check 6: IMAP scan (last 36h) ────────────────────────────────────────
     lines.append("## Check 6 — IMAP scan for metatron.id mail (last 36h) [SHARED — reflects dev]")
@@ -1008,8 +1078,12 @@ def main():
     lines.append("## Check 8 — Weekly matches email (IMAP, last 8 days) [SHARED — reflects dev]")
     try:
         recent_week = imap_fetch(8 * 24)
+        # Requires BOTH words -- "weekly" alone would never false-positive
+        # here, but "match" alone does: the proactive single-match
+        # notification ("Kevin found a strong match for you") isn't the
+        # weekly digest and was silently satisfying this check on its own.
         weekly_seen = any(
-            "weekly" in m.get("subject", "").lower() or "match" in m.get("subject", "").lower()
+            "weekly" in m.get("subject", "").lower() and "match" in m.get("subject", "").lower()
             for m in recent_week
             if "metatron.id" in m.get("from", "")
         )
@@ -1081,13 +1155,11 @@ def main():
     )
     render_kevin_chat_check(lines, drifts, "9a", "DEV", DEV_BACKEND_URL, jwts_dev,
                              "Kevin chat, Moderate tier (Hermes 4 70B → Haiku fallback)", moderate_msg)
-    render_kevin_chat_check(lines, drifts, "9b", "PRODUCTION", BACKEND_URL, jwts_prod,
-                             "Kevin chat, Moderate tier (Hermes 4 70B → Haiku fallback)", moderate_msg)
+    render_na_check(lines, "9b", "PRODUCTION", "Kevin chat, Moderate tier (Hermes 4 70B → Haiku fallback)")
 
     render_kevin_chat_check(lines, drifts, "10a", "DEV", DEV_BACKEND_URL, jwts_dev,
                              "Kevin chat, DeepComplex tier (Kimi K3 → Sonnet/Opus fallback)", deepcomplex_msg, timeout=90)
-    render_kevin_chat_check(lines, drifts, "10b", "PRODUCTION", BACKEND_URL, jwts_prod,
-                             "Kevin chat, DeepComplex tier (Kimi K3 → Sonnet/Opus fallback)", deepcomplex_msg, timeout=90)
+    render_na_check(lines, "10b", "PRODUCTION", "Kevin chat, DeepComplex tier (Kimi K3 → Sonnet/Opus fallback)")
 
     render_kevin_learning_check(lines, drifts, "11a", "DEV", DEV_BACKEND_URL)
     render_kevin_learning_check(lines, drifts, "11b", "PRODUCTION", BACKEND_URL)
@@ -1105,10 +1177,10 @@ def main():
     render_bounce_report_check(lines, drifts, "14b", "PRODUCTION", BACKEND_URL, CRON_SECRET)
 
     render_tier_assignment_check(lines, drifts, "15a", "DEV", DEV_BACKEND_URL, DEV_TEST_PASSWORD)
-    render_tier_assignment_check(lines, drifts, "15b", "PRODUCTION", BACKEND_URL, TEST_PASSWORD)
+    render_na_check(lines, "15b", "PRODUCTION", "Tier assignments (founder/investor free-basic-pro ladder)")
 
     render_call_intelligence_gating_check(lines, drifts, "16a", "DEV", DEV_BACKEND_URL, DEV_TEST_PASSWORD)
-    render_call_intelligence_gating_check(lines, drifts, "16b", "PRODUCTION", BACKEND_URL, TEST_PASSWORD)
+    render_na_check(lines, "16b", "PRODUCTION", "Call Intelligence gating (free=403, basic/pro=200)")
 
     # ── Summary ───────────────────────────────────────────────────────────────
     tag = "DRIFT" if drifts else "OK"

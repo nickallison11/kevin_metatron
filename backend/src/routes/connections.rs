@@ -180,10 +180,11 @@ pub async fn send_kevin_warm_email_for_intro_accept(
     .flatten();
     let (inv_tg, inv_wa) = investor_notif.unwrap_or((None, None));
 
-    let founder: Option<(String, Option<String>, Option<String>, Option<String>, Option<String>)> =
+    let founder: Option<(String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>)> =
         sqlx::query_as(
             r#"SELECT u.email, u.telegram_id, u.whatsapp_number, p.company_name,
-                    CASE WHEN u.is_basic OR u.is_pro OR p.deck_expires_at IS NULL OR p.deck_expires_at > NOW() THEN p.pitch_deck_url ELSE NULL END
+                    CASE WHEN u.is_basic OR u.is_pro OR p.deck_expires_at IS NULL OR p.deck_expires_at > NOW() THEN p.pitch_deck_url ELSE NULL END,
+                    u.first_name, u.last_name
              FROM users u LEFT JOIN profiles p ON p.user_id = u.id WHERE u.id = $1"#,
         )
         .bind(founder_user_id)
@@ -192,8 +193,13 @@ pub async fn send_kevin_warm_email_for_intro_accept(
         .ok()
         .flatten();
 
-    if let Some((f_email, f_tg, f_wa, company_name, deck_url)) = founder {
+    if let Some((f_email, f_tg, f_wa, company_name, deck_url, f_first, f_last)) = founder {
         let company = company_name.unwrap_or_else(|| "your company".to_string());
+        let founder_full_name = match (f_first.as_deref(), f_last.as_deref()) {
+            (Some(first), Some(last)) if !first.is_empty() && !last.is_empty() => format!("{first} {last}"),
+            (Some(first), _) if !first.is_empty() => first.to_string(),
+            _ => company.clone(),
+        };
 
         let f_subject = format!("{} is interested in {}!", investor_name, company);
         let f_html = email::intro_accepted_founder_html(&investor_name, &company, &investor_email);
@@ -272,6 +278,30 @@ pub async fn send_kevin_warm_email_for_intro_accept(
             state.whatsapp_access_token.as_deref(),
             state.whatsapp_phone_number_id.as_deref(),
         ) {
+            // Share the founder's contact card (name, phone, company) when they have a
+            // WhatsApp number linked, so the investor can save/call them directly —
+            // falls back to the plain-text email message otherwise. Investors don't get
+            // the reverse (their own card pushed to the founder) — see connections.rs
+            // founder-facing block above, which stays email-only by design.
+            let payload = if let Some(f_phone) = f_wa.as_deref() {
+                serde_json::json!({
+                    "messaging_product": "whatsapp",
+                    "recipient_type": "individual",
+                    "to": wa,
+                    "type": "contacts",
+                    "contacts": [{
+                        "name": {
+                            "formatted_name": founder_full_name.clone(),
+                            "first_name": f_first.as_deref().unwrap_or(&founder_full_name)
+                        },
+                        "org": { "company": company },
+                        "phones": [{ "phone": f_phone, "type": "WORK", "wa_id": f_phone }],
+                        "emails": [{ "email": f_email, "type": "WORK" }]
+                    }]
+                })
+            } else {
+                serde_json::json!({"messaging_product":"whatsapp","recipient_type":"individual","to":wa,"type":"text","text":{"body":inv_msg}})
+            };
             let _ = state
                 .http_client
                 .post(format!(
@@ -279,7 +309,7 @@ pub async fn send_kevin_warm_email_for_intro_accept(
                     pid = pid
                 ))
                 .bearer_auth(tok)
-                .json(&serde_json::json!({"messaging_product":"whatsapp","recipient_type":"individual","to":wa,"type":"text","text":{"body":inv_msg}}))
+                .json(&payload)
                 .send()
                 .await;
         }

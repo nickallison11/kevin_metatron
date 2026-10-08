@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { render } from "@react-email/render";
 import React from "react";
-import FounderWeeklyMatches from "../../../../emails/founder-weekly-matches";
-import InvestorWeeklyMatches from "../../../../emails/investor-weekly-matches";
+import FounderWeeklyMatches from "../../emails/founder-weekly-matches";
+import InvestorWeeklyMatches from "../../emails/investor-weekly-matches";
 
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";

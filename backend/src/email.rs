@@ -1,5 +1,36 @@
+use std::sync::OnceLock;
+
 use reqwest::Client;
 use serde_json::json;
+
+/// Production web app address. Templates and messages are written with it;
+/// `localize_links` points them at this environment's `FRONTEND_URL` instead
+/// (a no-op on production, where FRONTEND_URL is this same address).
+pub const PROD_FRONTEND_URL: &str = "https://platform.metatron.id";
+
+static FRONTEND_URL: OnceLock<String> = OnceLock::new();
+
+/// Called once at startup with `FRONTEND_URL`.
+pub fn init_frontend_url(url: &str) {
+    let _ = FRONTEND_URL.set(url.trim_end_matches('/').to_string());
+}
+
+/// This environment's web app address (e.g. https://dev.metatron.id on dev).
+pub fn frontend_url() -> &'static str {
+    FRONTEND_URL.get().map(String::as_str).unwrap_or(PROD_FRONTEND_URL)
+}
+
+/// Rewrites platform links and mentions (`https://platform.metatron.id/...` and
+/// bare `platform.metatron.id`) to this environment's frontend.
+pub fn localize_links(s: &str) -> String {
+    let base = frontend_url();
+    if base == PROD_FRONTEND_URL {
+        return s.to_string();
+    }
+    let host = base.trim_start_matches("https://").trim_start_matches("http://");
+    s.replace(PROD_FRONTEND_URL, base)
+        .replace("platform.metatron.id", host)
+}
 
 /// Derives a plaintext fallback from one of our own HTML templates (not a
 /// general-purpose HTML parser — relies on the tag vocabulary `shell_html`
@@ -97,6 +128,7 @@ pub async fn send_email_with_headers(
         return None;
     }
 
+    let html = &localize_links(html);
     let payload = json!({
         "from": from,
         "to": [to],
@@ -157,6 +189,7 @@ pub async fn send_email(
         return;
     }
 
+    let html = &localize_links(html);
     let payload = json!({
         "from": from,
         "to": [to],
@@ -224,6 +257,7 @@ pub async fn send_email_with_attachment(
         return;
     }
 
+    let html = &localize_links(html);
     let payload = json!({
         "from": from,
         "to": [to],
@@ -371,7 +405,7 @@ pub async fn send_plaintext_email(
         "from": from,
         "to": [to],
         "subject": subject,
-        "text": text
+        "text": localize_links(text)
     });
 
     match http_client
@@ -901,7 +935,7 @@ pub async fn send_kevin_email_reply(
         "from": from_email,
         "to": [to_email],
         "subject": subject,
-        "text": body
+        "text": localize_links(body)
     });
 
     match http_client

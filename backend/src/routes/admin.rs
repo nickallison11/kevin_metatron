@@ -490,8 +490,9 @@ async fn invite_user(
         _ => return Err((StatusCode::BAD_REQUEST, "Invalid role".to_string())),
     };
 
-    let platform_url =
-        std::env::var("PLATFORM_URL").unwrap_or_else(|_| "https://platform.metatron.id".to_string());
+    // The web app's address (FRONTEND_URL). Not PLATFORM_URL: that's the backend's
+    // own internal address (http://localhost:4000) used by the Telegram bot.
+    let platform_url = crate::email::frontend_url().to_string();
     let invite_link = format!(
         "{}/auth/signup?invite={}&code={}",
         platform_url.trim_end_matches('/'),

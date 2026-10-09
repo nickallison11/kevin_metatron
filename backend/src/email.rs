@@ -1180,7 +1180,7 @@ pub fn intro_accepted_founder_html(
 <p style="margin:0 0 20px 0;font-size:14px;color:#e8e8ed;">You can also message them directly via the metatron messaging centre.</p>
 
 <p style="margin:0 0 24px 0;">
-  <a href="https://platform.metatron.id/startup/matches" style="display:inline-block;background:#6c5ce7;color:#ffffff;text-decoration:none;padding:10px 18px;border-radius:12px;font-weight:600;font-size:14px;">Open messaging centre →</a>
+  <a href="https://platform.metatron.id/startup/matches" style="display:inline-block;background:#6c5ce7;color:#ffffff;text-decoration:none;padding:10px 18px;border-radius:12px;font-weight:600;font-size:14px;">View investor matches →</a>
 </p>
 
 <p style="margin:0;font-size:14px;color:#8888a0;">— Kevin<br/>metatron · The intelligence layer between founders and capital.</p>
@@ -1216,7 +1216,7 @@ pub fn intro_accepted_investor_html(
 <p style="margin:0 0 20px 0;font-size:14px;color:#e8e8ed;">You can also message them directly via the metatron messaging centre.</p>
 
 <p style="margin:0 0 24px 0;">
-  <a href="https://platform.metatron.id/investor/matches" style="display:inline-block;background:#6c5ce7;color:#ffffff;text-decoration:none;padding:10px 18px;border-radius:12px;font-weight:600;font-size:14px;">Open messaging centre →</a>
+  <a href="https://platform.metatron.id/investor/matches" style="display:inline-block;background:#6c5ce7;color:#ffffff;text-decoration:none;padding:10px 18px;border-radius:12px;font-weight:600;font-size:14px;">View startup matches →</a>
 </p>
 
 <p style="margin:0;font-size:14px;color:#8888a0;">— Kevin<br/>metatron · The intelligence layer between founders and capital.</p>

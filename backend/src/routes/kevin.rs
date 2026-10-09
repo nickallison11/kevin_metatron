@@ -577,7 +577,7 @@ pub(crate) async fn kevin_reply_for_linked_user(
     let context = build_context(state, user.id, &user.role).await;
     let memory_section = memory_section_from_recalled(recalled);
 
-    let system = format!(
+    let system = email::localize_links(&format!(
         r#"You are Kevin, Metatron's account assistant on WhatsApp and Telegram.
 
 On this channel, you help with account status and notifications only: a user's current matches, their deck/subscription status, and the status of intro requests they've sent or received. Be concise, practical, and professional.
@@ -596,7 +596,7 @@ CRITICAL RULES — follow these exactly:
 4. NEVER use placeholder text like [Investor Name], [Firm Name], [Details], or any bracket placeholders.
 
 Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. Plain text only."#
-    );
+    ));
 
     let (provider, api_key, model) = if user.is_pro || user.is_basic {
         if let Some(key) = state.anthropic_api_key.as_deref() {
@@ -644,7 +644,7 @@ Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. 
             .await;
 
             let limit_msg = if !user.is_pro && !user.is_basic {
-                "You've used your 20 daily Kevin messages across all channels. Upgrade to Basic at platform.metatron.id/pricing for 200 messages/day.".to_string()
+                email::localize_links("You've used your 20 daily Kevin messages across all channels. Upgrade to Basic at platform.metatron.id/pricing for 200 messages/day.")
             } else {
                 "You've reached your daily Kevin limit. It resets at midnight UTC.".to_string()
             };
@@ -929,7 +929,7 @@ Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. 
             .await;
 
             let msg = if !user.is_pro && !user.is_basic {
-                "You've used your 20 daily Kevin messages across all channels. Upgrade to Basic at platform.metatron.id/pricing for 200 messages/day.".to_string()
+                email::localize_links("You've used your 20 daily Kevin messages across all channels. Upgrade to Basic at platform.metatron.id/pricing for 200 messages/day.")
             } else {
                 "You've reached your daily Kevin limit. It resets at midnight UTC.".to_string()
             };
@@ -2039,10 +2039,10 @@ pub(crate) async fn execute_kevin_tool(
                 state.telegram_bot_token.as_deref(),
                 notify.as_ref().and_then(|n| n.telegram_id.as_deref()).filter(|t| !t.is_empty()),
             ) {
-                let text = format!(
+                let text = email::localize_links(&format!(
                     "You have a new intro request from {} on metatron. Log in to platform.metatron.id to respond.",
                     requester_display
-                );
+                ));
                 let url = format!("https://api.telegram.org/bot{bot_token}/sendMessage");
                 let _ = state
                     .http_client
@@ -2063,10 +2063,15 @@ pub(crate) async fn execute_kevin_tool(
                 .ok()
                 .flatten();
 
-                let matches_href = match recipient_role.as_deref() {
-                    Some("INVESTOR") => "https://platform.metatron.id/investor/matches",
-                    _ => "https://platform.metatron.id/startup/matches",
-                };
+                let matches_href = format!(
+                    "{}{}",
+                    email::frontend_url(),
+                    match recipient_role.as_deref() {
+                        Some("INVESTOR") => "/investor/matches",
+                        _ => "/startup/matches",
+                    }
+                );
+                let matches_href = matches_href.as_str();
 
                 // Company name on the recipient's profile (e.g. startup when investor receives mail)
                 let founder_company: String = sqlx::query_scalar(
@@ -2225,7 +2230,7 @@ pub(crate) async fn execute_kevin_tool(
                     "from": "Kevin <kevin@metatron.id>",
                     "to": [notify_row.email.clone()],
                     "subject": subject,
-                    "html": html,
+                    "html": email::localize_links(&html),
                     "text": format!(
                         "{} has requested an introduction with {} on metatron.\n\nLog in to {} to accept or decline.\n\n— The metatron team",
                         requester_display, founder_company, matches_href
@@ -2500,7 +2505,7 @@ pub(crate) async fn execute_kevin_tool(
                         "from": "Kevin <kevin@metatron.id>",
                         "to": [user_email],
                         "subject": format!("Pitch deck: {}", pd.title),
-                        "html": html,
+                        "html": email::localize_links(&html),
                         "text": format!("Pitch deck for {}:\n\n{}\n\n— Kevin", pd.title, deck_url)
                     }))
                     .send()

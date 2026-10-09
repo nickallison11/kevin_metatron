@@ -441,8 +441,10 @@ async fn send_direct_message(
 
     if let (Some(bot_token), Some(tg_id)) = (&state.telegram_bot_token, telegram_id) {
         let notif = format!(
-            "💬 New message from {} on metatron:\n\n{}\n\nReply at platform.metatron.id",
-            sender_display, text
+            "💬 New message from {} on metatron:\n\n{}\n\nReply at {}",
+            sender_display,
+            text,
+            crate::email::frontend_url().trim_start_matches("https://")
         );
         fire_telegram(bot_token, tg_id, &notif, &state.http_client).await;
     }

@@ -6,11 +6,23 @@ use uuid::Uuid;
 use crate::state::AppState;
 
 /// Shared onboarding state machine for WhatsApp and Telegram unregistered users.
-/// Returns the reply string to send back to the user.
+/// Returns the reply string to send back to the user, with platform links
+/// pointed at this environment's frontend.
 pub(crate) async fn handle_messaging_onboarding(
     state: &Arc<AppState>,
     channel: &str,    // "whatsapp" or "telegram"
     channel_id: &str, // normalized phone digits or telegram_id string
+    text: &str,
+) -> Result<String, String> {
+    onboarding_reply(state, channel, channel_id, text)
+        .await
+        .map(|reply| crate::email::localize_links(&reply))
+}
+
+async fn onboarding_reply(
+    state: &Arc<AppState>,
+    channel: &str,
+    channel_id: &str,
     text: &str,
 ) -> Result<String, String> {
     let text_lower = text.trim().to_lowercase();
@@ -158,7 +170,7 @@ pub(crate) async fn handle_messaging_onboarding(
                 } else {
                     "Telegram"
                 };
-                let link = format!("https://platform.metatron.id/messaging-signup?token={}", token);
+                let link = format!("{}/messaging-signup?token={}", crate::email::frontend_url(), token);
 
                 Ok(format!(
                     "Almost done. Click the link below to set your password — your {} is already linked.\n\n{}",

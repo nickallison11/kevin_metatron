@@ -98,6 +98,8 @@ impl AppState {
             .build()
             .expect("reqwest Client");
 
+        crate::email::init_frontend_url(&settings.frontend_url);
+
         Ok(Arc::new(Self {
             db: pool,
             jwt_encoding: encoding,

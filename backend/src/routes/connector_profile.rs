@@ -1334,10 +1334,10 @@ async fn enrich_staged_contacts(
                         "from": "metatron <kevin@metatron.id>",
                         "to": to_email,
                         "subject": format!("{} contacts enriched and ready to import — metatron", enriched_count),
-                        "html": format!(
+                        "html": crate::email::localize_links(&format!(
                             r#"<div style="background:#0a0a0f;color:#e8e8ed;font-family:'DM Sans',Arial,sans-serif;padding:40px;max-width:560px;margin:0 auto;border-radius:12px;"><img src="https://metatron.id/metatron-logo.png" alt="metatron" height="42" style="margin-bottom:32px;" /><h1 style="font-size:22px;font-weight:600;margin-bottom:16px;">Your contacts are ready.</h1><p style="color:#8888a0;font-size:15px;line-height:1.6;margin-bottom:16px;">Kevin has finished enriching <strong style="color:#e8e8ed;">{}</strong> contacts with web research.</p><p style="color:#8888a0;font-size:15px;line-height:1.6;margin-bottom:32px;">Head back to your <a href="https://platform.metatron.id/connector/network" style="color:#6c5ce7;text-decoration:none;">network page</a> to review and import them into your network.</p><hr style="border:none;border-top:1px solid rgba(255,255,255,0.06);margin:32px 0;" /><p style="color:#8888a0;font-size:13px;">metatron — Eliminating information asymmetry between founders and capital, globally.</p></div>"#,
                             enriched_count
-                        ),
+                        )),
                     }))
                     .send()
                     .await;

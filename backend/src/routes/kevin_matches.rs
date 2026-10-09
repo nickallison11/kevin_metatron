@@ -1061,11 +1061,16 @@ async fn notify_if_newly_high_value(
         return;
     };
 
-    let matches_href = match recipient.role.as_str() {
-        "INVESTOR" => "https://platform.metatron.id/investor/matches",
-        "INTERMEDIARY" => "https://platform.metatron.id/connector/network",
-        _ => "https://platform.metatron.id/startup/matches",
-    };
+    let matches_href = format!(
+        "{}{}",
+        crate::email::frontend_url(),
+        match recipient.role.as_str() {
+            "INVESTOR" => "/investor/matches",
+            "INTERMEDIARY" => "/connector/network",
+            _ => "/startup/matches",
+        }
+    );
+    let matches_href = matches_href.as_str();
 
     if let (Some(bot_token), Some(chat_id)) = (
         state.telegram_bot_token.as_deref(),

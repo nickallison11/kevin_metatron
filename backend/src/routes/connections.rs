@@ -256,15 +256,30 @@ pub async fn send_kevin_warm_email_for_intro_accept(
             "✅ You're now connected with {}!\n\nFounder email: {}{}\n\nGood luck!",
             company, f_email, deck_msg
         );
-        // The founder's contact card goes to the investor on every channel they use:
-        // email (.vcf attachment) always, plus their one messaging channel (WhatsApp
-        // or Telegram). Phone is the founder's WhatsApp number, or the number they
-        // shared via the Telegram bot; with neither, the card carries name, company
-        // and email only. Investors don't get the reverse (their own card pushed to
-        // the founder) — the founder-facing block above stays email-only by design.
+        // The founder's contact details go to the investor by email (.vcf attachment)
+        // always, plus on the investor's one messaging channel. When founder and
+        // investor are on the same app, that app's native contact card is used
+        // (WhatsApp `contacts` / Telegram `sendContact`); across apps (WhatsApp <->
+        // Telegram) a native card is the wrong app's contact, so the details go as
+        // plain text instead. Phone is the founder's WhatsApp number, or the number
+        // they shared via the Telegram bot. Investors don't get the reverse (their own
+        // card pushed to the founder) — the founder-facing block above stays email-only.
+        let founder_on_whatsapp = f_wa.is_some();
+        let founder_on_telegram = !founder_on_whatsapp && f_tg.is_some();
         let card_phone: Option<String> = f_wa.clone().or(f_shared_phone);
         let card_last = f_last.as_deref().filter(|l| !l.is_empty() && f_first.as_deref().is_some_and(|f| !f.is_empty()));
         let vcard = founder_vcard(&founder_full_name, f_first.as_deref(), card_last, &company, card_phone.as_deref(), &f_email);
+
+        let mut contact_text = String::from("\n\nFounder contact:");
+        if founder_full_name != company {
+            contact_text.push_str(&format!("\n👤 {founder_full_name}"));
+        }
+        contact_text.push_str(&format!("\n🏢 {company}\n✉️ {f_email}"));
+        if let Some(phone) = card_phone.as_deref() {
+            let label = if founder_on_whatsapp { "WhatsApp" } else { "Phone" };
+            contact_text.push_str(&format!("\n📱 {label}: +{phone}"));
+        }
+        let inv_msg_with_contact = format!("{inv_msg}{contact_text}");
 
         email::send_email_with_attachment(
             &state.http_client,
@@ -278,15 +293,17 @@ pub async fn send_kevin_warm_email_for_intro_accept(
         )
         .await;
         if let (Some(tg), Some(bot)) = (inv_tg.as_deref(), state.telegram_bot_token.as_deref()) {
+            // Native card only Telegram -> Telegram, and only with a phone (sendContact
+            // requires one); otherwise the contact details ride along in the text.
+            let telegram_card_phone = card_phone.as_deref().filter(|_| founder_on_telegram);
+            let text = if telegram_card_phone.is_some() { &inv_msg } else { &inv_msg_with_contact };
             let _ = state
                 .http_client
                 .post(format!("https://api.telegram.org/bot{bot}/sendMessage", bot = bot))
-                .json(&serde_json::json!({"chat_id": tg, "text": inv_msg}))
+                .json(&serde_json::json!({"chat_id": tg, "text": text}))
                 .send()
                 .await;
-            // Telegram contact cards require a phone number; without one the text
-            // above (founder email + deck) is the card.
-            if let Some(phone) = card_phone.as_deref() {
+            if let Some(phone) = telegram_card_phone {
                 match state
                     .http_client
                     .post(format!("https://api.telegram.org/bot{bot}/sendContact", bot = bot))
@@ -316,13 +333,23 @@ pub async fn send_kevin_warm_email_for_intro_accept(
             state.whatsapp_phone_number_id.as_deref(),
         ) {
             let url = format!("https://graph.facebook.com/v18.0/{pid}/messages", pid = pid);
+            // Native card only WhatsApp -> WhatsApp; otherwise details go in the text.
+            let text = if founder_on_whatsapp { &inv_msg } else { &inv_msg_with_contact };
             let _ = state
                 .http_client
                 .post(&url)
                 .bearer_auth(tok)
-                .json(&serde_json::json!({"messaging_product":"whatsapp","recipient_type":"individual","to":wa,"type":"text","text":{"body":inv_msg}}))
+                .json(&serde_json::json!({"messaging_product":"whatsapp","recipient_type":"individual","to":wa,"type":"text","text":{"body":text}}))
                 .send()
                 .await;
+        }
+        if let (Some(wa), Some(tok), Some(pid), true) = (
+            inv_wa.as_deref(),
+            state.whatsapp_access_token.as_deref(),
+            state.whatsapp_phone_number_id.as_deref(),
+            founder_on_whatsapp,
+        ) {
+            let url = format!("https://graph.facebook.com/v18.0/{pid}/messages", pid = pid);
             let mut contact = serde_json::json!({
                 "name": {
                     "formatted_name": founder_full_name.clone(),

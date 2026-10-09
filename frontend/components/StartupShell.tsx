@@ -20,7 +20,7 @@ const FREE_NAV = [
   { href: "/startup", label: "Dashboard", icon: IconLayoutDashboard },
   { href: "/startup/kevin", label: "Chat with Kevin", icon: IconRobot },
   { href: "/startup/pitches", label: "Pitch data", icon: IconFileText },
-  { href: "/startup/matches", label: "Investor Matches", icon: IconArrowsExchange },
+  { href: "/startup/matches", label: "Matches", icon: IconArrowsExchange },
   { href: "/startups", label: "Browse Startups", icon: IconBuilding },
 ];
 
@@ -28,7 +28,7 @@ const PRO_NAV = [
   { href: "/startup", label: "Dashboard", icon: IconLayoutDashboard },
   { href: "/startup/kevin", label: "Chat with Kevin", icon: IconRobot },
   { href: "/startup/pitches", label: "Pitch data", icon: IconFileText },
-  { href: "/startup/matches", label: "Investor Matches", icon: IconArrowsExchange },
+  { href: "/startup/matches", label: "Matches", icon: IconArrowsExchange },
   { href: "/startups", label: "Browse Startups", icon: IconBuilding },
   { href: "/startup/calls", label: "Call Intelligence", icon: IconHeadset },
   { href: "/startup/profile", label: "Profile Settings", icon: IconUserCircle },

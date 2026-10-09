@@ -19,7 +19,7 @@ const FREE_NAV = [
   { href: "/investor", label: "Dashboard", icon: IconLayoutDashboard },
   { href: "/investor/kevin", label: "Chat with Kevin", icon: IconRobot },
   { href: "/investor/profile", label: "Profile Settings", icon: IconUserCircle },
-  { href: "/investor/matches", label: "Startup Matches", icon: IconArrowsExchange },
+  { href: "/investor/matches", label: "Matches", icon: IconArrowsExchange },
   { href: "/startups", label: "Browse Startups", icon: IconBuilding },
 ];
 

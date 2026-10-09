@@ -33,6 +33,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/chat", post(chat))
         .route("/inbound-email", post(inbound_email))
         .route("/telegram", post(telegram_kevin))
+        .route("/telegram/phone", post(telegram_share_phone))
 }
 
 fn kevin_daily_limit(is_basic: bool, is_pro: bool) -> i32 {
@@ -469,6 +470,42 @@ struct ChatResponse {
 pub struct TelegramInboundRequest {
     pub telegram_id: i64,
     pub message: String,
+}
+
+#[derive(Deserialize)]
+pub struct TelegramSharePhoneRequest {
+    pub telegram_id: i64,
+    pub phone: String,
+}
+
+/// Stores the phone number a Telegram user shared via the bot's "Share my phone
+/// number" button, so it can go on their contact card. The bot only forwards the
+/// sender's own contact (Telegram's contact.user_id == from.id check).
+async fn telegram_share_phone(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(body): Json<TelegramSharePhoneRequest>,
+) -> StatusCode {
+    if !telegram_bot_secret_header_ok(&headers, &state.platform_bot_secret) {
+        return StatusCode::UNAUTHORIZED;
+    }
+    let phone: String = body.phone.chars().filter(|c| c.is_ascii_digit()).collect();
+    if phone.is_empty() {
+        return StatusCode::BAD_REQUEST;
+    }
+    match sqlx::query("UPDATE users SET shared_phone = $1, updated_at = now() WHERE telegram_id = $2")
+        .bind(&phone)
+        .bind(body.telegram_id.to_string())
+        .execute(&state.db)
+        .await
+    {
+        Ok(r) if r.rows_affected() == 0 => StatusCode::NOT_FOUND,
+        Ok(_) => StatusCode::OK,
+        Err(e) => {
+            tracing::error!("telegram_share_phone: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR
+        }
+    }
 }
 
 #[derive(Serialize)]

@@ -946,7 +946,14 @@ async fn set_whatsapp_number(
 
     sqlx::query(
         r#"
-        UPDATE users SET whatsapp_number = $1, updated_at = now() WHERE id = $2
+        -- One messaging channel per account: connecting WhatsApp disconnects
+        -- Telegram (and the phone shared through it), so two people can't use
+        -- the same account from different apps.
+        UPDATE users SET whatsapp_number = $1,
+            telegram_id = CASE WHEN $1::text IS NULL THEN telegram_id ELSE NULL END,
+            shared_phone = CASE WHEN $1::text IS NULL THEN shared_phone ELSE NULL END,
+            updated_at = now()
+        WHERE id = $2
         "#,
     )
     .bind(normalized)
@@ -1389,7 +1396,8 @@ async fn telegram_confirm(
 
     let update_user = sqlx::query(
         r#"
-        UPDATE users SET telegram_id = $1 WHERE id = $2
+        -- One messaging channel per account: linking Telegram disconnects WhatsApp.
+        UPDATE users SET telegram_id = $1, whatsapp_number = NULL WHERE id = $2
         "#,
     )
     .bind(&telegram_id_str)
@@ -1443,7 +1451,7 @@ async fn unlink_telegram(
     TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
 ) -> Result<StatusCode, (StatusCode, String)> {
     let user = require_user(&state, bearer.token()).await?;
-    sqlx::query("UPDATE users SET telegram_id = NULL WHERE id = $1")
+    sqlx::query("UPDATE users SET telegram_id = NULL, shared_phone = NULL WHERE id = $1")
         .bind(user.id)
         .execute(&state.db)
         .await

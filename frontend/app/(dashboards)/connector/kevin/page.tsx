@@ -116,7 +116,7 @@ export default function ConnectorKevinPage() {
         <div>
           <h2 className="text-sm font-semibold mb-1">Connect Kevin on other channels</h2>
           <p className="text-sm text-[var(--text-muted)] mb-5">
-            Kevin lives everywhere. Connect him on Telegram, WhatsApp, or email to reach him without opening the platform.
+            Kevin lives everywhere. Connect him on Telegram or WhatsApp (one per account — connecting one disconnects the other), or email to reach him without opening the platform.
           </p>
 
           <div className="grid grid-cols-1 gap-3 md:grid-cols-3">

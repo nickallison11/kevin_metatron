@@ -50,6 +50,57 @@ def send_text(chat_id, text):
         log.error("send_text error: chat_id=%s %s", chat_id, redact(e))
 
 
+SKIP_PHONE = "Skip"
+PHONE_PROMPT = (
+    "📱 Optional: share your phone number so investors you connect with can call you. "
+    "It goes on the contact card they receive when they accept an intro.\n\n"
+    "You can do this any time with /phone."
+)
+
+
+def send_markup(chat_id, text, reply_markup):
+    try:
+        r = requests.post(
+            f"{API}/sendMessage",
+            json={"chat_id": chat_id, "text": text, "reply_markup": reply_markup},
+            timeout=10,
+        )
+        if r.status_code != 200:
+            log.warning("send_markup: chat_id=%s status=%s body=%s", chat_id, r.status_code, r.text[:200])
+    except Exception as e:
+        log.error("send_markup error: chat_id=%s %s", chat_id, redact(e))
+
+
+def ask_for_phone(chat_id):
+    send_markup(
+        chat_id,
+        PHONE_PROMPT,
+        {
+            "keyboard": [
+                [{"text": "📱 Share my phone number", "request_contact": True}],
+                [{"text": SKIP_PHONE}],
+            ],
+            "one_time_keyboard": True,
+            "resize_keyboard": True,
+        },
+    )
+
+
+def save_shared_phone(telegram_id, phone):
+    try:
+        r = requests.post(
+            f"{PLATFORM_URL}/kevin/telegram/phone",
+            json={"telegram_id": telegram_id, "phone": phone},
+            headers={"X-Bot-Secret": BOT_SECRET, "Content-Type": "application/json"},
+            timeout=10,
+        )
+        log.info("save_shared_phone: telegram_id=%s status=%s", telegram_id, r.status_code)
+        return r.status_code == 200
+    except Exception as e:
+        log.error("save_shared_phone error: telegram_id=%s %s", telegram_id, redact(e))
+        return False
+
+
 def send_voice(chat_id, audio_bytes):
     try:
         r = requests.post(
@@ -275,6 +326,7 @@ def main():
                                 "✅ Your Telegram is now linked to your metatron account!\n\n"
                                 "You can now chat with Kevin here. What would you like to work on?",
                             )
+                            ask_for_phone(chat_id)
                         else:
                             send_text(
                                 chat_id,
@@ -289,6 +341,35 @@ def main():
                             "Sign up free at platform.metatron.id and link your Telegram in "
                             "Settings to get started.",
                         )
+                    continue
+                contact = msg.get("contact")
+                if contact:
+                    # Only accept the sender's own number (what the request_contact
+                    # button sends), never a forwarded contact card.
+                    if contact.get("user_id") != telegram_id:
+                        send_text(chat_id, "Please use the *Share my phone number* button to share your own number.")
+                    elif save_shared_phone(telegram_id, contact.get("phone_number", "")):
+                        send_markup(
+                            chat_id,
+                            "✅ Thanks! Your number will be on the contact card investors receive.",
+                            {"remove_keyboard": True},
+                        )
+                    else:
+                        send_markup(
+                            chat_id,
+                            "Sorry, I couldn't save your number. Please try /phone again later.",
+                            {"remove_keyboard": True},
+                        )
+                    continue
+                if text == "/phone":
+                    ask_for_phone(chat_id)
+                    continue
+                if text == SKIP_PHONE:
+                    send_markup(
+                        chat_id,
+                        "No problem. Investors will get your name, company and email. Use /phone any time to add your number.",
+                        {"remove_keyboard": True},
+                    )
                     continue
                 if voice:
                     audio_bytes = download_file(voice["file_id"])

@@ -197,6 +197,74 @@ pub async fn send_email(
     }
 }
 
+/// Same as `send_email`, plus one file attachment (e.g. a founder's `.vcf`
+/// contact card on intro accept). `content` is the raw file bytes.
+pub async fn send_email_with_attachment(
+    http_client: &Client,
+    api_key: Option<&str>,
+    from: &str,
+    to: &str,
+    subject: &str,
+    html: &str,
+    filename: &str,
+    content: &[u8],
+) {
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
+
+    let api_key = match api_key {
+        Some(v) if !v.trim().is_empty() => v.trim(),
+        _ => {
+            tracing::warn!("email: RESEND_API_KEY missing; skipping email to {}", to);
+            return;
+        }
+    };
+
+    if to.trim().is_empty() {
+        tracing::warn!("email: empty recipient; skipping subject '{}'", subject);
+        return;
+    }
+
+    let payload = json!({
+        "from": from,
+        "to": [to],
+        "subject": subject,
+        "html": html,
+        "text": html_to_text(html),
+        "attachments": [{ "filename": filename, "content": STANDARD.encode(content) }]
+    });
+
+    match http_client
+        .post("https://api.resend.com/emails")
+        .header("Authorization", format!("Bearer {}", api_key))
+        .header("Content-Type", "application/json")
+        .json(&payload)
+        .send()
+        .await
+    {
+        Ok(resp) => {
+            if !resp.status().is_success() {
+                let status = resp.status();
+                let body = resp.text().await.unwrap_or_default();
+                tracing::warn!(
+                    "email: resend failed status={} to={} subject='{}' body={}",
+                    status,
+                    to,
+                    subject,
+                    body.chars().take(300).collect::<String>()
+                );
+            }
+        }
+        Err(e) => {
+            tracing::warn!(
+                "email: resend request error to={} subject='{}': {}",
+                to,
+                subject,
+                e
+            );
+        }
+    }
+}
+
 /// A prior send only counts as evidence of deliverability once it's old
 /// enough that a bounce would plausibly have been reported back by now — a
 /// send from a few hundred milliseconds ago (e.g. an earlier notification in

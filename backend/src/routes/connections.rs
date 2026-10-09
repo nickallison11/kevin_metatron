@@ -180,11 +180,11 @@ pub async fn send_kevin_warm_email_for_intro_accept(
     .flatten();
     let (inv_tg, inv_wa) = investor_notif.unwrap_or((None, None));
 
-    let founder: Option<(String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>)> =
+    let founder: Option<(String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>)> =
         sqlx::query_as(
             r#"SELECT u.email, u.telegram_id, u.whatsapp_number, p.company_name,
                     CASE WHEN u.is_basic OR u.is_pro OR p.deck_expires_at IS NULL OR p.deck_expires_at > NOW() THEN p.pitch_deck_url ELSE NULL END,
-                    u.first_name, u.last_name
+                    u.first_name, u.last_name, u.shared_phone
              FROM users u LEFT JOIN profiles p ON p.user_id = u.id WHERE u.id = $1"#,
         )
         .bind(founder_user_id)
@@ -193,7 +193,7 @@ pub async fn send_kevin_warm_email_for_intro_accept(
         .ok()
         .flatten();
 
-    if let Some((f_email, f_tg, f_wa, company_name, deck_url, f_first, f_last)) = founder {
+    if let Some((f_email, f_tg, f_wa, company_name, deck_url, f_first, f_last, f_shared_phone)) = founder {
         let company = company_name.unwrap_or_else(|| "your company".to_string());
         let founder_full_name = match (f_first.as_deref(), f_last.as_deref()) {
             (Some(first), Some(last)) if !first.is_empty() && !last.is_empty() => format!("{first} {last}"),
@@ -256,13 +256,25 @@ pub async fn send_kevin_warm_email_for_intro_accept(
             "✅ You're now connected with {}!\n\nFounder email: {}{}\n\nGood luck!",
             company, f_email, deck_msg
         );
-        email::send_email(
+        // The founder's contact card goes to the investor on every channel they use:
+        // email (.vcf attachment) always, plus their one messaging channel (WhatsApp
+        // or Telegram). Phone is the founder's WhatsApp number, or the number they
+        // shared via the Telegram bot; with neither, the card carries name, company
+        // and email only. Investors don't get the reverse (their own card pushed to
+        // the founder) — the founder-facing block above stays email-only by design.
+        let card_phone: Option<String> = f_wa.clone().or(f_shared_phone);
+        let card_last = f_last.as_deref().filter(|l| !l.is_empty() && f_first.as_deref().is_some_and(|f| !f.is_empty()));
+        let vcard = founder_vcard(&founder_full_name, f_first.as_deref(), card_last, &company, card_phone.as_deref(), &f_email);
+
+        email::send_email_with_attachment(
             &state.http_client,
             state.resend_api_key.as_deref(),
             &state.email_from,
             &investor_email,
             &inv_subject,
             &inv_html,
+            &format!("{}.vcf", vcard_filename(&founder_full_name)),
+            vcard.as_bytes(),
         )
         .await;
         if let (Some(tg), Some(bot)) = (inv_tg.as_deref(), state.telegram_bot_token.as_deref()) {
@@ -272,48 +284,127 @@ pub async fn send_kevin_warm_email_for_intro_accept(
                 .json(&serde_json::json!({"chat_id": tg, "text": inv_msg}))
                 .send()
                 .await;
+            // Telegram contact cards require a phone number; without one the text
+            // above (founder email + deck) is the card.
+            if let Some(phone) = card_phone.as_deref() {
+                match state
+                    .http_client
+                    .post(format!("https://api.telegram.org/bot{bot}/sendContact", bot = bot))
+                    .json(&serde_json::json!({
+                        "chat_id": tg,
+                        "phone_number": format!("+{phone}"),
+                        "first_name": f_first.as_deref().filter(|f| !f.is_empty()).unwrap_or(&founder_full_name),
+                        "last_name": card_last.unwrap_or(""),
+                        "vcard": vcard
+                    }))
+                    .send()
+                    .await
+                {
+                    Ok(r) if !r.status().is_success() => {
+                        let status = r.status();
+                        let body = r.text().await.unwrap_or_default();
+                        tracing::warn!("intro accept: telegram sendContact failed status={status} body={}", body.chars().take(300).collect::<String>());
+                    }
+                    Err(e) => tracing::warn!("intro accept: telegram sendContact error: {e}"),
+                    _ => {}
+                }
+            }
         }
         if let (Some(wa), Some(tok), Some(pid)) = (
             inv_wa.as_deref(),
             state.whatsapp_access_token.as_deref(),
             state.whatsapp_phone_number_id.as_deref(),
         ) {
-            // Share the founder's contact card (name, phone, company) when they have a
-            // WhatsApp number linked, so the investor can save/call them directly —
-            // falls back to the plain-text email message otherwise. Investors don't get
-            // the reverse (their own card pushed to the founder) — see connections.rs
-            // founder-facing block above, which stays email-only by design.
-            let payload = if let Some(f_phone) = f_wa.as_deref() {
-                serde_json::json!({
+            let url = format!("https://graph.facebook.com/v18.0/{pid}/messages", pid = pid);
+            let _ = state
+                .http_client
+                .post(&url)
+                .bearer_auth(tok)
+                .json(&serde_json::json!({"messaging_product":"whatsapp","recipient_type":"individual","to":wa,"type":"text","text":{"body":inv_msg}}))
+                .send()
+                .await;
+            let mut contact = serde_json::json!({
+                "name": {
+                    "formatted_name": founder_full_name.clone(),
+                    "first_name": f_first.as_deref().filter(|f| !f.is_empty()).unwrap_or(&founder_full_name)
+                },
+                "org": { "company": company },
+                "emails": [{ "email": f_email, "type": "WORK" }]
+            });
+            if let Some(last) = card_last {
+                contact["name"]["last_name"] = serde_json::json!(last);
+            }
+            if let Some(phone) = card_phone.as_deref() {
+                contact["phones"] = serde_json::json!([{ "phone": format!("+{phone}"), "type": "WORK", "wa_id": phone }]);
+            }
+            match state
+                .http_client
+                .post(&url)
+                .bearer_auth(tok)
+                .json(&serde_json::json!({
                     "messaging_product": "whatsapp",
                     "recipient_type": "individual",
                     "to": wa,
                     "type": "contacts",
-                    "contacts": [{
-                        "name": {
-                            "formatted_name": founder_full_name.clone(),
-                            "first_name": f_first.as_deref().unwrap_or(&founder_full_name)
-                        },
-                        "org": { "company": company },
-                        "phones": [{ "phone": f_phone, "type": "WORK", "wa_id": f_phone }],
-                        "emails": [{ "email": f_email, "type": "WORK" }]
-                    }]
-                })
-            } else {
-                serde_json::json!({"messaging_product":"whatsapp","recipient_type":"individual","to":wa,"type":"text","text":{"body":inv_msg}})
-            };
-            let _ = state
-                .http_client
-                .post(format!(
-                    "https://graph.facebook.com/v18.0/{pid}/messages",
-                    pid = pid
-                ))
-                .bearer_auth(tok)
-                .json(&payload)
+                    "contacts": [contact]
+                }))
                 .send()
-                .await;
+                .await
+            {
+                Ok(r) if !r.status().is_success() => {
+                    let status = r.status();
+                    let body = r.text().await.unwrap_or_default();
+                    tracing::warn!("intro accept: whatsapp contact card failed status={status} body={}", body.chars().take(300).collect::<String>());
+                }
+                Err(e) => tracing::warn!("intro accept: whatsapp contact card error: {e}"),
+                _ => {}
+            }
         }
     }
+}
+
+/// Escapes a value for a vCard 3.0 text field.
+fn vcard_escape(s: &str) -> String {
+    s.replace('\\', "\\\\")
+        .replace(',', "\\,")
+        .replace(';', "\\;")
+        .replace('\n', "\\n")
+}
+
+/// Founder contact card as a vCard 3.0 — used for the email attachment and as the
+/// `vcard` field of Telegram's sendContact. `phone` is digits only (no leading +).
+fn founder_vcard(
+    full_name: &str,
+    first: Option<&str>,
+    last: Option<&str>,
+    company: &str,
+    phone: Option<&str>,
+    email: &str,
+) -> String {
+    let given = first.filter(|f| !f.is_empty()).unwrap_or(full_name);
+    let mut card = format!(
+        "BEGIN:VCARD\r\nVERSION:3.0\r\nN:{};{};;;\r\nFN:{}\r\nORG:{}\r\nEMAIL;TYPE=WORK:{}\r\n",
+        vcard_escape(last.unwrap_or("")),
+        vcard_escape(given),
+        vcard_escape(full_name),
+        vcard_escape(company),
+        email,
+    );
+    if let Some(p) = phone {
+        card.push_str(&format!("TEL;TYPE=CELL:+{p}\r\n"));
+    }
+    card.push_str("END:VCARD\r\n");
+    card
+}
+
+/// Safe attachment filename from the founder's display name.
+fn vcard_filename(full_name: &str) -> String {
+    let name: String = full_name
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        .collect();
+    let name = name.trim_matches('_');
+    if name.is_empty() { "contact".to_string() } else { name.to_string() }
 }
 
 // --- HTTP DTOs ----------------------------------------------------------------

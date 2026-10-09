@@ -56,7 +56,8 @@ const DEFAULT_INTRO_COLUMNS = [
   { key: "stage", label: "Stage", width: 120 },
   { key: "fit", label: "Fit", width: 80 },
   { key: "requested", label: "Requested", width: 120 },
-  { key: "actions", label: "", width: 140 },
+  // Fits View deck + Accept + Decline side by side; at 140 Decline was clipped.
+  { key: "actions", label: "", width: 240 },
 ] as const;
 
 const DEFAULT_INVESTOR_MATCH_COLUMNS = [

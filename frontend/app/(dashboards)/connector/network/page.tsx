@@ -102,7 +102,7 @@ function compareStagedContacts(a: StagedContact, b: StagedContact): number {
 }
 
 /** Green glow when a contact id newly appears in the staging `recent` feed (see `loadStaging`). */
-const STAGING_RECENT_HIGHLIGHT_BG = "bg-[rgba(0,200,100,0.05)] transition-all duration-1000";
+const STAGING_RECENT_HIGHLIGHT_BG = "bg-[var(--good-bg)] transition-all duration-1000";
 const STAGING_RECENT_HIGHLIGHT = `border-green-400/30 ${STAGING_RECENT_HIGHLIGHT_BG}`;
 
 const DEFAULT_COLUMNS = [
@@ -820,8 +820,8 @@ function ConnectorNetworkPageInner() {
     const map = {
       pending: "bg-[var(--overlay-6)] text-[var(--text-muted)]",
       enriching: "bg-[rgba(var(--accent-rgb),0.15)] text-[var(--accent)] animate-pulse",
-      enriched: "bg-[rgba(0,200,100,0.12)] text-green-400",
-      failed: "bg-[rgba(255,80,80,0.12)] text-red-400",
+      enriched: "bg-[var(--good-bg)] text-[var(--good)]",
+      failed: "bg-[rgba(255,80,80,0.12)] text-[var(--danger)]",
     };
     return (
       <span className={`px-2 py-0.5 rounded text-xs font-medium ${map[status]}`}>{status}</span>
@@ -829,12 +829,13 @@ function ConnectorNetworkPageInner() {
   };
 
   return (
-    <main className="flex-1 text-[var(--text)]">
-      <div className="max-w-5xl mx-auto space-y-6 px-6 py-6 md:px-10">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold text-[var(--text)]">My Network</h1>
-          <p className="text-[var(--text-muted)] text-sm mt-1">Manage and enrich your investor and founder contacts</p>
+    <main className="min-w-0 flex-1 text-[var(--text)]">
+      <div className="max-w-5xl mx-auto space-y-6 p-6 md:p-10">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div className="flex flex-col gap-1.5">
+          <span className="font-mono text-[11px] uppercase tracking-[0.14em] text-[var(--text-muted)]">My Network</span>
+          <h1 className="text-[28px] font-semibold tracking-tight text-[var(--text)]">Your contacts</h1>
+          <p className="text-sm text-[var(--text-muted)]">Manage and enrich your investor and founder contacts. Kevin finds who to introduce.</p>
           {isSuperAdmin && (
             <div className="mt-3 flex items-center gap-2">
               <label className="text-xs text-[var(--text-muted)]">Acting as:</label>
@@ -1025,18 +1026,18 @@ function ConnectorNetworkPageInner() {
             className={`inline-flex items-center rounded-full border px-3 py-1 ${
               enrichmentCredits > 0
                 ? "border-[var(--accent)]/30 bg-[var(--accent)]/10 text-[var(--accent)]"
-                : "border-red-400/30 bg-red-400/10 text-red-400"
+                : "border-red-400/30 bg-red-400/10 text-[var(--danger)]"
             }`}
           >
             ⚡ {enrichmentCredits} credits
           </span>
           {enrichmentCredits <= 0 && (
-            <a href="/connector/settings/subscription" className="text-red-400 hover:underline">
+            <a href="/connector/settings/subscription" className="text-[var(--danger)] hover:underline">
               Buy credits
             </a>
           )}
           {isFreeTier && (
-            <span className={`${atFreeLimit ? "text-red-400" : "text-[var(--text-muted)]"}`}>
+            <span className={`${atFreeLimit ? "text-[var(--danger)]" : "text-[var(--text-muted)]"}`}>
               {contactCount}/50 contacts
             </span>
           )}
@@ -1291,7 +1292,7 @@ function ConnectorNetworkPageInner() {
                     onClick={() => onEnrichAll()}
                     disabled={enrichmentCredits === 0}
                     title={enrichmentCredits === 0 ? "No credits remaining" : undefined}
-                    className="px-3 py-1.5 bg-[rgba(255,80,80,0.12)] text-red-400 border border-[rgba(255,80,80,0.2)] rounded-xl text-xs font-medium hover:bg-[rgba(255,80,80,0.2)] disabled:opacity-50"
+                    className="px-3 py-1.5 bg-[rgba(255,80,80,0.12)] text-[var(--danger)] border border-[rgba(255,80,80,0.2)] rounded-xl text-xs font-medium hover:bg-[rgba(255,80,80,0.2)] disabled:opacity-50"
                   >
                     Retry failed ({stagedFailedCount})
                   </button>
@@ -1301,7 +1302,7 @@ function ConnectorNetworkPageInner() {
                     type="button"
                     onClick={() => onImportEnriched()}
                     disabled={importingStaged}
-                    className="px-3 py-1.5 bg-green-600 text-white rounded-xl text-xs font-medium hover:bg-green-500 disabled:opacity-50"
+                    className="px-3 py-1.5 bg-metatron-accent text-white rounded-xl text-xs font-medium hover:bg-metatron-accent-hover disabled:opacity-50"
                   >
                     {importingStaged ? "Importing..." : `Import enriched (${stagedEnrichedCount})`}
                   </button>
@@ -1309,7 +1310,7 @@ function ConnectorNetworkPageInner() {
                 <button
                   type="button"
                   onClick={onClearStaging}
-                  className="px-3 py-1.5 bg-[rgba(255,80,80,0.1)] text-red-400 rounded-xl text-xs hover:bg-[rgba(255,80,80,0.2)]"
+                  className="px-3 py-1.5 bg-[rgba(255,80,80,0.1)] text-[var(--danger)] rounded-xl text-xs hover:bg-[rgba(255,80,80,0.2)]"
                 >
                   Clear all
                 </button>
@@ -1331,7 +1332,7 @@ function ConnectorNetworkPageInner() {
                   <span className="text-[var(--accent)] ml-2 animate-pulse">· {stagingCounts.enriching} in progress</span>
                 )}
                 {stagingCounts.failed > 0 && (
-                  <span className="text-red-400 ml-2">· {stagingCounts.failed} failed</span>
+                  <span className="text-[var(--danger)] ml-2">· {stagingCounts.failed} failed</span>
                 )}
               </span>
               <span>{stagingTotal > 0 ? Math.round((stagingCounts.enriched / stagingTotal) * 100) : 0}%</span>
@@ -1471,7 +1472,7 @@ function ConnectorNetworkPageInner() {
                       type="button"
                       onClick={() => onImportEnriched(Array.from(selectedStaged))}
                       disabled={importingStaged}
-                      className="px-3 py-1 bg-green-600 text-white rounded-lg text-xs disabled:opacity-50"
+                      className="px-3 py-1 bg-metatron-accent text-white rounded-lg text-xs disabled:opacity-50"
                     >
                       Import selected
                     </button>
@@ -1541,7 +1542,7 @@ function ConnectorNetworkPageInner() {
                           <p className="truncate text-xs font-medium text-[var(--text)]">{r.name}</p>
                           <p className="truncate text-[10px] text-[var(--text-muted)]">{r.sector_focus?.trim() || "—"}</p>
                         </div>
-                        <span className="shrink-0 rounded-md bg-[rgba(0,200,100,0.12)] px-2 py-0.5 text-[10px] font-medium text-green-400">
+                        <span className="shrink-0 rounded-md bg-[var(--good-bg)] px-2 py-0.5 text-[10px] font-medium text-[var(--good)]">
                           enriched
                         </span>
                       </li>
@@ -1637,7 +1638,7 @@ function ConnectorNetworkPageInner() {
                                 <button
                                   type="button"
                                   onClick={() => onImportEnriched([s.id])}
-                                  className="text-green-400 hover:underline ml-1"
+                                  className="text-[var(--good)] hover:underline ml-1"
                                 >
                                   Import
                                 </button>
@@ -1651,7 +1652,7 @@ function ConnectorNetworkPageInner() {
                                   Retry
                                 </button>
                               )}
-                              <button type="button" onClick={() => onDeleteStaged(s.id)} className="text-red-400 hover:underline ml-1">
+                              <button type="button" onClick={() => onDeleteStaged(s.id)} className="text-[var(--danger)] hover:underline ml-1">
                                 Del
                               </button>
                             </div>
@@ -1735,13 +1736,13 @@ function ConnectorNetworkPageInner() {
                       {s.ticket_size && <span>Ticket: {s.ticket_size}</span>}
                       {s.geography && <span>Location: {s.geography}</span>}
                     </div>
-                    {s.enrichment_error && <p className="text-xs text-red-400">{s.enrichment_error}</p>}
+                    {s.enrichment_error && <p className="text-xs text-[var(--danger)]">{s.enrichment_error}</p>}
                     <div className="flex gap-2">
                       <button type="button" onClick={() => startEditStaged(s)} className="text-xs text-[var(--accent)] hover:underline">
                         Edit
                       </button>
                       {s.status === "enriched" && (
-                        <button type="button" onClick={() => onImportEnriched([s.id])} className="text-xs text-green-400 hover:underline">
+                        <button type="button" onClick={() => onImportEnriched([s.id])} className="text-xs text-[var(--good)] hover:underline">
                           Import
                         </button>
                       )}
@@ -1750,7 +1751,7 @@ function ConnectorNetworkPageInner() {
                           Retry
                         </button>
                       )}
-                      <button type="button" onClick={() => onDeleteStaged(s.id)} className="text-xs text-red-400 hover:underline">
+                      <button type="button" onClick={() => onDeleteStaged(s.id)} className="text-xs text-[var(--danger)] hover:underline">
                         Delete
                       </button>
                     </div>
@@ -1969,7 +1970,7 @@ function ConnectorNetworkPageInner() {
                   <button
                     type="button"
                     onClick={() => void onDelete(viewingContact.id)}
-                    className="rounded-xl px-4 py-2 text-sm font-medium text-red-400 transition-colors hover:bg-[rgba(255,80,80,0.12)]"
+                    className="rounded-xl px-4 py-2 text-sm font-medium text-[var(--danger)] transition-colors hover:bg-[rgba(255,80,80,0.12)]"
                   >
                     Delete
                   </button>
@@ -1979,7 +1980,7 @@ function ConnectorNetworkPageInner() {
 
             {contactModalMode === "edit" && (
               <div className="shrink-0 border-t border-[var(--border)] px-5 py-3 space-y-2">
-                {editMsg && <p className="text-xs text-red-400">{editMsg}</p>}
+                {editMsg && <p className="text-xs text-[var(--danger)]">{editMsg}</p>}
                 <div className="flex flex-wrap gap-2">
                   <button
                     type="button"

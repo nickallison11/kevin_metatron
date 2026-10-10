@@ -173,7 +173,7 @@ export function KevinChannelPicker({ token }: { token: string }) {
       </div>
 
       {pending && current && (
-        <div role="alert" className="flex flex-col gap-2.5 rounded-[10px] border border-[var(--warn)]/40 bg-[var(--warn-bg)] p-3 text-sm">
+        <div role="alert" className="flex flex-col gap-2.5 rounded-[10px] border border-[var(--warn)] bg-[var(--warn-bg)] p-3 text-sm">
           <span>
             Switch to {LABEL[pending]}? This disconnects {LABEL[current]} from your account.
           </span>

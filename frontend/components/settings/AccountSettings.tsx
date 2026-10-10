@@ -683,7 +683,7 @@ export function AccountSettings({ role }: { role: "STARTUP" | "INVESTOR" | "INTE
             )}
 
             {tab === "delete" && (
-              <section className={`${card} flex flex-col gap-3 border-[var(--danger)]/40 p-5`}>
+              <section className={`${card} flex flex-col gap-3 border-[var(--danger)] p-5`}>
                 <h2 className="text-base font-semibold">Delete your account</h2>
                 <p className="text-sm text-[var(--text-muted)]">
                   This removes your profile, {isFounder ? "pitch, " : ""}matches, calls and messages. It can&apos;t be undone. Type DELETE to confirm.

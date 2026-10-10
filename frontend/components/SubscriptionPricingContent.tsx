@@ -498,7 +498,7 @@ export default function SubscriptionPricingContent(
         </div>
       )}
       {error && (
-        <div role="alert" className="rounded-[12px] border border-[var(--danger)]/40 px-4 py-3 text-sm text-[var(--danger)]">
+        <div role="alert" className="rounded-[12px] border border-[var(--danger)] px-4 py-3 text-sm text-[var(--danger)]">
           {error}
         </div>
       )}

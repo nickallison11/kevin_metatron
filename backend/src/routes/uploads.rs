@@ -29,7 +29,7 @@ const MAX_UPLOAD_BYTES: usize = 52 * 1024 * 1024;
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/pitch-deck", post(upload_pitch_deck))
-        .route("/file/:cid", get(serve_file))
+        .route("/file/:cid", get(serve_ipfs_file))
         .route("/logo", post(upload_logo))
         .route("/logo/from-website", post(logo_from_website))
         .route("/ipfs-visibility", put(set_ipfs_visibility))
@@ -639,7 +639,7 @@ fn ipfs_gateway_base(state: &AppState) -> String {
 /// rewrite to. Serves only files metatron stored (a founder's deck or a user's
 /// logo), and only PDFs and raster images, so nobody can get arbitrary IPFS
 /// content (e.g. an HTML page) served from the app's own domain.
-async fn serve_file(State(state): State<Arc<AppState>>, Path(cid): Path<String>) -> Response {
+async fn serve_ipfs_file(State(state): State<Arc<AppState>>, Path(cid): Path<String>) -> Response {
     let not_found = || (StatusCode::NOT_FOUND, "Not found").into_response();
     // CIDv0 (Qm…) and CIDv1 (bafy…) are plain alphanumerics.
     if cid.len() < 32 || cid.len() > 100 || !cid.chars().all(|c| c.is_ascii_alphanumeric()) {

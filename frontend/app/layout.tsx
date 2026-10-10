@@ -28,7 +28,15 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        {/* Apply the saved theme before first paint so light mode doesn't flash dark. Mirrors AppShell. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `try{var t=localStorage.getItem("metatron_theme");if(t==="light"||(t!=="dark"&&matchMedia("(prefers-color-scheme: light)").matches))document.documentElement.classList.add("light")}catch(e){}`,
+          }}
+        />
+      </head>
       <body className={`${dmSans.variable} ${jetbrainsMono.variable} font-sans`}>
         <AppShell>
           {children}

@@ -92,6 +92,9 @@ function dashboardPathForRole(role: string | null | undefined): string {
 
 export default function AppShell({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<"dark" | "light">("dark");
+  // The inline script in app/layout.tsx sets the class before paint; don't
+  // touch it until the saved theme has been read, or light mode flashes dark.
+  const [themeReady, setThemeReady] = useState(false);
 
   useEffect(() => {
     const stored = localStorage.getItem("metatron_theme");
@@ -100,6 +103,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
     } else if (window.matchMedia("(prefers-color-scheme: light)").matches) {
       setTheme("light");
     }
+    setThemeReady(true);
   }, []);
   const [token, setToken] = useState<string | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -108,13 +112,14 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
 
   useEffect(() => {
+    if (!themeReady) return;
     const root = document.documentElement;
     if (theme === "light") {
       root.classList.add("light");
     } else {
       root.classList.remove("light");
     }
-  }, [theme]);
+  }, [theme, themeReady]);
 
   useEffect(() => {
     setToken(getAccessToken());

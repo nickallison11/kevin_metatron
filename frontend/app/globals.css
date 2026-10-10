@@ -38,6 +38,7 @@
   --overlay-6: rgba(255, 255, 255, 0.06);
   --overlay-8: rgba(255, 255, 255, 0.08);
   --overlay-12: rgba(255, 255, 255, 0.12);
+  --panel: #0a0a0f; /* dashboard sidebar */
 }
 
 html.light {
@@ -65,6 +66,7 @@ html.light {
   --overlay-6: rgba(0, 0, 0, 0.07);
   --overlay-8: rgba(0, 0, 0, 0.09);
   --overlay-12: rgba(0, 0, 0, 0.14);
+  --panel: #ffffff;
 }
 
 html,
@@ -107,6 +109,11 @@ body {
   pointer-events: none;
 }
 
+/* The glow reads as a grey-green smudge on a light background */
+html.light .orb {
+  display: none;
+}
+
 /* Sticky nav */
 .nav-metatron {
   position: sticky;
@@ -135,12 +142,12 @@ html.light .nav-metatron {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--overlay-8);
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.15);
+  background: var(--overlay-12);
 }
 
 /* Form input (reference .input) */

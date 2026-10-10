@@ -84,7 +84,7 @@ function NavRow({
       <button
         type="button"
         onClick={item.onClick}
-        title={expanded ? undefined : `${item.label} â€” Upgrade`}
+        title={expanded ? undefined : `${item.label} — Upgrade`}
         aria-label={expanded ? `${item.label} (upgrade required)` : `${item.label} (locked, upgrade required)`}
         className={`${base} ${inactiveCls} cursor-pointer opacity-60`}
       >
@@ -98,7 +98,7 @@ function NavRow({
   return (
     <Link
       href={item.href}
-      title={expanded ? undefined : item.kind === "tease-link" ? `${item.label} â€” Upgrade` : item.label}
+      title={expanded ? undefined : item.kind === "tease-link" ? `${item.label} — Upgrade` : item.label}
       aria-label={expanded ? undefined : item.label}
       aria-current={active ? "page" : undefined}
       className={`${base} ${active ? activeCls : inactiveCls}`}
@@ -119,7 +119,7 @@ function MobileLink({ item, active }: { item: ChromeNavItem; active: boolean }) 
         onClick={item.onClick}
         className="shrink-0 cursor-pointer rounded-lg border border-metatron-accent/30 px-3 py-1.5 text-xs text-metatron-accent opacity-50"
       >
-        {item.label} Â· Upgrade
+        {item.label} · Upgrade
       </button>
     );
   }
@@ -136,8 +136,8 @@ function MobileLink({ item, active }: { item: ChromeNavItem; active: boolean }) 
       }
     >
       {item.label}
-      {item.kind === "tease-link" ? " Â· Upgrade" : ""}
-      {item.badge ? ` Â· ${item.badge}` : ""}
+      {item.kind === "tease-link" ? " · Upgrade" : ""}
+      {item.badge ? ` · ${item.badge}` : ""}
     </Link>
   );
 }
@@ -150,7 +150,7 @@ function initials(s: string): string {
       .filter(Boolean)
       .slice(0, 2)
       .map((w) => w[0]!.toUpperCase())
-      .join("") || "Â·"
+      .join("") || "·"
   );
 }
 
@@ -174,7 +174,7 @@ function useAccount(roleLabel: string): { name: string; plan: string } | null {
   if (!me) return null;
   const full = [me.first_name, me.last_name].filter(Boolean).join(" ").trim();
   const tier = me.is_pro ? "Pro" : me.is_basic ? "Basic" : "Free";
-  return { name: full || me.email, plan: `${roleLabel} Â· ${tier}` };
+  return { name: full || me.email, plan: `${roleLabel} · ${tier}` };
 }
 
 export default function DashboardChrome({
@@ -219,8 +219,8 @@ export default function DashboardChrome({
         aria-label={`${roleLabel} menu`}
         className={
           expanded
-            ? "sticky top-[82px] hidden h-[calc(100vh-82px)] w-60 shrink-0 flex-col gap-5 overflow-y-auto border-r border-[var(--border)] bg-[var(--bg)] px-3 py-4 md:flex"
-            : "sticky top-[82px] hidden h-[calc(100vh-82px)] w-16 shrink-0 flex-col items-center gap-5 overflow-y-auto border-r border-[var(--border)] bg-[var(--bg)] py-4 md:flex"
+            ? "sticky top-[82px] hidden h-[calc(100vh-82px)] w-60 shrink-0 flex-col gap-5 overflow-y-auto border-r border-[var(--border)] bg-[var(--panel)] px-3 py-4 md:flex"
+            : "sticky top-[82px] hidden h-[calc(100vh-82px)] w-16 shrink-0 flex-col items-center gap-5 overflow-y-auto border-r border-[var(--border)] bg-[var(--panel)] py-4 md:flex"
         }
       >
         <div className={expanded ? "flex items-center justify-between px-1" : "flex flex-col items-center"}>
@@ -232,7 +232,7 @@ export default function DashboardChrome({
           <button
             type="button"
             onClick={toggle}
-            title={`${roleLabel} menu â€” ${expanded ? "collapse" : "expand"}`}
+            title={`${roleLabel} menu — ${expanded ? "collapse" : "expand"}`}
             aria-label={expanded ? "Collapse menu" : "Expand menu"}
             className="flex h-9 w-9 items-center justify-center rounded-[10px] text-[var(--text-muted)] transition-colors hover:bg-[var(--overlay-4)] hover:text-[var(--text)]"
           >
@@ -266,7 +266,7 @@ export default function DashboardChrome({
                 ? "mt-auto flex items-center gap-2.5 rounded-[10px] bg-[var(--overlay-3)] px-2.5 py-2.5"
                 : "mt-auto flex justify-center"
             }
-            title={expanded ? undefined : `${account.name} â€” ${account.plan}`}
+            title={expanded ? undefined : `${account.name} — ${account.plan}`}
           >
             <span
               aria-hidden

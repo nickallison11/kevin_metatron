@@ -425,7 +425,7 @@ function IntroButton({
             : "Connect"}
       </button>
       {state === "error" && errorMessage && (
-        <p className="text-[11px] text-red-400">
+        <p className="text-[11px] text-[var(--danger)]">
           {errorMessage}
           {mentionsProfile && (
             <>

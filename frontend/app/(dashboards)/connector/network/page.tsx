@@ -103,7 +103,7 @@ function compareStagedContacts(a: StagedContact, b: StagedContact): number {
 
 /** Green glow when a contact id newly appears in the staging `recent` feed (see `loadStaging`). */
 const STAGING_RECENT_HIGHLIGHT_BG = "bg-[var(--good-bg)] transition-all duration-1000";
-const STAGING_RECENT_HIGHLIGHT = `border-green-400/30 ${STAGING_RECENT_HIGHLIGHT_BG}`;
+const STAGING_RECENT_HIGHLIGHT = `border-[var(--good)] ${STAGING_RECENT_HIGHLIGHT_BG}`;
 
 const DEFAULT_COLUMNS = [
   { key: "name", label: "Name / Firm", width: 180 },
@@ -1026,7 +1026,7 @@ function ConnectorNetworkPageInner() {
             className={`inline-flex items-center rounded-full border px-3 py-1 ${
               enrichmentCredits > 0
                 ? "border-[var(--accent)]/30 bg-[var(--accent)]/10 text-[var(--accent)]"
-                : "border-red-400/30 bg-red-400/10 text-[var(--danger)]"
+                : "border-[var(--danger)] bg-[var(--overlay-4)] text-[var(--danger)]"
             }`}
           >
             ⚡ {enrichmentCredits} credits
@@ -1586,7 +1586,7 @@ function ConnectorNetworkPageInner() {
                         <tr
                           className={
                             recentlyEnriched.has(s.id)
-                              ? `border-b border-green-400/30 ${STAGING_RECENT_HIGHLIGHT_BG}`
+                              ? `border-b border-[var(--good)] ${STAGING_RECENT_HIGHLIGHT_BG}`
                               : "border-b border-[var(--overlay-3)] hover:bg-[var(--overlay-2)]"
                           }
                         >
@@ -1647,7 +1647,7 @@ function ConnectorNetworkPageInner() {
                                 <button
                                   type="button"
                                   onClick={() => onRetryContact(s.id)}
-                                  className="text-orange-400 hover:underline ml-1"
+                                  className="text-[var(--warn)] hover:underline ml-1"
                                 >
                                   Retry
                                 </button>
@@ -1747,7 +1747,7 @@ function ConnectorNetworkPageInner() {
                         </button>
                       )}
                       {s.status === "failed" && (
-                        <button type="button" onClick={() => onRetryContact(s.id)} className="text-xs text-orange-400 hover:underline">
+                        <button type="button" onClick={() => onRetryContact(s.id)} className="text-xs text-[var(--warn)] hover:underline">
                           Retry
                         </button>
                       )}

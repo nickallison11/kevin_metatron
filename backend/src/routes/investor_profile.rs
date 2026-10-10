@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use axum::{
     extract::State,
-    routing::get,
+    routing::{get, post},
     Json, Router,
 };
 use axum_extra::{
@@ -19,6 +19,10 @@ pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/", get(get_own).put(put_own))
         .route("/all", get(list_all))
+        // Founder reviews of investors (routes/investor_ratings.rs).
+        .route("/public/:investor_id", get(super::investor_ratings::get_investor_public))
+        .route("/public/:investor_id/review", post(super::investor_ratings::post_investor_review))
+        .route("/review-summaries", get(super::investor_ratings::review_summaries))
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -48,6 +52,7 @@ pub struct InvestorPublicDto {
     pub ticket_size_min: Option<i64>,
     pub ticket_size_max: Option<i64>,
     pub country: Option<String>,
+    pub logo_url: Option<String>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -184,7 +189,8 @@ async fn list_all(
             ip.stages,
             ip.ticket_size_min,
             ip.ticket_size_max,
-            ip.country
+            ip.country,
+            u.logo_url
         FROM users u
         INNER JOIN investor_profiles ip ON ip.user_id = u.id
         WHERE u.role = 'INVESTOR'

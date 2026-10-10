@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ProBlurOverlay } from "@/components/FounderCard";
 import { API_BASE, authHeaders, authJsonHeaders } from "@/lib/api";
@@ -14,7 +15,9 @@ type InvestorPublic = {
   ticket_size_min?: number | null;
   ticket_size_max?: number | null;
   country?: string | null;
+  logo_url?: string | null;
 };
+type ReviewSummary = { investor_user_id: string; review_count: number; avg_stars: number | null };
 
 function initials(name: string): string {
   return (
@@ -38,18 +41,24 @@ function ticket(inv: InvestorPublic): string | null {
  * founder and connector dashboards (and on the legacy /investors page).
  * Free accounts see the first two investors; the rest are blurred.
  */
-export function InvestorDirectory() {
+export function InvestorDirectory({ detailBase }: { detailBase?: string } = {}) {
   const { token, loading, isPro } = useAuth();
   const [rows, setRows] = useState<InvestorPublic[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [q, setQ] = useState("");
   const [sent, setSent] = useState<Record<string, "follow" | "intro_request">>({});
+  const [ratings, setRatings] = useState<Record<string, ReviewSummary>>({});
 
   const load = useCallback(async () => {
     if (!token) return;
     try {
       const res = await fetch(`${API_BASE}/investor-profile/all`, { headers: authHeaders(token) });
       if (res.ok) setRows((await res.json()) as InvestorPublic[]);
+      const rs = await fetch(`${API_BASE}/investor-profile/review-summaries`, { headers: authHeaders(token) });
+      if (rs.ok) {
+        const list = (await rs.json()) as ReviewSummary[];
+        setRatings(Object.fromEntries(list.map((r) => [r.investor_user_id, r])));
+      }
     } catch {
       /* shown as the empty state */
     } finally {
@@ -119,17 +128,36 @@ export function InvestorDirectory() {
               const bio = inv.bio?.trim() ?? "";
               const chips = [...(inv.stages ?? []).slice(0, 2), ...(inv.sectors ?? []).slice(0, 2), ticket(inv)].filter(Boolean) as string[];
               const done = sent[inv.user_id];
+              const rating = ratings[inv.user_id];
               return (
                 <div key={inv.user_id} className="relative">
                   <article className="flex h-full flex-col gap-3.5 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-5 shadow-[var(--card-shadow)]">
                     <div className="flex items-center gap-3">
-                      <span aria-hidden className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-metatron-accent/15 text-sm font-semibold text-metatron-accent">
-                        {initials(name)}
-                      </span>
-                      <div className="min-w-0">
-                        <h3 className="truncate text-base font-semibold text-[var(--text)]">{name}</h3>
+                      {inv.logo_url ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={inv.logo_url} alt="" className="h-11 w-11 shrink-0 rounded-xl border border-[var(--border)] bg-white object-contain p-1.5" />
+                      ) : (
+                        <span aria-hidden className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-metatron-accent/15 text-sm font-semibold text-metatron-accent">
+                          {initials(name)}
+                        </span>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <h3 className="truncate text-base font-semibold text-[var(--text)]">
+                          {detailBase ? (
+                            <Link href={`${detailBase}/${inv.user_id}`} className="hover:underline">
+                              {name}
+                            </Link>
+                          ) : (
+                            name
+                          )}
+                        </h3>
                         <p className="text-[13px] text-[var(--text-muted)]">{inv.country ?? "—"}</p>
                       </div>
+                      {rating && rating.avg_stars != null && (
+                        <span className="shrink-0 text-[13px] text-[var(--text-muted)]" title={`${rating.review_count} founder review${rating.review_count === 1 ? "" : "s"}`}>
+                          <span className="text-[var(--star)]">★</span> {rating.avg_stars.toFixed(1)} <span className="text-xs">({rating.review_count})</span>
+                        </span>
+                      )}
                     </div>
                     <p className="line-clamp-3 text-sm leading-relaxed text-[var(--text-muted)]">{bio || "No thesis yet."}</p>
                     {chips.length > 0 && (
@@ -140,6 +168,11 @@ export function InvestorDirectory() {
                           </span>
                         ))}
                       </div>
+                    )}
+                    {detailBase && (
+                      <Link href={`${detailBase}/${inv.user_id}`} className="text-[13px] font-medium text-metatron-accent hover:underline">
+                        View profile and reviews →
+                      </Link>
                     )}
                     <div className="mt-auto flex gap-2 border-t border-[var(--border)] pt-3">
                       <button

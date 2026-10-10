@@ -7,6 +7,7 @@ import { COUNTRIES } from "@/lib/countries";
 import { STAGES } from "@/lib/stages";
 import { SECTOR_OPTIONS } from "@/lib/sectorOptions";
 import { useAuth } from "@/lib/auth";
+import InvestorReviewsCard from "@/components/investor/InvestorReviewsCard";
 
 type InvestorProfile = {
   firm_name?: string | null;
@@ -271,6 +272,7 @@ export default function InvestorProfilePage() {
     <main className="flex-1">
       <section className="p-6 md:p-10 max-w-5xl mx-auto space-y-6">
         <h1 className="text-2xl font-semibold text-[var(--text)]">Investor profile</h1>
+        {token && me?.id && <InvestorReviewsCard token={token} userId={me.id} />}
         <div className="grid gap-8 lg:grid-cols-[1fr_320px] items-start">
           <div className="max-w-2xl space-y-6 lg:max-w-none">
             {loading ? (

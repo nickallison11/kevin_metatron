@@ -13,6 +13,7 @@ pub mod investments;
 pub mod investment_memos;
 pub mod investor_pipeline;
 pub mod investor_profile;
+pub mod investor_ratings;
 pub mod introductions;
 pub mod kevin;
 pub mod kevin_learning;

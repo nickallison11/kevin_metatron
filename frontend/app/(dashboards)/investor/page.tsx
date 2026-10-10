@@ -247,7 +247,7 @@ export default function InvestorDashboardPage() {
                 <span className="rounded-full bg-metatron-accent px-2 py-0.5 text-[11px] font-semibold text-white">{requests.length}</span>
               )}
             </h2>
-            <Link href="/investor/matches" className="text-sm text-[var(--accent-fg)] hover:underline">
+            <Link href="/investor/matches?tab=requests" className="text-sm text-[var(--accent-fg)] hover:underline">
               All requests
             </Link>
           </div>

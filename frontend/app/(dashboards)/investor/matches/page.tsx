@@ -1,14 +1,11 @@
 "use client";
 
-import type { CSSProperties } from "react";
-import { Suspense, useCallback, useEffect, useState } from "react";
+import Link from "next/link";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { API_BASE, authJsonHeaders } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import {
-  acceptedPeerUserIds,
-  type ConnectListsResponse,
-} from "@/lib/connectionsHandshake";
+import { acceptedPeerUserIds, type ConnectListsResponse } from "@/lib/connectionsHandshake";
 
 type KevinMatch = {
   id: string;
@@ -48,1050 +45,410 @@ type ReceivedIntro = {
   intro_passed_at: string | null;
 };
 
+type Followed = {
+  user_id: string;
+  company_name?: string | null;
+  one_liner?: string | null;
+  stage?: string | null;
+  sector?: string | null;
+  country?: string | null;
+  pitch_deck_url?: string | null;
+};
+
+type Tab = "foryou" | "requests" | "following";
 const PAGE_SIZE = 10;
 
-const DEFAULT_INTRO_COLUMNS = [
-  { key: "founder", label: "Founder / Company", width: 200 },
-  { key: "sector", label: "Sector", width: 140 },
-  { key: "stage", label: "Stage", width: 120 },
-  { key: "fit", label: "Fit", width: 80 },
-  { key: "requested", label: "Requested", width: 120 },
-  // Fits View deck + Accept + Decline side by side; at 140 Decline was clipped.
-  { key: "actions", label: "", width: 240 },
-] as const;
+const card = "rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] shadow-[var(--card-shadow)]";
+const btn =
+  "inline-flex min-h-10 items-center justify-center rounded-[10px] border border-[var(--overlay-12)] px-4 text-[13px] font-medium text-[var(--text)] hover:bg-[var(--overlay-4)] disabled:cursor-not-allowed disabled:opacity-50";
+const btnPrimary =
+  "inline-flex min-h-10 items-center justify-center rounded-[10px] bg-metatron-accent px-4 text-[13px] font-semibold text-white hover:bg-metatron-accent-hover disabled:opacity-50";
 
-const DEFAULT_INVESTOR_MATCH_COLUMNS = [
-  { key: "company", label: "Company", width: 200 },
-  { key: "sector", label: "Sector", width: 140 },
-  { key: "stage", label: "Stage", width: 120 },
-  { key: "location", label: "Location", width: 160 },
-  { key: "fit", label: "Fit", width: 80 },
-  { key: "actions", label: "", width: 140 },
-] as const;
+function initials(s: string): string {
+  return (
+    s
+      .replace(/[^A-Za-z ]/g, " ")
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((w) => w[0]!.toUpperCase())
+      .join("") || "·"
+  );
+}
 
-const scoreBadgeColor = (score: number) => {
-  if (score >= 85) return "bg-[rgba(0,200,100,0.12)] text-green-400";
-  if (score >= 70) return "bg-[rgba(var(--accent-rgb),0.15)] text-[var(--accent)]";
-  return "bg-[var(--overlay-6)] text-[var(--text-muted)]";
-};
+function ago(iso: string): string {
+  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
+  if (days <= 0) return "today";
+  if (days === 1) return "yesterday";
+  return `${days} days ago`;
+}
+
+function Fit({ score }: { score: number }) {
+  return <span className="rounded-lg bg-[var(--good-bg)] px-2 py-0.5 font-mono text-xs text-[var(--good)]">{score}% fit</span>;
+}
+
+function Tile({ name }: { name: string }) {
+  return (
+    <span aria-hidden className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-metatron-accent/15 text-sm font-semibold text-[var(--accent-fg)]">
+      {initials(name)}
+    </span>
+  );
+}
 
 function InvestorMatchesPageInner() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const { token, loading } = useAuth();
-  const [tab, setTab] = useState<"matches" | "intros">(() => {
-    const t = searchParams.get("tab");
-    return t === "matches" ? "matches" : "intros";
-  });
+  const { token, loading } = useAuth("INVESTOR");
+  const initialTab = (["foryou", "requests", "following"] as const).find((t) => t === searchParams.get("tab")) ??
+    // Old links used ?tab=intros for requests and ?tab=matches for matches.
+    (searchParams.get("tab") === "intros" ? "requests" : "foryou");
+  const [tab, setTabRaw] = useState<Tab>(initialTab);
   const [matches, setMatches] = useState<KevinMatch[]>([]);
   const [intros, setIntros] = useState<ReceivedIntro[]>([]);
-  const [fetching, setFetching] = useState(false);
-  const [page, setPageRaw] = useState(() => {
-    const p = Number(searchParams.get("page"));
-    return p > 0 ? p : 1;
-  });
-  const [viewingMatch, setViewingMatch] = useState<KevinMatch | null>(null);
-  const [viewingIntro, setViewingIntro] = useState<ReceivedIntro | null>(null);
-  const [actionBusy, setActionBusy] = useState<string | null>(null);
-  const [matchView, setMatchView] = useState<"list" | "card">("list");
-  const [followedIds, setFollowedIds] = useState<Set<string>>(new Set());
-  const [requestedIntroIds, setRequestedIntroIds] = useState<Set<string>>(new Set());
+  const [following, setFollowing] = useState<Followed[] | null>(null);
+  const [fetching, setFetching] = useState(true);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [shown, setShown] = useState(PAGE_SIZE);
+  const [open, setOpen] = useState<string | null>(null);
   const [acceptedPeerIds, setAcceptedPeerIds] = useState<Set<string>>(new Set());
-  const [introColWidths, setIntroColWidths] = useState<Record<string, number>>(() => {
-    if (typeof window === "undefined") return {};
-    try {
-      const saved = localStorage.getItem("metatron_investor_intro_col_widths");
-      return saved ? JSON.parse(saved) : {};
-    } catch {
-      return {};
-    }
-  });
-  const [matchColWidths, setMatchColWidths] = useState<Record<string, number>>(() => {
-    if (typeof window === "undefined") return {};
-    try {
-      const saved = localStorage.getItem("metatron_investor_match_col_widths");
-      return saved ? JSON.parse(saved) : {};
-    } catch {
-      return {};
-    }
-  });
 
-  const loadMatches = useCallback(async () => {
-    if (!token) return;
-    setFetching(true);
-    try {
-      const res = await fetch(`${API_BASE}/kevin-matches`, {
-        method: "POST",
-        headers: authJsonHeaders(token),
-      });
-      if (res.ok) setMatches(await res.json());
-    } catch {
-      /* ignore */
-    } finally {
-      setFetching(false);
-    }
-  }, [token]);
-
-  const loadIntros = useCallback(async () => {
-    if (!token) return;
-    setFetching(true);
-    try {
-      const res = await fetch(`${API_BASE}/kevin-matches/received-intros`, {
-        headers: authJsonHeaders(token),
-      });
-      if (res.ok) setIntros(await res.json());
-    } catch {
-      /* ignore */
-    } finally {
-      setFetching(false);
-    }
-  }, [token]);
+  function setTab(t: Tab) {
+    setTabRaw(t);
+    setShown(PAGE_SIZE);
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("tab", t);
+    params.delete("page");
+    router.replace(`?${params.toString()}`, { scroll: false });
+  }
 
   const loadConnections = useCallback(async () => {
     if (!token) return;
-    try {
-      const res = await fetch(`${API_BASE}/connections`, {
-        headers: authJsonHeaders(token),
-      });
-      if (res.ok) {
-        const data = (await res.json()) as ConnectListsResponse;
-        setAcceptedPeerIds(acceptedPeerUserIds(data));
-      }
-    } catch {
-      /* ignore */
-    }
+    const res = await fetch(`${API_BASE}/connections`, { headers: authJsonHeaders(token) }).catch(() => null);
+    if (res?.ok) setAcceptedPeerIds(acceptedPeerUserIds((await res.json()) as ConnectListsResponse));
+  }, [token]);
+
+  const loadFollowing = useCallback(async () => {
+    if (!token) return;
+    const res = await fetch(`${API_BASE}/connections/following`, { headers: authJsonHeaders(token) }).catch(() => null);
+    setFollowing(res?.ok ? ((await res.json()) as Followed[]) : []);
   }, [token]);
 
   useEffect(() => {
     if (loading || !token) return;
-    void loadIntros();
-    void loadMatches();
+    void (async () => {
+      try {
+        const [m, i] = await Promise.all([
+          fetch(`${API_BASE}/kevin-matches`, { method: "POST", headers: authJsonHeaders(token) }),
+          fetch(`${API_BASE}/kevin-matches/received-intros`, { headers: authJsonHeaders(token) }),
+        ]);
+        if (m.ok) setMatches((await m.json()) as KevinMatch[]);
+        if (i.ok) setIntros((await i.json()) as ReceivedIntro[]);
+      } catch {
+        setMsg("Could not load matches.");
+      } finally {
+        setFetching(false);
+      }
+    })();
     void loadConnections();
-  }, [loading, token, loadIntros, loadMatches, loadConnections]);
+    void loadFollowing();
+  }, [loading, token, loadConnections, loadFollowing]);
 
-  useEffect(() => {
-    const params = new URLSearchParams(searchParams.toString());
-    params.set("page", String(page));
-    params.set("tab", tab);
-    router.replace(`?${params.toString()}`, { scroll: false });
-  }, [page, tab]);
+  const openRequests = useMemo(() => intros.filter((r) => !r.intro_accepted_at && !r.intro_passed_at), [intros]);
+  const answered = useMemo(() => intros.filter((r) => r.intro_accepted_at || r.intro_passed_at), [intros]);
+  const followedIds = useMemo(() => new Set((following ?? []).map((f) => f.user_id)), [following]);
 
-  useEffect(() => {
-    if (Object.keys(introColWidths).length > 0) {
-      localStorage.setItem("metatron_investor_intro_col_widths", JSON.stringify(introColWidths));
+  async function post(path: string, key: string, body?: unknown): Promise<Response | null> {
+    if (!token) return null;
+    setBusy(key);
+    setMsg(null);
+    try {
+      return await fetch(`${API_BASE}${path}`, {
+        method: "POST",
+        headers: authJsonHeaders(token),
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+    } catch {
+      return null;
+    } finally {
+      setBusy(null);
     }
-  }, [introColWidths]);
+  }
 
-  useEffect(() => {
-    if (Object.keys(matchColWidths).length > 0) {
-      localStorage.setItem("metatron_investor_match_col_widths", JSON.stringify(matchColWidths));
-    }
-  }, [matchColWidths]);
-
-  const onIntroColResizeStart = useCallback(
-    (colKey: string, e: React.MouseEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      const defaultW = DEFAULT_INTRO_COLUMNS.find((c) => c.key === colKey)?.width ?? 120;
-      const startX = e.clientX;
-      const startWidth = introColWidths[colKey] ?? defaultW;
-
-      const onMove = (moveEvent: MouseEvent) => {
-        const dx = moveEvent.clientX - startX;
-        const newW = Math.max(80, startWidth + dx);
-        setIntroColWidths((prev) => ({ ...prev, [colKey]: newW }));
-      };
-
-      const onUp = () => {
-        document.removeEventListener("mousemove", onMove);
-        document.removeEventListener("mouseup", onUp);
-      };
-
-      document.addEventListener("mousemove", onMove);
-      document.addEventListener("mouseup", onUp);
-    },
-    [introColWidths],
-  );
-
-  const onMatchColResizeStart = useCallback(
-    (colKey: string, e: React.MouseEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      const defaultW = DEFAULT_INVESTOR_MATCH_COLUMNS.find((c) => c.key === colKey)?.width ?? 120;
-      const startX = e.clientX;
-      const startWidth = matchColWidths[colKey] ?? defaultW;
-
-      const onMove = (moveEvent: MouseEvent) => {
-        const dx = moveEvent.clientX - startX;
-        const newW = Math.max(80, startWidth + dx);
-        setMatchColWidths((prev) => ({ ...prev, [colKey]: newW }));
-      };
-
-      const onUp = () => {
-        document.removeEventListener("mousemove", onMove);
-        document.removeEventListener("mouseup", onUp);
-      };
-
-      document.addEventListener("mousemove", onMove);
-      document.addEventListener("mouseup", onUp);
-    },
-    [matchColWidths],
-  );
-
-  async function viewDeck(r: ReceivedIntro) {
+  function viewDeck(r: ReceivedIntro) {
     if (!token || !r.deck_url) return;
-    setActionBusy(r.id + "deck");
-    try {
-      const res = await fetch(`${API_BASE}/kevin-matches/${r.id}/view-deck`, {
-        method: "POST",
-        headers: authJsonHeaders(token),
-      });
-      if (res.ok) {
-        const ts = new Date().toISOString();
-        setIntros((prev) => prev.map((i) => (i.id === r.id ? { ...i, deck_viewed_at: ts } : i)));
-        setViewingIntro((prev) => (prev?.id === r.id ? { ...prev, deck_viewed_at: ts } : prev));
-      }
-    } finally {
-      setActionBusy(null);
-    }
-    window.open(r.deck_url, "_blank");
+    // Open first so the browser doesn't block the tab, then log the view for the founder.
+    window.open(r.deck_url, "_blank", "noopener");
+    void fetch(`${API_BASE}/kevin-matches/${r.id}/view-deck`, { method: "POST", headers: authJsonHeaders(token) }).catch(() => {});
+    setIntros((prev) => prev.map((x) => (x.id === r.id ? { ...x, deck_viewed_at: new Date().toISOString() } : x)));
   }
 
-  async function acceptIntro(r: ReceivedIntro) {
-    if (!token) return;
-    setActionBusy(r.id + "accept");
-    try {
-      const res = await fetch(`${API_BASE}/kevin-matches/${r.id}/accept-intro`, {
-        method: "POST",
-        headers: authJsonHeaders(token),
-      });
-      if (res.ok) {
-        const ts = new Date().toISOString();
-        setIntros((prev) => prev.map((i) => (i.id === r.id ? { ...i, intro_accepted_at: ts } : i)));
-        setViewingIntro((prev) => (prev?.id === r.id ? { ...prev, intro_accepted_at: ts } : prev));
-        void loadConnections();
-      }
-    } finally {
-      setActionBusy(null);
-    }
+  async function answer(r: ReceivedIntro, accept: boolean) {
+    const res = await post(`/kevin-matches/${r.id}/${accept ? "accept-intro" : "pass-intro"}`, r.id);
+    if (!res?.ok) return;
+    const ts = new Date().toISOString();
+    setIntros((prev) => prev.map((x) => (x.id === r.id ? (accept ? { ...x, intro_accepted_at: ts } : { ...x, intro_passed_at: ts }) : x)));
+    void loadConnections();
   }
 
-  async function passIntro(r: ReceivedIntro) {
-    if (!token) return;
-    setActionBusy(r.id + "pass");
-    try {
-      const res = await fetch(`${API_BASE}/kevin-matches/${r.id}/pass-intro`, {
-        method: "POST",
-        headers: authJsonHeaders(token),
-      });
-      if (res.ok) {
-        const ts = new Date().toISOString();
-        setIntros((prev) => prev.map((i) => (i.id === r.id ? { ...i, intro_passed_at: ts } : i)));
-        setViewingIntro((prev) => (prev?.id === r.id ? { ...prev, intro_passed_at: ts } : prev));
-        void loadConnections();
-      }
-    } finally {
-      setActionBusy(null);
+  async function connect(m: KevinMatch) {
+    const res = await post(`/kevin-matches/${m.id}/request-intro`, m.id);
+    if (!res?.ok) {
+      setMsg((await res?.text())?.trim() || "Request failed.");
+      return;
     }
+    setMatches((prev) => prev.map((x) => (x.id === m.id ? { ...x, intro_requested_at: new Date().toISOString() } : x)));
+    setMsg(`Connect request sent to ${m.company_name ?? "the founder"}.`);
+    void loadConnections();
   }
 
-  async function followFounder(m: KevinMatch) {
-    if (!token || !m.matched_user_id) return;
-    setActionBusy(m.id + "follow");
-    try {
-      const res = await fetch(`${API_BASE}/connections`, {
-        method: "POST",
-        headers: authJsonHeaders(token),
-        body: JSON.stringify({ connection_type: "follow", to_user_id: m.matched_user_id }),
-      });
-      if (res.ok) {
-        setFollowedIds((prev) => new Set([...prev, m.id]));
-      }
-    } finally {
-      setActionBusy(null);
-    }
+  async function follow(m: KevinMatch) {
+    if (!m.matched_user_id) return;
+    const res = await post("/connections", m.id + "follow", { connection_type: "follow", to_user_id: m.matched_user_id });
+    if (res?.ok) void loadFollowing();
   }
 
-  async function requestMatchIntro(m: KevinMatch) {
-    if (!token) return;
-    setActionBusy(m.id + "intro");
-    try {
-      const res = await fetch(`${API_BASE}/kevin-matches/${m.id}/request-intro`, {
-        method: "POST",
-        headers: authJsonHeaders(token),
-      });
-      if (res.ok) {
-        setRequestedIntroIds((prev) => new Set([...prev, m.id]));
-        setMatches((prev) =>
-          prev.map((x) =>
-            x.id === m.id ? { ...x, intro_requested_at: new Date().toISOString() } : x
-          )
-        );
-        void loadConnections();
-      }
-    } finally {
-      setActionBusy(null);
-    }
+  function message(userId: string, name: string) {
+    window.dispatchEvent(new CustomEvent("metatron:open-chat", { detail: { userId, name } }));
   }
-
-  const activeItems = tab === "intros" ? intros : matches;
-  const totalPages = Math.max(1, Math.ceil(activeItems.length / PAGE_SIZE));
-  const paginated = activeItems.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   if (loading || !token) return null;
 
+  function matchRow(m: KevinMatch) {
+    const company = m.company_name ?? "Startup";
+    const connected = Boolean(m.matched_user_id && acceptedPeerIds.has(m.matched_user_id));
+    const isFollowing = Boolean(m.matched_user_id && followedIds.has(m.matched_user_id));
+    const meta = [m.sector, m.stage, m.country].filter(Boolean).join(" · ");
+    const expanded = open === m.id;
+    return (
+      <article key={m.id} className={`${card} flex flex-col gap-3 p-4 sm:flex-row sm:flex-wrap sm:items-center`}>
+        <Tile name={company} />
+        <div className="flex min-w-0 flex-1 basis-72 flex-col gap-1">
+          <div className="flex flex-wrap items-center gap-2.5">
+            {m.matched_user_id ? (
+              <Link href={`/investor/startups/${m.matched_user_id}`} className="text-base font-semibold text-[var(--text)] hover:underline">
+                {company}
+              </Link>
+            ) : (
+              <span className="text-base font-semibold">{company}</span>
+            )}
+            <Fit score={m.score} />
+            {m.angel_score != null && <span className="text-[13px] text-[var(--text-muted)]">Angel Score {m.angel_score}</span>}
+          </div>
+          {meta && <span className="text-[13px] text-[var(--text-muted)]">{meta}</span>}
+          {m.one_liner && <span className="text-sm text-[var(--text-muted)]">{m.one_liner}</span>}
+          {expanded && m.reasoning && (
+            <div className="mt-1 rounded-[10px] bg-metatron-accent/[0.07] p-3">
+              <span className="font-mono text-[11px] uppercase tracking-[0.14em] text-[var(--accent-fg)]">Why Kevin matched you</span>
+              <p className="mt-1 text-sm leading-relaxed">{m.reasoning}</p>
+            </div>
+          )}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {m.reasoning && (
+            <button type="button" className={btn} aria-expanded={expanded} onClick={() => setOpen(expanded ? null : m.id)}>
+              {expanded ? "Hide why" : "Why this match"}
+            </button>
+          )}
+          {m.deck_url && (
+            <a href={m.deck_url} target="_blank" rel="noopener noreferrer" className={btn}>
+              View deck
+            </a>
+          )}
+          {m.matched_user_id && !connected && (
+            <button type="button" className={btn} disabled={isFollowing || busy === m.id + "follow"} onClick={() => void follow(m)}>
+              {isFollowing ? "Following" : "Follow"}
+            </button>
+          )}
+          {connected ? (
+            <button type="button" className={btnPrimary} onClick={() => message(m.matched_user_id!, company)}>
+              Message
+            </button>
+          ) : m.intro_requested_at ? (
+            <span className="inline-flex min-h-10 items-center rounded-[10px] bg-[var(--warn-bg)] px-3 text-[13px] text-[var(--warn)]">Requested</span>
+          ) : (
+            <button type="button" className={btnPrimary} disabled={busy === m.id} onClick={() => void connect(m)}>
+              {busy === m.id ? "Sending…" : "Connect"}
+            </button>
+          )}
+        </div>
+      </article>
+    );
+  }
+
+  const tabs: [Tab, string, number, boolean][] = [
+    ["foryou", "For you", matches.length, false],
+    ["requests", "Requests", openRequests.length, openRequests.length > 0],
+    ["following", "Following", following?.length ?? 0, false],
+  ];
+
   return (
-    <main className="flex-1 text-[var(--text)]">
-      <div className="max-w-5xl mx-auto space-y-6 px-6 py-6 md:px-10">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h1 className="text-2xl font-semibold text-[var(--text)]">Startup Matches</h1>
-            <p className="text-sm text-[var(--text-muted)] mt-1">
-              {intros.length} connect request{intros.length !== 1 ? "s" : ""} · {matches.length} Kevin match
-              {matches.length !== 1 ? "es" : ""}
-            </p>
-          </div>
-          <div className="flex gap-1">
-            {(["intros", "matches"] as const).map((t) => (
-              <button
-                key={t}
-                type="button"
-                onClick={() => {
-                  setTab(t);
-                  setPageRaw(1);
-                }}
-                className={`px-3 py-1 rounded-lg text-xs font-medium ${
-                  tab === t
-                    ? "bg-[rgba(var(--accent-rgb),0.2)] text-[var(--accent)]"
-                    : "text-[var(--text-muted)] hover:text-[var(--text)]"
-                }`}
-              >
-                {t === "intros"
-                  ? `Connect Requests${intros.length > 0 ? ` (${intros.length})` : ""}`
-                  : "Kevin's Matches"}
-              </button>
-            ))}
-          </div>
+    <main className="min-w-0 flex-1 text-[var(--text)]">
+      <section className="mx-auto flex max-w-5xl flex-col gap-5 p-6 md:p-10">
+        <header className="flex flex-col gap-1.5">
+          <span className="font-mono text-[11px] uppercase tracking-[0.14em] text-[var(--text-muted)]">Matches</span>
+          <h1 className="text-[28px] font-semibold tracking-tight">Startups Kevin picked for you</h1>
+          <p className="text-sm text-[var(--text-muted)]">Ranked by fit with your thesis, stage and cheque size. To search every startup, use Browse Startups.</p>
+        </header>
+
+        <div role="tablist" aria-label="Matches" className="flex gap-1 overflow-x-auto border-b border-[var(--border)]">
+          {tabs.map(([id, label, n, badge]) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={tab === id}
+              onClick={() => setTab(id)}
+              className={`-mb-px flex min-h-11 shrink-0 items-center gap-2 border-b-2 px-3.5 text-sm font-medium ${
+                tab === id ? "border-metatron-accent text-[var(--text)]" : "border-transparent text-[var(--text-muted)] hover:text-[var(--text)]"
+              }`}
+            >
+              {label}
+              <span className={badge ? "rounded-full bg-metatron-accent px-1.5 text-[11px] font-semibold text-white" : "text-[12px] text-[var(--text-muted)]"}>{n}</span>
+            </button>
+          ))}
         </div>
 
-        {fetching && activeItems.length === 0 && (
-          <p className="text-sm text-[var(--text-muted)]">Loading…</p>
+        {msg && (
+          <p role="status" className="rounded-[10px] border border-[var(--border)] px-3.5 py-2.5 text-sm text-[var(--text-muted)]">
+            {msg}
+          </p>
         )}
 
-        {!fetching && tab === "intros" && intros.length === 0 && (
-          <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-6 text-center">
-            <p className="text-sm text-[var(--text-muted)]">
-              No connect requests yet. When founders send a Connect through Kevin, they&apos;ll appear here.
-            </p>
-          </div>
-        )}
-
-        {!fetching && tab === "matches" && matches.length === 0 && (
-          <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-6 text-center">
-            <p className="text-sm text-[var(--text-muted)]">
-              No matches yet. Complete your investor profile (sectors and stages) to get your first batch.
-            </p>
-          </div>
-        )}
-
-        {tab === "intros" && intros.length > 0 && (
-          <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-5">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm table-fixed">
-                <thead>
-                  <tr className="text-[var(--text-muted)] text-xs border-b border-[var(--border)]">
-                    {DEFAULT_INTRO_COLUMNS.map((col) => {
-                      const w = introColWidths[col.key] ?? col.width;
-                      const isFirst = col.key === "founder";
-                      return (
-                        <th
-                          key={col.key}
-                          className={`relative cursor-default text-left pb-2 pr-3 ${isFirst ? "pl-3" : ""}`}
-                          style={{ width: w, minWidth: 80 }}
-                        >
-                          {col.label}
-                          <div
-                            className="absolute right-0 top-2 bottom-2 w-1 cursor-col-resize z-10 rounded-full transition-colors hover:bg-[var(--accent)]"
-                            onMouseDown={(e) => onIntroColResizeStart(col.key, e)}
-                            onClick={(e) => e.stopPropagation()}
-                            aria-hidden
-                          />
-                        </th>
-                      );
-                    })}
-                  </tr>
-                </thead>
-                <tbody>
-                  {(paginated as ReceivedIntro[]).map((r) => (
-                    <tr
-                      key={r.id}
-                      onClick={() => setViewingIntro(r)}
-                      className="border-b border-[var(--overlay-3)] cursor-pointer transition-colors hover:bg-[rgba(var(--accent-rgb),0.04)] h-14"
-                    >
-                      {DEFAULT_INTRO_COLUMNS.map((col) => {
-                        const w = introColWidths[col.key] ?? col.width;
-                        const cellStyle: CSSProperties = {
-                          width: w,
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                        };
-                        const isFirst = col.key === "founder";
-                        const baseTd = isFirst
-                          ? "py-2 pl-3 pr-3 align-top"
-                          : col.key === "fit"
-                            ? "py-2 pr-3 align-top"
-                            : col.key === "actions"
-                              ? "py-2 pr-3 align-top"
-                              : "py-2 pr-3 text-[var(--text-muted)] text-xs align-top";
-                        return (
-                          <td key={col.key} className={baseTd} style={cellStyle}>
-                            {col.key === "founder" ? (
-                              <>
-                                <p className="text-[var(--text)] font-medium">{r.company_name ?? r.founder_email}</p>
-                                {r.one_liner && (
-                                  <p className="text-[var(--text-muted)] text-xs truncate max-w-[220px]">{r.one_liner}</p>
-                                )}
-                              </>
-                            ) : col.key === "sector" ? (
-                              (r.sector ?? "—")
-                            ) : col.key === "stage" ? (
-                              (r.stage ?? "—")
-                            ) : col.key === "fit" ? (
-                              <span className={`px-2 py-0.5 rounded text-xs font-medium ${scoreBadgeColor(r.score)}`}>
-                                {r.score}%
-                              </span>
-                            ) : col.key === "requested" ? (
-                              new Date(r.intro_requested_at).toLocaleDateString()
-                            ) : col.key === "actions" ? (
-                              r.intro_accepted_at ? (
-                                <span className="px-2 py-0.5 rounded text-xs font-medium bg-[rgba(0,200,100,0.12)] text-green-400">
-                                  Connection accepted
-                                </span>
-                              ) : r.intro_passed_at ? (
-                                <span className="px-2 py-0.5 rounded text-xs font-medium bg-[var(--overlay-6)] text-[var(--text-muted)]">
-                                  Declined
-                                </span>
-                              ) : (
-                                <div className="flex items-center gap-1.5 whitespace-nowrap">
-                                  {r.deck_url && (
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        void viewDeck(r);
-                                      }}
-                                      disabled={actionBusy === r.id + "deck"}
-                                      className="px-2.5 py-1.5 border border-[var(--border)] text-[var(--text-muted)] rounded-lg text-xs hover:border-[rgba(var(--accent-rgb),0.4)] hover:text-[var(--accent)] transition-colors disabled:opacity-50"
-                                    >
-                                      {r.deck_viewed_at ? "Deck ✓" : "View deck"}
-                                    </button>
-                                  )}
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      void acceptIntro(r);
-                                    }}
-                                    disabled={actionBusy === r.id + "accept"}
-                                    className="px-2.5 py-1.5 bg-[var(--accent)] text-white rounded-lg text-xs font-medium hover:bg-[var(--accent-hover)] disabled:opacity-50"
-                                  >
-                                    {actionBusy === r.id + "accept" ? "…" : "Accept"}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      void passIntro(r);
-                                    }}
-                                    disabled={actionBusy === r.id + "pass"}
-                                    className="px-2.5 py-1.5 border border-[rgba(239,68,68,0.3)] text-[rgba(254,202,202,0.7)] rounded-lg text-xs hover:border-[rgba(239,68,68,0.5)] transition-colors disabled:opacity-50"
-                                  >
-                                    {actionBusy === r.id + "pass" ? "…" : "Decline"}
-                                  </button>
-                                </div>
-                              )
-                            ) : null}
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            {totalPages > 1 && (
-              <div className="flex items-center justify-between mt-4 text-xs text-[var(--text-muted)]">
-                <span>
-                  Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, activeItems.length)} of{" "}
-                  {activeItems.length}
-                </span>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setPageRaw((p) => Math.max(1, p - 1))}
-                    disabled={page === 1}
-                    className="px-3 py-1 bg-[var(--overlay-6)] rounded-lg disabled:opacity-30"
-                  >
-                    Previous
+        {tab === "foryou" && (
+          <div className="flex flex-col gap-3">
+            {fetching && matches.length === 0 ? (
+              <p className="text-sm text-[var(--text-muted)]">Kevin is finding your matches…</p>
+            ) : matches.length === 0 ? (
+              <p className="text-sm text-[var(--text-muted)]">No matches yet. Add your stages, sectors and cheque size on Investor Profile so Kevin can match you.</p>
+            ) : (
+              <>
+                {matches.slice(0, shown).map(matchRow)}
+                {matches.length > shown && (
+                  <button type="button" className={`${btn} self-center`} onClick={() => setShown((n) => n + PAGE_SIZE)}>
+                    Show more ({matches.length - shown} left)
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => setPageRaw((p) => Math.min(totalPages, p + 1))}
-                    disabled={page === totalPages}
-                    className="px-3 py-1 bg-[var(--overlay-6)] rounded-lg disabled:opacity-30"
-                  >
-                    Next
-                  </button>
-                </div>
-              </div>
+                )}
+              </>
             )}
           </div>
         )}
 
-        {tab === "matches" && matches.length > 0 && (
-          <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-5">
-            <div className="flex items-center justify-between mb-4">
-              <p className="text-xs text-[var(--text-muted)]">
-                {matches.length} match{matches.length !== 1 ? "es" : ""}
-              </p>
-              <div className="flex gap-1 bg-[var(--overlay-4)] rounded-lg p-0.5">
-                {(["list", "card"] as const).map((v) => (
-                  <button
-                    key={v}
-                    type="button"
-                    onClick={() => setMatchView(v)}
-                    className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
-                      matchView === v
-                        ? "bg-[rgba(var(--accent-rgb),0.2)] text-[var(--accent)]"
-                        : "text-[var(--text-muted)] hover:text-[var(--text)]"
-                    }`}
-                  >
-                    {v === "list" ? "List" : "Card"}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {matchView === "list" && (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm table-fixed">
-                  <thead>
-                    <tr className="text-[var(--text-muted)] text-xs border-b border-[var(--border)]">
-                      {DEFAULT_INVESTOR_MATCH_COLUMNS.map((col) => {
-                        const w = matchColWidths[col.key] ?? col.width;
-                        const isFirst = col.key === "company";
-                        return (
-                          <th
-                            key={col.key}
-                            className={`relative cursor-default text-left pb-2 pr-3 ${isFirst ? "pl-3" : ""}`}
-                            style={{ width: w, minWidth: 80 }}
-                          >
-                            {col.label}
-                            <div
-                              className="absolute right-0 top-2 bottom-2 w-1 cursor-col-resize z-10 rounded-full transition-colors hover:bg-[var(--accent)]"
-                              onMouseDown={(e) => onMatchColResizeStart(col.key, e)}
-                              onClick={(e) => e.stopPropagation()}
-                              aria-hidden
-                            />
-                          </th>
-                        );
-                      })}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(paginated as KevinMatch[]).map((m) => (
-                      <tr
-                        key={m.id}
-                        onClick={() => setViewingMatch(m)}
-                        className="border-b border-[var(--overlay-3)] cursor-pointer transition-colors hover:bg-[rgba(var(--accent-rgb),0.04)] h-14"
-                      >
-                        {DEFAULT_INVESTOR_MATCH_COLUMNS.map((col) => {
-                          const w = matchColWidths[col.key] ?? col.width;
-                          const cellStyle: CSSProperties = {
-                            width: w,
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
-                          };
-                          const isFirst = col.key === "company";
-                          const baseTd = isFirst
-                            ? "py-2 pl-3 pr-3 align-top"
-                            : col.key === "fit"
-                              ? "py-2 pr-3 align-top"
-                              : col.key === "actions"
-                                ? "py-2 pr-3 align-top"
-                                : "py-2 pr-3 text-[var(--text-muted)] text-xs align-top";
-                          return (
-                            <td key={col.key} className={baseTd} style={cellStyle}>
-                              {col.key === "company" ? (
-                                <>
-                                  <p className="text-[var(--text)] font-medium">
-                                    {m.company_name ?? m.firm_name ?? "Unknown"}
-                                  </p>
-                                  {m.one_liner && (
-                                    <p className="text-[var(--text-muted)] text-xs truncate max-w-[220px]">{m.one_liner}</p>
-                                  )}
-                                </>
-                              ) : col.key === "sector" ? (
-                                (m.sector ?? "—")
-                              ) : col.key === "stage" ? (
-                                (m.stage ?? "—")
-                              ) : col.key === "location" ? (
-                                (m.country ?? "—")
-                              ) : col.key === "fit" ? (
-                                <span className={`px-2 py-0.5 rounded text-xs font-medium ${scoreBadgeColor(m.score)}`}>
-                                  {m.score}%
-                                </span>
-                              ) : (
-                                <div className="flex items-center gap-1.5 whitespace-nowrap">
-                                  {m.matched_user_id && !followedIds.has(m.id) && (
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        void followFounder(m);
-                                      }}
-                                      disabled={actionBusy === m.id + "follow"}
-                                      className="px-2.5 py-1.5 border border-[var(--border)] text-[var(--text-muted)] rounded-lg text-xs hover:border-[rgba(var(--accent-rgb),0.4)] hover:text-[var(--accent)] transition-colors disabled:opacity-50"
-                                    >
-                                      {actionBusy === m.id + "follow" ? "…" : "Follow"}
-                                    </button>
-                                  )}
-                                  {followedIds.has(m.id) && (
-                                    <span className="px-2.5 py-1.5 text-xs text-green-400">Following ✓</span>
-                                  )}
-                                  {m.matched_user_id && !m.intro_requested_at && !requestedIntroIds.has(m.id) && (
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        void requestMatchIntro(m);
-                                      }}
-                                      disabled={actionBusy === m.id + "intro"}
-                                      className="px-2.5 py-1.5 bg-[var(--accent)] text-white rounded-lg text-xs font-medium hover:bg-[var(--accent-hover)] disabled:opacity-50"
-                                    >
-                                      {actionBusy === m.id + "intro" ? "…" : "Connect"}
-                                    </button>
-                                  )}
-                                  {(m.intro_requested_at || requestedIntroIds.has(m.id)) &&
-                                    m.matched_user_id &&
-                                    !acceptedPeerIds.has(m.matched_user_id) && (
-                                      <span className="px-2 py-0.5 rounded text-xs font-medium bg-[rgba(var(--accent-rgb),0.15)] text-[var(--accent)]">
-                                        Connect requested
-                                      </span>
-                                    )}
-                                  {(m.intro_requested_at || requestedIntroIds.has(m.id)) &&
-                                    m.matched_user_id &&
-                                    acceptedPeerIds.has(m.matched_user_id) && (
-                                      <span className="px-2 py-0.5 rounded text-xs font-medium bg-[rgba(0,200,100,0.12)] text-green-400">
-                                        Connection accepted
-                                      </span>
-                                    )}
-                                  {m.matched_user_id && (
-                                    <button
-                                      type="button"
-                                      title={
-                                        acceptedPeerIds.has(m.matched_user_id)
-                                          ? undefined
-                                          : "Connect with this user first"
-                                      }
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        if (!acceptedPeerIds.has(m.matched_user_id!)) return;
-                                        window.dispatchEvent(
-                                          new CustomEvent("metatron:open-chat", {
-                                            detail: {
-                                              userId: m.matched_user_id!,
-                                              name: m.company_name ?? m.firm_name ?? "Founder",
-                                            },
-                                          })
-                                        );
-                                      }}
-                                      disabled={!acceptedPeerIds.has(m.matched_user_id)}
-                                      className="px-2.5 py-1.5 border border-[var(--border)] text-[var(--text-muted)] rounded-lg text-xs hover:border-[rgba(var(--accent-rgb),0.4)] hover:text-[var(--accent)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                                    >
-                                      Message
-                                    </button>
-                                  )}
-                                </div>
-                              )}
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-
-            {matchView === "card" && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {(paginated as KevinMatch[]).map((m) => (
-                  <div
-                    key={m.id}
-                    onClick={() => setViewingMatch(m)}
-                    className="cursor-pointer rounded-xl border border-[var(--border)] bg-[var(--overlay-2)] p-4 hover:border-[rgba(var(--accent-rgb),0.3)] transition-colors"
-                  >
-                    <div className="flex items-start justify-between gap-2 mb-2">
-                      <div className="min-w-0">
-                        <p className="text-[var(--text)] font-semibold truncate">
-                          {m.company_name ?? m.firm_name ?? "Unknown"}
-                        </p>
-                        <div className="flex flex-wrap gap-1 mt-1">
-                          {m.stage && (
-                            <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-[var(--overlay-6)] text-[var(--text-muted)]">
-                              {m.stage}
-                            </span>
-                          )}
-                          {m.sector && (
-                            <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-[rgba(var(--accent-rgb),0.12)] text-[var(--accent)]">
-                              {m.sector}
-                            </span>
-                          )}
-                        </div>
+        {tab === "requests" && (
+          <div className="flex flex-col gap-3">
+            {openRequests.length === 0 ? (
+              <p className="text-sm text-[var(--text-muted)]">No requests waiting. Kevin will tell you when a founder asks for an intro.</p>
+            ) : (
+              openRequests.map((r) => {
+                const company = r.company_name || r.founder_email;
+                const meta = [r.sector, r.stage, r.country, `requested ${ago(r.intro_requested_at)}`].filter(Boolean).join(" · ");
+                return (
+                  <article key={r.id} className={`${card} flex flex-col gap-3 border-metatron-accent/40 p-4 sm:flex-row sm:flex-wrap sm:items-center`}>
+                    <Tile name={company} />
+                    <div className="flex min-w-0 flex-1 basis-72 flex-col gap-1">
+                      <div className="flex flex-wrap items-center gap-2.5">
+                        <Link href={`/investor/startups/${r.for_user_id}`} className="text-base font-semibold text-[var(--text)] hover:underline">
+                          {company}
+                        </Link>
+                        <Fit score={r.score} />
+                        {r.angel_score != null && <span className="text-[13px] text-[var(--text-muted)]">Angel Score {r.angel_score}</span>}
                       </div>
-                      <span className={`shrink-0 px-2 py-0.5 rounded text-xs font-medium ${scoreBadgeColor(m.score)}`}>
-                        {m.score}%
-                      </span>
+                      <span className="text-[13px] text-[var(--text-muted)]">{meta}</span>
+                      {r.one_liner && <span className="text-sm text-[var(--text-muted)]">{r.one_liner}</span>}
+                      {r.reasoning && <span className="text-sm text-[var(--text-muted)]">{r.reasoning}</span>}
                     </div>
-                    {m.one_liner && (
-                      <p className="text-[var(--text-muted)] text-xs leading-relaxed mb-3 line-clamp-2">{m.one_liner}</p>
-                    )}
-                    <p className="text-[var(--text-muted)] text-xs mb-3">
-                      {m.deck_url ? (
-                        <span className="text-[var(--accent)]">Deck available</span>
+                    <div className="flex flex-wrap gap-2">
+                      {r.deck_url && (
+                        <button type="button" className={btn} onClick={() => viewDeck(r)}>
+                          {r.deck_viewed_at ? "View deck again" : "View deck"}
+                        </button>
+                      )}
+                      <button type="button" className={btn} disabled={busy === r.id} onClick={() => void answer(r, false)}>
+                        Decline
+                      </button>
+                      <button type="button" className={btnPrimary} disabled={busy === r.id} onClick={() => void answer(r, true)}>
+                        Accept
+                      </button>
+                    </div>
+                  </article>
+                );
+              })
+            )}
+            {answered.length > 0 && (
+              <section className={`${card} flex flex-col p-4`}>
+                <h2 className="mb-1 text-sm font-semibold">Answered</h2>
+                {answered.map((r) => {
+                  const company = r.company_name || r.founder_email;
+                  return (
+                    <div key={r.id} className="flex flex-wrap items-center justify-between gap-2 border-t border-[var(--border)] py-2.5 text-sm first:border-t-0">
+                      <Link href={`/investor/startups/${r.for_user_id}`} className="hover:underline">
+                        {company}
+                      </Link>
+                      {r.intro_accepted_at ? (
+                        <button type="button" className="text-[13px] text-[var(--accent-fg)] hover:underline" onClick={() => message(r.for_user_id, company)}>
+                          Accepted · Message
+                        </button>
                       ) : (
-                        <span>No deck on file</span>
+                        <span className="text-[13px] text-[var(--text-muted)]">Declined</span>
                       )}
-                    </p>
-                    <div className="flex flex-wrap gap-1.5" onClick={(e) => e.stopPropagation()}>
-                      {m.matched_user_id && !followedIds.has(m.id) && (
-                        <button
-                          type="button"
-                          onClick={() => void followFounder(m)}
-                          disabled={actionBusy === m.id + "follow"}
-                          className="px-2.5 py-1.5 border border-[var(--border)] text-[var(--text-muted)] rounded-lg text-xs hover:border-[rgba(var(--accent-rgb),0.4)] hover:text-[var(--accent)] transition-colors disabled:opacity-50"
-                        >
-                          {actionBusy === m.id + "follow" ? "…" : "Follow"}
-                        </button>
+                    </div>
+                  );
+                })}
+              </section>
+            )}
+          </div>
+        )}
+
+        {tab === "following" && (
+          <div className="flex flex-col gap-3">
+            {following === null ? (
+              <p className="text-sm text-[var(--text-muted)]">Loading…</p>
+            ) : following.length === 0 ? (
+              <p className="text-sm text-[var(--text-muted)]">
+                Follow startups from your matches or{" "}
+                <Link href="/investor/startups" className="text-[var(--accent-fg)] hover:underline">
+                  Browse Startups
+                </Link>{" "}
+                to keep an eye on them here.
+              </p>
+            ) : (
+              following.map((f) => {
+                const company = f.company_name ?? "Startup";
+                const meta = [f.sector, f.stage, f.country].filter(Boolean).join(" · ");
+                const connected = acceptedPeerIds.has(f.user_id);
+                return (
+                  <article key={f.user_id} className={`${card} flex flex-col gap-3 p-4 sm:flex-row sm:flex-wrap sm:items-center`}>
+                    <Tile name={company} />
+                    <div className="flex min-w-0 flex-1 basis-72 flex-col gap-1">
+                      <Link href={`/investor/startups/${f.user_id}`} className="text-base font-semibold text-[var(--text)] hover:underline">
+                        {company}
+                      </Link>
+                      {meta && <span className="text-[13px] text-[var(--text-muted)]">{meta}</span>}
+                      {f.one_liner && <span className="text-sm text-[var(--text-muted)]">{f.one_liner}</span>}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {f.pitch_deck_url && (
+                        <a href={f.pitch_deck_url} target="_blank" rel="noopener noreferrer" className={btn}>
+                          View deck
+                        </a>
                       )}
-                      {followedIds.has(m.id) && (
-                        <span className="px-2.5 py-1.5 text-xs text-green-400">Following ✓</span>
-                      )}
-                      {m.matched_user_id && !m.intro_requested_at && !requestedIntroIds.has(m.id) && (
-                        <button
-                          type="button"
-                          onClick={() => void requestMatchIntro(m)}
-                          disabled={actionBusy === m.id + "intro"}
-                          className="px-2.5 py-1.5 bg-[var(--accent)] text-white rounded-lg text-xs font-medium hover:bg-[var(--accent-hover)] disabled:opacity-50"
-                        >
-                          {actionBusy === m.id + "intro" ? "…" : "Connect"}
-                        </button>
-                      )}
-                      {(m.intro_requested_at || requestedIntroIds.has(m.id)) &&
-                        m.matched_user_id &&
-                        !acceptedPeerIds.has(m.matched_user_id) && (
-                          <span className="px-2 py-0.5 rounded text-xs font-medium bg-[rgba(var(--accent-rgb),0.15)] text-[var(--accent)]">
-                            Connect requested
-                          </span>
-                        )}
-                      {(m.intro_requested_at || requestedIntroIds.has(m.id)) &&
-                        m.matched_user_id &&
-                        acceptedPeerIds.has(m.matched_user_id) && (
-                          <span className="px-2 py-0.5 rounded text-xs font-medium bg-[rgba(0,200,100,0.12)] text-green-400">
-                            Connection accepted
-                          </span>
-                        )}
-                      {m.matched_user_id && (
-                        <button
-                          type="button"
-                          title={
-                            acceptedPeerIds.has(m.matched_user_id)
-                              ? undefined
-                              : "Connect with this user first"
-                          }
-                          onClick={() => {
-                            if (!acceptedPeerIds.has(m.matched_user_id!)) return;
-                            window.dispatchEvent(
-                              new CustomEvent("metatron:open-chat", {
-                                detail: {
-                                  userId: m.matched_user_id!,
-                                  name: m.company_name ?? m.firm_name ?? "Founder",
-                                },
-                              })
-                            );
-                          }}
-                          disabled={!acceptedPeerIds.has(m.matched_user_id)}
-                          className="px-2.5 py-1.5 border border-[var(--border)] text-[var(--text-muted)] rounded-lg text-xs hover:border-[rgba(var(--accent-rgb),0.4)] hover:text-[var(--accent)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                        >
+                      {connected ? (
+                        <button type="button" className={btnPrimary} onClick={() => message(f.user_id, company)}>
                           Message
                         </button>
+                      ) : (
+                        <Link href={`/investor/startups/${f.user_id}`} className={btnPrimary}>
+                          View
+                        </Link>
                       )}
                     </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {totalPages > 1 && (
-              <div className="flex items-center justify-between mt-4 text-xs text-[var(--text-muted)]">
-                <span>
-                  Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, activeItems.length)} of{" "}
-                  {activeItems.length}
-                </span>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setPageRaw((p) => Math.max(1, p - 1))}
-                    disabled={page === 1}
-                    className="px-3 py-1 bg-[var(--overlay-6)] rounded-lg disabled:opacity-30"
-                  >
-                    Previous
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPageRaw((p) => Math.min(totalPages, p + 1))}
-                    disabled={page === totalPages}
-                    className="px-3 py-1 bg-[var(--overlay-6)] rounded-lg disabled:opacity-30"
-                  >
-                    Next
-                  </button>
-                </div>
-              </div>
+                  </article>
+                );
+              })
             )}
           </div>
         )}
-      </div>
-
-      {viewingIntro && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto py-8 px-4">
-          <div className="absolute inset-0 bg-black/60" onClick={() => setViewingIntro(null)} />
-          <div className="relative z-10 w-full max-w-lg max-h-[min(90vh,800px)] flex flex-col rounded-xl border border-[var(--border)] bg-[var(--bg-card)]">
-            <div className="flex items-start justify-between gap-3 border-b border-[var(--border)] px-5 py-4">
-              <div className="min-w-0">
-                <h2 className="text-xl font-semibold text-[var(--text)]">
-                  {viewingIntro.company_name ?? viewingIntro.founder_email}
-                </h2>
-                {viewingIntro.country && (
-                  <p className="text-sm text-[var(--text-muted)] mt-0.5">{viewingIntro.country}</p>
-                )}
-                <span
-                  className={`mt-2 inline-block px-2 py-0.5 rounded text-xs font-medium ${scoreBadgeColor(viewingIntro.score)}`}
-                >
-                  {viewingIntro.score}% fit
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setViewingIntro(null)}
-                className="shrink-0 rounded-lg p-2 text-[var(--text-muted)] hover:bg-[var(--overlay-6)] hover:text-[var(--text)]"
-              >
-                <span className="block text-xl leading-none">×</span>
-              </button>
-            </div>
-            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
-              {viewingIntro.one_liner && (
-                <p className="text-sm italic text-[var(--text-muted)]">{viewingIntro.one_liner}</p>
-              )}
-              {viewingIntro.reasoning && (
-                <div>
-                  <p className="text-[10px] uppercase tracking-wide text-[var(--text-muted)] mb-1">
-                    Why Kevin matched you
-                  </p>
-                  <p className="text-sm text-[var(--text)] leading-relaxed">{viewingIntro.reasoning}</p>
-                </div>
-              )}
-              <div className="space-y-3 border-t border-[var(--border)] pt-4">
-                {(
-                  [
-                    ["Sector", viewingIntro.sector],
-                    ["Stage", viewingIntro.stage],
-                    ["Location", viewingIntro.country],
-                    ["Contact", viewingIntro.founder_email],
-                  ] as const
-                ).map(([label, val]) =>
-                  val ? (
-                    <div key={label}>
-                      <p className="text-[10px] uppercase tracking-wide text-[var(--text-muted)]">{label}</p>
-                      <p className="mt-0.5 text-sm text-[var(--text)]">{val}</p>
-                    </div>
-                  ) : null
-                )}
-              </div>
-            </div>
-            <div className="shrink-0 border-t border-[var(--border)] px-5 py-3">
-              {viewingIntro.intro_accepted_at ? (
-                <span className="inline-flex w-full justify-center px-2 py-2 rounded-lg text-xs font-medium bg-[rgba(0,200,100,0.12)] text-green-400">
-                  Connection accepted
-                </span>
-              ) : viewingIntro.intro_passed_at ? (
-                <span className="inline-flex w-full justify-center px-2 py-2 rounded-lg text-xs font-medium bg-[var(--overlay-6)] text-[var(--text-muted)]">
-                  Declined
-                </span>
-              ) : (
-                <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-                  {viewingIntro.deck_url && (
-                    <button
-                      type="button"
-                      onClick={() => void viewDeck(viewingIntro)}
-                      disabled={actionBusy === viewingIntro.id + "deck"}
-                      className="flex-1 min-w-[120px] px-2.5 py-2 border border-[var(--border)] text-[var(--text-muted)] rounded-lg text-xs hover:border-[rgba(var(--accent-rgb),0.4)] hover:text-[var(--accent)] transition-colors disabled:opacity-50"
-                    >
-                      {viewingIntro.deck_viewed_at ? "Deck ✓" : "View deck"}
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => void acceptIntro(viewingIntro)}
-                    disabled={actionBusy === viewingIntro.id + "accept"}
-                    className="flex-1 min-w-[120px] px-2.5 py-2 bg-[var(--accent)] text-white rounded-lg text-xs font-medium hover:bg-[var(--accent-hover)] disabled:opacity-50"
-                  >
-                    {actionBusy === viewingIntro.id + "accept" ? "…" : "Accept"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void passIntro(viewingIntro)}
-                    disabled={actionBusy === viewingIntro.id + "pass"}
-                    className="flex-1 min-w-[120px] px-2.5 py-2 border border-[rgba(239,68,68,0.3)] text-[rgba(254,202,202,0.7)] rounded-lg text-xs hover:border-[rgba(239,68,68,0.5)] transition-colors disabled:opacity-50"
-                  >
-                    {actionBusy === viewingIntro.id + "pass" ? "…" : "Decline"}
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {viewingMatch && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto py-8 px-4">
-          <div className="absolute inset-0 bg-black/60" onClick={() => setViewingMatch(null)} />
-          <div className="relative z-10 w-full max-w-lg max-h-[min(90vh,800px)] flex flex-col rounded-xl border border-[var(--border)] bg-[var(--bg-card)]">
-            <div className="flex items-start justify-between gap-3 border-b border-[var(--border)] px-5 py-4">
-              <div className="min-w-0">
-                <h2 className="text-xl font-semibold text-[var(--text)]">
-                  {viewingMatch.company_name ?? viewingMatch.firm_name ?? "Founder"}
-                </h2>
-                {viewingMatch.country && (
-                  <p className="text-sm text-[var(--text-muted)] mt-0.5">{viewingMatch.country}</p>
-                )}
-                <span
-                  className={`mt-2 inline-block px-2 py-0.5 rounded text-xs font-medium ${scoreBadgeColor(viewingMatch.score)}`}
-                >
-                  {viewingMatch.score}% fit
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setViewingMatch(null)}
-                className="shrink-0 rounded-lg p-2 text-[var(--text-muted)] hover:bg-[var(--overlay-6)] hover:text-[var(--text)]"
-              >
-                <span className="block text-xl leading-none">×</span>
-              </button>
-            </div>
-            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
-              {viewingMatch.one_liner && (
-                <p className="text-sm italic text-[var(--text-muted)]">{viewingMatch.one_liner}</p>
-              )}
-              {viewingMatch.reasoning && (
-                <div>
-                  <p className="text-[10px] uppercase tracking-wide text-[var(--text-muted)] mb-1">
-                    Why Kevin matched you
-                  </p>
-                  <p className="text-sm text-[var(--text)] leading-relaxed">{viewingMatch.reasoning}</p>
-                </div>
-              )}
-              <div className="space-y-3 border-t border-[var(--border)] pt-4">
-                {(
-                  [
-                    ["Sector", viewingMatch.sector],
-                    ["Stage", viewingMatch.stage],
-                    ["Location", viewingMatch.country],
-                  ] as const
-                ).map(([label, val]) =>
-                  val ? (
-                    <div key={label}>
-                      <p className="text-[10px] uppercase tracking-wide text-[var(--text-muted)]">{label}</p>
-                      <p className="mt-0.5 text-sm text-[var(--text)]">{val}</p>
-                    </div>
-                  ) : null
-                )}
-              </div>
-            </div>
-            <div className="shrink-0 border-t border-[var(--border)] px-5 py-3 flex flex-wrap gap-2">
-              {viewingMatch.matched_user_id && !followedIds.has(viewingMatch.id) && (
-                <button
-                  type="button"
-                  onClick={() => void followFounder(viewingMatch)}
-                  disabled={actionBusy === viewingMatch.id + "follow"}
-                  className="flex-1 min-w-[100px] rounded-xl border border-[var(--border)] py-2.5 text-sm text-[var(--text-muted)] hover:border-[rgba(var(--accent-rgb),0.4)] hover:text-[var(--accent)] disabled:opacity-50"
-                >
-                  {actionBusy === viewingMatch.id + "follow" ? "…" : "Follow"}
-                </button>
-              )}
-              {followedIds.has(viewingMatch.id) && (
-                <span className="flex-1 min-w-[100px] flex items-center justify-center text-sm text-green-400">
-                  Following ✓
-                </span>
-              )}
-              {viewingMatch.matched_user_id &&
-                !viewingMatch.intro_requested_at &&
-                !requestedIntroIds.has(viewingMatch.id) && (
-                  <button
-                    type="button"
-                    onClick={() => void requestMatchIntro(viewingMatch)}
-                    disabled={actionBusy === viewingMatch.id + "intro"}
-                    className="flex-1 min-w-[100px] rounded-xl bg-[var(--accent)] py-2.5 text-sm font-semibold text-white hover:bg-[var(--accent-hover)] disabled:opacity-50"
-                  >
-                    {actionBusy === viewingMatch.id + "intro" ? "…" : "Connect"}
-                  </button>
-                )}
-              {(viewingMatch.intro_requested_at || requestedIntroIds.has(viewingMatch.id)) &&
-                viewingMatch.matched_user_id &&
-                !acceptedPeerIds.has(viewingMatch.matched_user_id) && (
-                  <span className="flex-1 min-w-[100px] flex items-center justify-center px-2 py-2 rounded-lg text-sm font-medium bg-[rgba(var(--accent-rgb),0.15)] text-[var(--accent)]">
-                    Connect requested
-                  </span>
-                )}
-              {(viewingMatch.intro_requested_at || requestedIntroIds.has(viewingMatch.id)) &&
-                viewingMatch.matched_user_id &&
-                acceptedPeerIds.has(viewingMatch.matched_user_id) && (
-                  <span className="flex-1 min-w-[100px] flex items-center justify-center px-2 py-2 rounded-lg text-sm font-medium bg-[rgba(0,200,100,0.12)] text-green-400">
-                    Connection accepted
-                  </span>
-                )}
-              {viewingMatch.matched_user_id && (
-                <button
-                  type="button"
-                  title={
-                    acceptedPeerIds.has(viewingMatch.matched_user_id)
-                      ? undefined
-                      : "Connect with this user first"
-                  }
-                  onClick={() => {
-                    if (!acceptedPeerIds.has(viewingMatch.matched_user_id!)) return;
-                    window.dispatchEvent(
-                      new CustomEvent("metatron:open-chat", {
-                        detail: {
-                          userId: viewingMatch.matched_user_id!,
-                          name: viewingMatch.company_name ?? viewingMatch.firm_name ?? "Founder",
-                        },
-                      })
-                    );
-                    setViewingMatch(null);
-                  }}
-                  disabled={!acceptedPeerIds.has(viewingMatch.matched_user_id)}
-                  className="flex-1 min-w-[100px] rounded-xl border border-[var(--border)] py-2.5 text-sm text-[var(--text-muted)] hover:border-[rgba(var(--accent-rgb),0.4)] hover:text-[var(--accent)] disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  Message →
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      </section>
     </main>
   );
 }

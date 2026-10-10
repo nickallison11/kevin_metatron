@@ -1,14 +1,11 @@
 "use client";
 
-import type { CSSProperties } from "react";
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { API_BASE, authJsonHeaders } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import {
-  acceptedPeerUserIds,
-  type ConnectListsResponse,
-} from "@/lib/connectionsHandshake";
+import { acceptedPeerUserIds, type ConnectListsResponse } from "@/lib/connectionsHandshake";
 
 type KevinMatch = {
   id: string;
@@ -27,7 +24,7 @@ type KevinMatch = {
   intro_requested_at: string | null;
 };
 
-/** Rows from GET /kevin-matches/received-intros (founder sees requester profile in company/one_liner). */
+/** Rows from GET /kevin-matches/received-intros (an investor asked to connect with this founder). */
 type ReceivedConnect = {
   id: string;
   for_user_id: string;
@@ -40,10 +37,7 @@ type ReceivedConnect = {
   stage: string | null;
   sector: string | null;
   country: string | null;
-  angel_score: number | null;
   founder_email: string;
-  deck_url: string | null;
-  deck_viewed_at: string | null;
   intro_accepted_at: string | null;
   intro_passed_at: string | null;
 };
@@ -54,125 +48,91 @@ type IntroSuggestion = {
   fit_score: number;
   fit_reason: string;
   draft_message: string;
-  status: string;
-  created_at: string;
   firm_name: string | null;
   investor_email: string;
-  thesis: string | null;
 };
 
+type ReviewSummary = { investor_user_id: string; review_count: number; avg_stars: number | null };
+
+type Tab = "foryou" | "requests" | "sent";
 const PAGE_SIZE = 10;
 
-const DEFAULT_MATCH_COLUMNS = [
-  { key: "investor", label: "Investor", width: 200 },
-  { key: "sector", label: "Sector", width: 140 },
-  { key: "stage", label: "Stage", width: 120 },
-  { key: "location", label: "Location", width: 160 },
-  { key: "fit", label: "Fit", width: 80 },
-  { key: "actions", label: "", width: 140 },
-] as const;
+const card = "rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] shadow-[var(--card-shadow)]";
+const btn =
+  "inline-flex min-h-10 items-center justify-center rounded-[10px] border border-[var(--overlay-12)] px-4 text-[13px] font-medium text-[var(--text)] hover:bg-[var(--overlay-4)] disabled:cursor-not-allowed disabled:opacity-50";
+const btnPrimary =
+  "inline-flex min-h-10 items-center justify-center rounded-[10px] bg-metatron-accent px-4 text-[13px] font-semibold text-white hover:bg-metatron-accent-hover disabled:opacity-50";
 
-function investorDisplayName(r: ReceivedConnect) {
-  const firm = r.firm_name?.trim();
-  if (firm) return firm;
-  const company = r.company_name?.trim();
-  if (company) return company;
-  const o = r.one_liner?.trim();
-  if (o) return o;
-  return r.founder_email;
+function initials(s: string): string {
+  return (
+    s
+      .replace(/[^A-Za-z ]/g, " ")
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((w) => w[0]!.toUpperCase())
+      .join("") || "·"
+  );
+}
+
+function requesterName(r: ReceivedConnect) {
+  return r.firm_name?.trim() || r.company_name?.trim() || r.founder_email;
+}
+
+function Fit({ score }: { score: number }) {
+  return <span className="rounded-lg bg-[var(--good-bg)] px-2 py-0.5 font-mono text-xs text-[var(--good)]">{score}% fit</span>;
 }
 
 function StartupMatchesPageInner() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const { token, loading, role } = useAuth("STARTUP");
+  const { token, loading } = useAuth("STARTUP");
+  const initialTab = (["foryou", "requests", "sent"] as const).find((t) => t === searchParams.get("tab")) ?? "foryou";
+  const [tab, setTabRaw] = useState<Tab>(initialTab);
   const [matches, setMatches] = useState<KevinMatch[]>([]);
-  const [fetching, setFetching] = useState(false);
+  const [fetching, setFetching] = useState(true);
   const [msg, setMsg] = useState<string | null>(null);
-  const [introBusy, setIntroBusy] = useState<string | null>(null);
-  const [view, setView] = useState<"list" | "card">("list");
-  const [page, setPageRaw] = useState(() => {
-    const p = Number(searchParams.get("page"));
-    return p > 0 ? p : 1;
-  });
-  const [viewingMatch, setViewingMatch] = useState<KevinMatch | null>(null);
-  const [tab, setTab] = useState<"pending" | "sent">("pending");
-  const [mainTab, setMainTab] = useState<"matches" | "connectRequests">("matches");
-  const [receivedConnects, setReceivedConnects] = useState<ReceivedConnect[]>([]);
-  const [connectFetching, setConnectFetching] = useState(false);
-  const [connectActionBusy, setConnectActionBusy] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [shown, setShown] = useState(PAGE_SIZE);
+  // Weekly match emails link to ?focus=<match id>: open that match and scroll to it.
+  const focus = searchParams.get("focus");
+  const [open, setOpen] = useState<string | null>(focus);
+  const focused = useRef(false);
+  const [received, setReceived] = useState<ReceivedConnect[]>([]);
   const [suggestions, setSuggestions] = useState<IntroSuggestion[]>([]);
-  const [suggestionBusy, setSuggestionBusy] = useState<string | null>(null);
   const [expandedSuggestion, setExpandedSuggestion] = useState<string | null>(null);
   const [acceptedPeerIds, setAcceptedPeerIds] = useState<Set<string>>(new Set());
-  const [colWidths, setColWidths] = useState<Record<string, number>>(() => {
-    if (typeof window === "undefined") return {};
-    try {
-      const saved = localStorage.getItem("metatron_startup_matches_col_widths");
-      return saved ? JSON.parse(saved) : {};
-    } catch {
-      return {};
-    }
-  });
+  const [ratings, setRatings] = useState<Record<string, ReviewSummary>>({});
 
-  const loadSuggestions = useCallback(async () => {
+  function setTab(t: Tab) {
+    setTabRaw(t);
+    setShown(PAGE_SIZE);
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("tab", t);
+    params.delete("page");
+    router.replace(`?${params.toString()}`, { scroll: false });
+  }
+
+  const loadConnections = useCallback(async () => {
     if (!token) return;
-    try {
-      const res = await fetch(`${API_BASE}/kevin-matches/suggestions`, {
-        headers: authJsonHeaders(token),
-      });
-      if (res.ok) setSuggestions(await res.json());
-    } catch { /* ignore */ }
+    const res = await fetch(`${API_BASE}/connections`, { headers: authJsonHeaders(token) }).catch(() => null);
+    if (res?.ok) setAcceptedPeerIds(acceptedPeerUserIds((await res.json()) as ConnectListsResponse));
   }, [token]);
 
-  async function approveSuggestion(id: string) {
+  const loadReceived = useCallback(async () => {
     if (!token) return;
-    setSuggestionBusy(id);
-    try {
-      const res = await fetch(`${API_BASE}/kevin-matches/suggestions/${id}/approve`, {
-        method: "POST",
-        headers: authJsonHeaders(token),
-      });
-      if (res.ok) {
-        setSuggestions((prev) => prev.filter((s) => s.id !== id));
-        setMsg("Intro sent! The investor will hear from Kevin.");
-      } else {
-        const body = await res.text();
-        setMsg(`Could not send intro: ${body}`);
-      }
-    } catch {
-      setMsg("Could not send intro.");
-    } finally {
-      setSuggestionBusy(null);
-    }
-  }
-
-  async function declineSuggestion(id: string) {
-    if (!token) return;
-    setSuggestionBusy(id);
-    try {
-      const res = await fetch(`${API_BASE}/kevin-matches/suggestions/${id}/decline`, {
-        method: "POST",
-        headers: authJsonHeaders(token),
-      });
-      if (res.ok) setSuggestions((prev) => prev.filter((s) => s.id !== id));
-    } catch { /* ignore */ }
-    finally { setSuggestionBusy(null); }
-  }
+    const res = await fetch(`${API_BASE}/kevin-matches/received-intros`, { headers: authJsonHeaders(token) }).catch(() => null);
+    if (res?.ok) setReceived((await res.json()) as ReceivedConnect[]);
+  }, [token]);
 
   const load = useCallback(async () => {
     if (!token) return;
     setFetching(true);
     try {
-      const res = await fetch(`${API_BASE}/kevin-matches`, {
-        method: "POST",
-        headers: authJsonHeaders(token),
-      });
-      if (!res.ok) {
-        setMsg("Could not load matches.");
-        return;
-      }
-      setMatches(await res.json());
+      // POST returns the cached batch, or generates a fresh one when it's due.
+      const res = await fetch(`${API_BASE}/kevin-matches`, { method: "POST", headers: authJsonHeaders(token) });
+      if (res.ok) setMatches((await res.json()) as KevinMatch[]);
+      else setMsg("Could not load matches.");
     } catch {
       setMsg("Could not load matches.");
     } finally {
@@ -180,826 +140,305 @@ function StartupMatchesPageInner() {
     }
   }, [token]);
 
-  const loadConnections = useCallback(async () => {
-    if (!token) return;
-    try {
-      const res = await fetch(`${API_BASE}/connections`, {
-        headers: authJsonHeaders(token),
-      });
-      if (res.ok) {
-        const data = (await res.json()) as ConnectListsResponse;
-        setAcceptedPeerIds(acceptedPeerUserIds(data));
-      }
-    } catch {
-      /* ignore */
-    }
-  }, [token]);
-
-  const loadReceivedConnects = useCallback(async () => {
-    if (!token || role !== "STARTUP") return;
-    setConnectFetching(true);
-    try {
-      const res = await fetch(`${API_BASE}/kevin-matches/received-intros`, {
-        headers: authJsonHeaders(token),
-      });
-      if (res.ok) setReceivedConnects(await res.json());
-    } catch {
-      /* ignore */
-    } finally {
-      setConnectFetching(false);
-    }
-  }, [token, role]);
+  useEffect(() => {
+    if (loading || !token) return;
+    void load();
+    void loadConnections();
+    void loadReceived();
+    fetch(`${API_BASE}/kevin-matches/suggestions`, { headers: authJsonHeaders(token) })
+      .then((r) => (r.ok ? (r.json() as Promise<IntroSuggestion[]>) : []))
+      .then(setSuggestions)
+      .catch(() => {});
+    fetch(`${API_BASE}/investor-profile/review-summaries`, { headers: authJsonHeaders(token) })
+      .then((r) => (r.ok ? (r.json() as Promise<ReviewSummary[]>) : []))
+      .then((list) => setRatings(Object.fromEntries(list.map((x) => [x.investor_user_id, x]))))
+      .catch(() => {});
+  }, [loading, token, load, loadConnections, loadReceived]);
 
   useEffect(() => {
-    if (!loading && token) {
-      void load();
-      void loadConnections();
-      void loadSuggestions();
-    }
-  }, [loading, token, load, loadConnections, loadSuggestions]);
+    if (!focus || focused.current || matches.length === 0) return;
+    const m = matches.find((x) => x.id === focus);
+    if (!m) return;
+    focused.current = true;
+    if (m.intro_requested_at) setTabRaw("sent");
+    const i = (m.intro_requested_at ? matches.filter((x) => x.intro_requested_at) : matches.filter((x) => !x.intro_requested_at)).indexOf(m);
+    if (i >= PAGE_SIZE) setShown(i + 1);
+    requestAnimationFrame(() => document.getElementById(`match-${focus}`)?.scrollIntoView({ behavior: "smooth", block: "center" }));
+  }, [focus, matches]);
 
-  useEffect(() => {
-    if (!loading && token && role === "STARTUP" && mainTab === "connectRequests") {
-      void loadReceivedConnects();
-    }
-  }, [loading, token, role, mainTab, loadReceivedConnects]);
+  const forYou = useMemo(() => matches.filter((m) => !m.intro_requested_at), [matches]);
+  const sent = useMemo(() => matches.filter((m) => m.intro_requested_at), [matches]);
+  const openRequests = useMemo(() => received.filter((r) => !r.intro_accepted_at && !r.intro_passed_at), [received]);
+  const answeredRequests = useMemo(() => received.filter((r) => r.intro_accepted_at || r.intro_passed_at), [received]);
 
-  useEffect(() => {
-    const params = new URLSearchParams(searchParams.toString());
-    params.set("page", String(page));
-    router.replace(`?${params.toString()}`, { scroll: false });
-  }, [page]);
-
-  useEffect(() => {
-    if (Object.keys(colWidths).length > 0) {
-      localStorage.setItem("metatron_startup_matches_col_widths", JSON.stringify(colWidths));
-    }
-  }, [colWidths]);
-
-  const onColResizeStart = useCallback(
-    (colKey: string, e: React.MouseEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      const defaultW = DEFAULT_MATCH_COLUMNS.find((c) => c.key === colKey)?.width ?? 120;
-      const startX = e.clientX;
-      const startWidth = colWidths[colKey] ?? defaultW;
-
-      const onMove = (moveEvent: MouseEvent) => {
-        const dx = moveEvent.clientX - startX;
-        const newW = Math.max(80, startWidth + dx);
-        setColWidths((prev) => ({ ...prev, [colKey]: newW }));
-      };
-
-      const onUp = () => {
-        document.removeEventListener("mousemove", onMove);
-        document.removeEventListener("mouseup", onUp);
-      };
-
-      document.addEventListener("mousemove", onMove);
-      document.addEventListener("mouseup", onUp);
-    },
-    [colWidths],
-  );
-
-  const pending = useMemo(() => matches.filter((m) => !m.intro_requested_at), [matches]);
-  const requested = useMemo(() => matches.filter((m) => m.intro_requested_at), [matches]);
-  const allMatches = useMemo(() => [...pending, ...requested], [pending, requested]);
-  const activeMatches = useMemo(() => (tab === "pending" ? pending : requested), [tab, pending, requested]);
-  const totalPages = Math.max(1, Math.ceil(activeMatches.length / PAGE_SIZE));
-  const paginated = activeMatches.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-
-  const openConnectRequests = useMemo(
-    () =>
-      receivedConnects.filter((r) => !r.intro_accepted_at && !r.intro_passed_at),
-    [receivedConnects],
-  );
-
-  async function requestIntro(matchId: string) {
-    if (!token) return;
-    setIntroBusy(matchId);
+  async function post(path: string, key: string): Promise<Response | null> {
+    if (!token) return null;
+    setBusy(key);
     setMsg(null);
     try {
-      const res = await fetch(`${API_BASE}/kevin-matches/${matchId}/request-intro`, {
-        method: "POST",
-        headers: authJsonHeaders(token),
-      });
-      if (!res.ok) {
-        const t = await res.text();
-        setMsg(t.trim() || "Request failed.");
-        return;
-      }
-      setMsg("Connect request sent!");
-      setMatches((prev) =>
-        prev.map((m) =>
-          m.id === matchId ? { ...m, intro_requested_at: new Date().toISOString() } : m
-        )
-      );
-      if (viewingMatch?.id === matchId) {
-        setViewingMatch((v) => (v ? { ...v, intro_requested_at: new Date().toISOString() } : v));
-      }
-      void loadConnections();
+      return await fetch(`${API_BASE}${path}`, { method: "POST", headers: authJsonHeaders(token) });
     } catch {
-      setMsg("Request failed.");
+      return null;
     } finally {
-      setIntroBusy(null);
+      setBusy(null);
     }
   }
 
-  async function acceptReceivedConnect(r: ReceivedConnect) {
-    if (!token) return;
-    setConnectActionBusy(r.id + "accept");
-    try {
-      const res = await fetch(`${API_BASE}/kevin-matches/${r.id}/accept-intro`, {
-        method: "POST",
-        headers: authJsonHeaders(token),
-      });
-      if (res.ok) {
-        const ts = new Date().toISOString();
-        setReceivedConnects((prev) =>
-          prev.map((x) => (x.id === r.id ? { ...x, intro_accepted_at: ts } : x))
-        );
-        void load();
-        void loadConnections();
-      }
-    } finally {
-      setConnectActionBusy(null);
+  async function requestIntro(m: KevinMatch) {
+    const res = await post(`/kevin-matches/${m.id}/request-intro`, m.id);
+    if (!res?.ok) {
+      setMsg((await res?.text())?.trim() || "Request failed.");
+      return;
     }
+    setMsg(`Connect request sent to ${m.firm_name ?? "the investor"}.`);
+    setMatches((prev) => prev.map((x) => (x.id === m.id ? { ...x, intro_requested_at: new Date().toISOString() } : x)));
+    void loadConnections();
   }
 
-  async function declineReceivedConnect(r: ReceivedConnect) {
-    if (!token) return;
-    setConnectActionBusy(r.id + "decline");
-    try {
-      const res = await fetch(`${API_BASE}/kevin-matches/${r.id}/pass-intro`, {
-        method: "POST",
-        headers: authJsonHeaders(token),
-      });
-      if (res.ok) {
-        const ts = new Date().toISOString();
-        setReceivedConnects((prev) =>
-          prev.map((x) => (x.id === r.id ? { ...x, intro_passed_at: ts } : x))
-        );
-        void loadConnections();
-      }
-    } finally {
-      setConnectActionBusy(null);
-    }
+  async function answer(r: ReceivedConnect, accept: boolean) {
+    const res = await post(`/kevin-matches/${r.id}/${accept ? "accept-intro" : "pass-intro"}`, r.id);
+    if (!res?.ok) return;
+    const ts = new Date().toISOString();
+    setReceived((prev) => prev.map((x) => (x.id === r.id ? (accept ? { ...x, intro_accepted_at: ts } : { ...x, intro_passed_at: ts }) : x)));
+    void loadConnections();
+    if (accept) void load();
   }
 
-  if (loading) return null;
-  if (!token) return null;
+  async function suggestion(s: IntroSuggestion, approve: boolean) {
+    const res = await post(`/kevin-matches/suggestions/${s.id}/${approve ? "approve" : "decline"}`, s.id);
+    if (!res?.ok) {
+      if (approve) setMsg(`Could not send intro: ${(await res?.text()) ?? ""}`.trim());
+      return;
+    }
+    setSuggestions((prev) => prev.filter((x) => x.id !== s.id));
+    if (approve) setMsg("Intro sent. The investor will hear from Kevin.");
+  }
 
-  const scoreBadgeColor = (score: number) => {
-    if (score >= 85) return "bg-[rgba(0,200,100,0.12)] text-green-400";
-    if (score >= 70) return "bg-[rgba(var(--accent-rgb),0.15)] text-[var(--accent)]";
-    return "bg-[var(--overlay-6)] text-[var(--text-muted)]";
-  };
+  function message(userId: string, name: string) {
+    window.dispatchEvent(new CustomEvent("metatron:open-chat", { detail: { userId, name } }));
+  }
 
-  const showConnectTab = role === "STARTUP";
+  if (loading || !token) return null;
 
-  return (
-    <main className="flex-1 text-[var(--text)]">
-      <div className="max-w-5xl mx-auto space-y-6 px-6 py-6 md:px-10">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h1 className="text-2xl font-semibold text-[var(--text)]">Kevin&apos;s Investor Matches</h1>
-            <p className="text-sm text-[var(--text-muted)] mt-1">
-              {suggestions.length > 0 && (
-            <div style={{ background: "rgba(var(--accent-rgb),0.08)", border: "1px solid rgba(var(--accent-rgb),0.3)", borderRadius: 16, padding: "16px 20px", marginBottom: 16 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-                <span style={{ fontSize: 16 }}>✨</span>
-                <span style={{ fontWeight: 600, color: "var(--text)", fontSize: 14 }}>
-                  Kevin suggests {suggestions.length === 1 ? "a connection" : `${suggestions.length} connections`}
-                </span>
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                {suggestions.map((s) => {
-                  const name = s.firm_name || s.investor_email;
-                  const expanded = expandedSuggestion === s.id;
-                  return (
-                    <div key={s.id} style={{ background: "var(--card-bg, #1a1a2e)", border: "1px solid var(--border)", borderRadius: 12, padding: "14px 16px" }}>
-                      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontWeight: 600, fontSize: 14, color: "var(--text)", marginBottom: 4 }}>{name}</div>
-                          <div style={{ fontSize: 13, color: "var(--text-muted)", lineHeight: 1.5, marginBottom: expanded ? 0 : 4 }}>{s.fit_reason}</div>
-                          {expanded && (
-                            <div style={{ marginTop: 12, padding: "10px 14px", background: "rgba(var(--accent-rgb),0.06)", borderRadius: 8, fontSize: 13, color: "var(--text)", lineHeight: 1.7, whiteSpace: "pre-wrap" }}>
-                              <div style={{ fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>Kevin&apos;s draft message</div>
-                              {s.draft_message}
-                            </div>
-                          )}
-                        </div>
-                        <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-                          <button
-                            type="button"
-                            onClick={() => setExpandedSuggestion(expanded ? null : s.id)}
-                            style={{ padding: "5px 10px", borderRadius: 8, fontSize: 12, background: "transparent", border: "1px solid var(--border)", color: "var(--text-muted)", cursor: "pointer" }}
-                          >
-                            {expanded ? "Hide" : "Preview"}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void declineSuggestion(s.id)}
-                            disabled={suggestionBusy === s.id}
-                            style={{ padding: "5px 10px", borderRadius: 8, fontSize: 12, background: "transparent", border: "1px solid var(--border)", color: "var(--text-muted)", cursor: "pointer", opacity: suggestionBusy === s.id ? 0.5 : 1 }}
-                          >
-                            Pass
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void approveSuggestion(s.id)}
-                            disabled={suggestionBusy === s.id}
-                            style={{ padding: "5px 10px", borderRadius: 8, fontSize: 12, background: "var(--accent)", border: "none", color: "#fff", fontWeight: 600, cursor: "pointer", opacity: suggestionBusy === s.id ? 0.5 : 1 }}
-                          >
-                            {suggestionBusy === s.id ? "Sending…" : "Send intro"}
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+  function matchRow(m: KevinMatch) {
+    const firm = m.firm_name ?? "Independent investor";
+    const connected = Boolean(m.matched_user_id && acceptedPeerIds.has(m.matched_user_id));
+    const rating = m.matched_user_id ? ratings[m.matched_user_id] : undefined;
+    const meta = [m.sector, m.stage, m.country].filter(Boolean).join(" · ");
+    const expanded = open === m.id;
+    return (
+      <article key={m.id} id={`match-${m.id}`} className={`${card} flex flex-col gap-3 p-4 sm:flex-row sm:flex-wrap sm:items-center ${focus === m.id ? "border-metatron-accent/50" : ""}`}>
+        <span aria-hidden className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-metatron-accent/15 text-sm font-semibold text-[var(--accent-fg)]">
+          {initials(firm)}
+        </span>
+        <div className="flex min-w-0 flex-1 basis-72 flex-col gap-1">
+          <div className="flex flex-wrap items-center gap-2.5">
+            {m.matched_user_id ? (
+              <Link href={`/startup/investors/${m.matched_user_id}`} className="text-base font-semibold text-[var(--text)] hover:underline">
+                {firm}
+              </Link>
+            ) : (
+              <span className="text-base font-semibold">{firm}</span>
+            )}
+            <Fit score={m.score} />
+            <span className="text-[13px] text-[var(--text-muted)]">
+              {rating?.avg_stars != null ? (
+                <>
+                  <span className="text-[var(--star)]">★</span> {rating.avg_stars.toFixed(1)} · {rating.review_count} founder review{rating.review_count === 1 ? "" : "s"}
+                </>
+              ) : m.matched_user_id ? (
+                "No reviews yet"
+              ) : (
+                "From a connector's network"
+              )}
+            </span>
+          </div>
+          {meta && <span className="text-[13px] text-[var(--text-muted)]">{meta}</span>}
+          {m.one_liner && <span className="text-sm text-[var(--text-muted)]">{m.one_liner}</span>}
+          {expanded && m.reasoning && (
+            <div className="mt-1 rounded-[10px] bg-metatron-accent/[0.07] p-3">
+              <span className="font-mono text-[11px] uppercase tracking-[0.14em] text-[var(--accent-fg)]">Why Kevin matched you</span>
+              <p className="mt-1 text-sm leading-relaxed">{m.reasoning}</p>
             </div>
           )}
-          {showConnectTab && mainTab === "connectRequests"
-                ? `${openConnectRequests.length} open received-connection${
-                    openConnectRequests.length !== 1 ? "s" : ""
-                  }`
-                : `${pending.length} pending · ${requested.length} connect${
-                    requested.length !== 1 ? "s" : ""
-                  } requested · refreshes weekly`}
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {showConnectTab && (
-              <div className="flex gap-1">
-                {(["connectRequests", "matches"] as const).map((t) => (
-                  <button
-                    key={t}
-                    type="button"
-                    onClick={() => {
-                      setMainTab(t);
-                      setPageRaw(1);
-                    }}
-                    className={`px-3 py-1 rounded-lg text-xs font-medium ${
-                      mainTab === t
-                        ? "bg-[rgba(var(--accent-rgb),0.2)] text-[var(--accent)]"
-                        : "text-[var(--text-muted)] hover:text-[var(--text)]"
-                    }`}
-                  >
-                    {t === "connectRequests"
-                      ? `Connect Requests${openConnectRequests.length > 0 ? ` (${openConnectRequests.length})` : ""}`
-                      : "Matches"}
-                  </button>
-                ))}
-              </div>
-            )}
-            {mainTab === "matches" && (
-              <>
-                <div className="flex gap-1">
-                  {(["pending", "sent"] as const).map((t) => (
-                    <button
-                      key={t}
-                      type="button"
-                      onClick={() => {
-                        setTab(t);
-                        setPageRaw(1);
-                      }}
-                      className={`px-3 py-1 rounded-lg text-xs font-medium ${
-                        tab === t
-                          ? "bg-[rgba(var(--accent-rgb),0.2)] text-[var(--accent)]"
-                          : "text-[var(--text-muted)] hover:text-[var(--text)]"
-                      }`}
-                    >
-                      {t === "pending" ? "Pending" : "Sent"}
-                    </button>
-                  ))}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {m.reasoning && (
+            <button type="button" className={btn} aria-expanded={expanded} onClick={() => setOpen(expanded ? null : m.id)}>
+              {expanded ? "Hide why" : "Why this match"}
+            </button>
+          )}
+          {connected ? (
+            <button type="button" className={btnPrimary} onClick={() => message(m.matched_user_id!, firm)}>
+              Message
+            </button>
+          ) : m.intro_requested_at ? (
+            <span className="inline-flex min-h-10 items-center rounded-[10px] bg-[var(--warn-bg)] px-3 text-[13px] text-[var(--warn)]">Requested</span>
+          ) : (
+            <button type="button" className={btnPrimary} disabled={busy === m.id} onClick={() => void requestIntro(m)}>
+              {busy === m.id ? "Sending…" : "Connect"}
+            </button>
+          )}
+        </div>
+      </article>
+    );
+  }
+
+  const tabs: [Tab, string, number, boolean][] = [
+    ["foryou", "For you", forYou.length, false],
+    ["requests", "Requests", openRequests.length, openRequests.length > 0],
+    ["sent", "Sent", sent.length, false],
+  ];
+
+  const list = tab === "foryou" ? forYou : sent;
+
+  return (
+    <main className="min-w-0 flex-1 text-[var(--text)]">
+      <section className="mx-auto flex max-w-5xl flex-col gap-5 p-6 md:p-10">
+        <header className="flex flex-col gap-1.5">
+          <span className="font-mono text-[11px] uppercase tracking-[0.14em] text-[var(--text-muted)]">Matches</span>
+          <h1 className="text-[28px] font-semibold tracking-tight">Investors Kevin picked for you</h1>
+          <p className="text-sm text-[var(--text-muted)]">Ranked by fit with your pitch. To search every investor, use Browse Investors.</p>
+        </header>
+
+        {suggestions.length > 0 && (
+          <section className={`${card} flex flex-col gap-3 border-metatron-accent/40 bg-metatron-accent/[0.06] p-5`}>
+            <span className="font-mono text-[11px] uppercase tracking-[0.14em] text-[var(--accent-fg)]">
+              Kevin suggests {suggestions.length === 1 ? "an intro" : `${suggestions.length} intros`}
+            </span>
+            {suggestions.map((s) => {
+              const expanded = expandedSuggestion === s.id;
+              return (
+                <div key={s.id} className="flex flex-col gap-2 border-t border-[var(--border)] pt-3 first:border-t-0 first:pt-0">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <strong>{s.firm_name || s.investor_email}</strong>
+                        <Fit score={s.fit_score} />
+                      </div>
+                      <p className="mt-1 text-sm text-[var(--text-muted)]">{s.fit_reason}</p>
+                    </div>
+                    <div className="flex shrink-0 flex-wrap gap-2">
+                      <button type="button" className={btn} aria-expanded={expanded} onClick={() => setExpandedSuggestion(expanded ? null : s.id)}>
+                        {expanded ? "Hide message" : "Preview message"}
+                      </button>
+                      <button type="button" className={btn} disabled={busy === s.id} onClick={() => void suggestion(s, false)}>
+                        Pass
+                      </button>
+                      <button type="button" className={btnPrimary} disabled={busy === s.id} onClick={() => void suggestion(s, true)}>
+                        {busy === s.id ? "Sending…" : "Send intro"}
+                      </button>
+                    </div>
+                  </div>
+                  {expanded && <p className="whitespace-pre-wrap rounded-[10px] bg-[var(--overlay-4)] p-3 text-sm leading-relaxed">{s.draft_message}</p>}
                 </div>
-                <div className="flex items-center gap-2">
-                  {(["list", "card"] as const).map((v) => (
-                    <button
-                      key={v}
-                      type="button"
-                      onClick={() => {
-                        setView(v);
-                        setPageRaw(1);
-                      }}
-                      className={`px-3 py-1 rounded-lg text-xs ${
-                        view === v
-                          ? "bg-[rgba(var(--accent-rgb),0.2)] text-[var(--accent)]"
-                          : "text-[var(--text-muted)] hover:text-[var(--text)]"
-                      }`}
-                    >
-                      {v === "card" ? "Cards" : "List"}
-                    </button>
-                  ))}
-                </div>
-              </>
-            )}
-          </div>
+              );
+            })}
+          </section>
+        )}
+
+        <div role="tablist" aria-label="Matches" className="flex gap-1 overflow-x-auto border-b border-[var(--border)]">
+          {tabs.map(([id, label, n, badge]) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={tab === id}
+              onClick={() => setTab(id)}
+              className={`-mb-px flex min-h-11 shrink-0 items-center gap-2 border-b-2 px-3.5 text-sm font-medium ${
+                tab === id ? "border-metatron-accent text-[var(--text)]" : "border-transparent text-[var(--text-muted)] hover:text-[var(--text)]"
+              }`}
+            >
+              {label}
+              <span className={badge ? "rounded-full bg-metatron-accent px-1.5 text-[11px] font-semibold text-white" : "text-[12px] text-[var(--text-muted)]"}>{n}</span>
+            </button>
+          ))}
         </div>
 
         {msg && (
-          <p className="text-xs border border-[var(--border)] rounded-xl px-3 py-2 text-[var(--text-muted)]">
+          <p role="status" className="rounded-[10px] border border-[var(--border)] px-3.5 py-2.5 text-sm text-[var(--text-muted)]">
             {msg}
           </p>
         )}
 
-        {showConnectTab && mainTab === "connectRequests" && (
-          <div className="space-y-4">
-            {connectFetching && receivedConnects.length === 0 && (
-              <p className="text-sm text-[var(--text-muted)]">Loading…</p>
-            )}
-            {!connectFetching && openConnectRequests.length === 0 && (
-              <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-6 text-center">
-                <p className="text-sm text-[var(--text-muted)]">
-                  No connect requests yet. When an investor sends Connect through Kevin, it will appear
-                  here.
-                </p>
-              </div>
-            )}
-            {openConnectRequests.length > 0 && (
-              <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-5 space-y-4">
-                {openConnectRequests.map((r) => (
-                  <div
-                    key={r.id}
-                    className="rounded-lg border border-[var(--border)] p-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"
-                  >
-                    <div className="min-w-0 flex-1 space-y-2">
-                      <p className="text-sm font-semibold text-[var(--text)]">{investorDisplayName(r)}</p>
-                      {r.one_liner && (
-                        <p className="text-xs text-[var(--text-muted)] line-clamp-3">{r.one_liner}</p>
-                      )}
-                      <div className="flex flex-wrap gap-2 text-[11px] text-[var(--text-muted)]">
-                        {r.sector && <span>{r.sector}</span>}
-                        {r.stage && <span>· {r.stage}</span>}
-                        {r.country && <span>· {r.country}</span>}
+        {tab === "requests" ? (
+          <div className="flex flex-col gap-3">
+            {openRequests.length === 0 ? (
+              <p className="text-sm text-[var(--text-muted)]">No requests waiting. When an investor wants to connect, it shows here.</p>
+            ) : (
+              openRequests.map((r) => {
+                const name = requesterName(r);
+                const meta = [r.sector, r.stage, r.country].filter(Boolean).join(" · ");
+                return (
+                  <article key={r.id} className={`${card} flex flex-col gap-3 border-metatron-accent/40 p-4 sm:flex-row sm:flex-wrap sm:items-center`}>
+                    <span aria-hidden className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-metatron-accent text-sm font-semibold text-white">
+                      {initials(name)}
+                    </span>
+                    <div className="flex min-w-0 flex-1 basis-72 flex-col gap-1">
+                      <div className="flex flex-wrap items-center gap-2.5">
+                        <Link href={`/startup/investors/${r.for_user_id}`} className="text-base font-semibold text-[var(--text)] hover:underline">
+                          {name} wants to connect
+                        </Link>
+                        <Fit score={r.score} />
                       </div>
-                      <span
-                        className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${scoreBadgeColor(r.score)}`}
-                      >
-                        {r.score}% fit
-                      </span>
-                      {r.reasoning && (
-                        <div>
-                          <p className="text-[10px] uppercase tracking-wide text-[var(--text-muted)] mb-1">
-                            Why Kevin matched
-                          </p>
-                          <p className="text-xs text-[var(--text)] leading-relaxed">{r.reasoning}</p>
-                        </div>
-                      )}
+                      {meta && <span className="text-[13px] text-[var(--text-muted)]">{meta}</span>}
+                      {r.reasoning && <span className="text-sm text-[var(--text-muted)]">{r.reasoning}</span>}
                     </div>
-                    <div className="flex shrink-0 gap-2">
-                      <button
-                        type="button"
-                        onClick={() => void acceptReceivedConnect(r)}
-                        disabled={connectActionBusy === r.id + "accept"}
-                        className="px-3 py-2 bg-[var(--accent)] text-white rounded-lg text-xs font-medium hover:bg-[var(--accent-hover)] disabled:opacity-50"
-                      >
-                        {connectActionBusy === r.id + "accept" ? "…" : "Accept"}
+                    <div className="flex flex-wrap gap-2">
+                      <button type="button" className={btn} disabled={busy === r.id} onClick={() => void answer(r, false)}>
+                        Decline
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => void declineReceivedConnect(r)}
-                        disabled={connectActionBusy === r.id + "decline"}
-                        className="px-3 py-2 border border-[rgba(239,68,68,0.3)] text-[rgba(254,202,202,0.7)] rounded-lg text-xs hover:border-[rgba(239,68,68,0.5)] disabled:opacity-50"
-                      >
-                        {connectActionBusy === r.id + "decline" ? "…" : "Decline"}
+                      <button type="button" className={btnPrimary} disabled={busy === r.id} onClick={() => void answer(r, true)}>
+                        Accept
                       </button>
                     </div>
+                  </article>
+                );
+              })
+            )}
+            {answeredRequests.length > 0 && (
+              <section className={`${card} flex flex-col p-4`}>
+                <h2 className="mb-1 text-sm font-semibold">Answered</h2>
+                {answeredRequests.map((r) => (
+                  <div key={r.id} className="flex flex-wrap items-center justify-between gap-2 border-t border-[var(--border)] py-2.5 text-sm first:border-t-0">
+                    <span>{requesterName(r)}</span>
+                    {r.intro_accepted_at ? (
+                      <button type="button" className="text-[13px] text-[var(--accent-fg)] hover:underline" onClick={() => message(r.for_user_id, requesterName(r))}>
+                        Accepted · Message
+                      </button>
+                    ) : (
+                      <span className="text-[13px] text-[var(--text-muted)]">Declined</span>
+                    )}
                   </div>
                 ))}
-              </div>
+              </section>
             )}
           </div>
-        )}
-
-        {mainTab === "matches" && (
-          <>
-            {fetching && allMatches.length === 0 && (
+        ) : (
+          <div className="flex flex-col gap-3">
+            {fetching && matches.length === 0 ? (
               <p className="text-sm text-[var(--text-muted)]">Kevin is finding your matches…</p>
+            ) : list.length === 0 ? (
+              <p className="text-sm text-[var(--text-muted)]">
+                {tab === "sent"
+                  ? "You haven't sent any connect requests yet. Connect with a match on the For you tab."
+                  : matches.length === 0
+                    ? "No matches yet. Complete your Startup Profile (sector and stage) so Kevin can match you."
+                    : "You've reached out to every match. Kevin sends new ones as your batch refreshes."}
+              </p>
+            ) : (
+              <>
+                {list.slice(0, shown).map(matchRow)}
+                {list.length > shown && (
+                  <button type="button" className={`${btn} self-center`} onClick={() => setShown((n) => n + PAGE_SIZE)}>
+                    Show more ({list.length - shown} left)
+                  </button>
+                )}
+              </>
             )}
-
-            {!fetching && allMatches.length === 0 && (
-              <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-6 text-center">
-                <p className="text-sm text-[var(--text-muted)]">
-                  No matches yet. Complete your profile (sector and stage) to get your first weekly batch.
-                </p>
-              </div>
-            )}
-
-            {activeMatches.length > 0 && (
-              <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-5">
-                {view === "card" ? (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {paginated.map((m) => {
-                      const accepted =
-                        m.matched_user_id && acceptedPeerIds.has(m.matched_user_id);
-                      const showConnectCta =
-                        !m.intro_requested_at &&
-                        !(m.matched_user_id && acceptedPeerIds.has(m.matched_user_id));
-                      const dimmed = m.intro_requested_at && !accepted;
-                      return (
-                        <div
-                          key={m.id}
-                          onClick={() => setViewingMatch(m)}
-                          className={`rounded-xl p-4 cursor-pointer transition-colors border ${
-                            dimmed
-                              ? "border-[var(--border)] bg-[var(--bg)] opacity-60"
-                              : "border-[var(--border)] bg-[var(--bg)] hover:bg-[var(--bg-card)] hover:border-[rgba(var(--accent-rgb),0.2)]"
-                          }`}
-                        >
-                          <div className="flex items-start justify-between gap-2 mb-2">
-                            <div className="min-w-0">
-                              <p className="text-sm font-medium text-[var(--text)] truncate">
-                                {m.firm_name ?? "Independent investor"}
-                              </p>
-                              {m.country && (
-                                <p className="text-xs text-[var(--text-muted)]">{m.country}</p>
-                              )}
-                            </div>
-                            <span
-                              className={`shrink-0 px-2 py-0.5 rounded text-xs font-medium ${scoreBadgeColor(
-                                m.score
-                              )}`}
-                            >
-                              {m.score}%
-                            </span>
-                          </div>
-                          {m.one_liner && (
-                            <p className="text-xs text-[var(--text-muted)] line-clamp-2 mb-2">{m.one_liner}</p>
-                          )}
-                          <dl className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs mb-3">
-                            {m.sector && (
-                              <div>
-                                <dt className="text-[10px] uppercase tracking-wide text-[var(--text-muted)]">
-                                  Sector
-                                </dt>
-                                <dd className="text-[var(--text)] truncate">{m.sector}</dd>
-                              </div>
-                            )}
-                            {m.stage && (
-                              <div>
-                                <dt className="text-[10px] uppercase tracking-wide text-[var(--text-muted)]">
-                                  Stage
-                                </dt>
-                                <dd className="text-[var(--text)]">{m.stage}</dd>
-                              </div>
-                            )}
-                          </dl>
-                          {showConnectCta ? (
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                void requestIntro(m.id);
-                              }}
-                              disabled={introBusy === m.id}
-                              className="w-full rounded-lg bg-[var(--accent)] py-2 text-sm font-semibold text-white hover:bg-[var(--accent-hover)] disabled:opacity-50"
-                            >
-                              {introBusy === m.id ? "Sending…" : "Connect"}
-                            </button>
-                          ) : accepted ? (
-                            <p className="text-xs font-medium text-green-400">Connected — message</p>
-                          ) : (
-                            <span className="text-xs text-[var(--accent)]">Connect requested</span>
-                          )}
-                          {m.matched_user_id && (
-                            <button
-                              type="button"
-                              title={
-                                acceptedPeerIds.has(m.matched_user_id)
-                                  ? undefined
-                                  : "Connect with this user first"
-                              }
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                if (!acceptedPeerIds.has(m.matched_user_id!)) return;
-                                window.dispatchEvent(
-                                  new CustomEvent("metatron:open-chat", {
-                                    detail: {
-                                      userId: m.matched_user_id!,
-                                      name: m.firm_name ?? "Investor",
-                                    },
-                                  })
-                                );
-                              }}
-                              disabled={!acceptedPeerIds.has(m.matched_user_id)}
-                              className="mt-2 w-full rounded-lg border border-[var(--border)] py-1.5 text-xs text-[var(--text-muted)] hover:border-[rgba(var(--accent-rgb),0.4)] hover:text-[var(--accent)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                            >
-                              Message
-                            </button>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm table-fixed">
-                      <thead>
-                        <tr className="text-[var(--text-muted)] text-xs border-b border-[var(--border)]">
-                          {DEFAULT_MATCH_COLUMNS.map((col) => {
-                            const w = colWidths[col.key] ?? col.width;
-                            const isFirst = col.key === "investor";
-                            return (
-                              <th
-                                key={col.key}
-                                className={`relative cursor-default text-left pb-2 pr-3 ${isFirst ? "pl-3" : ""}`}
-                                style={{ width: w, minWidth: 80 }}
-                              >
-                                {col.label}
-                                <div
-                                  className="absolute right-0 top-2 bottom-2 w-1 cursor-col-resize z-10 rounded-full transition-colors hover:bg-[var(--accent)]"
-                                  onMouseDown={(e) => onColResizeStart(col.key, e)}
-                                  onClick={(e) => e.stopPropagation()}
-                                  aria-hidden
-                                />
-                              </th>
-                            );
-                          })}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {paginated.map((m) => {
-                          const accepted =
-                            m.matched_user_id && acceptedPeerIds.has(m.matched_user_id);
-                          const showConnectCta =
-                            !m.intro_requested_at &&
-                            !(m.matched_user_id && acceptedPeerIds.has(m.matched_user_id));
-                          const dimmed = m.intro_requested_at && !accepted;
-                          return (
-                            <tr
-                              key={m.id}
-                              onClick={() => setViewingMatch(m)}
-                              className={`border-b border-[var(--overlay-3)] cursor-pointer transition-colors h-14 ${
-                                dimmed ? "opacity-50" : "bg-[var(--bg)] hover:bg-[var(--bg-card)]"
-                              }`}
-                            >
-                              {DEFAULT_MATCH_COLUMNS.map((col) => {
-                                const w = colWidths[col.key] ?? col.width;
-                                const cellStyle: CSSProperties = {
-                                  width: w,
-                                  overflow: "hidden",
-                                  textOverflow: "ellipsis",
-                                  whiteSpace: "nowrap",
-                                };
-                                const isFirst = col.key === "investor";
-                                const baseTd = isFirst
-                                  ? "py-2 pl-3 pr-3 align-top"
-                                  : col.key === "fit"
-                                    ? "py-2 pr-3 align-top"
-                                    : col.key === "actions"
-                                      ? "py-2 pr-3 align-top"
-                                      : "py-2 pr-3 text-[var(--text-muted)] text-xs align-top";
-                                return (
-                                  <td key={col.key} className={baseTd} style={cellStyle}>
-                                    {col.key === "investor" ? (
-                                      <>
-                                        <p className="text-[var(--text)] font-medium">
-                                          {m.firm_name ?? "Independent investor"}
-                                        </p>
-                                        {m.one_liner && (
-                                          <p className="text-[var(--text-muted)] text-xs truncate max-w-[200px]">
-                                            {m.one_liner}
-                                          </p>
-                                        )}
-                                      </>
-                                    ) : col.key === "sector" ? (
-                                      (m.sector ?? "—")
-                                    ) : col.key === "stage" ? (
-                                      (m.stage ?? "—")
-                                    ) : col.key === "location" ? (
-                                      (m.country ?? "—")
-                                    ) : col.key === "fit" ? (
-                                      <span
-                                        className={`px-2 py-0.5 rounded text-xs font-medium ${scoreBadgeColor(
-                                          m.score
-                                        )}`}
-                                      >
-                                        {m.score}%
-                                      </span>
-                                    ) : (
-                                      <div className="flex items-center gap-2 whitespace-nowrap">
-                                        {showConnectCta ? (
-                                          <button
-                                            type="button"
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              void requestIntro(m.id);
-                                            }}
-                                            disabled={introBusy === m.id}
-                                            className="px-3 py-1.5 bg-[var(--accent)] text-white rounded-lg text-xs font-medium hover:bg-[var(--accent-hover)] disabled:opacity-50"
-                                          >
-                                            {introBusy === m.id ? "…" : "Connect"}
-                                          </button>
-                                        ) : accepted ? (
-                                          <span className="text-xs text-green-400">Connected — message</span>
-                                        ) : (
-                                          <span className="text-xs text-[var(--accent)]">Connect requested</span>
-                                        )}
-                                        {m.matched_user_id && (
-                                          <button
-                                            type="button"
-                                            title={
-                                              acceptedPeerIds.has(m.matched_user_id)
-                                                ? undefined
-                                                : "Connect with this user first"
-                                            }
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              if (!acceptedPeerIds.has(m.matched_user_id!)) return;
-                                              window.dispatchEvent(
-                                                new CustomEvent("metatron:open-chat", {
-                                                  detail: {
-                                                    userId: m.matched_user_id!,
-                                                    name: m.firm_name ?? "Investor",
-                                                  },
-                                                })
-                                              );
-                                            }}
-                                            disabled={!acceptedPeerIds.has(m.matched_user_id)}
-                                            className="px-3 py-1.5 border border-[var(--border)] text-[var(--text-muted)] rounded-lg text-xs hover:border-[rgba(var(--accent-rgb),0.4)] hover:text-[var(--accent)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                                          >
-                                            Message
-                                          </button>
-                                        )}
-                                      </div>
-                                    )}
-                                  </td>
-                                );
-                              })}
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-
-                {totalPages > 1 && (
-                  <div className="flex items-center justify-between mt-4 text-xs text-[var(--text-muted)]">
-                    <span>
-                      Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, activeMatches.length)} of{" "}
-                      {activeMatches.length}
-                    </span>
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setPageRaw((p) => Math.max(1, p - 1))}
-                        disabled={page === 1}
-                        className="px-3 py-1 bg-[var(--overlay-6)] rounded-lg disabled:opacity-30"
-                      >
-                        Previous
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setPageRaw((p) => Math.min(totalPages, p + 1))}
-                        disabled={page === totalPages}
-                        className="px-3 py-1 bg-[var(--overlay-6)] rounded-lg disabled:opacity-30"
-                      >
-                        Next
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {tab === "pending" && pending.length === 0 && requested.length > 0 && (
-              <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-5 text-center">
-                <p className="text-sm font-semibold text-[var(--text)] mb-1">
-                  You&apos;ve reached out to all your matches this week
-                </p>
-                <p className="text-xs text-[var(--text-muted)]">Your next batch of matches drops in 7 days.</p>
-              </div>
-            )}
-
-            {tab === "sent" && requested.length === 0 && (
-              <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-6 text-center">
-                <p className="text-sm text-[var(--text-muted)]">
-                  No connect requests sent yet. Send your first Connect from the Pending tab.
-                </p>
-              </div>
-            )}
-          </>
-        )}
-      </div>
-
-      {viewingMatch && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto py-8 px-4">
-          <div className="absolute inset-0 bg-black/60" onClick={() => setViewingMatch(null)} />
-          <div className="relative z-10 w-full max-w-lg max-h-[min(90vh,800px)] flex flex-col rounded-xl border border-[var(--border)] bg-[var(--bg-card)]">
-            <div className="flex items-start justify-between gap-3 border-b border-[var(--border)] px-5 py-4">
-              <div className="min-w-0">
-                <h2 className="text-xl font-semibold text-[var(--text)]">
-                  {viewingMatch.firm_name ?? "Independent investor"}
-                </h2>
-                {viewingMatch.country && (
-                  <p className="text-sm text-[var(--text-muted)] mt-0.5">{viewingMatch.country}</p>
-                )}
-                <span
-                  className={`mt-2 inline-block px-2 py-0.5 rounded text-xs font-medium ${scoreBadgeColor(
-                    viewingMatch.score
-                  )}`}
-                >
-                  {viewingMatch.score}% fit
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setViewingMatch(null)}
-                className="shrink-0 rounded-lg p-2 text-[var(--text-muted)] hover:bg-[var(--overlay-6)] hover:text-[var(--text)]"
-              >
-                <span className="block text-xl leading-none">×</span>
-              </button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
-              {viewingMatch.one_liner && (
-                <p className="text-sm italic text-[var(--text-muted)]">{viewingMatch.one_liner}</p>
-              )}
-              {viewingMatch.reasoning && (
-                <div>
-                  <p className="text-[10px] uppercase tracking-wide text-[var(--text-muted)] mb-1">
-                    Why Kevin matched you
-                  </p>
-                  <p className="text-sm text-[var(--text)] leading-relaxed">{viewingMatch.reasoning}</p>
-                </div>
-              )}
-              <div className="space-y-3 border-t border-[var(--border)] pt-4">
-                {(
-                  [
-                    ["Sector", viewingMatch.sector],
-                    ["Stage", viewingMatch.stage],
-                    ["Location", viewingMatch.country],
-                  ] as const
-                ).map(([label, val]) =>
-                  val ? (
-                    <div key={label}>
-                      <p className="text-[10px] uppercase tracking-wide text-[var(--text-muted)]">{label}</p>
-                      <p className="mt-0.5 text-sm text-[var(--text)]">{val}</p>
-                    </div>
-                  ) : null
-                )}
-              </div>
-            </div>
-
-            <div className="shrink-0 border-t border-[var(--border)] px-5 py-3 space-y-2">
-              {viewingMatch.intro_requested_at &&
-                viewingMatch.matched_user_id &&
-                acceptedPeerIds.has(viewingMatch.matched_user_id) && (
-                  <p className="text-sm text-green-400">Connected — message</p>
-                )}
-              {viewingMatch.intro_requested_at &&
-                viewingMatch.matched_user_id &&
-                !acceptedPeerIds.has(viewingMatch.matched_user_id) && (
-                  <p className="text-sm text-[var(--text-muted)]">Connect requested</p>
-                )}
-              {!viewingMatch.intro_requested_at &&
-              !(
-                viewingMatch.matched_user_id &&
-                acceptedPeerIds.has(viewingMatch.matched_user_id)
-              ) ? (
-                <button
-                  type="button"
-                  onClick={() => void requestIntro(viewingMatch.id)}
-                  disabled={introBusy === viewingMatch.id}
-                  className="w-full rounded-xl bg-[var(--accent)] py-2.5 text-sm font-semibold text-white hover:bg-[var(--accent-hover)] disabled:opacity-50"
-                >
-                  {introBusy === viewingMatch.id ? "Sending…" : "Connect →"}
-                </button>
-              ) : null}
-              {viewingMatch.matched_user_id && (
-                <button
-                  type="button"
-                  title={
-                    acceptedPeerIds.has(viewingMatch.matched_user_id)
-                      ? undefined
-                      : "Connect with this user first"
-                  }
-                  onClick={() => {
-                    if (!acceptedPeerIds.has(viewingMatch.matched_user_id!)) return;
-                    window.dispatchEvent(
-                      new CustomEvent("metatron:open-chat", {
-                        detail: {
-                          userId: viewingMatch.matched_user_id!,
-                          name: viewingMatch.firm_name ?? "Investor",
-                        },
-                      })
-                    );
-                    setViewingMatch(null);
-                  }}
-                  disabled={!acceptedPeerIds.has(viewingMatch.matched_user_id)}
-                  className="w-full rounded-xl border border-[var(--border)] py-2.5 text-sm text-[var(--text-muted)] hover:border-[rgba(var(--accent-rgb),0.4)] hover:text-[var(--accent)] disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  Message →
-                </button>
-              )}
-            </div>
           </div>
-        </div>
-      )}
+        )}
+      </section>
     </main>
   );
 }

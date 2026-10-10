@@ -6,6 +6,7 @@ import { API_BASE, authHeaders, authJsonHeaders } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { COUNTRIES } from "@/lib/countries";
 import { STAGES } from "@/lib/stages";
+import PitchDataSection from "@/components/startup/PitchDataSection";
 
 type ApiProfile = {
   company_name?: string | null;
@@ -110,8 +111,10 @@ export default function StartupProfilePage() {
   const [profile, setProfile] = useState<Profile>({ sectors: [] });
   const [sectorDraft, setSectorDraft] = useState("");
   const [primaryDeckUploadBusy, setPrimaryDeckUploadBusy] = useState(false);
-  const [deckUploadedShowPitchLink, setDeckUploadedShowPitchLink] =
-    useState(false);
+  const [refillBusy, setRefillBusy] = useState(false);
+  // Bumped whenever Kevin rebuilds the pitch from the deck, so the pitch
+  // section below reloads with the new content.
+  const [pitchRefreshKey, setPitchRefreshKey] = useState(0);
 
   const primaryDeckPdfRef = useRef<HTMLInputElement | null>(null);
 
@@ -163,7 +166,6 @@ export default function StartupProfilePage() {
       return;
     }
     setMsg(null);
-    setDeckUploadedShowPitchLink(false);
     setPrimaryDeckUploadBusy(true);
     try {
       const fd = new FormData();
@@ -196,23 +198,54 @@ export default function StartupProfilePage() {
       }
 
       await reloadProfileFromApi();
+      setPitchRefreshKey((k) => k + 1);
 
       const extractionErr = data.extraction_error;
       if (typeof extractionErr === "string" && extractionErr.trim()) {
         setMsg(
-          `Deck uploaded. Kevin could not auto-fill all fields (${extractionErr}). You can edit your pitch on the Pitch data page.`,
+          "Deck uploaded, but Kevin couldn't read it. You can fill in your pitch below, or try \"Fill from my deck\" again later.",
         );
       } else {
         setMsg(
-          "Deck uploaded. Kevin extracted fields and created a pitch — open Pitch data to review.",
+          "Deck uploaded. Kevin read it and filled in the empty fields of your profile and pitch below.",
         );
       }
-      setDeckUploadedShowPitchLink(true);
     } catch {
       setMsg("Deck upload failed.");
     } finally {
       setPrimaryDeckUploadBusy(false);
       e.target.value = "";
+    }
+  }
+
+  async function onRefillFromDeck() {
+    if (!token) return;
+    if (
+      !window.confirm(
+        "Kevin will re-read your deck and replace your profile and pitch details with what's in it. Continue?",
+      )
+    ) {
+      return;
+    }
+    setMsg(null);
+    setRefillBusy(true);
+    try {
+      const res = await fetch(`${API_BASE}/uploads/pitch-deck/refill`, {
+        method: "POST",
+        headers: authHeaders(token),
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        setMsg(text || "Kevin couldn't read your deck. Please try again.");
+        return;
+      }
+      await reloadProfileFromApi();
+      setPitchRefreshKey((k) => k + 1);
+      setMsg("Kevin updated your profile and pitch from your deck. Check them below and edit anything that's off.");
+    } catch {
+      setMsg("Kevin couldn't read your deck. Please try again.");
+    } finally {
+      setRefillBusy(false);
     }
   }
 
@@ -268,7 +301,7 @@ export default function StartupProfilePage() {
     <main className="flex-1">
       <section className="p-6 md:p-10 max-w-5xl mx-auto">
         <div className="space-y-6">
-            <h1 className="text-2xl font-semibold text-[var(--text)]">Company & pitch deck</h1>
+            <h1 className="text-2xl font-semibold text-[var(--text)]">Startup Profile</h1>
             {loading ? (
               <p className="text-sm text-[var(--text-muted)]">Loading…</p>
             ) : (
@@ -461,10 +494,20 @@ export default function StartupProfilePage() {
                   </div>
                 )}
 
-                {deckUploadedShowPitchLink ? (
-                  <Link href="/startup/pitches" className="inline-block text-xs font-semibold text-metatron-accent hover:underline">
-                    Your deck has been uploaded — view your pitch data →
-                  </Link>
+                {profile.pitch_deck_url ? (
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-3 border-t border-[var(--border)] pt-3">
+                    <button
+                      type="button"
+                      disabled={refillBusy || primaryDeckUploadBusy}
+                      onClick={onRefillFromDeck}
+                      className="rounded-lg border border-[var(--border)] px-4 py-2 text-xs font-semibold text-[var(--text)] hover:bg-[var(--overlay-4)] disabled:opacity-50"
+                    >
+                      {refillBusy ? "Kevin is reading your deck…" : "Fill from my deck"}
+                    </button>
+                    <p className="text-[11px] text-[var(--text-muted)]">
+                      Kevin re-reads your deck and refreshes your profile and pitch.
+                    </p>
+                  </div>
                 ) : null}
               </div>
             </div>
@@ -483,6 +526,10 @@ export default function StartupProfilePage() {
                 {msg}
               </p>
             )}
+
+            <div className="border-t border-[var(--border)] pt-6">
+              <PitchDataSection refreshKey={pitchRefreshKey} />
+            </div>
           </div>
       </section>
     </main>

@@ -29,6 +29,7 @@ const MAX_UPLOAD_BYTES: usize = 52 * 1024 * 1024;
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/pitch-deck", post(upload_pitch_deck))
+        .route("/pitch-deck/refill", post(refill_from_deck))
         .route("/ipfs-visibility", put(set_ipfs_visibility))
 }
 
@@ -271,7 +272,9 @@ async fn upload_pitch_deck(
                     )
                     .await;
                     extracted = Some(v.clone());
-                    match insert_pitch_from_extracted(&state.db, id, &v).await {
+                    // A new upload only fills fields the founder hasn't filled in yet;
+                    // "Fill from my deck" (refill_from_deck) is the explicit full refresh.
+                    match apply_deck_extraction(&state.db, id, &v, false).await {
                         Ok(pid) => {
                             let org_id = ensure_user_org(&state.db, id).await.map_err(|_| {
                                 (StatusCode::INTERNAL_SERVER_ERROR, "db error".into())
@@ -279,28 +282,12 @@ async fn upload_pitch_deck(
                             match pitch_response_for_org_pitch(&state.db, org_id, pid).await {
                                 Ok(p) => pitch = Some(p),
                                 Err(e) => {
-                                    tracing::error!("pitch_response after deck insert: {e}");
+                                    tracing::error!("pitch_response after deck extraction: {e}");
                                 }
                             }
                         }
                         Err(e) => {
-                            tracing::error!("insert_pitch_from_extracted: {e}");
-                        }
-                    }
-                    let deck_full_text = v
-                        .get("full_text")
-                        .and_then(|x| x.as_str())
-                        .map(|s| s.to_string());
-                    if let Some(t) = deck_full_text.as_deref() {
-                        let trimmed = t.trim();
-                        if !trimmed.is_empty() {
-                            let _ = sqlx::query(
-                                "UPDATE profiles SET deck_text = $1, updated_at = NOW() WHERE user_id = $2",
-                            )
-                            .bind(trimmed)
-                            .bind(id)
-                            .execute(&state.db)
-                            .await;
+                            tracing::error!("apply_deck_extraction: {e}");
                         }
                     }
                 }
@@ -481,6 +468,297 @@ async fn insert_pitch_from_extracted(
     .await?;
 
     Ok(pitch_id)
+}
+
+const DECK_STAGES: [&str; 8] = [
+    "idea", "pre-seed", "seed", "series-a", "series-b", "series-c", "growth", "profitable",
+];
+
+/// Stage slug as used by the profile form (`frontend/lib/stages.ts`).
+fn deck_stage(v: &JsonValue) -> Option<String> {
+    let s = ev_str(v, "stage")?.to_lowercase().replace([' ', '_'], "-");
+    DECK_STAGES.contains(&s.as_str()).then_some(s)
+}
+
+/// Sector tags joined the way the profile form stores them ("FinTech, Payments").
+fn deck_sectors(v: &JsonValue) -> Option<String> {
+    let tags: Vec<String> = v
+        .get("sectors")?
+        .as_array()?
+        .iter()
+        .filter_map(|t| t.as_str().map(str::trim))
+        .filter(|t| !t.is_empty())
+        .take(4)
+        .map(str::to_string)
+        .collect();
+    (!tags.is_empty()).then(|| tags.join(", "))
+}
+
+/// ISO 3166-1 alpha-2 code (profiles.country is CHAR(2)).
+fn deck_country_code(v: &JsonValue) -> Option<String> {
+    let c = ev_str(v, "country_code")?.to_uppercase();
+    (c.len() == 2 && c.chars().all(|ch| ch.is_ascii_uppercase())).then_some(c)
+}
+
+/// SQL for one text column: with `$2` (overwrite) true the deck value replaces the
+/// current one (kept when the deck has nothing for it); otherwise the deck value
+/// only fills a blank.
+fn fill_col(col: &str, param: &str) -> String {
+    format!(
+        "{col} = CASE WHEN $2 THEN COALESCE({param}::text, {col}::text) \
+         ELSE COALESCE(NULLIF(TRIM({col}::text), ''), {param}::text) END"
+    )
+}
+
+/// Applies Kevin's deck extraction to the founder's profile (company name, one-liner,
+/// stage, sectors, country, website, deck text) and to their pitch — updating the
+/// existing pitch rather than creating another one. `overwrite = false` fills only
+/// empty fields (a new upload); `true` refreshes every field the deck covers
+/// ("Fill from my deck"). Returns the pitch id.
+async fn apply_deck_extraction(
+    db: &sqlx::PgPool,
+    user_id: Uuid,
+    extracted: &JsonValue,
+    overwrite: bool,
+) -> Result<Uuid, sqlx::Error> {
+    let company = ev_str(extracted, "company_name").or_else(|| ev_str(extracted, "company"));
+    let one_liner = ev_str(extracted, "one_liner");
+    let stage = deck_stage(extracted);
+    let sectors = deck_sectors(extracted);
+    let deck_text = ev_str(extracted, "full_text");
+
+    sqlx::query("INSERT INTO profiles (user_id) VALUES ($1) ON CONFLICT (user_id) DO NOTHING")
+        .bind(user_id)
+        .execute(db)
+        .await?;
+    let profile_sql = format!(
+        "UPDATE profiles SET {}, {}, {}, {}, {}, {}, deck_text = COALESCE($9, deck_text), updated_at = now() \
+         WHERE user_id = $1",
+        fill_col("company_name", "$3"),
+        fill_col("one_liner", "$4"),
+        fill_col("stage", "$5"),
+        fill_col("sector", "$6"),
+        fill_col("country", "$7"),
+        fill_col("website", "$8"),
+    );
+    sqlx::query(&profile_sql)
+        .bind(user_id)
+        .bind(overwrite)
+        .bind(&company)
+        .bind(&one_liner)
+        .bind(&stage)
+        .bind(&sectors)
+        .bind(deck_country_code(extracted))
+        .bind(ev_str(extracted, "website"))
+        .bind(&deck_text)
+        .execute(db)
+        .await?;
+
+    // The founder's current pitch is the newest one (same order as GET /pitches).
+    let org_id = ensure_user_org(db, user_id).await?;
+    let existing: Option<Uuid> = sqlx::query_scalar(
+        "SELECT id FROM pitches WHERE organization_id = $1 ORDER BY created_at DESC LIMIT 1",
+    )
+    .bind(org_id)
+    .fetch_optional(db)
+    .await?;
+    // No pitch yet: create it, then the update below also fills stage and sector.
+    let pitch_id = match existing {
+        Some(id) => id,
+        None => insert_pitch_from_extracted(db, user_id, extracted).await?,
+    };
+
+    let pitch_sql = format!(
+        "UPDATE pitches SET \
+         title = CASE WHEN $2 THEN COALESCE($3, title) \
+                 ELSE COALESCE(NULLIF(NULLIF(TRIM(title), ''), 'Untitled pitch'), $3) END, \
+         {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, \
+         team_members = CASE \
+             WHEN $2 THEN COALESCE($15, team_members) \
+             WHEN team_members IS NULL OR team_members = '[]'::jsonb THEN COALESCE($15, team_members) \
+             ELSE team_members END, \
+         updated_at = now() \
+         WHERE id = $1",
+        fill_col("description", "$4"),
+        fill_col("problem", "$5"),
+        fill_col("solution", "$6"),
+        fill_col("market_size", "$7"),
+        fill_col("business_model", "$8"),
+        fill_col("traction", "$9"),
+        fill_col("funding_ask", "$10"),
+        fill_col("use_of_funds", "$11"),
+        fill_col("incorporation_country", "$12"),
+        fill_col("stage", "$13"),
+        fill_col("sector", "$14"),
+    );
+    sqlx::query(&pitch_sql)
+        .bind(pitch_id)
+        .bind(overwrite)
+        .bind(&company)
+        .bind(&one_liner)
+        .bind(ev_str(extracted, "problem"))
+        .bind(ev_str(extracted, "solution"))
+        .bind(ev_str(extracted, "market_size").or_else(|| ev_str(extracted, "market size")))
+        .bind(ev_str(extracted, "business_model"))
+        .bind(ev_str(extracted, "traction"))
+        .bind(ev_str(extracted, "funding_ask").or_else(|| ev_str(extracted, "funding ask")))
+        .bind(ev_str(extracted, "use_of_funds").or_else(|| ev_str(extracted, "use of funds")))
+        .bind(ev_str(extracted, "incorporation_country"))
+        .bind(&stage)
+        .bind(&sectors)
+        .bind(normalize_team_members(extracted))
+        .execute(db)
+        .await?;
+
+    Ok(pitch_id)
+}
+
+/// True for addresses a server-side fetch must never reach (loopback, private,
+/// link-local, CGNAT, unique-local) — the deck link is user-supplied.
+fn is_internal_ip(ip: std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(v) => {
+            let o = v.octets();
+            v.is_loopback()
+                || v.is_private()
+                || v.is_link_local()
+                || v.is_unspecified()
+                || v.is_broadcast()
+                || (o[0] == 100 && (o[1] & 0xc0) == 64)
+        }
+        std::net::IpAddr::V6(v) => {
+            let s0 = v.segments()[0];
+            v.is_loopback() || v.is_unspecified() || (s0 & 0xfe00) == 0xfc00 || (s0 & 0xffc0) == 0xfe80
+        }
+    }
+}
+
+/// Downloads the founder's deck (an IPFS upload or a link they pasted) for Kevin to
+/// read. https only, no internal addresses, PDFs only. Errors are user-facing.
+async fn fetch_deck_pdf(deck_url: &str) -> Result<Vec<u8>, String> {
+    let url = reqwest::Url::parse(deck_url).map_err(|_| "Your deck link isn't a valid web address.".to_string())?;
+    if url.scheme() != "https" {
+        return Err("Kevin can only read decks from secure (https) links.".into());
+    }
+    let host = url.host_str().ok_or("Your deck link isn't a valid web address.")?.to_string();
+    let port = url.port_or_known_default().unwrap_or(443);
+    let addrs: Vec<_> = tokio::net::lookup_host((host.as_str(), port))
+        .await
+        .map_err(|_| "Kevin couldn't reach your deck link.".to_string())?
+        .collect();
+    if addrs.is_empty() || addrs.iter().any(|a| is_internal_ip(a.ip())) {
+        return Err("Kevin couldn't reach your deck link.".into());
+    }
+
+    // Follow ordinary hosting redirects (e.g. file-sharing links), but only to
+    // https hostnames — never to a raw IP or localhost.
+    let policy = reqwest::redirect::Policy::custom(|attempt| {
+        let ok = attempt.url().scheme() == "https"
+            && attempt.url().host_str().is_some_and(|h| {
+                h != "localhost" && !h.starts_with('[') && h.parse::<std::net::IpAddr>().is_err()
+            });
+        if attempt.previous().len() >= 5 || !ok {
+            attempt.stop()
+        } else {
+            attempt.follow()
+        }
+    });
+    let client = reqwest::Client::builder()
+        .redirect(policy)
+        .timeout(std::time::Duration::from_secs(60))
+        .build()
+        .map_err(|_| "Kevin couldn't download your deck.".to_string())?;
+    let resp = client
+        .get(url)
+        .send()
+        .await
+        .map_err(|_| "Kevin couldn't download your deck.".to_string())?;
+    if !resp.status().is_success() {
+        return Err(format!("Kevin couldn't download your deck (HTTP {}).", resp.status().as_u16()));
+    }
+    if resp.content_length().is_some_and(|n| n as usize > MAX_UPLOAD_BYTES) {
+        return Err("Your deck is too large for Kevin to read.".into());
+    }
+    let bytes = resp
+        .bytes()
+        .await
+        .map_err(|_| "Kevin couldn't download your deck.".to_string())?;
+    if bytes.len() > MAX_UPLOAD_BYTES {
+        return Err("Your deck is too large for Kevin to read.".into());
+    }
+    if !bytes.starts_with(b"%PDF") {
+        return Err("Kevin can only read PDF decks. Upload your deck as a PDF, or link directly to a PDF file.".into());
+    }
+    Ok(bytes.to_vec())
+}
+
+/// "Fill from my deck": Kevin re-reads the deck already on the founder's profile and
+/// refreshes every profile and pitch field the deck covers.
+async fn refill_from_deck(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+) -> Result<axum::response::Response, (StatusCode, String)> {
+    let authed_user = require_user(&state, bearer.token()).await?;
+    if !authed_user.role.eq_ignore_ascii_case("STARTUP") {
+        return Err((StatusCode::FORBIDDEN, "wrong role for this resource".into()));
+    }
+    let id = authed_user.id;
+
+    let deck_url: Option<String> = sqlx::query_scalar::<_, Option<String>>(
+        "SELECT pitch_deck_url FROM profiles WHERE user_id = $1",
+    )
+    .bind(id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "db error".to_string()))?
+    .flatten()
+    .filter(|u| !u.trim().is_empty());
+    let deck_url = deck_url.ok_or((StatusCode::BAD_REQUEST, "Add your pitch deck first.".to_string()))?;
+
+    let api_key = state
+        .ai_api_key
+        .as_deref()
+        .filter(|k| !k.trim().is_empty())
+        .ok_or((StatusCode::SERVICE_UNAVAILABLE, "Deck reading isn't configured.".to_string()))?;
+
+    let raw = fetch_deck_pdf(deck_url.trim())
+        .await
+        .map_err(|e| (StatusCode::UNPROCESSABLE_ENTITY, e))?;
+
+    let (v, usage) = ai::extract_pitch_from_deck_pdf(&state.http_client, api_key, &raw, state.gemini_model.as_str())
+        .await
+        .map_err(|e| {
+            tracing::warn!("refill_from_deck: extraction failed for {id}: {}", e.chars().take(300).collect::<String>());
+            (StatusCode::BAD_GATEWAY, "Kevin couldn't read your deck. Please try again.".to_string())
+        })?;
+    crate::cost::record_llm_usage(
+        &state.db,
+        Some(id),
+        None,
+        None,
+        "pitch_extraction",
+        "gemini",
+        state.gemini_model.as_str(),
+        usage.input_tokens,
+        usage.output_tokens,
+    )
+    .await;
+
+    let pitch_id = apply_deck_extraction(&state.db, id, &v, true).await.map_err(|e| {
+        tracing::error!("refill_from_deck: apply failed for {id}: {e}");
+        (StatusCode::INTERNAL_SERVER_ERROR, "db error".to_string())
+    })?;
+    let org_id = ensure_user_org(&state.db, id)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "db error".to_string()))?;
+    let pitch = pitch_response_for_org_pitch(&state.db, org_id, pitch_id).await.ok();
+
+    let snap_state = Arc::clone(&state);
+    tokio::spawn(async move {
+        snapshot_user_context(snap_state, id).await;
+    });
+
+    Ok((StatusCode::OK, Json(json!({ "pitch": pitch }))).into_response())
 }
 
 #[derive(Deserialize)]

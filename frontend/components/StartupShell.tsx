@@ -6,7 +6,6 @@ import {
   IconArrowsExchange,
   IconBuilding,
   IconCreditCard,
-  IconFileText,
   IconHeadset,
   IconLayoutDashboard,
   IconRobot,
@@ -19,7 +18,7 @@ import DashboardChrome, { type ChromeNavItem } from "@/components/DashboardChrom
 const FREE_NAV = [
   { href: "/startup", label: "Dashboard", icon: IconLayoutDashboard },
   { href: "/startup/kevin", label: "Chat with Kevin", icon: IconRobot },
-  { href: "/startup/pitches", label: "Pitch data", icon: IconFileText },
+  { href: "/startup/profile", label: "Startup Profile", icon: IconUserCircle },
   { href: "/startup/matches", label: "Matches", icon: IconArrowsExchange },
   { href: "/startups", label: "Browse Startups", icon: IconBuilding },
 ];
@@ -27,11 +26,10 @@ const FREE_NAV = [
 const PRO_NAV = [
   { href: "/startup", label: "Dashboard", icon: IconLayoutDashboard },
   { href: "/startup/kevin", label: "Chat with Kevin", icon: IconRobot },
-  { href: "/startup/pitches", label: "Pitch data", icon: IconFileText },
+  { href: "/startup/profile", label: "Startup Profile", icon: IconUserCircle },
   { href: "/startup/matches", label: "Matches", icon: IconArrowsExchange },
   { href: "/startups", label: "Browse Startups", icon: IconBuilding },
   { href: "/startup/calls", label: "Call Intelligence", icon: IconHeadset },
-  { href: "/startup/profile", label: "Profile Settings", icon: IconUserCircle },
 ];
 
 export default function StartupShell({ children }: { children: ReactNode }) {
@@ -65,13 +63,6 @@ export default function StartupShell({ children }: { children: ReactNode }) {
       icon: IconHeadset,
       kind: "locked",
       onClick: () => router.push("/pricing"),
-    });
-    navItems.push({
-      key: "/startup/profile",
-      href: "/startup/profile",
-      label: "Profile Settings",
-      icon: IconUserCircle,
-      kind: "link",
     });
   }
 

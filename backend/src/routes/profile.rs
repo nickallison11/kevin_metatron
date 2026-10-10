@@ -45,6 +45,12 @@ pub struct ProfileDto {
     /// Public startup directory listing -- opt-out, defaults TRUE.
     #[serde(default = "default_true")]
     pub is_publicly_listed: bool,
+    /// Company logo ({FRONTEND_URL}/media/<cid>); read-only here, set via /uploads/logo*.
+    #[serde(default)]
+    pub logo_url: Option<String>,
+    /// 'website' (found automatically) or 'upload'.
+    #[serde(default)]
+    pub logo_source: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -69,6 +75,8 @@ impl Default for ProfileDto {
             deck_upload_count: 0,
             context_ipfs_url: None,
             is_publicly_listed: true,
+            logo_url: None,
+            logo_source: None,
         }
     }
 }
@@ -88,12 +96,14 @@ async fn fetch_profile(
 ) -> Result<Json<ProfileDto>, (axum::http::StatusCode, String)> {
     let row = sqlx::query_as::<_, ProfileRow>(
         r#"
-        SELECT company_name, one_liner, stage, sector, country::text as country,
-               website, pitch_deck_url, ipfs_visibility,
-               deck_expires_at::text as deck_expires_at,
-               COALESCE(deck_upload_count, 0)::int as deck_upload_count,
-               context_ipfs_url, is_publicly_listed
-        FROM profiles WHERE user_id = $1
+        SELECT p.company_name, p.one_liner, p.stage, p.sector, p.country::text as country,
+               p.website, p.pitch_deck_url, p.ipfs_visibility,
+               p.deck_expires_at::text as deck_expires_at,
+               COALESCE(p.deck_upload_count, 0)::int as deck_upload_count,
+               p.context_ipfs_url, COALESCE(p.is_publicly_listed, TRUE) as is_publicly_listed,
+               u.logo_url, u.logo_source
+        FROM users u LEFT JOIN profiles p ON p.user_id = u.id
+        WHERE u.id = $1
         "#,
     )
     .bind(user_id)
@@ -118,6 +128,8 @@ struct ProfileRow {
     deck_upload_count: i32,
     context_ipfs_url: Option<String>,
     is_publicly_listed: bool,
+    logo_url: Option<String>,
+    logo_source: Option<String>,
 }
 
 impl From<ProfileRow> for ProfileDto {
@@ -135,6 +147,8 @@ impl From<ProfileRow> for ProfileDto {
             deck_upload_count: r.deck_upload_count,
             context_ipfs_url: r.context_ipfs_url,
             is_publicly_listed: r.is_publicly_listed,
+            logo_url: r.logo_url,
+            logo_source: r.logo_source,
         }
     }
 }
@@ -227,6 +241,14 @@ async fn put_profile(
     tokio::spawn(async move {
         snapshot_user_context(snap_state, id).await;
     });
+    // A new or changed website: look for the company logo there (never
+    // replaces a logo the founder uploaded).
+    if out.logo_source.as_deref() != Some("upload") && body.website.as_deref().is_some_and(|w| !w.trim().is_empty()) {
+        let logo_state = Arc::clone(&state);
+        tokio::spawn(async move {
+            crate::routes::uploads::refresh_logo_from_website(logo_state, id).await;
+        });
+    }
     Ok(out)
 }
 

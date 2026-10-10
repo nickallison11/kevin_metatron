@@ -4,6 +4,8 @@ import AngelScoreCard from "@/components/AngelScoreCard";
 import ChannelLinksCard from "@/components/ChannelLinksCard";
 import KevinMatchFeed from "@/components/KevinMatchFeed";
 import ShareProfileCard from "@/components/ShareProfileCard";
+import DeckActivityCard from "@/components/startup/DeckActivityCard";
+import StartupReviewsCard from "@/components/startup/StartupReviewsCard";
 import { useAuth } from "@/lib/auth";
 
 export default function StartupDashboardPage() {
@@ -21,6 +23,8 @@ export default function StartupDashboardPage() {
             <AngelScoreCard token={token} />
             <ChannelLinksCard token={token} />
             <ShareProfileCard token={token} />
+            <DeckActivityCard token={token} />
+            <StartupReviewsCard token={token} />
           </div>
           <KevinMatchFeed token={token} role="founder" />
         </div>

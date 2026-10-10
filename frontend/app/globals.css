@@ -129,7 +129,8 @@ html.light .orb {
 }
 
 html.light .nav-metatron {
-  background: rgba(245, 245, 247, 0.85);
+  background: rgba(255, 255, 255, 0.92);
+  border-bottom: 1px solid var(--border);
 }
 
 /* Scrollbar (reference) */

@@ -116,7 +116,7 @@ function PlanCard({
   onSubscribeZar: () => void;
 }) {
   return (
-    <section className="flex flex-col rounded-[12px] border border-metatron-accent/40 bg-[var(--bg-card)] p-6 text-left shadow-[0_0_40px_rgba(108,92,231,0.12)]">
+    <section className="flex flex-col rounded-[12px] border border-metatron-accent/40 bg-[var(--bg-card)] p-6 text-left shadow-[0_0_40px_rgba(var(--accent-rgb),0.12)]">
       <p className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
         {label}
       </p>

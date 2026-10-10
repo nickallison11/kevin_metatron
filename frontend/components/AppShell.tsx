@@ -197,16 +197,9 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
         {/* Desktop nav links — centered, hidden on mobile */}
         <div className="hidden min-w-0 flex-1 items-center justify-center gap-x-6 md:flex">
+          {/* Logged-in navigation lives in the dashboard's left menu. */}
           {loggedIn && (
-            <>
-              <Link href={dashboardHref} className={navLinkClass}>
-                Dashboard
-              </Link>
-              <Link href="/founders" className={navLinkClass}>Founder</Link>
-              <Link href="/connectors" className={navLinkClass}>Connector</Link>
-              <Link href="/investors" className={navLinkClass}>Investor</Link>
-              <Link href="/pricing" className={navLinkClass}>Pricing</Link>
-            </>
+            <Link href="/pricing" className={navLinkClass}>Pricing</Link>
           )}
           {isAdmin && (
             <Link href="/admin/users" className={navLinkClass}>Admin</Link>
@@ -293,27 +286,6 @@ export default function AppShell({ children }: { children: ReactNode }) {
       {/* Mobile menu drawer */}
       {menuOpen && (
         <div className="relative z-[99] flex flex-col gap-4 border-b border-[var(--border)] bg-[var(--bg)] px-6 py-4 md:hidden">
-          <Link
-            href="/founders"
-            className={navLinkClass}
-            onClick={() => setMenuOpen(false)}
-          >
-            Founder
-          </Link>
-          <Link
-            href="/connectors"
-            className={navLinkClass}
-            onClick={() => setMenuOpen(false)}
-          >
-            Connector
-          </Link>
-          <Link
-            href="/investors"
-            className={navLinkClass}
-            onClick={() => setMenuOpen(false)}
-          >
-            Investor
-          </Link>
           {loggedIn && (
             <Link
               href="/pricing"

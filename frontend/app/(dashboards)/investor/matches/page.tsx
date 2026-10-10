@@ -71,7 +71,7 @@ const DEFAULT_INVESTOR_MATCH_COLUMNS = [
 
 const scoreBadgeColor = (score: number) => {
   if (score >= 85) return "bg-[rgba(0,200,100,0.12)] text-green-400";
-  if (score >= 70) return "bg-[rgba(108,92,231,0.15)] text-[#6c5ce7]";
+  if (score >= 70) return "bg-[rgba(var(--accent-rgb),0.15)] text-[var(--accent)]";
   return "bg-[var(--overlay-6)] text-[var(--text-muted)]";
 };
 
@@ -362,7 +362,7 @@ function InvestorMatchesPageInner() {
                 }}
                 className={`px-3 py-1 rounded-lg text-xs font-medium ${
                   tab === t
-                    ? "bg-[rgba(108,92,231,0.2)] text-[#6c5ce7]"
+                    ? "bg-[rgba(var(--accent-rgb),0.2)] text-[var(--accent)]"
                     : "text-[var(--text-muted)] hover:text-[var(--text)]"
                 }`}
               >
@@ -411,7 +411,7 @@ function InvestorMatchesPageInner() {
                         >
                           {col.label}
                           <div
-                            className="absolute right-0 top-2 bottom-2 w-1 cursor-col-resize z-10 rounded-full transition-colors hover:bg-[#6c5ce7]"
+                            className="absolute right-0 top-2 bottom-2 w-1 cursor-col-resize z-10 rounded-full transition-colors hover:bg-[var(--accent)]"
                             onMouseDown={(e) => onIntroColResizeStart(col.key, e)}
                             onClick={(e) => e.stopPropagation()}
                             aria-hidden
@@ -426,7 +426,7 @@ function InvestorMatchesPageInner() {
                     <tr
                       key={r.id}
                       onClick={() => setViewingIntro(r)}
-                      className="border-b border-[var(--overlay-3)] cursor-pointer transition-colors hover:bg-[rgba(108,92,231,0.04)] h-14"
+                      className="border-b border-[var(--overlay-3)] cursor-pointer transition-colors hover:bg-[rgba(var(--accent-rgb),0.04)] h-14"
                     >
                       {DEFAULT_INTRO_COLUMNS.map((col) => {
                         const w = introColWidths[col.key] ?? col.width;
@@ -482,7 +482,7 @@ function InvestorMatchesPageInner() {
                                         void viewDeck(r);
                                       }}
                                       disabled={actionBusy === r.id + "deck"}
-                                      className="px-2.5 py-1.5 border border-[var(--border)] text-[var(--text-muted)] rounded-lg text-xs hover:border-[rgba(108,92,231,0.4)] hover:text-[#6c5ce7] transition-colors disabled:opacity-50"
+                                      className="px-2.5 py-1.5 border border-[var(--border)] text-[var(--text-muted)] rounded-lg text-xs hover:border-[rgba(var(--accent-rgb),0.4)] hover:text-[var(--accent)] transition-colors disabled:opacity-50"
                                     >
                                       {r.deck_viewed_at ? "Deck ✓" : "View deck"}
                                     </button>
@@ -494,7 +494,7 @@ function InvestorMatchesPageInner() {
                                       void acceptIntro(r);
                                     }}
                                     disabled={actionBusy === r.id + "accept"}
-                                    className="px-2.5 py-1.5 bg-[#6c5ce7] text-white rounded-lg text-xs font-medium hover:bg-[#7d6ff0] disabled:opacity-50"
+                                    className="px-2.5 py-1.5 bg-[var(--accent)] text-white rounded-lg text-xs font-medium hover:bg-[var(--accent-hover)] disabled:opacity-50"
                                   >
                                     {actionBusy === r.id + "accept" ? "…" : "Accept"}
                                   </button>
@@ -563,7 +563,7 @@ function InvestorMatchesPageInner() {
                     onClick={() => setMatchView(v)}
                     className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
                       matchView === v
-                        ? "bg-[rgba(108,92,231,0.2)] text-[#6c5ce7]"
+                        ? "bg-[rgba(var(--accent-rgb),0.2)] text-[var(--accent)]"
                         : "text-[var(--text-muted)] hover:text-[var(--text)]"
                     }`}
                   >
@@ -589,7 +589,7 @@ function InvestorMatchesPageInner() {
                           >
                             {col.label}
                             <div
-                              className="absolute right-0 top-2 bottom-2 w-1 cursor-col-resize z-10 rounded-full transition-colors hover:bg-[#6c5ce7]"
+                              className="absolute right-0 top-2 bottom-2 w-1 cursor-col-resize z-10 rounded-full transition-colors hover:bg-[var(--accent)]"
                               onMouseDown={(e) => onMatchColResizeStart(col.key, e)}
                               onClick={(e) => e.stopPropagation()}
                               aria-hidden
@@ -604,7 +604,7 @@ function InvestorMatchesPageInner() {
                       <tr
                         key={m.id}
                         onClick={() => setViewingMatch(m)}
-                        className="border-b border-[var(--overlay-3)] cursor-pointer transition-colors hover:bg-[rgba(108,92,231,0.04)] h-14"
+                        className="border-b border-[var(--overlay-3)] cursor-pointer transition-colors hover:bg-[rgba(var(--accent-rgb),0.04)] h-14"
                       >
                         {DEFAULT_INVESTOR_MATCH_COLUMNS.map((col) => {
                           const w = matchColWidths[col.key] ?? col.width;
@@ -653,7 +653,7 @@ function InvestorMatchesPageInner() {
                                         void followFounder(m);
                                       }}
                                       disabled={actionBusy === m.id + "follow"}
-                                      className="px-2.5 py-1.5 border border-[var(--border)] text-[var(--text-muted)] rounded-lg text-xs hover:border-[rgba(108,92,231,0.4)] hover:text-[#6c5ce7] transition-colors disabled:opacity-50"
+                                      className="px-2.5 py-1.5 border border-[var(--border)] text-[var(--text-muted)] rounded-lg text-xs hover:border-[rgba(var(--accent-rgb),0.4)] hover:text-[var(--accent)] transition-colors disabled:opacity-50"
                                     >
                                       {actionBusy === m.id + "follow" ? "…" : "Follow"}
                                     </button>
@@ -669,7 +669,7 @@ function InvestorMatchesPageInner() {
                                         void requestMatchIntro(m);
                                       }}
                                       disabled={actionBusy === m.id + "intro"}
-                                      className="px-2.5 py-1.5 bg-[#6c5ce7] text-white rounded-lg text-xs font-medium hover:bg-[#7d6ff0] disabled:opacity-50"
+                                      className="px-2.5 py-1.5 bg-[var(--accent)] text-white rounded-lg text-xs font-medium hover:bg-[var(--accent-hover)] disabled:opacity-50"
                                     >
                                       {actionBusy === m.id + "intro" ? "…" : "Connect"}
                                     </button>
@@ -677,7 +677,7 @@ function InvestorMatchesPageInner() {
                                   {(m.intro_requested_at || requestedIntroIds.has(m.id)) &&
                                     m.matched_user_id &&
                                     !acceptedPeerIds.has(m.matched_user_id) && (
-                                      <span className="px-2 py-0.5 rounded text-xs font-medium bg-[rgba(108,92,231,0.15)] text-[#6c5ce7]">
+                                      <span className="px-2 py-0.5 rounded text-xs font-medium bg-[rgba(var(--accent-rgb),0.15)] text-[var(--accent)]">
                                         Connect requested
                                       </span>
                                     )}
@@ -709,7 +709,7 @@ function InvestorMatchesPageInner() {
                                         );
                                       }}
                                       disabled={!acceptedPeerIds.has(m.matched_user_id)}
-                                      className="px-2.5 py-1.5 border border-[var(--border)] text-[var(--text-muted)] rounded-lg text-xs hover:border-[rgba(108,92,231,0.4)] hover:text-[#6c5ce7] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                                      className="px-2.5 py-1.5 border border-[var(--border)] text-[var(--text-muted)] rounded-lg text-xs hover:border-[rgba(var(--accent-rgb),0.4)] hover:text-[var(--accent)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                                     >
                                       Message
                                     </button>
@@ -732,7 +732,7 @@ function InvestorMatchesPageInner() {
                   <div
                     key={m.id}
                     onClick={() => setViewingMatch(m)}
-                    className="cursor-pointer rounded-xl border border-[var(--border)] bg-[var(--overlay-2)] p-4 hover:border-[rgba(108,92,231,0.3)] transition-colors"
+                    className="cursor-pointer rounded-xl border border-[var(--border)] bg-[var(--overlay-2)] p-4 hover:border-[rgba(var(--accent-rgb),0.3)] transition-colors"
                   >
                     <div className="flex items-start justify-between gap-2 mb-2">
                       <div className="min-w-0">
@@ -746,7 +746,7 @@ function InvestorMatchesPageInner() {
                             </span>
                           )}
                           {m.sector && (
-                            <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-[rgba(108,92,231,0.12)] text-[#6c5ce7]">
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-[rgba(var(--accent-rgb),0.12)] text-[var(--accent)]">
                               {m.sector}
                             </span>
                           )}
@@ -761,7 +761,7 @@ function InvestorMatchesPageInner() {
                     )}
                     <p className="text-[var(--text-muted)] text-xs mb-3">
                       {m.deck_url ? (
-                        <span className="text-[#6c5ce7]">Deck available</span>
+                        <span className="text-[var(--accent)]">Deck available</span>
                       ) : (
                         <span>No deck on file</span>
                       )}
@@ -772,7 +772,7 @@ function InvestorMatchesPageInner() {
                           type="button"
                           onClick={() => void followFounder(m)}
                           disabled={actionBusy === m.id + "follow"}
-                          className="px-2.5 py-1.5 border border-[var(--border)] text-[var(--text-muted)] rounded-lg text-xs hover:border-[rgba(108,92,231,0.4)] hover:text-[#6c5ce7] transition-colors disabled:opacity-50"
+                          className="px-2.5 py-1.5 border border-[var(--border)] text-[var(--text-muted)] rounded-lg text-xs hover:border-[rgba(var(--accent-rgb),0.4)] hover:text-[var(--accent)] transition-colors disabled:opacity-50"
                         >
                           {actionBusy === m.id + "follow" ? "…" : "Follow"}
                         </button>
@@ -785,7 +785,7 @@ function InvestorMatchesPageInner() {
                           type="button"
                           onClick={() => void requestMatchIntro(m)}
                           disabled={actionBusy === m.id + "intro"}
-                          className="px-2.5 py-1.5 bg-[#6c5ce7] text-white rounded-lg text-xs font-medium hover:bg-[#7d6ff0] disabled:opacity-50"
+                          className="px-2.5 py-1.5 bg-[var(--accent)] text-white rounded-lg text-xs font-medium hover:bg-[var(--accent-hover)] disabled:opacity-50"
                         >
                           {actionBusy === m.id + "intro" ? "…" : "Connect"}
                         </button>
@@ -793,7 +793,7 @@ function InvestorMatchesPageInner() {
                       {(m.intro_requested_at || requestedIntroIds.has(m.id)) &&
                         m.matched_user_id &&
                         !acceptedPeerIds.has(m.matched_user_id) && (
-                          <span className="px-2 py-0.5 rounded text-xs font-medium bg-[rgba(108,92,231,0.15)] text-[#6c5ce7]">
+                          <span className="px-2 py-0.5 rounded text-xs font-medium bg-[rgba(var(--accent-rgb),0.15)] text-[var(--accent)]">
                             Connect requested
                           </span>
                         )}
@@ -824,7 +824,7 @@ function InvestorMatchesPageInner() {
                             );
                           }}
                           disabled={!acceptedPeerIds.has(m.matched_user_id)}
-                          className="px-2.5 py-1.5 border border-[var(--border)] text-[var(--text-muted)] rounded-lg text-xs hover:border-[rgba(108,92,231,0.4)] hover:text-[#6c5ce7] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                          className="px-2.5 py-1.5 border border-[var(--border)] text-[var(--text-muted)] rounded-lg text-xs hover:border-[rgba(var(--accent-rgb),0.4)] hover:text-[var(--accent)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                         >
                           Message
                         </button>
@@ -937,7 +937,7 @@ function InvestorMatchesPageInner() {
                       type="button"
                       onClick={() => void viewDeck(viewingIntro)}
                       disabled={actionBusy === viewingIntro.id + "deck"}
-                      className="flex-1 min-w-[120px] px-2.5 py-2 border border-[var(--border)] text-[var(--text-muted)] rounded-lg text-xs hover:border-[rgba(108,92,231,0.4)] hover:text-[#6c5ce7] transition-colors disabled:opacity-50"
+                      className="flex-1 min-w-[120px] px-2.5 py-2 border border-[var(--border)] text-[var(--text-muted)] rounded-lg text-xs hover:border-[rgba(var(--accent-rgb),0.4)] hover:text-[var(--accent)] transition-colors disabled:opacity-50"
                     >
                       {viewingIntro.deck_viewed_at ? "Deck ✓" : "View deck"}
                     </button>
@@ -946,7 +946,7 @@ function InvestorMatchesPageInner() {
                     type="button"
                     onClick={() => void acceptIntro(viewingIntro)}
                     disabled={actionBusy === viewingIntro.id + "accept"}
-                    className="flex-1 min-w-[120px] px-2.5 py-2 bg-[#6c5ce7] text-white rounded-lg text-xs font-medium hover:bg-[#7d6ff0] disabled:opacity-50"
+                    className="flex-1 min-w-[120px] px-2.5 py-2 bg-[var(--accent)] text-white rounded-lg text-xs font-medium hover:bg-[var(--accent-hover)] disabled:opacity-50"
                   >
                     {actionBusy === viewingIntro.id + "accept" ? "…" : "Accept"}
                   </button>
@@ -1026,7 +1026,7 @@ function InvestorMatchesPageInner() {
                   type="button"
                   onClick={() => void followFounder(viewingMatch)}
                   disabled={actionBusy === viewingMatch.id + "follow"}
-                  className="flex-1 min-w-[100px] rounded-xl border border-[var(--border)] py-2.5 text-sm text-[var(--text-muted)] hover:border-[rgba(108,92,231,0.4)] hover:text-[#6c5ce7] disabled:opacity-50"
+                  className="flex-1 min-w-[100px] rounded-xl border border-[var(--border)] py-2.5 text-sm text-[var(--text-muted)] hover:border-[rgba(var(--accent-rgb),0.4)] hover:text-[var(--accent)] disabled:opacity-50"
                 >
                   {actionBusy === viewingMatch.id + "follow" ? "…" : "Follow"}
                 </button>
@@ -1043,7 +1043,7 @@ function InvestorMatchesPageInner() {
                     type="button"
                     onClick={() => void requestMatchIntro(viewingMatch)}
                     disabled={actionBusy === viewingMatch.id + "intro"}
-                    className="flex-1 min-w-[100px] rounded-xl bg-[#6c5ce7] py-2.5 text-sm font-semibold text-white hover:bg-[#7d6ff0] disabled:opacity-50"
+                    className="flex-1 min-w-[100px] rounded-xl bg-[var(--accent)] py-2.5 text-sm font-semibold text-white hover:bg-[var(--accent-hover)] disabled:opacity-50"
                   >
                     {actionBusy === viewingMatch.id + "intro" ? "…" : "Connect"}
                   </button>
@@ -1051,7 +1051,7 @@ function InvestorMatchesPageInner() {
               {(viewingMatch.intro_requested_at || requestedIntroIds.has(viewingMatch.id)) &&
                 viewingMatch.matched_user_id &&
                 !acceptedPeerIds.has(viewingMatch.matched_user_id) && (
-                  <span className="flex-1 min-w-[100px] flex items-center justify-center px-2 py-2 rounded-lg text-sm font-medium bg-[rgba(108,92,231,0.15)] text-[#6c5ce7]">
+                  <span className="flex-1 min-w-[100px] flex items-center justify-center px-2 py-2 rounded-lg text-sm font-medium bg-[rgba(var(--accent-rgb),0.15)] text-[var(--accent)]">
                     Connect requested
                   </span>
                 )}
@@ -1083,7 +1083,7 @@ function InvestorMatchesPageInner() {
                     setViewingMatch(null);
                   }}
                   disabled={!acceptedPeerIds.has(viewingMatch.matched_user_id)}
-                  className="flex-1 min-w-[100px] rounded-xl border border-[var(--border)] py-2.5 text-sm text-[var(--text-muted)] hover:border-[rgba(108,92,231,0.4)] hover:text-[#6c5ce7] disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="flex-1 min-w-[100px] rounded-xl border border-[var(--border)] py-2.5 text-sm text-[var(--text-muted)] hover:border-[rgba(var(--accent-rgb),0.4)] hover:text-[var(--accent)] disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   Message →
                 </button>

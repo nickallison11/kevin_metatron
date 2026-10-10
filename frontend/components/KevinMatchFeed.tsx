@@ -111,7 +111,7 @@ export default function KevinMatchFeed({
                   onClick={() => setView(v)}
                   className={`px-2.5 py-0.5 rounded-lg text-[11px] ${
                     view === v
-                      ? "bg-[rgba(108,92,231,0.2)] text-[#6c5ce7]"
+                      ? "bg-[rgba(var(--accent-rgb),0.2)] text-[var(--accent)]"
                       : "text-[var(--text-muted)] hover:text-[var(--text)]"
                   }`}
                 >
@@ -121,7 +121,7 @@ export default function KevinMatchFeed({
             </div>
           )}
           {role === "founder" && (
-            <Link href="/startup/matches" className="text-[11px] text-[#6c5ce7] hover:underline">
+            <Link href="/startup/matches" className="text-[11px] text-[var(--accent)] hover:underline">
               Show all →
             </Link>
           )}

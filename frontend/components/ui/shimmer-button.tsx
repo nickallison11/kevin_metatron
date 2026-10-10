@@ -20,7 +20,7 @@ const shell =
   "relative inline-flex items-center justify-center overflow-hidden rounded-lg px-7 py-3 text-sm font-semibold text-white transition-shadow disabled:pointer-events-none disabled:opacity-60";
 
 const surface =
-  "bg-metatron-accent hover:bg-metatron-accent-hover hover:shadow-[0_4px_20px_rgba(108,92,231,0.3)]";
+  "bg-metatron-accent hover:bg-metatron-accent-hover hover:shadow-[0_4px_20px_rgba(var(--accent-rgb),0.3)]";
 
 const sheen =
   "pointer-events-none absolute inset-0 w-full animate-shimmer bg-gradient-to-r from-transparent via-white/30 to-transparent";

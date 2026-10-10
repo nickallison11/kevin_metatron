@@ -132,9 +132,9 @@ function OAuthRoleSelector() {
               style={{
                 background: "var(--bg-card)",
                 border: selected === r.id
-                  ? "1px solid rgba(108,92,231,0.6)"
+                  ? "1px solid rgba(var(--accent-rgb),0.6)"
                   : "1px solid var(--border)",
-                boxShadow: selected === r.id ? "0 0 32px rgba(108,92,231,0.15)" : "none",
+                boxShadow: selected === r.id ? "0 0 32px rgba(var(--accent-rgb),0.15)" : "none",
               }}
             >
               <div className="mb-1.5 font-mono text-[10px] uppercase tracking-[3px] text-metatron-accent">
@@ -176,7 +176,7 @@ function LandingPage() {
         className="pointer-events-none absolute inset-0 -z-10 opacity-90"
         style={{
           background:
-            "radial-gradient(ellipse 80% 40% at 50% calc(8% + 250px), rgba(108,92,231,0.22), transparent 60%)",
+            "radial-gradient(ellipse 80% 40% at 50% calc(8% + 250px), rgba(var(--accent-rgb),0.22), transparent 60%)",
         }}
       />
       {/* ── Role sections ────────────────────────────────────────────────── */}
@@ -198,9 +198,9 @@ function LandingPage() {
                 style={{
                   background: "var(--bg-card)",
                   border: isOpen
-                    ? "1px solid rgba(108,92,231,0.4)"
+                    ? "1px solid rgba(var(--accent-rgb),0.4)"
                     : "1px solid var(--border)",
-                  boxShadow: isOpen ? "0 0 40px rgba(108,92,231,0.1)" : "none",
+                  boxShadow: isOpen ? "0 0 40px rgba(var(--accent-rgb),0.1)" : "none",
                 }}
               >
                 {/* Card header */}

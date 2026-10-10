@@ -7,8 +7,25 @@
   --bg-card: #16161f;
   --text: #e8e8ed;
   --text-muted: #8888a0;
+  /* Accent: purple in dark mode, metatron green in light mode. Every accent
+     use goes through these — the Tailwind `metatron-accent` colour reads
+     --accent-ch (space-separated channels, so /opacity modifiers work) and
+     arbitrary values use rgba(var(--accent-rgb), a). Never hard-code the hex. */
   --accent: #6c5ce7;
-  --accent-glow: rgba(108, 92, 231, 0.2);
+  --accent-hover: #7d6ff0;
+  --accent-rgb: 108, 92, 231;
+  --accent-ch: 108 92 231;
+  --accent-hover-ch: 125 111 240;
+  --accent-fg: #a99ff5; /* accent-coloured text on --bg/--bg-card */
+  --accent-glow: rgba(var(--accent-rgb), 0.2);
+  /* Status colours (fit scores, warnings, ratings) */
+  --good: #7ee2a8;
+  --good-bg: rgba(46, 204, 113, 0.14);
+  --warn: #f0b27a;
+  --warn-bg: rgba(240, 178, 122, 0.06);
+  --star: #f6d38a;
+  --danger: #f0a0a0;
+  --card-shadow: none;
   --border: rgba(255, 255, 255, 0.06);
   --radius: 12px;
   /* Subtle surface tints (dividers, pill backgrounds, hover states) layered
@@ -24,10 +41,23 @@
 }
 
 html.light {
-  --bg: #f5f5f7;
+  --bg: #f5f5f9;
   --bg-card: #ffffff;
-  --text: #1a1a2e;
-  --text-muted: #6e6e82;
+  --text: #16161f;
+  --text-muted: #66667b;
+  --accent: #15803d;
+  --accent-hover: #166534;
+  --accent-rgb: 21, 128, 61;
+  --accent-ch: 21 128 61;
+  --accent-hover-ch: 22 101 52;
+  --accent-fg: #166534;
+  --good: #0f766e;
+  --good-bg: rgba(15, 118, 110, 0.10);
+  --warn: #b0590e;
+  --warn-bg: rgba(240, 150, 60, 0.07);
+  --star: #b07412;
+  --danger: #c0392b;
+  --card-shadow: 0 1px 2px rgba(20, 20, 40, 0.05), 0 4px 14px rgba(20, 20, 40, 0.05);
   --border: rgba(0, 0, 0, 0.08);
   --overlay-2: rgba(0, 0, 0, 0.03);
   --overlay-3: rgba(0, 0, 0, 0.04);
@@ -71,7 +101,7 @@ body {
   top: -20vh;
   left: 50%;
   transform: translateX(-50%);
-  background: radial-gradient(circle, rgba(108, 92, 231, 0.12) 0%, transparent 70%);
+  background: radial-gradient(circle, rgba(var(--accent-rgb), 0.12) 0%, transparent 70%);
   border-radius: 50%;
   z-index: 0;
   pointer-events: none;

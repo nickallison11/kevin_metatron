@@ -460,7 +460,7 @@ export default function StartupProfilePage() {
                     </p>
                   </div>
                   {!isPro && profile.deck_expires_at ? (
-                    <span className="shrink-0 rounded-lg border border-[var(--border)] bg-[rgba(108,92,231,0.12)] px-2.5 py-1 font-sans text-[10px] text-[var(--text)]">
+                    <span className="shrink-0 rounded-lg border border-[var(--border)] bg-[rgba(var(--accent-rgb),0.12)] px-2.5 py-1 font-sans text-[10px] text-[var(--text)]">
                       {deckExpiryLabel(profile.deck_expires_at)}
                     </span>
                   ) : null}

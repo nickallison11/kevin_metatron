@@ -351,7 +351,7 @@ function StartupMatchesPageInner() {
 
   const scoreBadgeColor = (score: number) => {
     if (score >= 85) return "bg-[rgba(0,200,100,0.12)] text-green-400";
-    if (score >= 70) return "bg-[rgba(108,92,231,0.15)] text-[#6c5ce7]";
+    if (score >= 70) return "bg-[rgba(var(--accent-rgb),0.15)] text-[var(--accent)]";
     return "bg-[var(--overlay-6)] text-[var(--text-muted)]";
   };
 
@@ -365,7 +365,7 @@ function StartupMatchesPageInner() {
             <h1 className="text-2xl font-semibold text-[var(--text)]">Kevin&apos;s Investor Matches</h1>
             <p className="text-sm text-[var(--text-muted)] mt-1">
               {suggestions.length > 0 && (
-            <div style={{ background: "rgba(108,92,231,0.08)", border: "1px solid rgba(108,92,231,0.3)", borderRadius: 16, padding: "16px 20px", marginBottom: 16 }}>
+            <div style={{ background: "rgba(var(--accent-rgb),0.08)", border: "1px solid rgba(var(--accent-rgb),0.3)", borderRadius: 16, padding: "16px 20px", marginBottom: 16 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
                 <span style={{ fontSize: 16 }}>✨</span>
                 <span style={{ fontWeight: 600, color: "var(--text)", fontSize: 14 }}>
@@ -383,7 +383,7 @@ function StartupMatchesPageInner() {
                           <div style={{ fontWeight: 600, fontSize: 14, color: "var(--text)", marginBottom: 4 }}>{name}</div>
                           <div style={{ fontSize: 13, color: "var(--text-muted)", lineHeight: 1.5, marginBottom: expanded ? 0 : 4 }}>{s.fit_reason}</div>
                           {expanded && (
-                            <div style={{ marginTop: 12, padding: "10px 14px", background: "rgba(108,92,231,0.06)", borderRadius: 8, fontSize: 13, color: "var(--text)", lineHeight: 1.7, whiteSpace: "pre-wrap" }}>
+                            <div style={{ marginTop: 12, padding: "10px 14px", background: "rgba(var(--accent-rgb),0.06)", borderRadius: 8, fontSize: 13, color: "var(--text)", lineHeight: 1.7, whiteSpace: "pre-wrap" }}>
                               <div style={{ fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>Kevin&apos;s draft message</div>
                               {s.draft_message}
                             </div>
@@ -409,7 +409,7 @@ function StartupMatchesPageInner() {
                             type="button"
                             onClick={() => void approveSuggestion(s.id)}
                             disabled={suggestionBusy === s.id}
-                            style={{ padding: "5px 10px", borderRadius: 8, fontSize: 12, background: "#6c5ce7", border: "none", color: "#fff", fontWeight: 600, cursor: "pointer", opacity: suggestionBusy === s.id ? 0.5 : 1 }}
+                            style={{ padding: "5px 10px", borderRadius: 8, fontSize: 12, background: "var(--accent)", border: "none", color: "#fff", fontWeight: 600, cursor: "pointer", opacity: suggestionBusy === s.id ? 0.5 : 1 }}
                           >
                             {suggestionBusy === s.id ? "Sending…" : "Send intro"}
                           </button>
@@ -443,7 +443,7 @@ function StartupMatchesPageInner() {
                     }}
                     className={`px-3 py-1 rounded-lg text-xs font-medium ${
                       mainTab === t
-                        ? "bg-[rgba(108,92,231,0.2)] text-[#6c5ce7]"
+                        ? "bg-[rgba(var(--accent-rgb),0.2)] text-[var(--accent)]"
                         : "text-[var(--text-muted)] hover:text-[var(--text)]"
                     }`}
                   >
@@ -467,7 +467,7 @@ function StartupMatchesPageInner() {
                       }}
                       className={`px-3 py-1 rounded-lg text-xs font-medium ${
                         tab === t
-                          ? "bg-[rgba(108,92,231,0.2)] text-[#6c5ce7]"
+                          ? "bg-[rgba(var(--accent-rgb),0.2)] text-[var(--accent)]"
                           : "text-[var(--text-muted)] hover:text-[var(--text)]"
                       }`}
                     >
@@ -486,7 +486,7 @@ function StartupMatchesPageInner() {
                       }}
                       className={`px-3 py-1 rounded-lg text-xs ${
                         view === v
-                          ? "bg-[rgba(108,92,231,0.2)] text-[#6c5ce7]"
+                          ? "bg-[rgba(var(--accent-rgb),0.2)] text-[var(--accent)]"
                           : "text-[var(--text-muted)] hover:text-[var(--text)]"
                       }`}
                     >
@@ -554,7 +554,7 @@ function StartupMatchesPageInner() {
                         type="button"
                         onClick={() => void acceptReceivedConnect(r)}
                         disabled={connectActionBusy === r.id + "accept"}
-                        className="px-3 py-2 bg-[#6c5ce7] text-white rounded-lg text-xs font-medium hover:bg-[#7d6ff0] disabled:opacity-50"
+                        className="px-3 py-2 bg-[var(--accent)] text-white rounded-lg text-xs font-medium hover:bg-[var(--accent-hover)] disabled:opacity-50"
                       >
                         {connectActionBusy === r.id + "accept" ? "…" : "Accept"}
                       </button>
@@ -606,7 +606,7 @@ function StartupMatchesPageInner() {
                           className={`rounded-xl p-4 cursor-pointer transition-colors border ${
                             dimmed
                               ? "border-[var(--border)] bg-[var(--bg)] opacity-60"
-                              : "border-[var(--border)] bg-[var(--bg)] hover:bg-[var(--bg-card)] hover:border-[rgba(108,92,231,0.2)]"
+                              : "border-[var(--border)] bg-[var(--bg)] hover:bg-[var(--bg-card)] hover:border-[rgba(var(--accent-rgb),0.2)]"
                           }`}
                         >
                           <div className="flex items-start justify-between gap-2 mb-2">
@@ -655,14 +655,14 @@ function StartupMatchesPageInner() {
                                 void requestIntro(m.id);
                               }}
                               disabled={introBusy === m.id}
-                              className="w-full rounded-lg bg-[#6c5ce7] py-2 text-sm font-semibold text-white hover:bg-[#7d6ff0] disabled:opacity-50"
+                              className="w-full rounded-lg bg-[var(--accent)] py-2 text-sm font-semibold text-white hover:bg-[var(--accent-hover)] disabled:opacity-50"
                             >
                               {introBusy === m.id ? "Sending…" : "Connect"}
                             </button>
                           ) : accepted ? (
                             <p className="text-xs font-medium text-green-400">Connected — message</p>
                           ) : (
-                            <span className="text-xs text-[#6c5ce7]">Connect requested</span>
+                            <span className="text-xs text-[var(--accent)]">Connect requested</span>
                           )}
                           {m.matched_user_id && (
                             <button
@@ -685,7 +685,7 @@ function StartupMatchesPageInner() {
                                 );
                               }}
                               disabled={!acceptedPeerIds.has(m.matched_user_id)}
-                              className="mt-2 w-full rounded-lg border border-[var(--border)] py-1.5 text-xs text-[var(--text-muted)] hover:border-[rgba(108,92,231,0.4)] hover:text-[#6c5ce7] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                              className="mt-2 w-full rounded-lg border border-[var(--border)] py-1.5 text-xs text-[var(--text-muted)] hover:border-[rgba(var(--accent-rgb),0.4)] hover:text-[var(--accent)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                             >
                               Message
                             </button>
@@ -710,7 +710,7 @@ function StartupMatchesPageInner() {
                               >
                                 {col.label}
                                 <div
-                                  className="absolute right-0 top-2 bottom-2 w-1 cursor-col-resize z-10 rounded-full transition-colors hover:bg-[#6c5ce7]"
+                                  className="absolute right-0 top-2 bottom-2 w-1 cursor-col-resize z-10 rounded-full transition-colors hover:bg-[var(--accent)]"
                                   onMouseDown={(e) => onColResizeStart(col.key, e)}
                                   onClick={(e) => e.stopPropagation()}
                                   aria-hidden
@@ -789,14 +789,14 @@ function StartupMatchesPageInner() {
                                               void requestIntro(m.id);
                                             }}
                                             disabled={introBusy === m.id}
-                                            className="px-3 py-1.5 bg-[#6c5ce7] text-white rounded-lg text-xs font-medium hover:bg-[#7d6ff0] disabled:opacity-50"
+                                            className="px-3 py-1.5 bg-[var(--accent)] text-white rounded-lg text-xs font-medium hover:bg-[var(--accent-hover)] disabled:opacity-50"
                                           >
                                             {introBusy === m.id ? "…" : "Connect"}
                                           </button>
                                         ) : accepted ? (
                                           <span className="text-xs text-green-400">Connected — message</span>
                                         ) : (
-                                          <span className="text-xs text-[#6c5ce7]">Connect requested</span>
+                                          <span className="text-xs text-[var(--accent)]">Connect requested</span>
                                         )}
                                         {m.matched_user_id && (
                                           <button
@@ -819,7 +819,7 @@ function StartupMatchesPageInner() {
                                               );
                                             }}
                                             disabled={!acceptedPeerIds.has(m.matched_user_id)}
-                                            className="px-3 py-1.5 border border-[var(--border)] text-[var(--text-muted)] rounded-lg text-xs hover:border-[rgba(108,92,231,0.4)] hover:text-[#6c5ce7] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                                            className="px-3 py-1.5 border border-[var(--border)] text-[var(--text-muted)] rounded-lg text-xs hover:border-[rgba(var(--accent-rgb),0.4)] hover:text-[var(--accent)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                                           >
                                             Message
                                           </button>
@@ -965,7 +965,7 @@ function StartupMatchesPageInner() {
                   type="button"
                   onClick={() => void requestIntro(viewingMatch.id)}
                   disabled={introBusy === viewingMatch.id}
-                  className="w-full rounded-xl bg-[#6c5ce7] py-2.5 text-sm font-semibold text-white hover:bg-[#7d6ff0] disabled:opacity-50"
+                  className="w-full rounded-xl bg-[var(--accent)] py-2.5 text-sm font-semibold text-white hover:bg-[var(--accent-hover)] disabled:opacity-50"
                 >
                   {introBusy === viewingMatch.id ? "Sending…" : "Connect →"}
                 </button>
@@ -991,7 +991,7 @@ function StartupMatchesPageInner() {
                     setViewingMatch(null);
                   }}
                   disabled={!acceptedPeerIds.has(viewingMatch.matched_user_id)}
-                  className="w-full rounded-xl border border-[var(--border)] py-2.5 text-sm text-[var(--text-muted)] hover:border-[rgba(108,92,231,0.4)] hover:text-[#6c5ce7] disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="w-full rounded-xl border border-[var(--border)] py-2.5 text-sm text-[var(--text-muted)] hover:border-[rgba(var(--accent-rgb),0.4)] hover:text-[var(--accent)] disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   Message →
                 </button>

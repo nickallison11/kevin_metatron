@@ -1,40 +1,28 @@
 "use client";
 
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { type ReactNode } from "react";
 import {
   IconArrowsExchange,
-  IconBriefcase,
   IconBuilding,
   IconCreditCard,
+  IconFileText,
+  IconHeadset,
   IconLayoutDashboard,
   IconRobot,
   IconSettings,
   IconUserCircle,
 } from "@tabler/icons-react";
 import { useAuth } from "@/lib/auth";
-import DashboardChrome, { type ChromeNavItem } from "@/components/DashboardChrome";
+import { useIntroRequestCount } from "@/lib/useIntroRequestCount";
+import DashboardChrome, { type ChromeNavGroup } from "@/components/DashboardChrome";
 
-const FREE_NAV = [
-  { href: "/investor", label: "Dashboard", icon: IconLayoutDashboard },
-  { href: "/investor/kevin", label: "Chat with Kevin", icon: IconRobot },
-  { href: "/investor/profile", label: "Profile Settings", icon: IconUserCircle },
-  { href: "/investor/matches", label: "Matches", icon: IconArrowsExchange },
-  { href: "/startups", label: "Browse Startups", icon: IconBuilding },
-];
-
-// Portfolio doesn't exist yet, so it's a hard lock for everyone (button, not
-// navigable). Kept as a function (not a constant) so a future "tease" state
-// — link is navigable but shows an Upgrade badge — is a one-line change.
-type LockMode = "none" | "tease" | "hard";
-function portfolioLockMode(): LockMode {
-  return "hard";
-}
-
+// Portfolio was a locked placeholder for a page that doesn't exist; it comes
+// back to the nav when that page is built.
 export default function InvestorShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  const router = useRouter();
   const { token, loading } = useAuth("INVESTOR");
+  const requests = useIntroRequestCount(token);
 
   if (loading) {
     return (
@@ -46,65 +34,35 @@ export default function InvestorShell({ children }: { children: ReactNode }) {
 
   if (!token) return null;
 
-  const navItems: ChromeNavItem[] = FREE_NAV.map((item) => ({
-    key: item.href,
-    href: item.href,
-    label: item.label,
-    icon: item.icon,
-    kind: "link",
-  }));
-
-  const mode = portfolioLockMode();
-  if (mode === "none") {
-    navItems.push({
-      key: "/investor/portfolio",
-      href: "/investor/portfolio",
-      label: "Portfolio",
-      icon: IconBriefcase,
-      kind: "link",
-    });
-  } else if (mode === "tease") {
-    navItems.push({
-      key: "/investor/portfolio",
-      href: "/investor/portfolio",
-      label: "Portfolio",
-      icon: IconBriefcase,
-      kind: "tease-link",
-    });
-  } else {
-    navItems.push({
-      key: "portfolio-locked",
-      label: "Portfolio",
-      icon: IconBriefcase,
-      kind: "locked",
-      onClick: () => router.push("/investor/settings/subscription"),
-    });
-  }
-
-  const footerItems: ChromeNavItem[] = [
+  const groups: ChromeNavGroup[] = [
     {
-      key: "/investor/settings/subscription",
-      href: "/investor/settings/subscription",
-      label: "Subscription",
-      icon: IconCreditCard,
-      kind: "link",
+      title: "Home",
+      items: [
+        { key: "/investor", href: "/investor", label: "Dashboard", icon: IconLayoutDashboard, kind: "link" },
+        { key: "/investor/kevin", href: "/investor/kevin", label: "Chat with Kevin", icon: IconRobot, kind: "link" },
+        { key: "/investor/profile", href: "/investor/profile", label: "Investor Profile", icon: IconUserCircle, kind: "link" },
+      ],
     },
     {
-      key: "/investor/settings",
-      href: "/investor/settings",
-      label: "Account Settings",
-      icon: IconSettings,
-      kind: "link",
+      title: "Deal flow",
+      items: [
+        { key: "/investor/matches", href: "/investor/matches", label: "Matches", icon: IconArrowsExchange, kind: "link", badge: requests },
+        { key: "/investor/startups", href: "/investor/startups", label: "Browse Startups", icon: IconBuilding, kind: "link", matchPrefix: true },
+        { key: "/investor/memos", href: "/investor/memos", label: "Memos", icon: IconFileText, kind: "link" },
+        { key: "/investor/calls", href: "/investor/calls", label: "Call Intelligence", icon: IconHeadset, kind: "link" },
+      ],
+    },
+    {
+      title: "Account",
+      items: [
+        { key: "/investor/settings/subscription", href: "/investor/settings/subscription", label: "Subscription", icon: IconCreditCard, kind: "link", matchPrefix: true },
+        { key: "/investor/settings", href: "/investor/settings", label: "Settings", icon: IconSettings, kind: "link" },
+      ],
     },
   ];
 
   return (
-    <DashboardChrome
-      roleLabel="Investor"
-      pathname={pathname}
-      navItems={navItems}
-      footerItems={footerItems}
-    >
+    <DashboardChrome roleLabel="Investor" pathname={pathname} groups={groups}>
       {children}
     </DashboardChrome>
   );

@@ -1,5 +1,5 @@
 import { InvestorDirectory } from "@/components/browse/InvestorDirectory";
 
-export default function InvestorsDiscoveryPage() {
+export default function ConnectorBrowseInvestorsPage() {
   return <InvestorDirectory />;
 }

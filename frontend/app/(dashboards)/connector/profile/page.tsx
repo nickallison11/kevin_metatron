@@ -353,8 +353,8 @@ export default function ConnectorProfilePage() {
                       <p className="text-xs text-[var(--text-muted)]">{whatsappMsg}</p>
                     ) : null}
                     {whatsappSaved && (
-                      <div className="mt-3 rounded-lg border border-[rgba(108,92,231,0.3)] bg-[rgba(108,92,231,0.08)] p-3">
-                        <p className="text-xs font-medium text-[#6c5ce7] mb-1">One last step to activate</p>
+                      <div className="mt-3 rounded-lg border border-[rgba(var(--accent-rgb),0.3)] bg-[rgba(var(--accent-rgb),0.08)] p-3">
+                        <p className="text-xs font-medium text-[var(--accent)] mb-1">One last step to activate</p>
                         <p className="text-xs text-[var(--text-muted)] mb-2">
                           Send any message to Kevin on WhatsApp to open the notification channel.
                         </p>
@@ -406,8 +406,8 @@ export default function ConnectorProfilePage() {
                         <p className="text-xs text-[var(--text-muted)]">{whatsappMsg}</p>
                       ) : null}
                       {whatsappSaved && (
-                        <div className="mt-3 rounded-lg border border-[rgba(108,92,231,0.3)] bg-[rgba(108,92,231,0.08)] p-3">
-                          <p className="text-xs font-medium text-[#6c5ce7] mb-1">One last step to activate</p>
+                        <div className="mt-3 rounded-lg border border-[rgba(var(--accent-rgb),0.3)] bg-[rgba(var(--accent-rgb),0.08)] p-3">
+                          <p className="text-xs font-medium text-[var(--accent)] mb-1">One last step to activate</p>
                           <p className="text-xs text-[var(--text-muted)] mb-2">
                             Send any message to Kevin on WhatsApp to open the notification channel.
                           </p>

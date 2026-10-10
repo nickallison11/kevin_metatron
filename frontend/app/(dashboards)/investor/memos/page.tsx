@@ -38,7 +38,7 @@ export default function InvestorMemosPage() {
         </p>
         <a href="/investor/settings/subscription" style={{
           display: 'inline-block', marginTop: 24, padding: '12px 24px',
-          background: '#6c5ce7', color: '#fff', borderRadius: 12, textDecoration: 'none'
+          background: 'var(--accent)', color: '#fff', borderRadius: 12, textDecoration: 'none'
         }}>Upgrade to Investor Basic</a>
       </div>
     );
@@ -69,7 +69,7 @@ export default function InvestorMemosPage() {
                   {new Date(m.generated_at).toLocaleDateString()}
                 </div>
               </div>
-              <span style={{ color: '#6c5ce7', fontSize: 13 }}>View →</span>
+              <span style={{ color: 'var(--accent)', fontSize: 13 }}>View →</span>
             </div>
           ))}
         </div>
@@ -95,7 +95,7 @@ export default function InvestorMemosPage() {
             </pre>
             <div style={{ display: 'flex', gap: 12, marginTop: 24 }}>
               <button onClick={() => navigator.clipboard.writeText(selected.content)} style={{
-                padding: '10px 20px', background: '#6c5ce7', color: '#fff',
+                padding: '10px 20px', background: 'var(--accent)', color: '#fff',
                 border: 'none', borderRadius: 8, cursor: 'pointer'
               }}>Copy</button>
               <button onClick={() => {

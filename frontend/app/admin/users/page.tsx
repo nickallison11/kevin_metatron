@@ -126,7 +126,7 @@ export default function AdminUsersPage() {
         <button
           type="button"
           onClick={() => setInviteOpen(true)}
-          className="px-4 py-2 bg-[#6c5ce7] text-white rounded-xl text-sm font-medium hover:bg-[#7d6ff0]"
+          className="px-4 py-2 bg-[var(--accent)] text-white rounded-xl text-sm font-medium hover:bg-[var(--accent-hover)]"
         >
           + Invite User
         </button>
@@ -168,7 +168,7 @@ export default function AdminUsersPage() {
                 {rows.map((u) => (
                   <tr
                     key={u.id}
-                    className="border-b border-[var(--border)] last:border-0 hover:bg-[rgba(108,92,231,0.06)]"
+                    className="border-b border-[var(--border)] last:border-0 hover:bg-[rgba(var(--accent-rgb),0.06)]"
                   >
                     <td className="px-4 py-3">
                       <Link
@@ -245,12 +245,12 @@ export default function AdminUsersPage() {
                 <option value="founder">Founder</option>
                 <option value="investor">Investor</option>
               </select>
-              {inviteMsg && <p className="text-xs text-[#6c5ce7]">{inviteMsg}</p>}
+              {inviteMsg && <p className="text-xs text-[var(--accent)]">{inviteMsg}</p>}
               <div className="flex gap-2 pt-1">
                 <button
                   type="submit"
                   disabled={inviteBusy}
-                  className="flex-1 py-2 bg-[#6c5ce7] text-white rounded-xl text-sm hover:bg-[#7d6ff0] disabled:opacity-40"
+                  className="flex-1 py-2 bg-[var(--accent)] text-white rounded-xl text-sm hover:bg-[var(--accent-hover)] disabled:opacity-40"
                 >
                   {inviteBusy ? "Sending…" : "Send Invite"}
                 </button>

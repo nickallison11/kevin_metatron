@@ -819,7 +819,7 @@ function ConnectorNetworkPageInner() {
   const statusBadge = (status: StagedContact["status"]) => {
     const map = {
       pending: "bg-[var(--overlay-6)] text-[var(--text-muted)]",
-      enriching: "bg-[rgba(108,92,231,0.15)] text-[#6c5ce7] animate-pulse",
+      enriching: "bg-[rgba(var(--accent-rgb),0.15)] text-[var(--accent)] animate-pulse",
       enriched: "bg-[rgba(0,200,100,0.12)] text-green-400",
       failed: "bg-[rgba(255,80,80,0.12)] text-red-400",
     };
@@ -859,13 +859,13 @@ function ConnectorNetworkPageInner() {
         <button
           type="button"
           onClick={() => setShowForm((v) => !v)}
-          className="px-4 py-2 bg-[#6c5ce7] text-white rounded-xl text-sm font-medium hover:bg-[#7d6ff0]"
+          className="px-4 py-2 bg-[var(--accent)] text-white rounded-xl text-sm font-medium hover:bg-[var(--accent-hover)]"
         >
           {showForm ? "Cancel" : "+ Add Contact"}
         </button>
       </div>
 
-      {msg && <p className="text-sm text-[#6c5ce7]">{msg}</p>}
+      {msg && <p className="text-sm text-[var(--accent)]">{msg}</p>}
 
       {showForm && (
         <form
@@ -935,7 +935,7 @@ function ConnectorNetworkPageInner() {
           <button
             type="submit"
             disabled={adding}
-            className="px-4 py-2 bg-[#6c5ce7] text-white rounded-xl text-sm font-medium hover:bg-[#7d6ff0] disabled:opacity-50"
+            className="px-4 py-2 bg-[var(--accent)] text-white rounded-xl text-sm font-medium hover:bg-[var(--accent-hover)] disabled:opacity-50"
           >
             {adding ? "Adding..." : "Add Contact"}
           </button>
@@ -955,7 +955,7 @@ function ConnectorNetworkPageInner() {
                     setPage(1);
                   }}
                   className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                    tab === t ? "bg-[#6c5ce7] text-white" : "text-[var(--text-muted)] hover:text-[var(--text)]"
+                    tab === t ? "bg-[var(--accent)] text-white" : "text-[var(--text-muted)] hover:text-[var(--text)]"
                   }`}
                 >
                   {t === "investor" ? "Investors" : "Founders"}
@@ -976,7 +976,7 @@ function ConnectorNetworkPageInner() {
                   type="button"
                   onClick={onIpfsSnapshot}
                   disabled={ipfsLoading}
-                  className="px-3 py-1.5 text-xs rounded-xl bg-[rgba(108,92,231,0.08)] text-[#6c5ce7] border border-[rgba(108,92,231,0.2)] hover:bg-[rgba(108,92,231,0.15)] disabled:opacity-40"
+                  className="px-3 py-1.5 text-xs rounded-xl bg-[rgba(var(--accent-rgb),0.08)] text-[var(--accent)] border border-[rgba(var(--accent-rgb),0.2)] hover:bg-[rgba(var(--accent-rgb),0.15)] disabled:opacity-40"
                 >
                   {ipfsLoading ? "Anchoring…" : "Anchor to IPFS"}
                 </button>
@@ -986,7 +986,7 @@ function ConnectorNetworkPageInner() {
                   href={ipfsResult.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-xs text-[#6c5ce7] hover:underline font-sans"
+                  className="text-xs text-[var(--accent)] hover:underline font-sans"
                 >
                   {ipfsResult.cid.slice(0, 16)}… ({ipfsResult.count} contacts)
                 </a>
@@ -1011,7 +1011,7 @@ function ConnectorNetworkPageInner() {
                 type="button"
                 onClick={() => setView(v)}
                 className={`px-3 py-1 rounded-lg text-xs ${
-                  view === v ? "bg-[rgba(108,92,231,0.2)] text-[#6c5ce7]" : "text-[var(--text-muted)] hover:text-[var(--text)]"
+                  view === v ? "bg-[rgba(var(--accent-rgb),0.2)] text-[var(--accent)]" : "text-[var(--text-muted)] hover:text-[var(--text)]"
                 }`}
               >
                 {v === "card" ? "Cards" : "List"}
@@ -1024,7 +1024,7 @@ function ConnectorNetworkPageInner() {
           <span
             className={`inline-flex items-center rounded-full border px-3 py-1 ${
               enrichmentCredits > 0
-                ? "border-[#6c5ce7]/30 bg-[#6c5ce7]/10 text-[#6c5ce7]"
+                ? "border-[var(--accent)]/30 bg-[var(--accent)]/10 text-[var(--accent)]"
                 : "border-red-400/30 bg-red-400/10 text-red-400"
             }`}
           >
@@ -1043,13 +1043,13 @@ function ConnectorNetworkPageInner() {
         </div>
 
         {isFreeTier && (
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#6c5ce7]/20 bg-[#6c5ce7]/10 px-4 py-3">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--accent)]/20 bg-[var(--accent)]/10 px-4 py-3">
             <p className="text-xs text-[var(--text)]">
               Upgrade to $10/month to unlock unlimited contacts, IPFS storage & 50 enrichment credits.
             </p>
             <a
               href="/connector/settings/subscription"
-              className="rounded-lg bg-[#6c5ce7] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#7d6ff0]"
+              className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs font-medium text-white hover:bg-[var(--accent-hover)]"
             >
               Upgrade
             </a>
@@ -1064,7 +1064,7 @@ function ConnectorNetworkPageInner() {
               <div
                 key={c.id}
                 onClick={() => openContactModalView(c)}
-                className="bg-[var(--bg)] border border-[var(--border)] rounded-xl p-4 cursor-pointer hover:bg-[var(--bg-card)] hover:border-[rgba(108,92,231,0.2)] transition-colors"
+                className="bg-[var(--bg)] border border-[var(--border)] rounded-xl p-4 cursor-pointer hover:bg-[var(--bg-card)] hover:border-[rgba(var(--accent-rgb),0.2)] transition-colors"
               >
                 <div className="min-w-0">
                   <p className="text-sm font-medium text-[var(--text)]">{c.name}</p>
@@ -1118,7 +1118,7 @@ function ConnectorNetworkPageInner() {
                           target="_blank"
                           rel="noreferrer"
                           onClick={(e) => e.stopPropagation()}
-                          className="text-[#6c5ce7] hover:underline break-all"
+                          className="text-[var(--accent)] hover:underline break-all"
                         >
                           {c.website.replace(/^https?:\/\//, "")}
                         </a>
@@ -1134,7 +1134,7 @@ function ConnectorNetworkPageInner() {
                           target="_blank"
                           rel="noreferrer"
                           onClick={(e) => e.stopPropagation()}
-                          className="text-[#6c5ce7] hover:underline break-all"
+                          className="text-[var(--accent)] hover:underline break-all"
                         >
                           Profile
                         </a>
@@ -1149,7 +1149,7 @@ function ConnectorNetworkPageInner() {
                   </div>
                 )}
                 {c.joined_user_id && (
-                  <span className="mt-2 inline-block text-xs bg-[rgba(108,92,231,0.15)] text-[#6c5ce7] px-2 py-0.5 rounded-full">
+                  <span className="mt-2 inline-block text-xs bg-[rgba(var(--accent-rgb),0.15)] text-[var(--accent)] px-2 py-0.5 rounded-full">
                     On platform
                   </span>
                 )}
@@ -1171,7 +1171,7 @@ function ConnectorNetworkPageInner() {
                       >
                         {col.label}
                         <div
-                          className="absolute right-0 top-2 bottom-2 w-1 cursor-col-resize z-10 rounded-full transition-colors hover:bg-[#6c5ce7]"
+                          className="absolute right-0 top-2 bottom-2 w-1 cursor-col-resize z-10 rounded-full transition-colors hover:bg-[var(--accent)]"
                           onMouseDown={(e) => onInvestorListColResizeStart(col.key, e)}
                           onClick={(e) => e.stopPropagation()}
                           aria-hidden
@@ -1268,7 +1268,7 @@ function ConnectorNetworkPageInner() {
             <h2 className="text-base font-semibold text-[var(--text)]">Enrichment Staging</h2>
             <p className="text-xs text-[var(--text-muted)] mt-0.5">
               Upload a spreadsheet, Kevin enriches each contact with web data, then you import to your network.{" "}
-              <a href="/connector/settings" className="text-[#6c5ce7] hover:underline">Use your own API key</a> to boost enrichment.
+              <a href="/connector/settings" className="text-[var(--accent)] hover:underline">Use your own API key</a> to boost enrichment.
             </p>
           </div>
           <div className="flex gap-2 items-center flex-wrap justify-end">
@@ -1280,7 +1280,7 @@ function ConnectorNetworkPageInner() {
                     onClick={() => onEnrichAll()}
                     disabled={enrichmentCredits === 0}
                     title={enrichmentCredits === 0 ? "No credits remaining" : undefined}
-                    className="px-3 py-1.5 bg-[#6c5ce7] text-white rounded-xl text-xs font-medium hover:bg-[#7d6ff0] disabled:opacity-50"
+                    className="px-3 py-1.5 bg-[var(--accent)] text-white rounded-xl text-xs font-medium hover:bg-[var(--accent-hover)] disabled:opacity-50"
                   >
                     Enrich all pending ({stagedPendingCount})
                   </button>
@@ -1318,7 +1318,7 @@ function ConnectorNetworkPageInner() {
           </div>
         </div>
 
-        {stagingMsg && <p className="text-xs text-[#6c5ce7]">{stagingMsg}</p>}
+        {stagingMsg && <p className="text-xs text-[var(--accent)]">{stagingMsg}</p>}
         {stagingLoading && stagingTotal === 0 && (
           <p className="text-xs text-[var(--text-muted)]">Loading staging…</p>
         )}
@@ -1328,7 +1328,7 @@ function ConnectorNetworkPageInner() {
               <span>
                 {stagingCounts.enriched} of {stagingTotal} enriched
                 {stagingCounts.enriching > 0 && (
-                  <span className="text-[#6c5ce7] ml-2 animate-pulse">· {stagingCounts.enriching} in progress</span>
+                  <span className="text-[var(--accent)] ml-2 animate-pulse">· {stagingCounts.enriching} in progress</span>
                 )}
                 {stagingCounts.failed > 0 && (
                   <span className="text-red-400 ml-2">· {stagingCounts.failed} failed</span>
@@ -1338,7 +1338,7 @@ function ConnectorNetworkPageInner() {
             </div>
             <div className="w-full bg-[var(--overlay-6)] rounded-full h-2">
               <div
-                className="bg-[#6c5ce7] h-2 rounded-full transition-all duration-500"
+                className="bg-[var(--accent)] h-2 rounded-full transition-all duration-500"
                 style={{ width: `${stagingTotal > 0 ? (stagingCounts.enriched / stagingTotal) * 100 : 0}%` }}
               />
             </div>
@@ -1356,7 +1356,7 @@ function ConnectorNetworkPageInner() {
             <button
               type="button"
               onClick={() => sheetInputRef.current?.click()}
-              className="px-4 py-2 bg-[#6c5ce7] text-white rounded-xl text-sm font-medium hover:bg-[#7d6ff0] whitespace-nowrap"
+              className="px-4 py-2 bg-[var(--accent)] text-white rounded-xl text-sm font-medium hover:bg-[var(--accent-hover)] whitespace-nowrap"
             >
               Upload spreadsheet
             </button>
@@ -1371,12 +1371,12 @@ function ConnectorNetworkPageInner() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="bg-[var(--bg)] rounded-xl p-3">
                   <p className="text-xs text-[var(--text-muted)] uppercase tracking-wide mb-1">Investors found</p>
-                  <p className="text-2xl font-bold text-[#6c5ce7]">{sheetPreview.investors.length}</p>
+                  <p className="text-2xl font-bold text-[var(--accent)]">{sheetPreview.investors.length}</p>
                   <p className="text-xs text-[var(--text-muted)]">Unique firms extracted from investor column</p>
                 </div>
                 <div className="bg-[var(--bg)] rounded-xl p-3">
                   <p className="text-xs text-[var(--text-muted)] uppercase tracking-wide mb-1">Founders found</p>
-                  <p className="text-2xl font-bold text-[#6c5ce7]">{sheetPreview.founders.length}</p>
+                  <p className="text-2xl font-bold text-[var(--accent)]">{sheetPreview.founders.length}</p>
                   <p className="text-xs text-[var(--text-muted)]">Startups with sector, stage and location</p>
                 </div>
               </div>
@@ -1407,21 +1407,21 @@ function ConnectorNetworkPageInner() {
                 <button
                   type="button"
                   onClick={() => onStageContacts("all")}
-                  className="px-4 py-2 bg-[#6c5ce7] text-white rounded-xl text-sm font-medium hover:bg-[#7d6ff0]"
+                  className="px-4 py-2 bg-[var(--accent)] text-white rounded-xl text-sm font-medium hover:bg-[var(--accent-hover)]"
                 >
                   Stage all {sheetPreview.investors.length + sheetPreview.founders.length} for enrichment
                 </button>
                 <button
                   type="button"
                   onClick={() => onStageContacts("investors")}
-                  className="px-3 py-2 bg-[rgba(108,92,231,0.15)] text-[#6c5ce7] rounded-xl text-sm hover:bg-[rgba(108,92,231,0.25)]"
+                  className="px-3 py-2 bg-[rgba(var(--accent-rgb),0.15)] text-[var(--accent)] rounded-xl text-sm hover:bg-[rgba(var(--accent-rgb),0.25)]"
                 >
                   Investors only ({sheetPreview.investors.length})
                 </button>
                 <button
                   type="button"
                   onClick={() => onStageContacts("founders")}
-                  className="px-3 py-2 bg-[rgba(108,92,231,0.15)] text-[#6c5ce7] rounded-xl text-sm hover:bg-[rgba(108,92,231,0.25)]"
+                  className="px-3 py-2 bg-[rgba(var(--accent-rgb),0.15)] text-[var(--accent)] rounded-xl text-sm hover:bg-[rgba(var(--accent-rgb),0.25)]"
                 >
                   Founders only ({sheetPreview.founders.length})
                 </button>
@@ -1444,7 +1444,7 @@ function ConnectorNetworkPageInner() {
                     onClick={() => setStagingTab(t)}
                     className={`px-3 py-1 rounded-lg text-xs font-medium ${
                       stagingTab === t
-                        ? "bg-[#6c5ce7] text-white"
+                        ? "bg-[var(--accent)] text-white"
                         : "text-[var(--text-muted)] hover:text-[var(--text)]"
                     }`}
                   >
@@ -1464,7 +1464,7 @@ function ConnectorNetworkPageInner() {
               <div className="flex gap-2 items-center flex-wrap">
                 {selectedStaged.size > 0 && (
                   <>
-                    <button type="button" onClick={onEnrichSelected} className="px-3 py-1 bg-[#6c5ce7] text-white rounded-lg text-xs">
+                    <button type="button" onClick={onEnrichSelected} className="px-3 py-1 bg-[var(--accent)] text-white rounded-lg text-xs">
                       Enrich selected ({selectedStaged.size})
                     </button>
                     <button
@@ -1483,7 +1483,7 @@ function ConnectorNetworkPageInner() {
                     type="button"
                     onClick={() => setStagingView(v)}
                     className={`px-2 py-1 rounded text-xs ${
-                      stagingView === v ? "bg-[rgba(108,92,231,0.2)] text-[#6c5ce7]" : "text-[var(--text-muted)]"
+                      stagingView === v ? "bg-[rgba(var(--accent-rgb),0.2)] text-[var(--accent)]" : "text-[var(--text-muted)]"
                     }`}
                   >
                     {v === "table" ? "Table" : "Cards"}
@@ -1524,7 +1524,7 @@ function ConnectorNetworkPageInner() {
             {(stagingCounts.enriching > 0 || stagingCounts.pending > 0) && recentFeed.length > 0 && (
               <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--bg)]">
                 <div className="border-b border-[var(--border)] px-3 py-2">
-                  <span className="text-[10px] uppercase tracking-wide text-[#6c5ce7]">Live feed</span>
+                  <span className="text-[10px] uppercase tracking-wide text-[var(--accent)]">Live feed</span>
                   <p className="mt-0.5 text-[10px] text-[var(--text-muted)]">Newest enriched first</p>
                 </div>
                 <ul className="divide-y divide-[var(--overlay-6)]">
@@ -1620,7 +1620,7 @@ function ConnectorNetworkPageInner() {
                           <td className="py-2 pr-2 text-[var(--text-muted)]">{s.geography ?? "—"}</td>
                           <td className="py-2 pr-2 text-[var(--text-muted)] max-w-[100px] truncate">
                             {s.website ? (
-                              <a href={s.website} target="_blank" rel="noreferrer" className="text-[#6c5ce7] hover:underline">
+                              <a href={s.website} target="_blank" rel="noreferrer" className="text-[var(--accent)] hover:underline">
                                 link
                               </a>
                             ) : (
@@ -1630,7 +1630,7 @@ function ConnectorNetworkPageInner() {
                           <td className="py-2 pr-2">{statusBadge(s.status)}</td>
                           <td className="py-2">
                             <div className="flex gap-1">
-                              <button type="button" onClick={() => startEditStaged(s)} className="text-[#6c5ce7] hover:underline">
+                              <button type="button" onClick={() => startEditStaged(s)} className="text-[var(--accent)] hover:underline">
                                 Edit
                               </button>
                               {s.status === "enriched" && (
@@ -1658,7 +1658,7 @@ function ConnectorNetworkPageInner() {
                           </td>
                         </tr>
                         {editingStagedId === s.id && (
-                          <tr className="bg-[rgba(108,92,231,0.05)]">
+                          <tr className="bg-[rgba(var(--accent-rgb),0.05)]">
                             <td colSpan={10} className="py-3 px-2">
                               <div className="grid grid-cols-3 gap-2">
                                 {(
@@ -1689,7 +1689,7 @@ function ConnectorNetworkPageInner() {
                                   type="button"
                                   onClick={() => onSaveStagedEdit(s.id)}
                                   disabled={savingStagedEdit}
-                                  className="px-3 py-1 bg-[#6c5ce7] text-white rounded-lg text-xs disabled:opacity-50"
+                                  className="px-3 py-1 bg-[var(--accent)] text-white rounded-lg text-xs disabled:opacity-50"
                                 >
                                   Save
                                 </button>
@@ -1737,7 +1737,7 @@ function ConnectorNetworkPageInner() {
                     </div>
                     {s.enrichment_error && <p className="text-xs text-red-400">{s.enrichment_error}</p>}
                     <div className="flex gap-2">
-                      <button type="button" onClick={() => startEditStaged(s)} className="text-xs text-[#6c5ce7] hover:underline">
+                      <button type="button" onClick={() => startEditStaged(s)} className="text-xs text-[var(--accent)] hover:underline">
                         Edit
                       </button>
                       {s.status === "enriched" && (
@@ -1809,7 +1809,7 @@ function ConnectorNetworkPageInner() {
                     {viewingContact.firm_or_company && viewingContact.firm_or_company !== viewingContact.name && (
                       <p className="mt-1 text-base text-[var(--text-muted)]">{viewingContact.firm_or_company}</p>
                     )}
-                    <p className="mt-2 text-[10px] uppercase tracking-wide text-[#6c5ce7]">{viewingContact.role}</p>
+                    <p className="mt-2 text-[10px] uppercase tracking-wide text-[var(--accent)]">{viewingContact.role}</p>
                   </>
                 ) : (
                   <>
@@ -1863,16 +1863,16 @@ function ConnectorNetworkPageInner() {
                               href={val}
                               target="_blank"
                               rel="noreferrer"
-                              className="break-all text-[#6c5ce7] hover:underline"
+                              className="break-all text-[var(--accent)] hover:underline"
                             >
                               {val.replace(/^https?:\/\//, "")}
                             </a>
                           ) : label === "LinkedIn" ? (
-                            <a href={val} target="_blank" rel="noreferrer" className="break-all text-[#6c5ce7] hover:underline">
+                            <a href={val} target="_blank" rel="noreferrer" className="break-all text-[var(--accent)] hover:underline">
                               View profile
                             </a>
                           ) : label === "Email" ? (
-                            <a href={`mailto:${val}`} className="break-all text-[#6c5ce7] hover:underline">
+                            <a href={`mailto:${val}`} className="break-all text-[var(--accent)] hover:underline">
                               {val}
                             </a>
                           ) : (
@@ -1895,7 +1895,7 @@ function ConnectorNetworkPageInner() {
                   </div>
 
                   {viewingContact.joined_user_id && (
-                    <p className="mt-4 text-xs text-[#6c5ce7]">On platform</p>
+                    <p className="mt-4 text-xs text-[var(--accent)]">On platform</p>
                   )}
                 </>
               ) : (
@@ -1955,7 +1955,7 @@ function ConnectorNetworkPageInner() {
                       setContactModalMode("edit");
                       setEditMsg(null);
                     }}
-                    className="rounded-xl px-4 py-2 text-sm font-medium text-[#6c5ce7] transition-colors hover:bg-[rgba(108,92,231,0.12)]"
+                    className="rounded-xl px-4 py-2 text-sm font-medium text-[var(--accent)] transition-colors hover:bg-[rgba(var(--accent-rgb),0.12)]"
                   >
                     Edit
                   </button>
@@ -1985,7 +1985,7 @@ function ConnectorNetworkPageInner() {
                     type="button"
                     onClick={() => void onSaveContactModal()}
                     disabled={savingEdit}
-                    className="px-4 py-2 bg-[#6c5ce7] text-white rounded-xl text-sm font-medium hover:bg-[#7d6ff0] disabled:opacity-50"
+                    className="px-4 py-2 bg-[var(--accent)] text-white rounded-xl text-sm font-medium hover:bg-[var(--accent-hover)] disabled:opacity-50"
                   >
                     {savingEdit ? "Saving…" : "Save"}
                   </button>

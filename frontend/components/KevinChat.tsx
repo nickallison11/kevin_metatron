@@ -270,12 +270,12 @@ export default function KevinChat() {
           zIndex: 200,
           borderRadius: 9999,
           border: "none",
-          background: "#6c5ce7",
+          background: "var(--accent)",
           color: "#ffffff",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          boxShadow: "0 8px 32px rgba(108,92,231,0.45)",
+          boxShadow: "0 8px 32px rgba(var(--accent-rgb),0.45)",
           cursor: "pointer",
         }}
       >
@@ -372,8 +372,8 @@ export default function KevinChat() {
                 title="History"
                 style={iconBtnBase}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "rgba(108,92,231,0.15)";
-                  e.currentTarget.style.color = "#6c5ce7";
+                  e.currentTarget.style.background = "rgba(var(--accent-rgb),0.15)";
+                  e.currentTarget.style.color = "var(--accent)";
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.background = "transparent";
@@ -437,14 +437,14 @@ export default function KevinChat() {
                   borderRadius: 8,
                   border: "none",
                   background: "transparent",
-                  color: "#6c5ce7",
+                  color: "var(--accent)",
                   fontSize: 14,
                   fontWeight: 600,
                   cursor: "pointer",
                   fontFamily: "var(--font-dm-sans), DM Sans, sans-serif",
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "rgba(108,92,231,0.12)";
+                  e.currentTarget.style.background = "rgba(var(--accent-rgb),0.12)";
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.background = "transparent";
@@ -484,7 +484,7 @@ export default function KevinChat() {
                     fontFamily: "var(--font-dm-sans), DM Sans, sans-serif",
                   }}
                   onMouseEnter={(e) => {
-                    e.currentTarget.style.background = "rgba(108,92,231,0.12)";
+                    e.currentTarget.style.background = "rgba(var(--accent-rgb),0.12)";
                   }}
                   onMouseLeave={(e) => {
                     e.currentTarget.style.background = "transparent";
@@ -539,7 +539,7 @@ export default function KevinChat() {
                     maxWidth: "85%",
                     padding: "10px 12px",
                     borderRadius: 12,
-                    background: m.role === "user" ? "#6c5ce7" : "#1e1e2a",
+                    background: m.role === "user" ? "var(--accent)" : "#1e1e2a",
                     color: m.role === "user" ? "#ffffff" : "#e8e8ed",
                     whiteSpace: "pre-wrap",
                     lineHeight: 1.4,
@@ -621,7 +621,7 @@ export default function KevinChat() {
               style={{
                 borderRadius: 12,
                 padding: "10px 16px",
-                background: "#6c5ce7",
+                background: "var(--accent)",
                 color: "#ffffff",
                 fontSize: 12,
                 fontWeight: 600,

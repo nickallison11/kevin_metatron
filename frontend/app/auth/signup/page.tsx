@@ -292,7 +292,7 @@ function SignupForm() {
         <button
           type="submit"
           disabled={!consentGiven}
-          className="w-full rounded-lg bg-metatron-accent py-2.5 text-sm font-semibold text-white hover:bg-metatron-accent-hover hover:shadow-[0_4px_20px_rgba(108,92,231,0.3)] transition-all disabled:opacity-60 disabled:hover:bg-metatron-accent disabled:hover:shadow-none"
+          className="w-full rounded-lg bg-metatron-accent py-2.5 text-sm font-semibold text-white hover:bg-metatron-accent-hover hover:shadow-[0_4px_20px_rgba(var(--accent-rgb),0.3)] transition-all disabled:opacity-60 disabled:hover:bg-metatron-accent disabled:hover:shadow-none"
         >
           Sign up
         </button>

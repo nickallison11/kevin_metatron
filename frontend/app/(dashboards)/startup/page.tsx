@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import AngelScoreCard from "@/components/AngelScoreCard";
-import ChannelLinksCard from "@/components/ChannelLinksCard";
 import ShareProfileCard from "@/components/ShareProfileCard";
 import DeckActivityCard from "@/components/startup/DeckActivityCard";
 import StartupReviewsCard from "@/components/startup/StartupReviewsCard";
@@ -273,10 +272,9 @@ export default function StartupDashboardPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-3">
+        <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
           <AngelScoreCard token={token} />
           <ShareProfileCard token={token} />
-          <ChannelLinksCard token={token} />
         </div>
       </section>
     </main>

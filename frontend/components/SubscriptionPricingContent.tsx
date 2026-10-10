@@ -466,7 +466,7 @@ export default function SubscriptionPricingContent(
   };
 
   const card =
-    "rounded-[12px] border border-[var(--border)] bg-[var(--bg-card)] p-6";
+    "rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-6 shadow-[var(--card-shadow)]";
 
   const basicMonthly = formatBasicDisplay(currency, "monthly");
   const basicAnnual = formatBasicDisplay(currency, "annual");
@@ -485,10 +485,12 @@ export default function SubscriptionPricingContent(
   const showProCard = roleHasProTier && planLevel !== "pro";
 
   return (
-    <div className="mx-auto w-full max-w-5xl px-5 py-10 space-y-6">
-      <h1 className="text-xl font-semibold text-[var(--text)]">
-        Subscription & Billing
-      </h1>
+    <div className="mx-auto w-full max-w-5xl space-y-6 p-6 md:p-10">
+      <header className="flex flex-col gap-1.5">
+        <span className="font-mono text-[11px] uppercase tracking-[0.14em] text-[var(--text-muted)]">Subscription</span>
+        <h1 className="text-[28px] font-semibold tracking-tight text-[var(--text)]">{isPaid ? planName : "Free plan"}</h1>
+        <p className="text-sm text-[var(--text-muted)]">Your plan, upgrades and payment history.</p>
+      </header>
 
       {verifying && (
         <div className="rounded-[12px] border border-[var(--border)] bg-[var(--bg-card)] px-4 py-3 text-sm text-[var(--text-muted)]">
@@ -496,7 +498,7 @@ export default function SubscriptionPricingContent(
         </div>
       )}
       {error && (
-        <div className="rounded-[12px] border border-red-400/30 bg-red-400/10 px-4 py-3 text-sm text-red-400">
+        <div role="alert" className="rounded-[12px] border border-[var(--danger)]/40 px-4 py-3 text-sm text-[var(--danger)]">
           {error}
         </div>
       )}
@@ -518,8 +520,8 @@ export default function SubscriptionPricingContent(
                     </span>
                   )}
               </span>
-              <span className="rounded-full bg-metatron-accent/15 px-2.5 py-0.5 text-[10px] font-semibold text-metatron-accent">
-                active
+              <span className="rounded-full bg-[var(--good-bg)] px-2.5 py-0.5 text-[11px] font-semibold text-[var(--good)]">
+                Active
               </span>
             </div>
             {extraPaidInfo && <div className="mt-2">{extraPaidInfo}</div>}
@@ -710,7 +712,8 @@ export default function SubscriptionPricingContent(
             No payments recorded yet.
           </p>
         ) : (
-          <table className="mt-4 w-full text-xs">
+          <div className="mt-4 overflow-x-auto">
+          <table className="w-full min-w-[520px] text-[13px]">
             <thead>
               <tr className="border-b border-[var(--border)] text-[var(--text-muted)]">
                 <th className="py-2 text-left">Date</th>
@@ -739,7 +742,7 @@ export default function SubscriptionPricingContent(
                   <td className="py-2">
                     <Link
                       href={`${basePath}/invoice/${inv.id}`}
-                      className="text-xs text-metatron-accent hover:underline"
+                      className="text-[13px] text-[var(--accent-fg)] hover:underline"
                     >
                       View
                     </Link>
@@ -748,6 +751,7 @@ export default function SubscriptionPricingContent(
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </section>
     </div>

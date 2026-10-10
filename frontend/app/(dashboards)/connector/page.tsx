@@ -32,7 +32,8 @@ function Stat({ label, value }: { label: string; value: string }) {
 
 function statusPill(status: string): string {
   const s = status.toUpperCase();
-  if (s === "ACCEPTED" || s === "COMPLETED" || s === "CONNECTED") return "bg-[var(--good-bg)] text-[var(--good)]";
+  if (s === "CLOSED" || s === "ACCEPTED" || s === "COMPLETED" || s === "CONNECTED") return "bg-[var(--good-bg)] text-[var(--good)]";
+  if (s === "SENT") return "bg-metatron-accent/15 text-[var(--accent-fg)]";
   if (s === "DECLINED" || s === "REJECTED") return "bg-[var(--overlay-6)] text-[var(--text-muted)]";
   return "bg-[var(--warn-bg)] text-[var(--warn)]";
 }

@@ -20,9 +20,9 @@ type IntroRow = {
 
 const STATUS_LABELS: Record<string, string> = { pending: "Pending", sent: "Sent", closed: "Closed" };
 const STATUS_COLORS: Record<string, string> = {
-  pending: "bg-[var(--border)] text-[var(--text-muted)]",
-  sent: "bg-metatron-accent/15 text-metatron-accent",
-  closed: "bg-green-500/15 text-green-400",
+  pending: "bg-[var(--warn-bg)] text-[var(--warn)]",
+  sent: "bg-metatron-accent/15 text-[var(--accent-fg)]",
+  closed: "bg-[var(--good-bg)] text-[var(--good)]",
 };
 const STATUSES = ["pending", "sent", "closed"];
 
@@ -127,167 +127,65 @@ export default function ConnectorIntroductionsPage() {
     return <ConnectorUpgradeGate feature="Introductions" />;
   }
 
+  const input =
+    "w-full min-h-11 rounded-[10px] border border-[var(--overlay-12)] bg-[var(--bg)] px-3.5 py-2.5 text-sm text-[var(--text)] outline-none focus:border-metatron-accent";
+  const field = "flex flex-col gap-1.5 text-[13px] font-semibold";
+
   return (
-    <main className="flex-1 px-6 py-8 md:px-10">
-      <div className="mx-auto w-full max-w-5xl">
-        <div className="mb-6 flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-semibold text-[var(--text)]">Introductions</h1>
-            <p className="mt-1 text-sm text-[var(--text-muted)]">
-              Track the introductions you broker between people in your network.
-            </p>
+    <main className="min-w-0 flex-1">
+      <section className="mx-auto flex max-w-5xl flex-col gap-5 p-6 md:p-10">
+        <header className="flex flex-wrap items-end justify-between gap-3">
+          <div className="flex flex-col gap-1.5">
+            <span className="font-mono text-[11px] uppercase tracking-[0.14em] text-[var(--text-muted)]">Introductions</span>
+            <h1 className="text-[28px] font-semibold tracking-tight">Warm intros you&apos;ve made</h1>
+            <p className="text-sm text-[var(--text-muted)]">Track the introductions you broker between people in your network.</p>
           </div>
           <button
             type="button"
             onClick={() => {
-              setShowModal(true);
+              setShowModal((v) => !v);
               setError(null);
             }}
-            className="rounded-[12px] bg-metatron-accent px-4 py-2.5 text-sm font-semibold text-white hover:bg-metatron-accent-hover"
+            className="inline-flex min-h-11 items-center rounded-xl bg-metatron-accent px-5 text-sm font-semibold text-white hover:bg-metatron-accent-hover"
           >
-            + New Introduction
+            {showModal ? "Close" : "+ New introduction"}
           </button>
-        </div>
+        </header>
 
-        {rows.length === 0 ? (
-          <div className="rounded-[12px] border border-[var(--border)] bg-[var(--bg-card)] px-6 py-12 text-center">
-            <p className="text-sm text-[var(--text-muted)]">
-              No introductions logged yet. Click &quot;New Introduction&quot; to record your first one.
-            </p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto rounded-[12px] border border-[var(--border)] bg-[var(--bg-card)]">
-            <table className="w-full min-w-[640px] text-left text-sm">
-              <thead>
-                <tr className="border-b border-[var(--border)]">
-                  <th className="px-4 py-3 font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
-                    Person A
-                  </th>
-                  <th className="px-4 py-3 font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
-                    Person B
-                  </th>
-                  <th className="px-4 py-3 font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
-                    Notes
-                  </th>
-                  <th className="px-4 py-3 font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
-                    Status
-                  </th>
-                  <th className="px-4 py-3 font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
-                    Date
-                  </th>
-                  <th className="px-4 py-3 font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r) => (
-                  <tr key={r.id} className="border-b border-[var(--border)] last:border-0 hover:bg-[var(--bg)]">
-                    <td className="px-4 py-3">
-                      <p className="font-medium text-[var(--text)]">{r.person_a_name}</p>
-                      {r.person_a_email && <p className="text-xs text-[var(--text-muted)]">{r.person_a_email}</p>}
-                    </td>
-                    <td className="px-4 py-3">
-                      <p className="font-medium text-[var(--text)]">{r.person_b_name}</p>
-                      {r.person_b_email && <p className="text-xs text-[var(--text-muted)]">{r.person_b_email}</p>}
-                    </td>
-                    <td className="px-4 py-3 max-w-[180px] text-xs text-[var(--text-muted)] truncate">
-                      {r.notes ?? "—"}
-                    </td>
-                    <td className="px-4 py-3">
-                      <select
-                        value={r.status}
-                        onChange={(e) => void onStatusChange(r.id, e.target.value)}
-                        className={`rounded-full px-2.5 py-1 text-[11px] font-semibold border-0 cursor-pointer ${STATUS_COLORS[r.status] ?? ""}`}
-                      >
-                        {STATUSES.map((s) => (
-                          <option key={s} value={s}>
-                            {STATUS_LABELS[s]}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                    <td className="px-4 py-3 text-xs text-[var(--text-muted)]">{formatDate(r.created_at)}</td>
-                    <td className="px-4 py-3">
-                      <button
-                        type="button"
-                        onClick={() => void onDelete(r.id)}
-                        className="text-xs text-[var(--text-muted)] hover:text-red-400"
-                      >
-                        Delete
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
-          <div className="w-full max-w-md rounded-[12px] border border-[var(--border)] bg-[var(--bg-card)] p-6">
-            <h2 className="mb-4 text-lg font-semibold text-[var(--text)]">New Introduction</h2>
-            <div className="space-y-3">
-              {error && <p className="text-xs text-red-400">{error}</p>}
-              <div className="grid grid-cols-2 gap-3">
-                <label className="space-y-1">
-                  <span className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
-                    Person A Name *
-                  </span>
-                  <input
-                    className="input-metatron w-full"
-                    value={form.person_a_name}
-                    onChange={(e) => setForm((f) => ({ ...f, person_a_name: e.target.value }))}
-                  />
-                </label>
-                <label className="space-y-1">
-                  <span className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
-                    Person A Email
-                  </span>
-                  <input
-                    className="input-metatron w-full"
-                    type="email"
-                    value={form.person_a_email}
-                    onChange={(e) => setForm((f) => ({ ...f, person_a_email: e.target.value }))}
-                  />
-                </label>
-                <label className="space-y-1">
-                  <span className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
-                    Person B Name *
-                  </span>
-                  <input
-                    className="input-metatron w-full"
-                    value={form.person_b_name}
-                    onChange={(e) => setForm((f) => ({ ...f, person_b_name: e.target.value }))}
-                  />
-                </label>
-                <label className="space-y-1">
-                  <span className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
-                    Person B Email
-                  </span>
-                  <input
-                    className="input-metatron w-full"
-                    type="email"
-                    value={form.person_b_email}
-                    onChange={(e) => setForm((f) => ({ ...f, person_b_email: e.target.value }))}
-                  />
-                </label>
-              </div>
-              <label className="block space-y-1">
-                <span className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">Notes</span>
-                <textarea
-                  className="input-metatron w-full resize-none"
-                  rows={3}
-                  value={form.notes}
-                  onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
-                />
+        {showModal && (
+          <section className="flex flex-col gap-4 rounded-[var(--radius)] border border-metatron-accent/40 bg-[var(--bg-card)] p-5 shadow-[var(--card-shadow)]">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className={field}>
+                <span>Person A name *</span>
+                <input className={input} value={form.person_a_name} onChange={(e) => setForm((f) => ({ ...f, person_a_name: e.target.value }))} />
+              </label>
+              <label className={field}>
+                <span>Person A email</span>
+                <input className={input} type="email" value={form.person_a_email} onChange={(e) => setForm((f) => ({ ...f, person_a_email: e.target.value }))} />
+              </label>
+              <label className={field}>
+                <span>Person B name *</span>
+                <input className={input} value={form.person_b_name} onChange={(e) => setForm((f) => ({ ...f, person_b_name: e.target.value }))} />
+              </label>
+              <label className={field}>
+                <span>Person B email</span>
+                <input className={input} type="email" value={form.person_b_email} onChange={(e) => setForm((f) => ({ ...f, person_b_email: e.target.value }))} />
               </label>
             </div>
-            <div className="mt-5 flex justify-end gap-2">
+            <label className={field}>
+              <span>Why they should meet</span>
+              <textarea className={`${input} resize-y`} rows={3} value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} />
+            </label>
+            {error && (
+              <p role="alert" className="text-[13px] text-[var(--danger)]">
+                {error}
+              </p>
+            )}
+            <div className="flex justify-end gap-2">
               <button
                 type="button"
                 onClick={() => setShowModal(false)}
-                className="rounded-[12px] border border-[var(--border)] px-4 py-2 text-sm text-[var(--text)] hover:border-metatron-accent/30"
+                className="inline-flex min-h-11 items-center rounded-xl border border-[var(--overlay-12)] px-5 text-sm font-medium hover:bg-[var(--overlay-4)]"
               >
                 Cancel
               </button>
@@ -295,14 +193,69 @@ export default function ConnectorIntroductionsPage() {
                 type="button"
                 onClick={() => void onCreate()}
                 disabled={submitting}
-                className="rounded-[12px] bg-metatron-accent px-4 py-2 text-sm font-semibold text-white hover:bg-metatron-accent-hover disabled:opacity-60"
+                className="inline-flex min-h-11 items-center rounded-xl bg-metatron-accent px-5 text-sm font-semibold text-white hover:bg-metatron-accent-hover disabled:opacity-60"
               >
-                {submitting ? "Saving..." : "Save"}
+                {submitting ? "Saving…" : "Save introduction"}
               </button>
             </div>
+          </section>
+        )}
+
+        {rows.length === 0 ? (
+          <p className="text-sm text-[var(--text-muted)]">No introductions logged yet. Use &ldquo;New introduction&rdquo; to record your first one.</p>
+        ) : (
+          <div className="flex flex-col gap-3">
+            {rows.map((r) => (
+              <article
+                key={r.id}
+                className="flex flex-col gap-3 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-4 shadow-[var(--card-shadow)] sm:flex-row sm:flex-wrap sm:items-center"
+              >
+                <span aria-hidden className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-metatron-accent/15 text-[var(--accent-fg)]">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M9 15l6 -6" />
+                    <path d="M11 6l.463 -.536a5 5 0 0 1 7.071 7.072l-.534 .464" />
+                    <path d="M13 18l-.397 .534a5.068 5.068 0 0 1 -7.127 0a4.972 4.972 0 0 1 0 -7.071l.524 -.463" />
+                  </svg>
+                </span>
+                <div className="flex min-w-0 flex-1 basis-72 flex-col gap-1">
+                  <strong className="text-base">
+                    {r.person_a_name} → {r.person_b_name}
+                  </strong>
+                  <span className="text-[13px] text-[var(--text-muted)]">
+                    {[r.person_a_email, r.person_b_email].filter(Boolean).join(" · ") || "No emails"} · {formatDate(r.created_at)}
+                  </span>
+                  {r.notes && <span className="text-sm text-[var(--text-muted)]">{r.notes}</span>}
+                </div>
+                <div className="flex items-center gap-2">
+                  <label className="sr-only" htmlFor={`status-${r.id}`}>
+                    Status
+                  </label>
+                  <select
+                    id={`status-${r.id}`}
+                    value={r.status}
+                    onChange={(e) => void onStatusChange(r.id, e.target.value)}
+                    className={`min-h-9 cursor-pointer rounded-full border-0 px-3 text-[13px] font-semibold ${STATUS_COLORS[r.status] ?? ""}`}
+                  >
+                    {STATUSES.map((s) => (
+                      <option key={s} value={s}>
+                        {STATUS_LABELS[s]}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => void onDelete(r.id)}
+                    aria-label={`Delete introduction ${r.person_a_name} to ${r.person_b_name}`}
+                    className="inline-flex min-h-9 items-center rounded-[10px] px-2.5 text-[13px] text-[var(--text-muted)] hover:text-[var(--danger)]"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </article>
+            ))}
           </div>
-        </div>
-      )}
+        )}
+      </section>
     </main>
   );
 }

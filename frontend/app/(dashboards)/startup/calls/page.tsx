@@ -85,11 +85,15 @@ export default function StartupCallsPage() {
   }
 
   return (
-    <main className="flex-1">
+    <main className="min-w-0 flex-1">
       <section className="p-6 md:p-10 max-w-5xl mx-auto space-y-5">
         <div className="flex flex-wrap items-end justify-between gap-3">
-          <h1 className="text-2xl font-semibold text-[var(--text)]">Call intelligence</h1>
-          <label className="cursor-pointer rounded-lg bg-metatron-accent px-4 py-2 text-xs font-semibold text-white hover:bg-metatron-accent-hover disabled:opacity-50">
+          <header className="flex flex-col gap-1.5">
+            <span className="font-mono text-[11px] uppercase tracking-[0.14em] text-[var(--text-muted)]">Call Intelligence</span>
+            <h1 className="text-[28px] font-semibold tracking-tight text-[var(--text)]">Your calls, summarised</h1>
+            <p className="text-sm text-[var(--text-muted)]">Upload a recording (.m4a, .mp3 or .wav). Kevin transcribes it and pulls out takeaways, next steps and sentiment.</p>
+          </header>
+          <label className="inline-flex min-h-11 cursor-pointer items-center rounded-xl bg-metatron-accent px-5 text-sm font-semibold text-white hover:bg-metatron-accent-hover focus-within:outline focus-within:outline-2 focus-within:outline-offset-2">
             {uploading ? "Processing…" : "Upload recording"}
             <input
               type="file"

@@ -119,6 +119,10 @@ pub struct ConnectorProfileDto {
     pub connector_tier: Option<String>,
     pub ipfs_cid: Option<String>,
     pub enrichment_credits: Option<i32>,
+    #[serde(default)]
+    pub website: Option<String>,
+    #[serde(default)]
+    pub linkedin_url: Option<String>,
 }
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
@@ -139,6 +143,8 @@ struct ConnectorRow {
     connector_tier: Option<String>,
     ipfs_cid: Option<String>,
     enrichment_credits: Option<i32>,
+    website: Option<String>,
+    linkedin_url: Option<String>,
 }
 
 #[derive(Serialize, sqlx::FromRow)]
@@ -332,7 +338,7 @@ async fn fetch_dto(
     user_id: Uuid,
 ) -> Result<ConnectorProfileDto, (axum::http::StatusCode, String)> {
     let row = sqlx::query_as::<_, ConnectorRow>(
-        r#"SELECT organisation, bio, speciality, country, connector_tier, ipfs_cid, enrichment_credits
+        r#"SELECT organisation, bio, speciality, country, connector_tier, ipfs_cid, enrichment_credits, website, linkedin_url
              FROM connector_profiles WHERE user_id = $1"#,
     )
     .bind(user_id)
@@ -349,6 +355,8 @@ async fn fetch_dto(
             connector_tier: r.connector_tier,
             ipfs_cid: r.ipfs_cid,
             enrichment_credits: r.enrichment_credits,
+            website: r.website,
+            linkedin_url: r.linkedin_url,
         })
         .unwrap_or_default())
 }
@@ -428,11 +436,12 @@ async fn put_own(
     });
 
     sqlx::query(
-        r#"INSERT INTO connector_profiles (user_id, organisation, bio, speciality, country)
-             VALUES ($1, $2, $3, $4, $5)
+        r#"INSERT INTO connector_profiles (user_id, organisation, bio, speciality, country, website, linkedin_url)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)
              ON CONFLICT (user_id) DO UPDATE SET
                  organisation = EXCLUDED.organisation, bio = EXCLUDED.bio,
                  speciality = EXCLUDED.speciality, country = EXCLUDED.country,
+                 website = EXCLUDED.website, linkedin_url = EXCLUDED.linkedin_url,
                  updated_at = now()"#,
     )
     .bind(user_id)
@@ -440,9 +449,16 @@ async fn put_own(
     .bind(&body.bio)
     .bind(&body.speciality)
     .bind(&country)
+    .bind(body.website.as_deref().map(str::trim).filter(|w| !w.is_empty()))
+    .bind(body.linkedin_url.as_deref().map(str::trim).filter(|w| !w.is_empty()))
     .execute(&state.db)
     .await
     .map_err(internal)?;
+
+    // Look for a logo on their website (skipped if they uploaded one).
+    if body.website.as_deref().is_some_and(|w| !w.trim().is_empty()) {
+        tokio::spawn(crate::routes::uploads::refresh_logo_from_website(state.clone(), user_id));
+    }
 
     Ok(Json(fetch_dto(&state, user_id).await?))
 }

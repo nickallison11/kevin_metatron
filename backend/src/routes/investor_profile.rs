@@ -40,6 +40,8 @@ pub struct InvestorProfileDto {
     pub is_accredited: bool,
     #[serde(default)]
     pub pass_message_template: Option<String>,
+    #[serde(default)]
+    pub website: Option<String>,
 }
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
@@ -68,6 +70,7 @@ struct InvestorRow {
     investor_tier: Option<String>,
     is_accredited: bool,
     pass_message_template: Option<String>,
+    website: Option<String>,
 }
 
 async fn fetch_dto(
@@ -77,7 +80,7 @@ async fn fetch_dto(
     let row = sqlx::query_as::<_, InvestorRow>(
         r#"
         SELECT firm_name, bio, investment_thesis, sectors, stages,
-               ticket_size_min, ticket_size_max, country, investor_tier, is_accredited, pass_message_template
+               ticket_size_min, ticket_size_max, country, investor_tier, is_accredited, pass_message_template, website
         FROM investor_profiles WHERE user_id = $1
         "#,
     )
@@ -112,6 +115,7 @@ fn into_dto(r: InvestorRow) -> InvestorProfileDto {
         investor_tier: r.investor_tier,
         is_accredited: r.is_accredited,
         pass_message_template: r.pass_message_template,
+        website: r.website,
     }
 }
 
@@ -140,9 +144,9 @@ async fn put_own(
         r#"
         INSERT INTO investor_profiles (
             user_id, firm_name, bio, investment_thesis, sectors, stages,
-            ticket_size_min, ticket_size_max, country, is_accredited, pass_message_template
+            ticket_size_min, ticket_size_max, country, is_accredited, pass_message_template, website
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
         ON CONFLICT (user_id) DO UPDATE SET
             firm_name = EXCLUDED.firm_name,
             bio = EXCLUDED.bio,
@@ -154,6 +158,7 @@ async fn put_own(
             country = EXCLUDED.country,
             is_accredited = EXCLUDED.is_accredited,
             pass_message_template = EXCLUDED.pass_message_template,
+            website = EXCLUDED.website,
             updated_at = now()
         "#,
     )
@@ -168,9 +173,15 @@ async fn put_own(
     .bind(&country)
     .bind(body.is_accredited)
     .bind(&body.pass_message_template)
+    .bind(body.website.as_deref().map(str::trim).filter(|w| !w.is_empty()))
     .execute(&state.db)
     .await
     .map_err(internal)?;
+
+    // Look for the firm's logo on its website (skipped if they uploaded one).
+    if body.website.as_deref().is_some_and(|w| !w.trim().is_empty()) {
+        tokio::spawn(crate::routes::uploads::refresh_logo_from_website(state.clone(), id));
+    }
 
     Ok(Json(fetch_dto(&state, id).await?))
 }

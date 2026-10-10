@@ -23,9 +23,9 @@ type KevinMatch = {
 function ScoreBadge({ score }: { score: number }) {
   const color =
     score >= 85
-      ? "bg-green-500/15 text-green-400"
+      ? "bg-[var(--good-bg)] text-[var(--good)]"
       : score >= 70
-        ? "bg-metatron-accent/15 text-metatron-accent"
+        ? "bg-metatron-accent/15 text-[var(--accent-fg)]"
         : "bg-[var(--border)] text-[var(--text-muted)]";
   return (
     <span className={`mono-num rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${color}`}>

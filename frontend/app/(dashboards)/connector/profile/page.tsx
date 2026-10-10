@@ -1,196 +1,85 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import Link from "next/link";
+import { FormEvent, useCallback, useEffect, useState, type ReactNode } from "react";
 import { API_BASE, authHeaders, authJsonHeaders } from "@/lib/api";
+import type { MeResponse } from "@/lib/me";
 import { COUNTRIES } from "@/lib/countries";
 import { useAuth } from "@/lib/auth";
-import type { MeResponse } from "@/lib/me";
+import { LogoCard } from "@/components/profile/LogoCard";
 
-const SPECIALITIES = [
-  "VC Network",
-  "Angel Network",
-  "Accelerator",
-  "Corporate VC",
-  "Ecosystem Partner",
-  "Family Office",
-  "Other",
-] as const;
+const SPECIALITIES = ["VC Network", "Angel Network", "Accelerator", "Corporate VC", "Ecosystem Partner", "Family Office", "Other"] as const;
 
 type ConnectorProfile = {
   organisation?: string | null;
   bio?: string | null;
   speciality?: string | null;
   country?: string | null;
+  website?: string | null;
+  linkedin_url?: string | null;
 };
+
+const card = "flex flex-col gap-4 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-5 shadow-[var(--card-shadow)]";
+const eyebrow = "font-mono text-[11px] uppercase tracking-[0.14em] text-[var(--text-muted)]";
+const input =
+  "w-full min-h-11 rounded-[10px] border border-[var(--overlay-12)] bg-[var(--bg)] px-3.5 py-2.5 text-sm text-[var(--text)] outline-none focus:border-metatron-accent";
+const btnPrimary =
+  "inline-flex min-h-11 items-center justify-center rounded-xl bg-metatron-accent px-5 text-sm font-semibold text-white hover:bg-metatron-accent-hover disabled:opacity-50";
+
+function Field({ label, hint, children }: { label: string; hint?: ReactNode; children: ReactNode }) {
+  return (
+    <label className="flex flex-col gap-1.5 text-[13px] font-semibold">
+      <span>{label}</span>
+      {children}
+      {hint && <span className="text-xs font-normal text-[var(--text-muted)]">{hint}</span>}
+    </label>
+  );
+}
 
 export default function ConnectorProfilePage() {
   const { token, loading: authLoading } = useAuth("INTERMEDIARY");
   const [me, setMe] = useState<MeResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [p, setP] = useState<ConnectorProfile>({});
-  const [telegramLinkCode, setTelegramLinkCode] = useState<string | null>(null);
-  const [telegramLoading, setTelegramLoading] = useState(false);
-  const [telegramMsg, setTelegramMsg] = useState<string | null>(null);
-  const [unlinkingTelegram, setUnlinkingTelegram] = useState(false);
-  const [whatsappInput, setWhatsappInput] = useState("");
-  const [whatsappSaving, setWhatsappSaving] = useState(false);
-  const [whatsappMsg, setWhatsappMsg] = useState<string | null>(null);
-  const [whatsappSaved, setWhatsappSaved] = useState(false);
-  const [unlinkingWhatsapp, setUnlinkingWhatsapp] = useState(false);
+  const [saved, setSaved] = useState<ConnectorProfile>({});
+  const [logo, setLogo] = useState<{ url: string | null; source: string | null }>({ url: null, source: null });
+  const [contacts, setContacts] = useState(0);
+
+  const loadLogo = useCallback(async () => {
+    if (!token) return;
+    const res = await fetch(`${API_BASE}/profile`, { headers: authHeaders(token) }).catch(() => null);
+    if (res?.ok) {
+      const d = (await res.json()) as { logo_url?: string | null; logo_source?: string | null };
+      setLogo({ url: d.logo_url ?? null, source: d.logo_source ?? null });
+    }
+  }, [token]);
 
   useEffect(() => {
     if (!token) return;
-    setLoading(true);
     (async () => {
       try {
-        const [rMe, rP] = await Promise.all([
+        const [meRes, pr, net] = await Promise.all([
           fetch(`${API_BASE}/auth/me`, { headers: authHeaders(token) }),
-          fetch(`${API_BASE}/connector-profile`, {
-            headers: authJsonHeaders(token),
-          }),
+          fetch(`${API_BASE}/connector-profile`, { headers: authJsonHeaders(token) }),
+          fetch(`${API_BASE}/connector-profile/network`, { headers: authHeaders(token) }),
         ]);
-        if (rMe.ok) {
-          const m = (await rMe.json()) as MeResponse;
-          setMe(m);
-          setWhatsappInput(m.whatsapp_number ?? "");
+        if (meRes.ok) setMe((await meRes.json()) as MeResponse);
+        if (pr.ok) {
+          const d = (await pr.json()) as ConnectorProfile;
+          setP(d);
+          setSaved(d);
         }
-        if (rP.ok) {
-          setP((await rP.json()) as ConnectorProfile);
-        }
+        if (net.ok) setContacts(((await net.json()) as unknown[]).length);
       } catch {
-        setMsg("Could not load profile.");
+        setMsg({ ok: false, text: "Could not load your profile." });
       } finally {
         setLoading(false);
       }
     })();
-  }, [token]);
-
-  useEffect(() => {
-    if (!token || !telegramLinkCode || me?.telegram_id) return;
-    const interval = setInterval(async () => {
-      try {
-        const res = await fetch(`${API_BASE}/auth/me`, {
-          headers: authHeaders(token),
-        });
-        if (!res.ok) return;
-        const data = (await res.json()) as MeResponse;
-        if (data.telegram_id) {
-          setMe(data);
-          setTelegramLinkCode(null);
-        }
-      } catch {
-        /* ignore */
-      }
-    }, 3000);
-    return () => clearInterval(interval);
-  }, [token, telegramLinkCode, me?.telegram_id]);
-
-  async function onLinkTelegram() {
-    if (!token) return;
-    setTelegramLoading(true);
-    setTelegramMsg(null);
-    setTelegramLinkCode(null);
-    try {
-      const res = await fetch(`${API_BASE}/auth/telegram/link-token`, {
-        method: "POST",
-        headers: authHeaders(token),
-      });
-      const txt = await res.text();
-      if (!res.ok) throw new Error(txt.trim() || "Could not get link code");
-      const data = JSON.parse(txt) as { code?: string };
-      if (!data.code) throw new Error("Invalid response");
-      setTelegramLinkCode(data.code);
-    } catch (err) {
-      setTelegramMsg(
-        err instanceof Error ? err.message : "Could not get link code",
-      );
-    } finally {
-      setTelegramLoading(false);
-    }
-  }
-
-  async function onUnlinkTelegram() {
-    if (!token) return;
-    setUnlinkingTelegram(true);
-    setTelegramMsg(null);
-    try {
-      const res = await fetch(`${API_BASE}/auth/telegram/unlink`, { method: "DELETE", headers: authHeaders(token) });
-      if (!res.ok) throw new Error(await res.text());
-      setMe((prev) => prev ? { ...prev, telegram_id: null } : prev);
-      setTelegramMsg("Telegram unlinked.");
-    } catch (err) {
-      setTelegramMsg(err instanceof Error ? err.message : "Could not unlink Telegram");
-    } finally {
-      setUnlinkingTelegram(false);
-    }
-  }
-
-  async function onUnlinkWhatsapp() {
-    if (!token) return;
-    setUnlinkingWhatsapp(true);
-    setWhatsappMsg(null);
-    setWhatsappSaved(false);
-    try {
-      const res = await fetch(`${API_BASE}/auth/whatsapp-number`, {
-        method: "PUT",
-        headers: authJsonHeaders(token),
-        body: JSON.stringify({ whatsapp_number: null }),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      setMe((prev) => prev ? { ...prev, whatsapp_number: null } : prev);
-      setWhatsappInput("");
-      setWhatsappMsg("WhatsApp unlinked.");
-    } catch (err) {
-      setWhatsappMsg(err instanceof Error ? err.message : "Could not unlink WhatsApp");
-    } finally {
-      setUnlinkingWhatsapp(false);
-    }
-  }
-
-  async function onSaveWhatsapp(e: FormEvent) {
-    e.preventDefault();
-    if (!token) return;
-    setWhatsappSaving(true);
-    setWhatsappMsg(null);
-    setWhatsappSaved(false);
-    try {
-      const res = await fetch(`${API_BASE}/auth/whatsapp-number`, {
-        method: "PUT",
-        headers: authJsonHeaders(token),
-        body: JSON.stringify({
-          whatsapp_number: whatsappInput.trim() || null,
-        }),
-      });
-      const txt = await res.text();
-      if (!res.ok) throw new Error(txt.trim() || "Could not save WhatsApp number");
-      const digits = whatsappInput.replace(/\D/g, "");
-      setMe((prev) =>
-        prev ? { ...prev, whatsapp_number: digits || null } : prev,
-      );
-      if (digits) {
-        setWhatsappMsg("Saved.");
-        setWhatsappSaved(true);
-      } else {
-        setWhatsappMsg("WhatsApp number removed.");
-        setWhatsappSaved(false);
-      }
-    } catch (err) {
-      setWhatsappMsg(
-        err instanceof Error ? err.message : "Could not save WhatsApp number",
-      );
-    } finally {
-      setWhatsappSaving(false);
-    }
-  }
-
-  if (authLoading || !token) return null;
-
-  const displayName = [me?.first_name, me?.last_name]
-    .filter(Boolean)
-    .join(" ")
-    .trim();
+    void loadLogo();
+  }, [token, loadLogo]);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -206,64 +95,110 @@ export default function ConnectorProfilePage() {
           bio: p.bio ?? null,
           speciality: p.speciality ?? null,
           country: p.country ?? null,
+          website: p.website?.trim() || null,
+          linkedin_url: p.linkedin_url?.trim() || null,
         }),
       });
       if (!res.ok) throw new Error(await res.text());
-      setMsg("Saved.");
+      const d = (await res.json()) as ConnectorProfile;
+      setP(d);
+      setSaved(d);
+      setMsg({ ok: true, text: "Saved." });
+      if (d.website && !logo.url) window.setTimeout(() => void loadLogo(), 6000);
     } catch {
-      setMsg("Could not save profile.");
+      setMsg({ ok: false, text: "Could not save your profile. Try again." });
     } finally {
       setSaving(false);
     }
   }
 
-  return (
-    <main className="flex-1">
-      <section className="p-6 md:p-10 max-w-5xl mx-auto space-y-6">
-        <h1 className="text-2xl font-semibold text-[var(--text)]">Connector profile</h1>
-        <div className="grid gap-8 lg:grid-cols-[1fr_320px] items-start">
-          <div className="max-w-2xl space-y-6 lg:max-w-none">
-            {loading ? (
-              <p className="text-sm text-[var(--text-muted)]">Loading…</p>
-            ) : (
-              <form onSubmit={onSubmit} className="space-y-5">
-            <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg)] px-4 py-3 text-sm text-[var(--text-muted)]">
-              <span className="font-sans text-[10px] uppercase tracking-wider">
-                Name (from account)
-              </span>
-              <p className="mt-1 text-[var(--text)]">
-                {displayName || "—"}
-              </p>
-            </div>
+  if (authLoading || !token) return null;
+  if (loading) {
+    return (
+      <main className="min-w-0 flex-1 p-6 md:p-10">
+        <p className="text-sm text-[var(--text-muted)]">Loading…</p>
+      </main>
+    );
+  }
 
-            <label className="flex flex-col gap-1 text-xs text-[var(--text-muted)]">
-              Organisation
-              <input
-                className="input-metatron py-2.5 text-sm"
-                value={p.organisation ?? ""}
-                onChange={(e) =>
-                  setP((x) => ({ ...x, organisation: e.target.value }))
-                }
-              />
-            </label>
-            <label className="flex flex-col gap-1 text-xs text-[var(--text-muted)]">
-              Bio
-              <textarea
-                className="input-metatron min-h-[100px] py-2.5 text-sm"
-                value={p.bio ?? ""}
-                onChange={(e) => setP((x) => ({ ...x, bio: e.target.value }))}
-              />
-            </label>
+  const displayName = [me?.first_name, me?.last_name].filter(Boolean).join(" ").trim();
+  const name = displayName || saved.organisation?.trim() || "Your profile";
+  const items: [string, boolean][] = [
+    ["Photo or logo", Boolean(logo.url)],
+    ["Organisation", Boolean(saved.organisation?.trim())],
+    ["About you", Boolean(saved.bio?.trim())],
+    ["Where you help", Boolean(saved.speciality?.trim())],
+    ["LinkedIn", Boolean(saved.linkedin_url?.trim())],
+    ["Network imported", contacts > 0],
+  ];
+  const done = items.filter((i) => i[1]).length;
+
+  return (
+    <main className="min-w-0 flex-1">
+      <section className="mx-auto flex max-w-5xl flex-col gap-5 p-6 md:p-10">
+        <header className="flex flex-col gap-1.5">
+          <span className={eyebrow}>Connector Profile</span>
+          <h1 className="text-[28px] font-semibold tracking-tight">{name}</h1>
+          <p className="text-sm text-[var(--text-muted)]">Founders and investors see this when you introduce them.</p>
+        </header>
+
+        <section className={card}>
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <div className="flex items-baseline gap-3">
+              <h2 className="text-lg font-semibold">Your profile</h2>
+              <span className="text-sm text-[var(--text-muted)]">
+                {done} of {items.length} complete
+              </span>
+            </div>
+            <span className="text-[13px] text-[var(--text-muted)]">A complete profile makes your intros land</span>
+          </div>
+          <div className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))` }} role="img" aria-label={`${done} of ${items.length} complete`}>
+            {items.map(([label, ok]) => (
+              <i key={label} className={`h-1.5 rounded ${ok ? "bg-metatron-accent" : "bg-[var(--overlay-8)]"}`} />
+            ))}
+          </div>
+          {done < items.length ? (
+            <span className="text-sm text-[var(--text-muted)]">
+              Missing:{" "}
+              <strong className="text-[var(--warn)]">
+                {items
+                  .filter((i) => !i[1])
+                  .map((i) => i[0])
+                  .join(", ")}
+              </strong>
+              {contacts === 0 && (
+                <>
+                  .{" "}
+                  <Link href="/connector/network" className="text-[var(--accent-fg)] hover:underline">
+                    Import your network
+                  </Link>
+                </>
+              )}
+            </span>
+          ) : (
+            <span className="text-sm text-[var(--text-muted)]">Your profile is complete.</span>
+          )}
+        </section>
+
+        <LogoCard token={token} name={name} label="Photo or logo" logoUrl={logo.url} logoSource={logo.source} website={saved.website} onChanged={() => void loadLogo()} />
+
+        <form onSubmit={onSubmit} className="flex flex-col gap-5">
+          <section className={card}>
+            <span className={eyebrow}>About</span>
             <div className="grid gap-4 sm:grid-cols-2">
-              <label className="flex flex-col gap-1 text-xs text-[var(--text-muted)]">
-                Speciality
-                <select
-                  className="input-metatron py-2.5 text-sm"
-                  value={p.speciality ?? ""}
-                  onChange={(e) =>
-                    setP((x) => ({ ...x, speciality: e.target.value || null }))
-                  }
-                >
+              <Field label="Name" hint={<Link href="/connector/settings" className="text-[var(--accent-fg)] hover:underline">Change it in Settings</Link>}>
+                <input className={input} value={displayName || "—"} disabled readOnly />
+              </Field>
+              <Field label="Organisation">
+                <input className={input} value={p.organisation ?? ""} onChange={(e) => setP((x) => ({ ...x, organisation: e.target.value }))} autoComplete="organization" />
+              </Field>
+            </div>
+            <Field label="About you" hint="Who you know and how you help founders and investors.">
+              <textarea className={`${input} min-h-[110px] resize-y`} value={p.bio ?? ""} onChange={(e) => setP((x) => ({ ...x, bio: e.target.value }))} />
+            </Field>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Where you help">
+                <select className={input} value={p.speciality ?? ""} onChange={(e) => setP((x) => ({ ...x, speciality: e.target.value || null }))}>
                   <option value="">Select…</option>
                   {SPECIALITIES.map((s) => (
                     <option key={s} value={s}>
@@ -271,16 +206,9 @@ export default function ConnectorProfilePage() {
                     </option>
                   ))}
                 </select>
-              </label>
-              <label className="flex flex-col gap-1 text-xs text-[var(--text-muted)]">
-                Country
-                <select
-                  className="input-metatron py-2.5 text-sm"
-                  value={p.country ?? ""}
-                  onChange={(e) =>
-                    setP((x) => ({ ...x, country: e.target.value || null }))
-                  }
-                >
+              </Field>
+              <Field label="Country">
+                <select className={input} value={p.country ?? ""} onChange={(e) => setP((x) => ({ ...x, country: e.target.value || null }))}>
                   <option value="">Select…</option>
                   {COUNTRIES.map((c) => (
                     <option key={c.code} value={c.code}>
@@ -288,264 +216,48 @@ export default function ConnectorProfilePage() {
                     </option>
                   ))}
                 </select>
-              </label>
+              </Field>
             </div>
+          </section>
 
+          <section className={card}>
+            <span className={eyebrow}>Links</span>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="LinkedIn">
+                <input
+                  className={input}
+                  type="url"
+                  inputMode="url"
+                  placeholder="https://linkedin.com/in/you"
+                  value={p.linkedin_url ?? ""}
+                  onChange={(e) => setP((x) => ({ ...x, linkedin_url: e.target.value }))}
+                />
+              </Field>
+              <Field label="Website" hint="We look for your logo here.">
+                <input className={input} type="url" inputMode="url" placeholder="https://yourorg.com" value={p.website ?? ""} onChange={(e) => setP((x) => ({ ...x, website: e.target.value }))} />
+              </Field>
+            </div>
+          </section>
+
+          <div className="sticky bottom-4 z-10 flex flex-wrap items-center justify-end gap-3 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-3 shadow-[var(--card-shadow)]">
             {msg && (
-              <p className="text-xs text-[var(--text-muted)]">{msg}</p>
+              <span role="status" className={`text-sm ${msg.ok ? "text-[var(--accent-fg)]" : "text-[var(--danger)]"}`}>
+                {msg.text}
+              </span>
             )}
-
-            <button
-              type="submit"
-              disabled={saving}
-              className="rounded-[12px] bg-metatron-accent px-5 py-2.5 text-sm font-semibold text-white hover:bg-metatron-accent-hover disabled:opacity-50"
-            >
+            <button type="submit" disabled={saving} className={btnPrimary}>
               {saving ? "Saving…" : "Save profile"}
             </button>
-              </form>
-            )}
           </div>
+        </form>
 
-          {!loading && (
-            <div className="space-y-4">
-              <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-6 space-y-5">
-                {me?.whatsapp_number ? (
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-3">
-                      <h2 className="text-sm font-semibold">WhatsApp</h2>
-                      <span
-                        className="inline-flex items-center rounded-full border px-3 py-1 text-xs"
-                        style={{
-                          borderColor: "rgba(34,197,94,0.35)",
-                          backgroundColor: "rgba(34,197,94,0.12)",
-                          color: "rgb(134,239,172)",
-                        }}
-                      >
-                        Connected
-                      </span>
-                    </div>
-                    <p className="font-mono text-sm text-[var(--text)] bg-[var(--overlay-4)] rounded-lg px-3 py-2 border border-[var(--border)]">
-                      +{me.whatsapp_number}
-                    </p>
-                    <div className="flex flex-wrap items-center gap-3">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setWhatsappSaved(false);
-                          setMe((prev) =>
-                            prev ? { ...prev, whatsapp_number: null } : prev
-                          );
-                        }}
-                        className="rounded-lg border border-[var(--border)] px-4 py-2 text-xs font-semibold text-[var(--text)] hover:border-metatron-accent/40"
-                      >
-                        Change number
-                      </button>
-                      <button
-                        type="button"
-                        onClick={onUnlinkWhatsapp}
-                        disabled={unlinkingWhatsapp}
-                        className="rounded-lg bg-[rgba(239,68,68,0.12)] border border-[rgba(239,68,68,0.3)] px-3 py-1.5 text-xs font-semibold text-[rgb(254,202,202)] hover:bg-[rgba(239,68,68,0.2)] disabled:opacity-60"
-                      >
-                        {unlinkingWhatsapp ? "Unlinking…" : "Unlink"}
-                      </button>
-                    </div>
-                    {whatsappMsg ? (
-                      <p className="text-xs text-[var(--text-muted)]">{whatsappMsg}</p>
-                    ) : null}
-                    {whatsappSaved && (
-                      <div className="mt-3 rounded-lg border border-[rgba(var(--accent-rgb),0.3)] bg-[rgba(var(--accent-rgb),0.08)] p-3">
-                        <p className="text-xs font-medium text-[var(--accent)] mb-1">One last step to activate</p>
-                        <p className="text-xs text-[var(--text-muted)] mb-2">
-                          Send any message to Kevin on WhatsApp to open the notification channel.
-                        </p>
-                        <a
-                          href="https://wa.me/27818621473"
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#25D366] text-white rounded-lg text-xs font-medium hover:bg-[#20bd5a] transition-colors"
-                        >
-                          Message Kevin on WhatsApp →
-                        </a>
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <>
-                    <h2 className="text-sm font-semibold">WhatsApp</h2>
-                    <p className="text-xs text-[var(--text-muted)]">
-                      Add the phone number you use on WhatsApp (with country code). When you message Kevin from that number, we match it to your account.
-                    </p>
-                    <form onSubmit={onSaveWhatsapp} className="space-y-3 text-sm">
-                      <label className="block space-y-1">
-                        <span className="font-sans text-[11px] uppercase text-[var(--text-muted)]">
-                          WhatsApp number
-                        </span>
-                        <input
-                          className="input-metatron w-full"
-                          type="tel"
-                          inputMode="tel"
-                          autoComplete="tel"
-                          placeholder="e.g. 2348012345678"
-                          value={whatsappInput}
-                          onChange={(e) => setWhatsappInput(e.target.value)}
-                        />
-                      </label>
-                      <div className="flex flex-wrap items-center gap-3">
-                        <button
-                          type="submit"
-                          disabled={whatsappSaving}
-                          className="rounded-lg bg-metatron-accent px-4 py-2 text-xs font-semibold text-white hover:bg-metatron-accent-hover disabled:opacity-60"
-                        >
-                          {whatsappSaving ? "Saving…" : "Save number"}
-                        </button>
-                        <span className="text-xs text-[var(--text-muted)]">
-                          Not saved yet
-                        </span>
-                      </div>
-                      {whatsappMsg ? (
-                        <p className="text-xs text-[var(--text-muted)]">{whatsappMsg}</p>
-                      ) : null}
-                      {whatsappSaved && (
-                        <div className="mt-3 rounded-lg border border-[rgba(var(--accent-rgb),0.3)] bg-[rgba(var(--accent-rgb),0.08)] p-3">
-                          <p className="text-xs font-medium text-[var(--accent)] mb-1">One last step to activate</p>
-                          <p className="text-xs text-[var(--text-muted)] mb-2">
-                            Send any message to Kevin on WhatsApp to open the notification channel.
-                          </p>
-                          <a
-                            href="https://wa.me/27818621473"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#25D366] text-white rounded-lg text-xs font-medium hover:bg-[#20bd5a] transition-colors"
-                          >
-                            Message Kevin on WhatsApp →
-                          </a>
-                        </div>
-                      )}
-                    </form>
-                  </>
-                )}
-              </div>
-
-              <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-6 space-y-5">
-                <div className="flex items-center gap-3">
-                  <h2 className="text-sm font-semibold">Telegram</h2>
-                  {me?.telegram_id && (
-                    <span
-                      className="inline-flex shrink-0 items-center whitespace-nowrap rounded-full border px-3 py-1 text-xs"
-                      style={{
-                        borderColor: "rgba(34,197,94,0.35)",
-                        backgroundColor: "rgba(34,197,94,0.12)",
-                        color: "rgb(134,239,172)",
-                      }}
-                    >
-                      Telegram linked
-                    </span>
-                  )}
-                </div>
-
-                {me?.telegram_id ? (
-                  <>
-                    <p className="text-xs text-[var(--text-muted)]">
-                      Kevin will send you notifications here.
-                    </p>
-                    <div className="flex flex-wrap items-center gap-3">
-                      <a
-                        href="https://t.me/Kevinmetatron_bot"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--bg)] px-4 py-2 text-xs font-semibold text-[var(--text)] transition hover:border-metatron-accent/40"
-                      >
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" className="h-4 w-4 shrink-0" aria-hidden>
-                          <path
-                            fill="#229ED9"
-                            d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"
-                          />
-                        </svg>
-                        Open Kevin
-                      </a>
-                      <button
-                        type="button"
-                        onClick={onUnlinkTelegram}
-                        disabled={unlinkingTelegram}
-                        className="rounded-lg bg-[rgba(239,68,68,0.12)] border border-[rgba(239,68,68,0.3)] px-3 py-1.5 text-xs font-semibold text-[rgb(254,202,202)] hover:bg-[rgba(239,68,68,0.2)] disabled:opacity-60"
-                      >
-                        {unlinkingTelegram ? "Unlinking…" : "Unlink"}
-                      </button>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <p className="text-xs text-[var(--text-muted)]">
-                      Link your Telegram account to chat with Kevin on Telegram.
-                    </p>
-
-                    {!telegramLinkCode ? (
-                      <button
-                        type="button"
-                        onClick={onLinkTelegram}
-                        disabled={telegramLoading}
-                        className="rounded-lg bg-metatron-accent px-4 py-2 text-xs font-semibold text-white hover:bg-metatron-accent-hover disabled:opacity-60"
-                      >
-                        {telegramLoading ? "Getting code…" : "Link Telegram"}
-                      </button>
-                    ) : (
-                      <div className="space-y-4">
-                        <div className="space-y-2">
-                          <p className="text-xs text-[var(--text-muted)]">
-                            1. Tap the button below to open Telegram — it will link automatically.
-                          </p>
-                          <a
-                            href={`https://t.me/Kevinmetatron_bot?start=${telegramLinkCode}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-2 rounded-lg bg-metatron-accent px-5 py-2.5 text-sm font-semibold text-white hover:bg-metatron-accent-hover"
-                          >
-                            Open Telegram &rarr;
-                          </a>
-                        </div>
-
-                        <div className="space-y-1">
-                          <p className="text-xs text-[var(--text-muted)]">
-                            2. Or open Telegram manually and send this message to{" "}
-                            <span className="font-semibold text-[var(--text)]">@Kevinmetatron_bot</span>:
-                          </p>
-                          <div className="flex items-center gap-2">
-                            <code className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-2 font-sans text-sm text-metatron-accent select-all">
-                              /start {telegramLinkCode}
-                            </code>
-                            <button
-                              type="button"
-                              onClick={() => navigator.clipboard.writeText(`/start ${telegramLinkCode}`)}
-                              className="rounded-lg border border-[var(--border)] px-3 py-2 text-xs text-[var(--text-muted)] hover:text-[var(--text)]"
-                            >
-                              Copy
-                            </button>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center justify-between">
-                          <p className="text-[11px] text-[var(--text-muted)]">Code expires in 15 minutes.</p>
-                          <button
-                            type="button"
-                            onClick={onLinkTelegram}
-                            disabled={telegramLoading}
-                            className="text-[11px] text-metatron-accent hover:underline disabled:opacity-60"
-                          >
-                            {telegramLoading ? "Refreshing…" : "Get new code"}
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </>
-                )}
-
-                {telegramMsg ? (
-                  <p className="text-xs text-[var(--text-muted)]">{telegramMsg}</p>
-                ) : null}
-              </div>
-            </div>
-          )}
-        </div>
+        <p className="text-sm text-[var(--text-muted)]">
+          Looking for WhatsApp or Telegram? They&apos;re on{" "}
+          <Link href="/connector/kevin" className="text-[var(--accent-fg)] hover:underline">
+            Chat with Kevin
+          </Link>
+          .
+        </p>
       </section>
     </main>
   );

@@ -81,12 +81,6 @@ async fn upload_pitch_deck(
         }
     };
 
-    let pinata_gateway = state
-        .pinata_gateway
-        .as_deref()
-        .unwrap_or("gateway.pinata.cloud")
-        .trim_end_matches('/')
-        .to_string();
 
     let mut file_bytes: Option<Vec<u8>> = None;
     let mut original = String::from("deck");
@@ -213,7 +207,9 @@ async fn upload_pitch_deck(
     };
     let cid = cid.as_str();
 
-    let url = format!("https://{pinata_gateway}/ipfs/{cid}");
+    // Shown on the metatron domain; the frontend's /deck/:cid rewrite proxies the
+    // file from the IPFS gateway (next.config.mjs).
+    let url = format!("{}/deck/{cid}", crate::email::frontend_url());
     let visibility = "public";
     let cid_out: Option<String> = Some(cid.to_string());
 

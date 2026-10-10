@@ -586,7 +586,8 @@ def render_free_founder_check(lines, drifts, today, number, tag, base_url, jwts)
                     pass
 
             if deck_url and deck_url != "—":
-                cid = deck_url.split("/ipfs/")[-1]
+                # Decks are stored as {site}/deck/<cid> (older ones: gateway /ipfs/<cid>).
+                cid = deck_url.split("/deck/")[-1].split("/ipfs/")[-1]
                 s1, sz1 = check_pinata(cid)
                 if s1 == 200:
                     lines.append(f"- deck CID: HTTP {s1}, {sz1}B ✓")

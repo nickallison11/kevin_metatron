@@ -89,6 +89,7 @@ struct StartupPublicSummary {
     angel_score: Option<i32>,
     community_score: Option<f64>,
     rating_count: i64,
+    logo_url: Option<String>,
 }
 
 async fn list_startups(
@@ -113,7 +114,8 @@ async fn list_startups(
                  ELSE p.pitch_deck_url END AS pitch_deck_url,
             a.score AS angel_score,
             c.community_score::float8 AS community_score,
-            COALESCE(c.rating_count, 0) AS rating_count
+            COALESCE(c.rating_count, 0) AS rating_count,
+            u.logo_url
         FROM profiles p
         INNER JOIN users u ON u.id = p.user_id
         LEFT JOIN angel_scores a ON a.founder_user_id = p.user_id
@@ -161,6 +163,7 @@ struct StartupProfilePublic {
     country: Option<String>,
     website: Option<String>,
     pitch_deck_url: Option<String>,
+    logo_url: Option<String>,
 }
 
 #[derive(Serialize, sqlx::FromRow)]
@@ -203,7 +206,8 @@ async fn get_startup(
         SELECT p.user_id, p.company_name, p.one_liner, p.stage, p.sector,
                p.country::text AS country, p.website,
                CASE WHEN p.deck_expires_at IS NOT NULL AND p.deck_expires_at <= NOW() THEN NULL
-                    ELSE p.pitch_deck_url END AS pitch_deck_url
+                    ELSE p.pitch_deck_url END AS pitch_deck_url,
+               u.logo_url
         FROM profiles p
         INNER JOIN users u ON u.id = p.user_id
         WHERE p.user_id = $1 AND u.role = 'STARTUP' AND p.is_publicly_listed = TRUE

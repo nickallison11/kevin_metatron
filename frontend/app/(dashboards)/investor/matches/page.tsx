@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { API_BASE, authJsonHeaders } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { acceptedPeerUserIds, type ConnectListsResponse } from "@/lib/connectionsHandshake";
+import { LogoTile } from "@/components/LogoTile";
 
 type KevinMatch = {
   id: string;
@@ -23,6 +24,7 @@ type KevinMatch = {
   angel_score: number | null;
   intro_requested_at: string | null;
   deck_url: string | null;
+  logo_url?: string | null;
 };
 
 type ReceivedIntro = {
@@ -43,6 +45,7 @@ type ReceivedIntro = {
   deck_viewed_at: string | null;
   intro_accepted_at: string | null;
   intro_passed_at: string | null;
+  logo_url?: string | null;
 };
 
 type Followed = {
@@ -64,18 +67,6 @@ const btn =
 const btnPrimary =
   "inline-flex min-h-10 items-center justify-center rounded-[10px] bg-metatron-accent px-4 text-[13px] font-semibold text-white hover:bg-metatron-accent-hover disabled:opacity-50";
 
-function initials(s: string): string {
-  return (
-    s
-      .replace(/[^A-Za-z ]/g, " ")
-      .split(/\s+/)
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((w) => w[0]!.toUpperCase())
-      .join("") || "·"
-  );
-}
-
 function ago(iso: string): string {
   const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
   if (days <= 0) return "today";
@@ -87,12 +78,8 @@ function Fit({ score }: { score: number }) {
   return <span className="rounded-lg bg-[var(--good-bg)] px-2 py-0.5 font-mono text-xs text-[var(--good)]">{score}% fit</span>;
 }
 
-function Tile({ name }: { name: string }) {
-  return (
-    <span aria-hidden className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-metatron-accent/15 text-sm font-semibold text-[var(--accent-fg)]">
-      {initials(name)}
-    </span>
-  );
+function Tile({ name, url }: { name: string; url?: string | null }) {
+  return <LogoTile name={name} url={url} />;
 }
 
 function InvestorMatchesPageInner() {
@@ -208,6 +195,17 @@ function InvestorMatchesPageInner() {
     if (res?.ok) void loadFollowing();
   }
 
+  async function unfollow(userId: string) {
+    if (!token) return;
+    setBusy(userId + "unfollow");
+    try {
+      const res = await fetch(`${API_BASE}/connections/following/${userId}`, { method: "DELETE", headers: authJsonHeaders(token) });
+      if (res.ok) setFollowing((prev) => (prev ?? []).filter((f) => f.user_id !== userId));
+    } finally {
+      setBusy(null);
+    }
+  }
+
   function message(userId: string, name: string) {
     window.dispatchEvent(new CustomEvent("metatron:open-chat", { detail: { userId, name } }));
   }
@@ -222,7 +220,7 @@ function InvestorMatchesPageInner() {
     const expanded = open === m.id;
     return (
       <article key={m.id} className={`${card} flex flex-col gap-3 p-4 sm:flex-row sm:flex-wrap sm:items-center`}>
-        <Tile name={company} />
+        <Tile name={company} url={m.logo_url} />
         <div className="flex min-w-0 flex-1 basis-72 flex-col gap-1">
           <div className="flex flex-wrap items-center gap-2.5">
             {m.matched_user_id ? (
@@ -344,7 +342,7 @@ function InvestorMatchesPageInner() {
                 const meta = [r.sector, r.stage, r.country, `requested ${ago(r.intro_requested_at)}`].filter(Boolean).join(" · ");
                 return (
                   <article key={r.id} className={`${card} flex flex-col gap-3 border-metatron-accent/40 p-4 sm:flex-row sm:flex-wrap sm:items-center`}>
-                    <Tile name={company} />
+                    <Tile name={company} url={r.logo_url} />
                     <div className="flex min-w-0 flex-1 basis-72 flex-col gap-1">
                       <div className="flex flex-wrap items-center gap-2.5">
                         <Link href={`/investor/startups/${r.for_user_id}`} className="text-base font-semibold text-[var(--text)] hover:underline">
@@ -427,6 +425,9 @@ function InvestorMatchesPageInner() {
                       {f.one_liner && <span className="text-sm text-[var(--text-muted)]">{f.one_liner}</span>}
                     </div>
                     <div className="flex flex-wrap gap-2">
+                      <button type="button" className={btn} disabled={busy === f.user_id + "unfollow"} onClick={() => void unfollow(f.user_id)}>
+                        Unfollow
+                      </button>
                       {f.pitch_deck_url && (
                         <a href={f.pitch_deck_url} target="_blank" rel="noopener noreferrer" className={btn}>
                           View deck

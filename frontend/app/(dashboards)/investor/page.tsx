@@ -6,6 +6,7 @@ import KevinMatchFeed from "@/components/KevinMatchFeed";
 import { API_BASE, authHeaders, authJsonHeaders } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import type { MeResponse } from "@/lib/me";
+import { LogoTile } from "@/components/LogoTile";
 
 const PIPELINE_STAGES = ["watching", "considering", "due_diligence", "invested", "passed"];
 const STAGE_LABELS: Record<string, string> = {
@@ -39,6 +40,7 @@ type Request = {
   deck_url: string | null;
   intro_accepted_at: string | null;
   intro_passed_at: string | null;
+  logo_url?: string | null;
 };
 
 type InvestorProfile = {
@@ -69,18 +71,6 @@ function ago(iso: string): string {
   if (days <= 0) return "today";
   if (days === 1) return "yesterday";
   return `${days} days ago`;
-}
-
-function initials(s: string): string {
-  return (
-    s
-      .replace(/[^A-Za-z ]/g, " ")
-      .split(/\s+/)
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((w) => w[0]!.toUpperCase())
-      .join("") || "·"
-  );
 }
 
 function Stat({ label, value }: { label: string; value: string }) {
@@ -260,9 +250,7 @@ export default function InvestorDashboardPage() {
               const company = r.company_name || "A founder";
               return (
                 <article key={r.id} className={`${card} border-metatron-accent/40 md:flex-row md:flex-wrap md:items-center`}>
-                  <span aria-hidden className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-metatron-accent/15 text-sm font-semibold text-[var(--accent-fg)]">
-                    {initials(company)}
-                  </span>
+                  <LogoTile name={company} url={r.logo_url} />
                   <div className="flex min-w-0 flex-1 basis-72 flex-col gap-1">
                     <div className="flex flex-wrap items-center gap-2.5">
                       <Link href={`/investor/startups/${r.for_user_id}`} className="text-base font-semibold text-[var(--text)] hover:underline">

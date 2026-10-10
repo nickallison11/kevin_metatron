@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { API_BASE, authJsonHeaders } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { acceptedPeerUserIds, type ConnectListsResponse } from "@/lib/connectionsHandshake";
+import { LogoTile } from "@/components/LogoTile";
 
 type KevinMatch = {
   id: string;
@@ -22,6 +23,7 @@ type KevinMatch = {
   country: string | null;
   angel_score: number | null;
   intro_requested_at: string | null;
+  logo_url?: string | null;
 };
 
 /** Rows from GET /kevin-matches/received-intros (an investor asked to connect with this founder). */
@@ -40,6 +42,7 @@ type ReceivedConnect = {
   founder_email: string;
   intro_accepted_at: string | null;
   intro_passed_at: string | null;
+  logo_url?: string | null;
 };
 
 type IntroSuggestion = {
@@ -62,18 +65,6 @@ const btn =
   "inline-flex min-h-10 items-center justify-center rounded-[10px] border border-[var(--overlay-12)] px-4 text-[13px] font-medium text-[var(--text)] hover:bg-[var(--overlay-4)] disabled:cursor-not-allowed disabled:opacity-50";
 const btnPrimary =
   "inline-flex min-h-10 items-center justify-center rounded-[10px] bg-metatron-accent px-4 text-[13px] font-semibold text-white hover:bg-metatron-accent-hover disabled:opacity-50";
-
-function initials(s: string): string {
-  return (
-    s
-      .replace(/[^A-Za-z ]/g, " ")
-      .split(/\s+/)
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((w) => w[0]!.toUpperCase())
-      .join("") || "·"
-  );
-}
 
 function requesterName(r: ReceivedConnect) {
   return r.firm_name?.trim() || r.company_name?.trim() || r.founder_email;
@@ -228,9 +219,7 @@ function StartupMatchesPageInner() {
     const expanded = open === m.id;
     return (
       <article key={m.id} id={`match-${m.id}`} className={`${card} flex flex-col gap-3 p-4 sm:flex-row sm:flex-wrap sm:items-center ${focus === m.id ? "border-metatron-accent/50" : ""}`}>
-        <span aria-hidden className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-metatron-accent/15 text-sm font-semibold text-[var(--accent-fg)]">
-          {initials(firm)}
-        </span>
+        <LogoTile name={firm} url={m.logo_url} />
         <div className="flex min-w-0 flex-1 basis-72 flex-col gap-1">
           <div className="flex flex-wrap items-center gap-2.5">
             {m.matched_user_id ? (
@@ -371,9 +360,7 @@ function StartupMatchesPageInner() {
                 const meta = [r.sector, r.stage, r.country].filter(Boolean).join(" · ");
                 return (
                   <article key={r.id} className={`${card} flex flex-col gap-3 border-metatron-accent/40 p-4 sm:flex-row sm:flex-wrap sm:items-center`}>
-                    <span aria-hidden className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-metatron-accent text-sm font-semibold text-white">
-                      {initials(name)}
-                    </span>
+                    <LogoTile name={name} url={r.logo_url} accent />
                     <div className="flex min-w-0 flex-1 basis-72 flex-col gap-1">
                       <div className="flex flex-wrap items-center gap-2.5">
                         <Link href={`/startup/investors/${r.for_user_id}`} className="text-base font-semibold text-[var(--text)] hover:underline">

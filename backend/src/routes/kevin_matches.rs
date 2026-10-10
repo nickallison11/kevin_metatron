@@ -50,6 +50,7 @@ pub struct KevinMatch {
     pub angel_score: Option<i32>,
     pub intro_requested_at: Option<chrono::DateTime<chrono::Utc>>,
     pub deck_url: Option<String>,
+    pub logo_url: Option<String>,
 }
 
 #[derive(Serialize, sqlx::FromRow)]
@@ -71,6 +72,7 @@ pub struct ReceivedIntro {
     pub deck_viewed_at: Option<chrono::DateTime<chrono::Utc>>,
     pub intro_accepted_at: Option<chrono::DateTime<chrono::Utc>>,
     pub intro_passed_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub logo_url: Option<String>,
 }
 
 fn internal(e: impl std::fmt::Display) -> (StatusCode, String) {
@@ -88,7 +90,8 @@ const FETCH_SQL: &str = r#"
         COALESCE(km.display_country, ip.country, p.country) AS country,
         a.score AS angel_score,
         km.intro_requested_at,
-        CASE WHEN u.is_basic OR u.is_pro OR p.deck_expires_at IS NULL OR p.deck_expires_at > NOW() THEN p.pitch_deck_url ELSE NULL END AS deck_url
+        CASE WHEN u.is_basic OR u.is_pro OR p.deck_expires_at IS NULL OR p.deck_expires_at > NOW() THEN p.pitch_deck_url ELSE NULL END AS deck_url,
+        u.logo_url
     FROM kevin_matches km
     LEFT JOIN users u ON u.id = km.matched_user_id
     LEFT JOIN investor_profiles ip ON ip.user_id = km.matched_user_id
@@ -108,7 +111,8 @@ const FETCH_TYPED_SQL: &str = r#"
         COALESCE(km.display_country, ip.country, p.country) AS country,
         a.score AS angel_score,
         km.intro_requested_at,
-        CASE WHEN u.is_basic OR u.is_pro OR p.deck_expires_at IS NULL OR p.deck_expires_at > NOW() THEN p.pitch_deck_url ELSE NULL END AS deck_url
+        CASE WHEN u.is_basic OR u.is_pro OR p.deck_expires_at IS NULL OR p.deck_expires_at > NOW() THEN p.pitch_deck_url ELSE NULL END AS deck_url,
+        u.logo_url
     FROM kevin_matches km
     LEFT JOIN users u ON u.id = km.matched_user_id
     LEFT JOIN investor_profiles ip ON ip.user_id = km.matched_user_id
@@ -163,7 +167,7 @@ async fn get_received_intros(
                     p.company_name, ip_req.firm_name, p.one_liner, p.stage, p.sector, p.country,
                     a.score AS angel_score, u.email AS founder_email,
                     CASE WHEN u.is_basic OR u.is_pro OR p.deck_expires_at IS NULL OR p.deck_expires_at > NOW() THEN p.pitch_deck_url ELSE NULL END AS deck_url,
-                    km.deck_viewed_at, km.intro_accepted_at, km.intro_passed_at
+                    km.deck_viewed_at, km.intro_accepted_at, km.intro_passed_at, u.logo_url
              FROM kevin_matches km
              JOIN users u ON u.id = km.for_user_id
              LEFT JOIN profiles p ON p.user_id = km.for_user_id
@@ -177,7 +181,7 @@ async fn get_received_intros(
                     p.company_name, NULL::text AS firm_name, p.one_liner, p.stage, p.sector, p.country,
                     a.score AS angel_score, u.email AS founder_email,
                     CASE WHEN u.is_basic OR u.is_pro OR p.deck_expires_at IS NULL OR p.deck_expires_at > NOW() THEN p.pitch_deck_url ELSE NULL END AS deck_url,
-                    km.deck_viewed_at, km.intro_accepted_at, km.intro_passed_at
+                    km.deck_viewed_at, km.intro_accepted_at, km.intro_passed_at, u.logo_url
              FROM kevin_matches km
              JOIN connector_network_contacts cnc ON cnc.id = km.contact_id
              JOIN users u ON u.id = km.for_user_id

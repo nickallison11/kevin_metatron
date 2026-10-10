@@ -10,6 +10,7 @@ import { API_BASE, authHeaders, authJsonHeaders } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import type { MeResponse } from "@/lib/me";
 import { SECTIONS, pitchProgress, sectionComplete, type Pitch } from "@/lib/pitchSections";
+import { LogoTile } from "@/components/LogoTile";
 
 type Match = {
   id: string;
@@ -21,6 +22,7 @@ type Match = {
   stage: string | null;
   country: string | null;
   generated_at: string;
+  logo_url?: string | null;
 };
 type Request = {
   id: string;
@@ -41,18 +43,6 @@ const btnPrimary =
 function greeting(): string {
   const h = new Date().getHours();
   return h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
-}
-
-function initials(s: string): string {
-  return (
-    s
-      .replace(/[^A-Za-z ]/g, " ")
-      .split(/\s+/)
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((w) => w[0]!.toUpperCase())
-      .join("") || "·"
-  );
 }
 
 function Stat({ label, value }: { label: string; value: string }) {
@@ -228,9 +218,7 @@ export default function StartupDashboardPage() {
                 return (
                   <div key={m.id} className="flex items-center justify-between gap-3 border-t border-[var(--border)] pt-3">
                     <div className="flex min-w-0 items-center gap-3">
-                      <span aria-hidden className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] bg-metatron-accent/15 text-[13px] font-semibold text-[var(--accent-fg)]">
-                        {initials(firm)}
-                      </span>
+                      <LogoTile name={firm} url={m.logo_url} size={36} />
                       <div className="flex min-w-0 flex-col">
                         <span className="truncate">{title}</span>
                         {meta && <span className="truncate text-[13px] text-[var(--text-muted)]">{meta}</span>}

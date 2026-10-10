@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { LogoTile } from "@/components/LogoTile";
 
 export type StartupPublicSummary = {
   user_id: string;
@@ -11,19 +12,8 @@ export type StartupPublicSummary = {
   angel_score?: number | null;
   community_score?: number | null;
   rating_count: number;
+  logo_url?: string | null;
 };
-
-function initials(name: string): string {
-  return (
-    name
-      .replace(/[^A-Za-z ]/g, " ")
-      .split(/\s+/)
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((w) => w[0]!.toUpperCase())
-      .join("") || "·"
-  );
-}
 
 /**
  * Startup card for Browse Startups. `href` defaults to the public profile;
@@ -38,12 +28,7 @@ export function StartupPublicCard({ startup, href }: { startup: StartupPublicSum
       className="flex flex-col gap-3.5 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-5 shadow-[var(--card-shadow)] transition-colors hover:border-metatron-accent/40"
     >
       <div className="flex items-center gap-3">
-        <span
-          aria-hidden
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[var(--overlay-6)] text-sm font-semibold text-[var(--text-muted)]"
-        >
-          {initials(name)}
-        </span>
+        <LogoTile name={name} url={startup.logo_url} />
         <div className="min-w-0">
           <h3 className="truncate text-base font-semibold text-[var(--text)]">{name}</h3>
           <p className="line-clamp-2 text-sm leading-snug text-[var(--text-muted)]">

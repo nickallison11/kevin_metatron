@@ -396,7 +396,9 @@ async fn require_connector_paid(
     .await
     .map_err(internal)?
     .flatten();
-    if tier.as_deref() != Some("connector_basic") {
+    // Paystack/NowPayments activation writes 'paid' (commerce.rs); older rows may
+    // say 'connector_basic'. Both mean a paying connector.
+    if !matches!(tier.as_deref(), Some("paid") | Some("connector_basic")) {
         return Err((
             axum::http::StatusCode::PAYMENT_REQUIRED,
             "Connector Basic required".into(),

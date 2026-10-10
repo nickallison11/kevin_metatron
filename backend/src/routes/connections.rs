@@ -23,6 +23,7 @@ use crate::state::AppState;
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/following", get(list_following_founders))
+        .route("/following/:user_id", axum::routing::delete(unfollow))
         .route("/:id", put(accept_connection).delete(decline_or_cancel_connection))
         .route("/", get(list_connect_handshakes).post(create_connection))
 }
@@ -778,6 +779,22 @@ async fn list_following_founders(
     .map_err(internal)?;
 
     Ok(Json(rows))
+}
+
+/// DELETE /connections/following/:user_id — stop following a startup.
+async fn unfollow(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+    Path(user_id): Path<Uuid>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let u = require_user(&state, bearer.token()).await?;
+    sqlx::query("DELETE FROM connections WHERE from_user_id = $1 AND to_user_id = $2 AND connection_type = 'follow'")
+        .bind(u.id)
+        .bind(user_id)
+        .execute(&state.db)
+        .await
+        .map_err(internal)?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 fn internal<E: std::fmt::Debug>(_e: E) -> (StatusCode, String) {

@@ -3,17 +3,14 @@
 import Link from "next/link";
 import { useEffect, useState, type ComponentType, type ReactNode } from "react";
 import { IconLayoutSidebarLeftCollapse, IconLayoutSidebarLeftExpand } from "@tabler/icons-react";
-import { API_BASE, authHeaders } from "@/lib/api";
-import { getAccessToken } from "@/lib/tokenStore";
-import type { MeResponse } from "@/lib/me";
 
 type IconComponent = ComponentType<{ size?: number | string; stroke?: number | string }>;
 
 /**
  * Shared layout shell for the three role dashboards (Startup/Investor/
  * Connector). Each role's Shell builds its own grouped nav (and keeps its
- * own lock/paywall logic); this component owns the sidebar's rendering,
- * its expanded/collapsed state, and the account card. Collapsing only
+ * own lock/paywall logic); this component owns the sidebar's rendering and
+ * its expanded/collapsed state (the account menu is in the top bar). Collapsing only
  * changes the sidebar's own width and whether labels are shown.
  */
 type BaseItem = {
@@ -142,41 +139,6 @@ function MobileLink({ item, active }: { item: ChromeNavItem; active: boolean }) 
   );
 }
 
-function initials(s: string): string {
-  return (
-    s
-      .replace(/[^A-Za-z ]/g, " ")
-      .split(/\s+/)
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((w) => w[0]!.toUpperCase())
-      .join("") || "·"
-  );
-}
-
-/** Name + plan for the account card at the bottom of the sidebar. */
-function useAccount(roleLabel: string): { name: string; plan: string } | null {
-  const [me, setMe] = useState<MeResponse | null>(null);
-  useEffect(() => {
-    const token = getAccessToken();
-    if (!token) return;
-    let cancelled = false;
-    fetch(`${API_BASE}/auth/me`, { headers: authHeaders(token) })
-      .then((r) => (r.ok ? (r.json() as Promise<MeResponse>) : null))
-      .then((d) => {
-        if (!cancelled && d) setMe(d);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-  if (!me) return null;
-  const full = [me.first_name, me.last_name].filter(Boolean).join(" ").trim();
-  const tier = me.is_pro ? "Pro" : me.is_basic ? "Basic" : "Free";
-  return { name: full || me.email, plan: `${roleLabel} · ${tier}` };
-}
-
 export default function DashboardChrome({
   roleLabel,
   pathname,
@@ -189,7 +151,6 @@ export default function DashboardChrome({
   children: ReactNode;
 }) {
   const [expanded, setExpanded] = useState(true);
-  const account = useAccount(roleLabel);
 
   useEffect(() => {
     try {
@@ -258,30 +219,6 @@ export default function DashboardChrome({
             ))}
           </nav>
         ))}
-
-        {account && (
-          <div
-            className={
-              expanded
-                ? "mt-auto flex items-center gap-2.5 rounded-[10px] bg-[var(--overlay-3)] px-2.5 py-2.5"
-                : "mt-auto flex justify-center"
-            }
-            title={expanded ? undefined : `${account.name} — ${account.plan}`}
-          >
-            <span
-              aria-hidden
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-metatron-accent/20 text-xs font-semibold text-metatron-accent"
-            >
-              {initials(account.name)}
-            </span>
-            {expanded && (
-              <span className="flex min-w-0 flex-col">
-                <span className="truncate text-[13px] font-semibold">{account.name}</span>
-                <span className="truncate text-xs text-[var(--text-muted)]">{account.plan}</span>
-              </span>
-            )}
-          </div>
-        )}
       </aside>
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="flex gap-2 overflow-x-auto border-b border-[var(--border)] px-4 py-3 md:hidden">

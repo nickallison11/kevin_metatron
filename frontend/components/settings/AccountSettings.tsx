@@ -75,6 +75,12 @@ export function AccountSettings({ role }: { role: "STARTUP" | "INVESTOR" | "INTE
   const { token, loading: authLoading } = useAuth(role === "STARTUP" ? undefined : role);
   const [tab, setTab] = useState<Tab>("account");
 
+  // The account menu links straight to a tab with ?tab=security etc.
+  useEffect(() => {
+    const t = new URLSearchParams(window.location.search).get("tab");
+    if (t === "account" || t === "security" || t === "notifications" || t === "listing" || t === "delete") setTab(t);
+  }, []);
+
   const [me, setMe] = useState<MeResponse | null>(null);
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");

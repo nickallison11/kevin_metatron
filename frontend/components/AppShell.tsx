@@ -13,6 +13,8 @@ import {
   startAutoRefresh,
 } from "@/lib/tokenStore";
 import MessagingWidget from "@/components/MessagingWidget";
+import AccountMenu from "@/components/AccountMenu";
+import type { MeResponse } from "@/lib/me";
 
 const LOGO_URL = "/metatron-logo.png";
 
@@ -106,7 +108,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
     setThemeReady(true);
   }, []);
   const [token, setToken] = useState<string | null>(null);
-  const [isAdmin, setIsAdmin] = useState(false);
+  const [me, setMe] = useState<MeResponse | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
@@ -149,7 +151,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!token) {
-      setIsAdmin(false);
+      setMe(null);
       return;
     }
     let cancelled = false;
@@ -157,12 +159,11 @@ export default function AppShell({ children }: { children: ReactNode }) {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then((r) => (r.ok ? r.json() : null))
-      .then((data: { is_admin?: boolean } | null) => {
-        if (!cancelled && data?.is_admin) setIsAdmin(true);
-        else if (!cancelled) setIsAdmin(false);
+      .then((data: MeResponse | null) => {
+        if (!cancelled) setMe(data);
       })
       .catch(() => {
-        if (!cancelled) setIsAdmin(false);
+        if (!cancelled) setMe(null);
       });
     return () => {
       cancelled = true;
@@ -180,6 +181,17 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const role = token ? decodeRoleFromJwt(token) : null;
   const dashboardHref = dashboardPathForRole(role);
   const loggedIn = Boolean(token);
+  const isAdmin = Boolean(me?.is_admin);
+
+  function logOut() {
+    clearTokens();
+    setToken(null);
+    router.push("/login");
+  }
+
+  const accountMenu = token ? (
+    <AccountMenu token={token} role={role} me={me} theme={theme} onToggleTheme={toggleTheme} onLogout={logOut} />
+  ) : null;
 
   return (
     <>
@@ -213,43 +225,35 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
         {/* Desktop right controls — hidden on mobile */}
         <div className="hidden flex-1 items-center justify-end gap-3 md:flex">
-          {token ? (
-            <button
-              type="button"
-              onClick={() => {
-                clearTokens();
-                setToken(null);
-                router.push("/login");
-              }}
-              className="rounded-lg bg-metatron-accent/10 px-3 py-2 text-sm font-semibold text-metatron-accent transition-colors hover:bg-metatron-accent/15"
-            >
-              Log out
-            </button>
-          ) : (
-            <Link href="/login" className={navLinkClass}>
-              Sign in
-            </Link>
+          {accountMenu ?? (
+            <>
+              <Link href="/login" className={navLinkClass}>
+                Sign in
+              </Link>
+              <button
+                type="button"
+                onClick={toggleTheme}
+                className="inline-flex items-center justify-center rounded-lg border border-[var(--border)] p-2 text-[var(--text-muted)] transition-colors hover:border-metatron-accent/25 hover:text-[var(--text)]"
+                aria-label="Toggle theme"
+              >
+                {theme === "dark" ? <SunIcon /> : <MoonIcon />}
+              </button>
+            </>
           )}
-          <button
-            type="button"
-            onClick={toggleTheme}
-            className="inline-flex items-center justify-center rounded-lg border border-[var(--border)] p-2 text-[var(--text-muted)] transition-colors hover:border-metatron-accent/25 hover:text-[var(--text)]"
-            aria-label="Toggle theme"
-          >
-            {theme === "dark" ? <SunIcon /> : <MoonIcon />}
-          </button>
         </div>
 
         {/* Mobile right — theme toggle + hamburger */}
         <div className="flex items-center gap-2 md:hidden">
-          <button
-            type="button"
-            onClick={toggleTheme}
-            className="inline-flex items-center justify-center rounded-lg border border-[var(--border)] p-2 text-[var(--text-muted)]"
-            aria-label="Toggle theme"
-          >
-            {theme === "dark" ? <SunIcon /> : <MoonIcon />}
-          </button>
+          {accountMenu ?? (
+            <button
+              type="button"
+              onClick={toggleTheme}
+              className="inline-flex items-center justify-center rounded-lg border border-[var(--border)] p-2 text-[var(--text-muted)]"
+              aria-label="Toggle theme"
+            >
+              {theme === "dark" ? <SunIcon /> : <MoonIcon />}
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setMenuOpen((o) => !o)}
@@ -311,27 +315,13 @@ export default function AppShell({ children }: { children: ReactNode }) {
           )}
           <div className="border-t border-[var(--border)] pt-4">
             {token ? (
-              <>
-                <Link
-                  href={dashboardHref}
-                  className={navLinkClass}
-                  onClick={() => setMenuOpen(false)}
-                >
-                  Dashboard
-                </Link>
-                <button
-                  type="button"
-                  onClick={() => {
-                    clearTokens();
-                    setToken(null);
-                    router.push("/login");
-                    setMenuOpen(false);
-                  }}
-                  className="mt-3 rounded-lg bg-metatron-accent/10 px-3 py-2 text-sm font-semibold text-metatron-accent"
-                >
-                  Log out
-                </button>
-              </>
+              <Link
+                href={dashboardHref}
+                className={navLinkClass}
+                onClick={() => setMenuOpen(false)}
+              >
+                Dashboard
+              </Link>
             ) : (
               <Link
                 href="/login"

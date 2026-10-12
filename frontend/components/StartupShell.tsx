@@ -4,11 +4,9 @@ import { usePathname, useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 import {
   IconArrowsExchange,
-  IconCreditCard,
   IconHeadset,
   IconLayoutDashboard,
   IconRobot,
-  IconSettings,
   IconUserCircle,
   IconUsers,
 } from "@tabler/icons-react";
@@ -52,13 +50,6 @@ export default function StartupShell({ children }: { children: ReactNode }) {
         { key: "/startup/matches", href: "/startup/matches", label: "Matches", icon: IconArrowsExchange, kind: "link", badge: requests },
         { key: "/startup/investors", href: "/startup/investors", label: "Browse Investors", icon: IconUsers, kind: "link", matchPrefix: true },
         calls,
-      ],
-    },
-    {
-      title: "Account",
-      items: [
-        { key: "/startup/settings/subscription", href: "/startup/settings/subscription", label: "Subscription", icon: IconCreditCard, kind: "link", matchPrefix: true },
-        { key: "/startup/settings", href: "/startup/settings", label: "Settings", icon: IconSettings, kind: "link" },
       ],
     },
   ];

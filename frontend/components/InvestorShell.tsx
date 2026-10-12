@@ -5,12 +5,10 @@ import { type ReactNode } from "react";
 import {
   IconArrowsExchange,
   IconBuilding,
-  IconCreditCard,
   IconFileText,
   IconHeadset,
   IconLayoutDashboard,
   IconRobot,
-  IconSettings,
   IconUserCircle,
 } from "@tabler/icons-react";
 import { useAuth } from "@/lib/auth";
@@ -50,13 +48,6 @@ export default function InvestorShell({ children }: { children: ReactNode }) {
         { key: "/investor/startups", href: "/investor/startups", label: "Browse Startups", icon: IconBuilding, kind: "link", matchPrefix: true },
         { key: "/investor/memos", href: "/investor/memos", label: "Memos", icon: IconFileText, kind: "link" },
         { key: "/investor/calls", href: "/investor/calls", label: "Call Intelligence", icon: IconHeadset, kind: "link" },
-      ],
-    },
-    {
-      title: "Account",
-      items: [
-        { key: "/investor/settings/subscription", href: "/investor/settings/subscription", label: "Subscription", icon: IconCreditCard, kind: "link", matchPrefix: true },
-        { key: "/investor/settings", href: "/investor/settings", label: "Settings", icon: IconSettings, kind: "link" },
       ],
     },
   ];

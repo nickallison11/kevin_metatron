@@ -34,6 +34,35 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/inbound-email", post(inbound_email))
         .route("/telegram", post(telegram_kevin))
         .route("/telegram/phone", post(telegram_share_phone))
+        .route("/usage", get(usage))
+}
+
+#[derive(Serialize)]
+struct UsageResponse {
+    messages_today: i32,
+    /// None = unlimited (Pro).
+    daily_limit: Option<i32>,
+}
+
+/// Kevin messages used today across all channels, for the account menu.
+async fn usage(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+) -> Result<Json<UsageResponse>, (StatusCode, String)> {
+    let user = require_user(&state, bearer.token()).await?;
+    let messages_today: i32 = sqlx::query_scalar(
+        "SELECT message_count FROM kevin_daily_usage WHERE user_id = $1 AND usage_date = CURRENT_DATE",
+    )
+    .bind(user.id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string()))?
+    .unwrap_or(0);
+    let limit = kevin_daily_limit(user.is_basic, user.is_pro);
+    Ok(Json(UsageResponse {
+        messages_today,
+        daily_limit: (limit < i32::MAX).then_some(limit),
+    }))
 }
 
 fn kevin_daily_limit(is_basic: bool, is_pro: bool) -> i32 {

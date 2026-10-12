@@ -4,12 +4,10 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import {
   IconBuilding,
-  IconCreditCard,
   IconGift,
   IconLayoutDashboard,
   IconNetwork,
   IconRobot,
-  IconSettings,
   IconUserCircle,
   IconUsers,
   IconUsersPlus,
@@ -34,7 +32,7 @@ export default function ConnectorShell({ children }: { children: ReactNode }) {
         });
         if (!res.ok) return;
         const data = (await res.json()) as { connector_tier?: string | null };
-        if (!cancelled) setIsPaid(data.connector_tier === "paid");
+        if (!cancelled) setIsPaid(data.connector_tier === "paid" || data.connector_tier === "connector_basic");
       } catch {
         /* ignore */
       }
@@ -82,13 +80,6 @@ export default function ConnectorShell({ children }: { children: ReactNode }) {
         { key: "/connector/referrals", href: "/connector/referrals", label: "Referrals", icon: IconGift, kind: "link" },
         { key: "/connector/startups", href: "/connector/startups", label: "Browse Startups", icon: IconBuilding, kind: "link", matchPrefix: true },
         { key: "/connector/investors", href: "/connector/investors", label: "Browse Investors", icon: IconUsers, kind: "link", matchPrefix: true },
-      ],
-    },
-    {
-      title: "Account",
-      items: [
-        { key: "/connector/settings/subscription", href: "/connector/settings/subscription", label: "Subscription", icon: IconCreditCard, kind: "link", matchPrefix: true },
-        { key: "/connector/settings", href: "/connector/settings", label: "Settings", icon: IconSettings, kind: "link" },
       ],
     },
   ];

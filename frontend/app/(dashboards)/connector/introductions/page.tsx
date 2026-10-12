@@ -64,6 +64,15 @@ export default function ConnectorIntroductionsPage() {
     void loadData();
   }, [loadData]);
 
+  // "Introduce" on My Network links here with the contact as person A.
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search);
+    const name = p.get("a_name");
+    if (!name) return;
+    setForm((f) => ({ ...f, person_a_name: name, person_a_email: p.get("a_email") ?? "" }));
+    setShowModal(true);
+  }, []);
+
   const onCreate = async () => {
     if (!token) return;
     if (!form.person_a_name.trim() || !form.person_b_name.trim()) {
@@ -123,7 +132,8 @@ export default function ConnectorIntroductionsPage() {
   }
   if (!token) return null;
 
-  if (profile?.connector_tier !== "paid") {
+  // Same rule as the backend's require_connector_paid.
+  if (profile?.connector_tier !== "paid" && profile?.connector_tier !== "connector_basic") {
     return <ConnectorUpgradeGate feature="Introductions" />;
   }
 

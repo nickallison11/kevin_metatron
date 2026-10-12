@@ -76,7 +76,7 @@ function usePopover() {
 }
 
 const panel =
-  "absolute right-0 top-[calc(100%+10px)] z-[200] flex w-[min(340px,calc(100vw-32px))] flex-col rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] py-2 text-[var(--text)] shadow-[0_16px_40px_rgba(0,0,0,0.35)]";
+  "fixed inset-x-4 top-[76px] z-[200] flex flex-col md:absolute md:inset-x-auto md:right-0 md:top-[calc(100%+10px)] md:w-[340px] rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] py-2 text-[var(--text)] shadow-[0_16px_40px_rgba(0,0,0,0.35)]";
 const row =
   "flex min-h-11 items-center gap-3.5 px-[18px] text-sm text-[var(--text)] transition-colors hover:bg-[var(--overlay-4)] [&>svg]:shrink-0 [&>svg]:text-[var(--text-muted)]";
 const divider = <div className="my-1 h-px bg-[var(--border)]" aria-hidden />;
@@ -223,9 +223,10 @@ export default function AccountMenu({
 
   const name = me ? [me.first_name, me.last_name].filter(Boolean).join(" ").trim() || me.email : "";
   const tier = me?.is_pro ? "Pro" : me?.is_basic ? "Basic" : "Free";
+  const end = status?.subscription_period_end ? new Date(status.subscription_period_end) : null;
   const periodEnd =
-    status?.subscription_period_end && tier !== "Free"
-      ? new Date(status.subscription_period_end).toLocaleDateString(undefined, { day: "numeric", month: "short" })
+    end && tier !== "Free" && end.getTime() > Date.now()
+      ? end.toLocaleDateString(undefined, { day: "numeric", month: "short" })
       : null;
   const planLine = periodEnd ? `${tier} plan · ${status?.cancel_at_period_end ? "ends" : "renews"} ${periodEnd}` : `${tier} plan`;
   const channel = me?.whatsapp_number ? "WhatsApp" : me?.telegram_id ? "Telegram" : null;
@@ -251,13 +252,14 @@ export default function AccountMenu({
           <div className={panel}>
             <div className="flex flex-col gap-0.5 px-[18px] py-3">
               <strong className="truncate text-[15px]">{name}</strong>
-              <span className="truncate text-xs text-[var(--text-muted)]">{me?.email}</span>
+              {me && name !== me.email && <span className="truncate text-xs text-[var(--text-muted)]">{me.email}</span>}
+              <span className="truncate text-xs text-[var(--text-muted)]">{roleLabel}</span>
             </div>
 
             <div className="mx-3 mb-2.5 mt-1 flex flex-col gap-3 rounded-xl bg-[var(--overlay-3)] p-3.5">
               <div className="flex items-center justify-between gap-3">
                 <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--text-muted)]">
-                  {roleLabel} · {planLine}
+                  {planLine}
                 </span>
                 <Link href={`${base}/settings/subscription`} className="text-xs font-semibold text-[var(--accent-fg)] hover:underline">
                   {tier === "Pro" ? "Manage" : "Upgrade"}

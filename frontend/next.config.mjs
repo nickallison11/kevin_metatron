@@ -11,7 +11,7 @@ const LEGACY_BACKEND_PATHS = [
   "/commerce/nowpayments/webhook", // NowPayments IPN
   "/api/founders/webhook-event", // Resend email events
   "/kevin/inbound-email", // Cloudflare kevin@metatron.id email worker
-  "/unsubscribe/:path*", // links in sent emails
+  "/unsubscribe", // links in sent emails (/unsubscribe?token=...)
 ];
 
 const nextConfig = {

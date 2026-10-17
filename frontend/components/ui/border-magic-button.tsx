@@ -26,7 +26,7 @@ export function BorderBeam({
         style={{
           animationDuration: `${duration}s`,
           background:
-            "conic-gradient(from 0deg, transparent 0deg, rgba(196,181,253,0.95) 55deg, rgba(108,92,231,0.9) 110deg, transparent 160deg)",
+            "conic-gradient(from 0deg, transparent 0deg, rgba(196,181,253,0.95) 55deg, rgba(var(--accent-rgb),0.9) 110deg, transparent 160deg)",
         }}
       />
       <div className="relative z-[1] w-full rounded-[11px]">{children}</div>

@@ -31,7 +31,7 @@ pub fn generate_token(secret: &str, user_id: Uuid, email_type: &str) -> String {
     format!("{}:{}:{}", user_id, email_type, sig)
 }
 
-fn verify_token(secret: &str, token: &str) -> Option<(Uuid, String)> {
+pub(crate) fn verify_token(secret: &str, token: &str) -> Option<(Uuid, String)> {
     let parts: Vec<&str> = token.splitn(3, ':').collect();
     if parts.len() != 3 {
         return None;

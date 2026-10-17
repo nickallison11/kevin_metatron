@@ -4,37 +4,21 @@ import { usePathname, useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 import {
   IconArrowsExchange,
-  IconCreditCard,
-  IconFileText,
   IconHeadset,
   IconLayoutDashboard,
   IconRobot,
-  IconSettings,
   IconUserCircle,
+  IconUsers,
 } from "@tabler/icons-react";
 import { useAuth } from "@/lib/auth";
-import DashboardChrome, { type ChromeNavItem } from "@/components/DashboardChrome";
-
-const FREE_NAV = [
-  { href: "/startup", label: "Dashboard", icon: IconLayoutDashboard },
-  { href: "/startup/kevin", label: "Chat with Kevin", icon: IconRobot },
-  { href: "/startup/pitches", label: "Pitch data", icon: IconFileText },
-  { href: "/startup/matches", label: "Matches", icon: IconArrowsExchange },
-];
-
-const PRO_NAV = [
-  { href: "/startup", label: "Dashboard", icon: IconLayoutDashboard },
-  { href: "/startup/kevin", label: "Chat with Kevin", icon: IconRobot },
-  { href: "/startup/pitches", label: "Pitch data", icon: IconFileText },
-  { href: "/startup/matches", label: "Matches", icon: IconArrowsExchange },
-  { href: "/startup/calls", label: "Call Intelligence", icon: IconHeadset },
-  { href: "/startup/profile", label: "Profile Settings", icon: IconUserCircle },
-];
+import { useIntroRequestCount } from "@/lib/useIntroRequestCount";
+import DashboardChrome, { type ChromeNavGroup, type ChromeNavItem } from "@/components/DashboardChrome";
 
 export default function StartupShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const { token, isPro, loading } = useAuth();
+  const requests = useIntroRequestCount(token);
 
   if (loading) {
     return (
@@ -46,56 +30,32 @@ export default function StartupShell({ children }: { children: ReactNode }) {
 
   if (!token) return null;
 
-  const navSource = isPro ? PRO_NAV : FREE_NAV;
-  const navItems: ChromeNavItem[] = navSource.map((item) => ({
-    key: item.href,
-    href: item.href,
-    label: item.label,
-    icon: item.icon,
-    kind: "link",
-  }));
+  // Call Intelligence needs a paid plan (Basic or Pro).
+  const calls: ChromeNavItem = isPro
+    ? { key: "/startup/calls", href: "/startup/calls", label: "Call Intelligence", icon: IconHeadset, kind: "link" }
+    : { key: "calls-locked", label: "Call Intelligence", icon: IconHeadset, kind: "locked", onClick: () => router.push("/pricing") };
 
-  if (!isPro) {
-    navItems.push({
-      key: "call-intelligence-locked",
-      label: "Call Intelligence",
-      icon: IconHeadset,
-      kind: "locked",
-      onClick: () => router.push("/pricing"),
-    });
-    navItems.push({
-      key: "/startup/profile",
-      href: "/startup/profile",
-      label: "Profile Settings",
-      icon: IconUserCircle,
-      kind: "link",
-    });
-  }
-
-  const footerItems: ChromeNavItem[] = [
+  const groups: ChromeNavGroup[] = [
     {
-      key: "/startup/settings/subscription",
-      href: "/startup/settings/subscription",
-      label: "Subscription",
-      icon: IconCreditCard,
-      kind: "link",
+      title: "Home",
+      items: [
+        { key: "/startup", href: "/startup", label: "Dashboard", icon: IconLayoutDashboard, kind: "link" },
+        { key: "/startup/kevin", href: "/startup/kevin", label: "Chat with Kevin", icon: IconRobot, kind: "link" },
+        { key: "/startup/profile", href: "/startup/profile", label: "Startup Profile", icon: IconUserCircle, kind: "link" },
+      ],
     },
     {
-      key: "/startup/settings",
-      href: "/startup/settings",
-      label: "Account Settings",
-      icon: IconSettings,
-      kind: "link",
+      title: "Fundraise",
+      items: [
+        { key: "/startup/matches", href: "/startup/matches", label: "Matches", icon: IconArrowsExchange, kind: "link", badge: requests },
+        { key: "/startup/investors", href: "/startup/investors", label: "Browse Investors", icon: IconUsers, kind: "link", matchPrefix: true },
+        calls,
+      ],
     },
   ];
 
   return (
-    <DashboardChrome
-      roleLabel="Founder"
-      pathname={pathname}
-      navItems={navItems}
-      footerItems={footerItems}
-    >
+    <DashboardChrome roleLabel="Founder" pathname={pathname} groups={groups}>
       {children}
     </DashboardChrome>
   );

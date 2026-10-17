@@ -103,6 +103,16 @@ export default function FounderWeeklyMatches({
             </Section>
           )}
 
+          <Section style={directorySection}>
+            <Text style={directoryText}>
+              Your deck is public on metatron — see how it looks to investors
+              and share it directly.
+            </Text>
+            <Link href={`${platformUrl}/startups`} style={matchButton}>
+              Browse the public directory
+            </Link>
+          </Section>
+
           <Hr style={divider} />
 
           <Text style={footer}>
@@ -221,6 +231,17 @@ const upgradeButton: React.CSSProperties = {
   fontSize: "16px",
   fontWeight: 600,
   textDecoration: "none",
+};
+
+const directorySection: React.CSSProperties = {
+  textAlign: "center" as const,
+  padding: "12px 0 24px",
+};
+
+const directoryText: React.CSSProperties = {
+  color: "#8888a0",
+  fontSize: "13px",
+  marginBottom: "12px",
 };
 
 const divider: React.CSSProperties = {

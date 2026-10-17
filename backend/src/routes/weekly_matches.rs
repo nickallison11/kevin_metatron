@@ -330,12 +330,16 @@ async fn refresh_matches(
             .unwrap_or_default();
 
         if !token.is_empty() {
-            let _ = state
+            let self_url = format!("http://127.0.0.1:{}/kevin-matches", state.port);
+            if let Err(e) = state
                 .http_client
-                .post("http://127.0.0.1:4000/kevin-matches")
+                .post(&self_url)
                 .header("Authorization", format!("Bearer {}", token))
                 .send()
-                .await;
+                .await
+            {
+                tracing::warn!("refresh_matches: self-call to {self_url} failed: {e}");
+            }
             true
         } else {
             false

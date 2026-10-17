@@ -11,7 +11,9 @@ mod email;
 mod identity;
 mod ipfs_snapshot;
 mod kevin_context;
+mod logo;
 mod memory;
+mod net;
 mod routes; // Routers composed in `app::build_app` (e.g. `.nest("/kevin", routes::kevin::router())`).
 mod settings;
 mod state;

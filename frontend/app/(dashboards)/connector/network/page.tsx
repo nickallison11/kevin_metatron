@@ -102,17 +102,20 @@ function compareStagedContacts(a: StagedContact, b: StagedContact): number {
 }
 
 /** Green glow when a contact id newly appears in the staging `recent` feed (see `loadStaging`). */
-const STAGING_RECENT_HIGHLIGHT_BG = "bg-[rgba(0,200,100,0.05)] transition-all duration-1000";
-const STAGING_RECENT_HIGHLIGHT = `border-green-400/30 ${STAGING_RECENT_HIGHLIGHT_BG}`;
+const STAGING_RECENT_HIGHLIGHT_BG = "bg-[var(--good-bg)] transition-all duration-1000";
 
-const DEFAULT_COLUMNS = [
-  { key: "name", label: "Name / Firm", width: 180 },
-  { key: "email", label: "Email", width: 180 },
-  { key: "sector", label: "Sector", width: 140 },
-  { key: "stage", label: "Stage", width: 140 },
-  { key: "ticket", label: "Ticket", width: 180 },
-  { key: "location", label: "Location", width: 250 },
-] as const;
+function initials(name: string) {
+  return (
+    name
+      .replace(/[^\p{L} ]/gu, "")
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((w) => w[0])
+      .join("")
+      .toUpperCase() || "·"
+  );
+}
 
 function ConnectorNetworkPageInner() {
   const searchParams = useSearchParams();
@@ -122,11 +125,12 @@ function ConnectorNetworkPageInner() {
   const [actingAsUserId, setActingAsUserId] = useState("");
   const [actingOptions, setActingOptions] = useState<AdminUserOption[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
-  const [tab, setTab] = useState<"investor" | "founder">("investor");
+  const [tab, setTab] = useState<"all" | "investor" | "founder">("all");
+  const [query, setQuery] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [showForm, setShowForm] = useState(false);
-  const [view, setView] = useState<"card" | "list">("list");
+  const stagingRef = useRef<HTMLElement>(null);
   const [page, setPageRaw] = useState(() => {
     const p = Number(searchParams.get("page"));
     return p > 0 ? p : 1;
@@ -137,15 +141,6 @@ function ConnectorNetworkPageInner() {
   });
   const setPage = setPageRaw;
   const prevPageSize = useRef(pageSize);
-  const [colWidths, setColWidths] = useState<Record<string, number>>(() => {
-    if (typeof window === "undefined") return {};
-    try {
-      const saved = localStorage.getItem("metatron_network_col_widths");
-      return saved ? JSON.parse(saved) : {};
-    } catch {
-      return {};
-    }
-  });
   const [contactModalMode, setContactModalMode] = useState<"view" | "edit">("view");
   const [editForm, setEditForm] = useState({
     name: "",
@@ -182,7 +177,6 @@ function ConnectorNetworkPageInner() {
   const [stagingPage, setStagingPage] = useState(0);
   const [stagingTotal, setStagingTotal] = useState(0);
   const [stagingCounts, setStagingCounts] = useState({ pending: 0, enriching: 0, enriched: 0, failed: 0 });
-  const [stagingView, setStagingView] = useState<"table" | "cards">("table");
   const [selectedStaged, setSelectedStaged] = useState<Set<string>>(new Set());
   const [importingStaged, setImportingStaged] = useState(false);
   const [editingStagedId, setEditingStagedId] = useState<string | null>(null);
@@ -336,13 +330,25 @@ function ConnectorNetworkPageInner() {
     };
   }, [token]);
 
-  const filtered = useMemo(() => contacts.filter((c) => c.role === tab), [contacts, tab]);
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return contacts.filter(
+      (c) =>
+        (tab === "all" || c.role === tab) &&
+        (!q ||
+          [c.name, c.firm_or_company, c.email, c.sector_focus, c.stage_focus, c.geography]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase()
+            .includes(q)),
+    );
+  }, [contacts, tab, query]);
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const paginated = filtered.slice((page - 1) * pageSize, page * pageSize);
 
   useEffect(() => {
     setPage(1);
-  }, [tab]);
+  }, [tab, query]);
 
   useEffect(() => {
     setPageRaw((prev) => {
@@ -361,37 +367,6 @@ function ConnectorNetworkPageInner() {
     params.set("size", String(pageSize));
     router.replace(`?${params.toString()}`, { scroll: false });
   }, [page, pageSize]);
-
-  useEffect(() => {
-    if (Object.keys(colWidths).length > 0) {
-      localStorage.setItem("metatron_network_col_widths", JSON.stringify(colWidths));
-    }
-  }, [colWidths]);
-
-  const onInvestorListColResizeStart = useCallback(
-    (colKey: string, e: React.MouseEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      const defaultW = DEFAULT_COLUMNS.find((c) => c.key === colKey)?.width ?? 120;
-      const startX = e.clientX;
-      const startWidth = colWidths[colKey] ?? defaultW;
-
-      const onMove = (moveEvent: MouseEvent) => {
-        const dx = moveEvent.clientX - startX;
-        const newW = Math.max(80, startWidth + dx);
-        setColWidths((prev) => ({ ...prev, [colKey]: newW }));
-      };
-
-      const onUp = () => {
-        document.removeEventListener("mousemove", onMove);
-        document.removeEventListener("mouseup", onUp);
-      };
-
-      document.addEventListener("mousemove", onMove);
-      document.addEventListener("mouseup", onUp);
-    },
-    [colWidths],
-  );
 
   const filteredStaged = useMemo(() => {
     const filtered = stagingTab === "all" ? staged : staged.filter((s) => s.role === stagingTab);
@@ -675,9 +650,10 @@ function ConnectorNetworkPageInner() {
         totalStaged += data.staged ?? 0;
       }
     }
-    setSheetMsg(`Staged ${totalStaged} contacts for enrichment. See the Staging section below.`);
+    setSheetMsg(`${totalStaged} contacts added to Import and enrich below. Press "Enrich waiting" to have Kevin look them up.`);
     setSheetPreview(null);
     loadStaging();
+    stagingRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   async function onEnrichSelected() {
@@ -816,782 +792,534 @@ function ConnectorNetworkPageInner() {
 
   if (loading) return null;
 
+  const card = "rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] shadow-[var(--card-shadow)]";
+  const eyebrow = "font-mono text-[11px] uppercase tracking-[0.14em] text-[var(--text-muted)]";
+  const btn =
+    "inline-flex min-h-10 items-center justify-center gap-2 whitespace-nowrap rounded-[10px] border border-[var(--overlay-12)] px-4 text-[13px] font-medium text-[var(--text)] hover:bg-[var(--overlay-4)] disabled:opacity-50";
+  const btnSm =
+    "inline-flex min-h-8 items-center justify-center whitespace-nowrap rounded-[8px] border border-[var(--overlay-12)] px-3 text-xs font-medium text-[var(--text)] hover:bg-[var(--overlay-4)] disabled:opacity-50";
+  const btnPrimary =
+    "inline-flex min-h-10 items-center justify-center gap-2 whitespace-nowrap rounded-[10px] bg-metatron-accent px-4 text-[13px] font-semibold text-white hover:bg-metatron-accent-hover disabled:opacity-50";
+  const input =
+    "w-full min-h-11 rounded-[10px] border border-[var(--overlay-12)] bg-[var(--bg)] px-3.5 py-2.5 text-sm text-[var(--text)] outline-none focus:border-metatron-accent";
+  const field = "flex flex-col gap-1.5 text-[13px] font-semibold";
+  const seg = (on: boolean) =>
+    `inline-flex min-h-9 items-center gap-1.5 rounded-[8px] px-3 text-[13px] ${
+      on ? "bg-metatron-accent/15 font-semibold text-[var(--text)]" : "text-[var(--text-muted)] hover:text-[var(--text)]"
+    }`;
+
   const statusBadge = (status: StagedContact["status"]) => {
     const map = {
       pending: "bg-[var(--overlay-6)] text-[var(--text-muted)]",
-      enriching: "bg-[rgba(108,92,231,0.15)] text-[#6c5ce7] animate-pulse",
-      enriched: "bg-[rgba(0,200,100,0.12)] text-green-400",
-      failed: "bg-[rgba(255,80,80,0.12)] text-red-400",
+      enriching: "bg-metatron-accent/15 text-[var(--accent-fg)] animate-pulse",
+      enriched: "bg-[var(--good-bg)] text-[var(--good)]",
+      failed: "bg-[var(--overlay-6)] text-[var(--danger)]",
     };
-    return (
-      <span className={`px-2 py-0.5 rounded text-xs font-medium ${map[status]}`}>{status}</span>
-    );
+    const label = { pending: "Waiting", enriching: "Enriching", enriched: "Enriched", failed: "Failed" };
+    return <span className={`whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-semibold ${map[status]}`}>{label[status]}</span>;
   };
 
+  const introduceHref = (c: Contact) => {
+    const p = new URLSearchParams({ a_name: c.name });
+    if (c.email) p.set("a_email", c.email);
+    return `/connector/introductions?${p.toString()}`;
+  };
+
+  const tabCount = { all: contactCount, investor: investorCount, founder: founderCount };
+  const enrichingNow = stagingCounts.enriching + stagingCounts.pending;
+  const scrollToStaging = () => stagingRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+
   return (
-    <main className="flex-1 text-[var(--text)]">
-      <div className="max-w-5xl mx-auto space-y-6 px-6 py-6 md:px-10">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold text-[var(--text)]">My Network</h1>
-          <p className="text-[var(--text-muted)] text-sm mt-1">Manage and enrich your investor and founder contacts</p>
-          {isSuperAdmin && (
-            <div className="mt-3 flex items-center gap-2">
-              <label className="text-xs text-[var(--text-muted)]">Acting as:</label>
-              <select
-                value={actingAsUserId}
-                onChange={(e) => setActingAsUserId(e.target.value)}
-                className="bg-[var(--bg)] border border-[var(--border)] rounded-lg px-2 py-1 text-xs text-[var(--text)]"
-              >
-                {actingOptions.length === 0 ? (
-                  <option value="">No intermediary users</option>
-                ) : (
-                  actingOptions.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.email}
-                    </option>
-                  ))
-                )}
-              </select>
-            </div>
-          )}
-        </div>
-        <button
-          type="button"
-          onClick={() => setShowForm((v) => !v)}
-          className="px-4 py-2 bg-[#6c5ce7] text-white rounded-xl text-sm font-medium hover:bg-[#7d6ff0]"
-        >
-          {showForm ? "Cancel" : "+ Add Contact"}
-        </button>
-      </div>
-
-      {msg && <p className="text-sm text-[#6c5ce7]">{msg}</p>}
-
-      {showForm && (
-        <form
-          onSubmit={onAdd}
-          className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-5 space-y-4"
-        >
-          <h2 className="text-sm font-semibold text-[var(--text)]">Add Contact</h2>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs text-[var(--text-muted)] mb-1">Role</label>
-              <select
-                value={form.role}
-                onChange={(e) => setForm((f) => ({ ...f, role: e.target.value as "investor" | "founder" }))}
-                className="w-full bg-[var(--bg)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm text-[var(--text)]"
-              >
-                <option value="investor">Investor</option>
-                <option value="founder">Founder</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs text-[var(--text-muted)] mb-1">Name *</label>
-              <input
-                required
-                value={form.name}
-                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                className="w-full bg-[var(--bg)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm text-[var(--text)]"
-                placeholder="Full name"
-              />
-            </div>
-            <div>
-              <label className="block text-xs text-[var(--text-muted)] mb-1">Email</label>
-              <input
-                value={form.email}
-                onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
-                className="w-full bg-[var(--bg)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm text-[var(--text)]"
-                placeholder="email@example.com"
-              />
-            </div>
-            <div>
-              <label className="block text-xs text-[var(--text-muted)] mb-1">Firm / Company</label>
-              <input
-                value={form.firm_or_company}
-                onChange={(e) => setForm((f) => ({ ...f, firm_or_company: e.target.value }))}
-                className="w-full bg-[var(--bg)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm text-[var(--text)]"
-                placeholder="Acme Ventures"
-              />
-            </div>
-            <div>
-              <label className="block text-xs text-[var(--text-muted)] mb-1">LinkedIn</label>
-              <input
-                value={form.linkedin_url}
-                onChange={(e) => setForm((f) => ({ ...f, linkedin_url: e.target.value }))}
-                className="w-full bg-[var(--bg)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm text-[var(--text)]"
-                placeholder="https://linkedin.com/in/..."
-              />
-            </div>
-            <div>
-              <label className="block text-xs text-[var(--text-muted)] mb-1">Notes</label>
-              <input
-                value={form.notes}
-                onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
-                className="w-full bg-[var(--bg)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm text-[var(--text)]"
-                placeholder="Met at AfricArena..."
-              />
-            </div>
+    <main className="min-w-0 flex-1 text-[var(--text)]">
+      <div className="mx-auto flex max-w-5xl flex-col gap-5 p-6 md:p-10">
+        <header className="flex flex-wrap items-end justify-between gap-4">
+          <div className="flex flex-col gap-1.5">
+            <span className={eyebrow}>My Network</span>
+            <h1 className="text-[28px] font-semibold tracking-tight">
+              {contactCount} {contactCount === 1 ? "contact" : "contacts"}
+            </h1>
+            <p className="text-sm text-[var(--text-muted)]">
+              Investors and founders you know. Kevin enriches them and finds who to introduce.
+            </p>
+            {isSuperAdmin && (
+              <label className="mt-2 flex items-center gap-2 text-xs text-[var(--text-muted)]">
+                Acting as
+                <select
+                  value={actingAsUserId}
+                  onChange={(e) => setActingAsUserId(e.target.value)}
+                  className="min-h-8 rounded-[8px] border border-[var(--overlay-12)] bg-[var(--bg)] px-2 text-xs text-[var(--text)]"
+                >
+                  {actingOptions.length === 0 ? (
+                    <option value="">No intermediary users</option>
+                  ) : (
+                    actingOptions.map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.email}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </label>
+            )}
           </div>
-          <button
-            type="submit"
-            disabled={adding}
-            className="px-4 py-2 bg-[#6c5ce7] text-white rounded-xl text-sm font-medium hover:bg-[#7d6ff0] disabled:opacity-50"
-          >
-            {adding ? "Adding..." : "Add Contact"}
-          </button>
-        </form>
-      )}
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={() => sheetInputRef.current?.click()} className={btn}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2 -2v-2" />
+                <path d="M7 9l5 -5l5 5" />
+                <path d="M12 4l0 12" />
+              </svg>
+              Upload spreadsheet
+            </button>
+            <button type="button" onClick={() => setShowForm((v) => !v)} className={btnPrimary} aria-expanded={showForm}>
+              {showForm ? "Close" : "+ Add contact"}
+            </button>
+            <input ref={sheetInputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={onSheetFile} />
+          </div>
+        </header>
 
-      <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-5">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex flex-col gap-2">
+        {msg && (
+          <p role="status" className="text-sm text-[var(--accent-fg)]">
+            {msg}
+          </p>
+        )}
+
+        {showForm && (
+          <form onSubmit={onAdd} className={`${card} flex flex-col gap-4 border-metatron-accent/40 p-5`}>
+            <h2 className="text-base font-semibold">Add a contact</h2>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className={field}>
+                <span>Type</span>
+                <select
+                  value={form.role}
+                  onChange={(e) => setForm((f) => ({ ...f, role: e.target.value as "investor" | "founder" }))}
+                  className={input}
+                >
+                  <option value="investor">Investor</option>
+                  <option value="founder">Founder</option>
+                </select>
+              </label>
+              <label className={field}>
+                <span>Name *</span>
+                <input required value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} className={input} placeholder="Full name" />
+              </label>
+              <label className={field}>
+                <span>Email</span>
+                <input type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} className={input} placeholder="name@example.com" />
+              </label>
+              <label className={field}>
+                <span>Firm or company</span>
+                <input value={form.firm_or_company} onChange={(e) => setForm((f) => ({ ...f, firm_or_company: e.target.value }))} className={input} />
+              </label>
+              <label className={field}>
+                <span>LinkedIn</span>
+                <input value={form.linkedin_url} onChange={(e) => setForm((f) => ({ ...f, linkedin_url: e.target.value }))} className={input} placeholder="https://linkedin.com/in/…" />
+              </label>
+              <label className={field}>
+                <span>Notes</span>
+                <input value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} className={input} placeholder="Where you met, what they're looking for" />
+              </label>
+            </div>
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={() => setShowForm(false)} className={btn}>
+                Cancel
+              </button>
+              <button type="submit" disabled={adding} className={btnPrimary}>
+                {adding ? "Adding…" : "Add contact"}
+              </button>
+            </div>
+          </form>
+        )}
+
+        {(sheetMsg || sheetPreview) && (
+          <section className={`${card} flex flex-col gap-4 p-5`}>
+            {sheetMsg && <p className="text-sm text-[var(--text-muted)]">{sheetMsg}</p>}
+            {sheetPreview && (
+              <>
+                <div className="flex flex-col gap-1">
+                  <h2 className="text-base font-semibold">Found in your spreadsheet</h2>
+                  <p className="text-[13px] text-[var(--text-muted)]">
+                    Kevin searches the web for each one to fill in contact details, sectors and ticket sizes. You review them before anything is added to your network.
+                  </p>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {(
+                    [
+                      ["Investors", sheetPreview.investors],
+                      ["Founders", sheetPreview.founders],
+                    ] as const
+                  ).map(([label, rows]) => (
+                    <div key={label} className="flex flex-col gap-1 rounded-[10px] bg-[var(--overlay-3)] p-4">
+                      <span className="text-[13px] text-[var(--text-muted)]">{label}</span>
+                      <b className="text-2xl font-semibold">{rows.length}</b>
+                      <span className="truncate text-xs text-[var(--text-muted)]">
+                        {rows.slice(0, 4).map((r) => r.name).join(", ")}
+                        {rows.length > 4 ? ` and ${rows.length - 4} more` : ""}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" onClick={() => void onStageContacts("all")} className={btnPrimary}>
+                    Enrich all {sheetPreview.investors.length + sheetPreview.founders.length}
+                  </button>
+                  {sheetPreview.investors.length > 0 && sheetPreview.founders.length > 0 && (
+                    <>
+                      <button type="button" onClick={() => void onStageContacts("investors")} className={btn}>
+                        Investors only
+                      </button>
+                      <button type="button" onClick={() => void onStageContacts("founders")} className={btn}>
+                        Founders only
+                      </button>
+                    </>
+                  )}
+                  <button type="button" onClick={() => setSheetPreview(null)} className={btn}>
+                    Cancel
+                  </button>
+                </div>
+              </>
+            )}
+          </section>
+        )}
+
+        {stagedEnrichedCount > 0 && enrichingNow === 0 && (
+          <section className={`${card} flex flex-wrap items-center gap-4 border-dashed border-metatron-accent/50 p-5`}>
+            <p className="min-w-0 flex-1 basis-72 text-sm text-[var(--text-muted)]">
+              <strong className="text-[var(--text)]">
+                {stagedEnrichedCount} {stagedEnrichedCount === 1 ? "contact is" : "contacts are"} enriched by Kevin
+              </strong>{" "}
+              and ready to add to your network.
+            </p>
             <div className="flex gap-2">
-              {(["investor", "founder"] as const).map((t) => (
-                <button
-                  key={t}
-                  type="button"
-                  onClick={() => {
-                    setTab(t);
-                    setPage(1);
-                  }}
-                  className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                    tab === t ? "bg-[#6c5ce7] text-white" : "text-[var(--text-muted)] hover:text-[var(--text)]"
-                  }`}
-                >
-                  {t === "investor" ? "Investors" : "Founders"}
-                  <span className="ml-1.5 text-xs opacity-70">({t === "investor" ? investorCount : founderCount})</span>
-                </button>
-              ))}
-            </div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <button
-                type="button"
-                onClick={onExportNetwork}
-                className="px-3 py-1.5 text-xs rounded-xl bg-[var(--overlay-4)] text-[var(--text-muted)] border border-[var(--border)] hover:text-[var(--text)] hover:border-[var(--overlay-12)]"
-              >
-                Export XLSX
+              <button type="button" onClick={scrollToStaging} className={btn}>
+                Review
               </button>
-              {connectorTier !== "free" && (
-                <button
-                  type="button"
-                  onClick={onIpfsSnapshot}
-                  disabled={ipfsLoading}
-                  className="px-3 py-1.5 text-xs rounded-xl bg-[rgba(108,92,231,0.08)] text-[#6c5ce7] border border-[rgba(108,92,231,0.2)] hover:bg-[rgba(108,92,231,0.15)] disabled:opacity-40"
-                >
-                  {ipfsLoading ? "Anchoring…" : "Anchor to IPFS"}
-                </button>
-              )}
-              {ipfsResult?.cid && (
-                <a
-                  href={ipfsResult.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-xs text-[#6c5ce7] hover:underline font-sans"
-                >
-                  {ipfsResult.cid.slice(0, 16)}… ({ipfsResult.count} contacts)
-                </a>
-              )}
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <select
-              value={pageSize}
-              onChange={(e) => setPageSizeRaw(Number(e.target.value))}
-              className="bg-[var(--bg)] border border-[var(--border)] rounded-lg px-2 py-1 text-xs text-[var(--text-muted)]"
-            >
-              {[5, 10, 20, 50, 100].map((n) => (
-                <option key={n} value={n}>
-                  {n} per page
-                </option>
-              ))}
-            </select>
-            {(["list", "card"] as const).map((v) => (
-              <button
-                key={v}
-                type="button"
-                onClick={() => setView(v)}
-                className={`px-3 py-1 rounded-lg text-xs ${
-                  view === v ? "bg-[rgba(108,92,231,0.2)] text-[#6c5ce7]" : "text-[var(--text-muted)] hover:text-[var(--text)]"
-                }`}
-              >
-                {v === "card" ? "Cards" : "List"}
+              <button type="button" onClick={() => void onImportEnriched()} disabled={importingStaged} className={btnPrimary}>
+                {importingStaged ? "Importing…" : "Import all"}
               </button>
-            ))}
-          </div>
-        </div>
+            </div>
+          </section>
+        )}
 
-        <div className="mb-4 flex flex-wrap items-center gap-2 text-xs">
+        {enrichingNow > 0 && (
+          <section className={`${card} flex flex-col gap-2.5 p-5`}>
+            <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+              <span>
+                <strong>Kevin is enriching {enrichingNow} contacts.</strong>{" "}
+                <span className="text-[var(--text-muted)]">You can leave this page; it carries on in the background.</span>
+              </span>
+              <button type="button" onClick={scrollToStaging} className="text-[13px] font-medium text-[var(--accent-fg)] hover:underline">
+                See progress
+              </button>
+            </div>
+            <div className="h-1.5 overflow-hidden rounded-full bg-[var(--overlay-8)]">
+              <div
+                className="h-full rounded-full bg-metatron-accent transition-all duration-500"
+                style={{ width: `${stagingTotal > 0 ? (stagingCounts.enriched / stagingTotal) * 100 : 0}%` }}
+              />
+            </div>
+          </section>
+        )}
+
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-[13px]">
           <span
-            className={`inline-flex items-center rounded-full border px-3 py-1 ${
-              enrichmentCredits > 0
-                ? "border-[#6c5ce7]/30 bg-[#6c5ce7]/10 text-[#6c5ce7]"
-                : "border-red-400/30 bg-red-400/10 text-red-400"
+            className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 font-medium ${
+              enrichmentCredits > 0 ? "bg-metatron-accent/10 text-[var(--accent-fg)]" : "bg-[var(--overlay-6)] text-[var(--danger)]"
             }`}
           >
-            ⚡ {enrichmentCredits} credits
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <path d="M13 3l0 7l6 0l-8 11l0 -7l-6 0l8 -11" />
+            </svg>
+            {enrichmentCredits} enrichment credits
           </span>
-          {enrichmentCredits <= 0 && (
-            <a href="/connector/settings/subscription" className="text-red-400 hover:underline">
-              Buy credits
+          {isFreeTier && (
+            <span className={atFreeLimit ? "text-[var(--danger)]" : "text-[var(--text-muted)]"}>{contactCount} of 50 contacts on Free</span>
+          )}
+          {(isFreeTier || enrichmentCredits <= 0) && (
+            <a href="/connector/settings/subscription" className="font-medium text-[var(--accent-fg)] hover:underline">
+              {isFreeTier ? "Upgrade for unlimited contacts and 50 credits" : "Buy credits"}
             </a>
           )}
-          {isFreeTier && (
-            <span className={`${atFreeLimit ? "text-red-400" : "text-[var(--text-muted)]"}`}>
-              {contactCount}/50 contacts
-            </span>
+          <span className="flex-1" />
+          <button type="button" onClick={() => void onExportNetwork()} disabled={contactCount === 0} className={btnSm}>
+            Export to Excel
+          </button>
+          {!isFreeTier && (
+            <button type="button" onClick={() => void onIpfsSnapshot()} disabled={ipfsLoading || contactCount === 0} className={btnSm}>
+              {ipfsLoading ? "Anchoring…" : "Anchor to IPFS"}
+            </button>
+          )}
+          {ipfsResult?.cid && (
+            <a href={ipfsResult.url} target="_blank" rel="noopener noreferrer" className="font-mono text-xs text-[var(--accent-fg)] hover:underline">
+              {ipfsResult.cid.slice(0, 16)}… ({ipfsResult.count} contacts)
+            </a>
           )}
         </div>
 
-        {isFreeTier && (
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#6c5ce7]/20 bg-[#6c5ce7]/10 px-4 py-3">
-            <p className="text-xs text-[var(--text)]">
-              Upgrade to $10/month to unlock unlimited contacts, IPFS storage & 50 enrichment credits.
-            </p>
-            <a
-              href="/connector/settings/subscription"
-              className="rounded-lg bg-[#6c5ce7] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#7d6ff0]"
-            >
-              Upgrade
-            </a>
-          </div>
-        )}
-
-        {paginated.length === 0 ? (
-          <p className="text-[var(--text-muted)] text-sm text-center py-8">No {tab}s yet.</p>
-        ) : view === "card" ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {paginated.map((c) => (
-              <div
-                key={c.id}
-                onClick={() => openContactModalView(c)}
-                className="bg-[var(--bg)] border border-[var(--border)] rounded-xl p-4 cursor-pointer hover:bg-[var(--bg-card)] hover:border-[rgba(108,92,231,0.2)] transition-colors"
-              >
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-[var(--text)]">{c.name}</p>
-                  {c.firm_or_company && c.firm_or_company !== c.name && (
-                    <p className="text-xs text-[var(--text-muted)]">{c.firm_or_company}</p>
-                  )}
-                  {c.one_liner && (
-                    <div className="mt-2">
-                      <p className="text-[10px] uppercase tracking-wide text-[var(--text-muted)] mb-0.5">One-liner</p>
-                      <p className="text-xs text-[var(--text)] leading-snug">{c.one_liner}</p>
-                    </div>
-                  )}
-                </div>
-                <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-1.5 mt-3 text-xs">
-                  {c.email && (
-                    <div>
-                      <dt className="text-[10px] uppercase tracking-wide text-[var(--text-muted)]">Email</dt>
-                      <dd className="text-[var(--text)] truncate">{c.email}</dd>
-                    </div>
-                  )}
-                  {c.sector_focus && (
-                    <div>
-                      <dt className="text-[10px] uppercase tracking-wide text-[var(--text-muted)]">Sector</dt>
-                      <dd className="text-[var(--text)]">{c.sector_focus}</dd>
-                    </div>
-                  )}
-                  {c.stage_focus && (
-                    <div>
-                      <dt className="text-[10px] uppercase tracking-wide text-[var(--text-muted)]">Stage</dt>
-                      <dd className="text-[var(--text)]">{c.stage_focus}</dd>
-                    </div>
-                  )}
-                  {c.ticket_size && (
-                    <div>
-                      <dt className="text-[10px] uppercase tracking-wide text-[var(--text-muted)]">Ticket</dt>
-                      <dd className="text-[var(--text)]">{c.ticket_size}</dd>
-                    </div>
-                  )}
-                  {c.geography && (
-                    <div>
-                      <dt className="text-[10px] uppercase tracking-wide text-[var(--text-muted)]">Location</dt>
-                      <dd className="text-[var(--text)]">{c.geography}</dd>
-                    </div>
-                  )}
-                  {c.website && (
-                    <div>
-                      <dt className="text-[10px] uppercase tracking-wide text-[var(--text-muted)]">Website</dt>
-                      <dd>
-                        <a
-                          href={c.website}
-                          target="_blank"
-                          rel="noreferrer"
-                          onClick={(e) => e.stopPropagation()}
-                          className="text-[#6c5ce7] hover:underline break-all"
-                        >
-                          {c.website.replace(/^https?:\/\//, "")}
-                        </a>
-                      </dd>
-                    </div>
-                  )}
-                  {c.linkedin_url && (
-                    <div>
-                      <dt className="text-[10px] uppercase tracking-wide text-[var(--text-muted)]">LinkedIn</dt>
-                      <dd>
-                        <a
-                          href={c.linkedin_url}
-                          target="_blank"
-                          rel="noreferrer"
-                          onClick={(e) => e.stopPropagation()}
-                          className="text-[#6c5ce7] hover:underline break-all"
-                        >
-                          Profile
-                        </a>
-                      </dd>
-                    </div>
-                  )}
-                </dl>
-                {c.notes && (
-                  <div className="mt-2 pt-2 border-t border-[var(--border)]">
-                    <p className="text-[10px] uppercase tracking-wide text-[var(--text-muted)] mb-0.5">Notes</p>
-                    <p className="text-xs text-[var(--text-muted)] line-clamp-3">{c.notes}</p>
-                  </div>
-                )}
-                {c.joined_user_id && (
-                  <span className="mt-2 inline-block text-xs bg-[rgba(108,92,231,0.15)] text-[#6c5ce7] px-2 py-0.5 rounded-full">
-                    On platform
-                  </span>
-                )}
-              </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="flex min-h-11 min-w-0 flex-1 basis-64 items-center gap-2 rounded-xl border border-[var(--overlay-12)] bg-[var(--bg-card)] px-3.5 text-[var(--text-muted)]">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <path d="M10 10m-7 0a7 7 0 1 0 14 0a7 7 0 1 0 -14 0" />
+              <path d="M21 21l-6 -6" />
+            </svg>
+            <span className="sr-only">Search contacts</span>
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search name, firm, sector or country"
+              className="min-w-0 flex-1 bg-transparent text-sm text-[var(--text)] outline-none"
+            />
+          </label>
+          <div role="group" aria-label="Show" className="flex gap-1 rounded-[10px] border border-[var(--border)] bg-[var(--bg-card)] p-1">
+            {(["all", "investor", "founder"] as const).map((t) => (
+              <button key={t} type="button" aria-pressed={tab === t} onClick={() => setTab(t)} className={seg(tab === t)}>
+                {t === "all" ? "All" : t === "investor" ? "Investors" : "Founders"}
+                <span className="text-xs text-[var(--text-muted)]">{tabCount[t]}</span>
+              </button>
             ))}
           </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm table-fixed">
-              <thead>
-                <tr className="text-[var(--text-muted)] text-xs border-b border-[var(--border)]">
-                  {DEFAULT_COLUMNS.map((col) => {
-                    const w = colWidths[col.key] ?? col.width;
-                    return (
-                      <th
-                        key={col.key}
-                        className={`relative cursor-default text-left pb-2 pr-3 ${col.key === "name" ? "pl-3" : ""}`}
-                        style={{ width: w, minWidth: 80 }}
-                      >
-                        {col.label}
-                        <div
-                          className="absolute right-0 top-2 bottom-2 w-1 cursor-col-resize z-10 rounded-full transition-colors hover:bg-[#6c5ce7]"
-                          onMouseDown={(e) => onInvestorListColResizeStart(col.key, e)}
-                          onClick={(e) => e.stopPropagation()}
-                          aria-hidden
-                        />
-                      </th>
-                    );
-                  })}
-                </tr>
-              </thead>
-              <tbody>
-                {paginated.map((c) => (
-                  <tr
-                    key={c.id}
-                    onClick={() => openContactModalView(c)}
-                    className="border-b border-[var(--overlay-3)] bg-[var(--bg)] hover:bg-[var(--bg-card)] cursor-pointer h-14"
-                  >
-                    {DEFAULT_COLUMNS.map((col) => {
-                      const w = colWidths[col.key] ?? col.width;
-                      const cellStyle: React.CSSProperties = {
-                        width: w,
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                      };
-                      const isName = col.key === "name";
-                      return (
-                        <td
-                          key={col.key}
-                          className={
-                            isName
-                              ? "py-2 pl-3 pr-3 align-top"
-                              : "py-2 pr-3 text-[var(--text-muted)] text-xs align-top"
-                          }
-                          style={cellStyle}
-                        >
-                          {isName ? (
-                            <>
-                              <p className="text-[var(--text)]">{c.name}</p>
-                              {c.firm_or_company && c.firm_or_company !== c.name && (
-                                <p className="text-[var(--text-muted)] text-xs">{c.firm_or_company}</p>
-                              )}
-                            </>
-                          ) : col.key === "email" ? (
-                            (c.email ?? "—")
-                          ) : col.key === "sector" ? (
-                            (c.sector_focus ?? "—")
-                          ) : col.key === "stage" ? (
-                            (c.stage_focus ?? "—")
-                          ) : col.key === "ticket" ? (
-                            (c.ticket_size ?? "—")
-                          ) : (
-                            (c.geography ?? "—")
-                          )}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+        </div>
 
-        {totalPages > 1 && (
-          <div className="flex items-center justify-between mt-4 text-xs text-[var(--text-muted)]">
+        <section className={`${card} flex flex-col px-5 py-1`}>
+          {paginated.length === 0 ? (
+            <div className="flex flex-col items-start gap-3 py-6">
+              {contactCount === 0 ? (
+                <>
+                  <p className="text-sm text-[var(--text-muted)]">
+                    No contacts yet. Upload a spreadsheet of the investors and founders you know, or add them one at a time.
+                  </p>
+                  <button type="button" onClick={() => sheetInputRef.current?.click()} className={btnPrimary}>
+                    Upload spreadsheet
+                  </button>
+                </>
+              ) : (
+                <p className="text-sm text-[var(--text-muted)]">No contacts match.</p>
+              )}
+            </div>
+          ) : (
+            paginated.map((c) => {
+              const focus = [c.sector_focus, c.stage_focus, c.geography].filter(Boolean).join(" · ");
+              return (
+                <div key={c.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-[var(--border)] py-3 first:border-t-0">
+                  <button
+                    type="button"
+                    onClick={() => openContactModalView(c)}
+                    className="flex min-w-0 flex-1 basis-60 items-center gap-3 rounded-[10px] text-left"
+                  >
+                    <span aria-hidden className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--overlay-6)] text-[13px] font-semibold text-[var(--text-muted)]">
+                      {initials(c.name)}
+                    </span>
+                    <span className="flex min-w-0 flex-col">
+                      <strong className="truncate text-sm hover:underline">{c.name}</strong>
+                      <span className="truncate text-[13px] text-[var(--text-muted)]">
+                        {[c.firm_or_company !== c.name ? c.firm_or_company : null, c.role === "investor" ? "Investor" : "Founder"].filter(Boolean).join(" · ")}
+                      </span>
+                    </span>
+                  </button>
+                  <span className="hidden min-w-0 flex-1 basis-48 truncate text-[13px] text-[var(--text-muted)] md:block">{focus || "Not enriched yet"}</span>
+                  {c.joined_user_id && (
+                    <span className="rounded-full bg-[var(--good-bg)] px-2.5 py-0.5 text-xs font-semibold text-[var(--good)]">On metatron</span>
+                  )}
+                  <a href={introduceHref(c)} className={btnSm}>
+                    Introduce
+                  </a>
+                </div>
+              );
+            })
+          )}
+        </section>
+
+        {filtered.length > 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-3 text-[13px] text-[var(--text-muted)]">
             <span>
               Showing {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, filtered.length)} of {filtered.length}
             </span>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                disabled={page === 1}
-                className="px-3 py-1 bg-[var(--overlay-6)] rounded-lg disabled:opacity-30"
+            <div className="flex items-center gap-2">
+              <label className="sr-only" htmlFor="network-page-size">
+                Contacts per page
+              </label>
+              <select
+                id="network-page-size"
+                value={pageSize}
+                onChange={(e) => setPageSizeRaw(Number(e.target.value))}
+                className="min-h-8 rounded-[8px] border border-[var(--overlay-12)] bg-[var(--bg)] px-2 text-xs text-[var(--text)]"
               >
-                Previous
-              </button>
-              <button
-                type="button"
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                disabled={page === totalPages}
-                className="px-3 py-1 bg-[var(--overlay-6)] rounded-lg disabled:opacity-30"
-              >
-                Next
-              </button>
+                {[10, 25, 50, 100].map((n) => (
+                  <option key={n} value={n}>
+                    {n} per page
+                  </option>
+                ))}
+              </select>
+              {totalPages > 1 && (
+                <>
+                  <button type="button" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1} className={btnSm}>
+                    Previous
+                  </button>
+                  <button type="button" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages} className={btnSm}>
+                    Next
+                  </button>
+                </>
+              )}
             </div>
           </div>
         )}
-      </div>
 
-      <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-5 space-y-5">
-        <div className="flex items-start justify-between">
-          <div>
-            <h2 className="text-base font-semibold text-[var(--text)]">Enrichment Staging</h2>
-            <p className="text-xs text-[var(--text-muted)] mt-0.5">
-              Upload a spreadsheet, Kevin enriches each contact with web data, then you import to your network.{" "}
-              <a href="/connector/settings" className="text-[#6c5ce7] hover:underline">Use your own API key</a> to boost enrichment.
-            </p>
-          </div>
-          <div className="flex gap-2 items-center flex-wrap justify-end">
+        <section ref={stagingRef} id="import" className={`${card} mt-2 flex scroll-mt-24 flex-col gap-4 p-5`}>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="flex min-w-0 flex-1 basis-72 flex-col gap-1">
+              <h2 className="text-base font-semibold">Import and enrich</h2>
+              <p className="text-[13px] text-[var(--text-muted)]">
+                Contacts from a spreadsheet wait here while Kevin looks them up. Review them, then import.{" "}
+                <a href="/connector/settings" className="text-[var(--accent-fg)] hover:underline">
+                  Use your own API key
+                </a>{" "}
+                to enrich more.
+              </p>
+            </div>
             {stagingTotal > 0 && (
-              <>
+              <div className="flex flex-wrap gap-2">
                 {stagedPendingCount > 0 && (
                   <button
                     type="button"
-                    onClick={() => onEnrichAll()}
+                    onClick={() => void onEnrichAll()}
                     disabled={enrichmentCredits === 0}
                     title={enrichmentCredits === 0 ? "No credits remaining" : undefined}
-                    className="px-3 py-1.5 bg-[#6c5ce7] text-white rounded-xl text-xs font-medium hover:bg-[#7d6ff0] disabled:opacity-50"
+                    className={btnPrimary}
                   >
-                    Enrich all pending ({stagedPendingCount})
+                    Enrich waiting ({stagedPendingCount})
                   </button>
                 )}
                 {stagedFailedCount > 0 && (
                   <button
                     type="button"
-                    onClick={() => onEnrichAll()}
+                    onClick={() => void onEnrichAll()}
                     disabled={enrichmentCredits === 0}
                     title={enrichmentCredits === 0 ? "No credits remaining" : undefined}
-                    className="px-3 py-1.5 bg-[rgba(255,80,80,0.12)] text-red-400 border border-[rgba(255,80,80,0.2)] rounded-xl text-xs font-medium hover:bg-[rgba(255,80,80,0.2)] disabled:opacity-50"
+                    className={btn}
                   >
                     Retry failed ({stagedFailedCount})
                   </button>
                 )}
                 {stagedEnrichedCount > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => onImportEnriched()}
-                    disabled={importingStaged}
-                    className="px-3 py-1.5 bg-green-600 text-white rounded-xl text-xs font-medium hover:bg-green-500 disabled:opacity-50"
-                  >
-                    {importingStaged ? "Importing..." : `Import enriched (${stagedEnrichedCount})`}
+                  <button type="button" onClick={() => void onImportEnriched()} disabled={importingStaged} className={stagedPendingCount > 0 ? btn : btnPrimary}>
+                    {importingStaged ? "Importing…" : `Import enriched (${stagedEnrichedCount})`}
                   </button>
                 )}
-                <button
-                  type="button"
-                  onClick={onClearStaging}
-                  className="px-3 py-1.5 bg-[rgba(255,80,80,0.1)] text-red-400 rounded-xl text-xs hover:bg-[rgba(255,80,80,0.2)]"
-                >
+                <button type="button" onClick={() => void onClearStaging()} className={`${btn} hover:text-[var(--danger)]`}>
                   Clear all
                 </button>
-              </>
+              </div>
             )}
           </div>
-        </div>
 
-        {stagingMsg && <p className="text-xs text-[#6c5ce7]">{stagingMsg}</p>}
-        {stagingLoading && stagingTotal === 0 && (
-          <p className="text-xs text-[var(--text-muted)]">Loading staging…</p>
-        )}
-        {stagingTotal > 0 && (
-          <div className="space-y-2">
-            <div className="flex justify-between text-xs text-[var(--text-muted)]">
-              <span>
-                {stagingCounts.enriched} of {stagingTotal} enriched
-                {stagingCounts.enriching > 0 && (
-                  <span className="text-[#6c5ce7] ml-2 animate-pulse">· {stagingCounts.enriching} in progress</span>
-                )}
-                {stagingCounts.failed > 0 && (
-                  <span className="text-red-400 ml-2">· {stagingCounts.failed} failed</span>
-                )}
-              </span>
-              <span>{stagingTotal > 0 ? Math.round((stagingCounts.enriched / stagingTotal) * 100) : 0}%</span>
-            </div>
-            <div className="w-full bg-[var(--overlay-6)] rounded-full h-2">
-              <div
-                className="bg-[#6c5ce7] h-2 rounded-full transition-all duration-500"
-                style={{ width: `${stagingTotal > 0 ? (stagingCounts.enriched / stagingTotal) * 100 : 0}%` }}
-              />
-            </div>
-          </div>
-        )}
+          {stagingMsg && (
+            <p role="status" className="text-[13px] text-[var(--accent-fg)]">
+              {stagingMsg}
+            </p>
+          )}
+          {stagingLoading && stagingTotal === 0 && <p className="text-[13px] text-[var(--text-muted)]">Loading…</p>}
 
-        <div className="border border-[var(--border)] rounded-xl p-4 space-y-4">
-          <div className="flex items-center justify-between flex-wrap gap-3">
-            <div>
-              <p className="text-sm font-medium text-[var(--text)]">Smart import from spreadsheet</p>
-              <p className="text-xs text-[var(--text-muted)]">
-                Upload any .xlsx, .xls, or .csv file. Kevin will detect columns and extract investors and founders.
+          {stagingTotal === 0 && !stagingLoading && (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-[10px] border border-dashed border-[var(--overlay-12)] p-4">
+              <p className="min-w-0 flex-1 basis-64 text-[13px] text-[var(--text-muted)]">
+                Nothing waiting. Upload an .xlsx, .xls or .csv file; Kevin detects the columns and picks out investors and founders.
               </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => sheetInputRef.current?.click()}
-              className="px-4 py-2 bg-[#6c5ce7] text-white rounded-xl text-sm font-medium hover:bg-[#7d6ff0] whitespace-nowrap"
-            >
-              Upload spreadsheet
-            </button>
-            <input ref={sheetInputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={onSheetFile} />
-          </div>
-
-          {sheetMsg && <p className="text-xs text-[var(--text-muted)]">{sheetMsg}</p>}
-
-          {sheetPreview && (
-            <div className="border border-[var(--border)] rounded-xl p-4 space-y-4">
-              <p className="text-sm font-medium text-[var(--text)]">Extraction preview</p>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="bg-[var(--bg)] rounded-xl p-3">
-                  <p className="text-xs text-[var(--text-muted)] uppercase tracking-wide mb-1">Investors found</p>
-                  <p className="text-2xl font-bold text-[#6c5ce7]">{sheetPreview.investors.length}</p>
-                  <p className="text-xs text-[var(--text-muted)]">Unique firms extracted from investor column</p>
-                </div>
-                <div className="bg-[var(--bg)] rounded-xl p-3">
-                  <p className="text-xs text-[var(--text-muted)] uppercase tracking-wide mb-1">Founders found</p>
-                  <p className="text-2xl font-bold text-[#6c5ce7]">{sheetPreview.founders.length}</p>
-                  <p className="text-xs text-[var(--text-muted)]">Startups with sector, stage and location</p>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4 text-xs text-[var(--text-muted)]">
-                <div>
-                  <p className="font-medium text-[var(--text)] mb-1">Sample investors:</p>
-                  {sheetPreview.investors.slice(0, 5).map((i, idx) => (
-                    <p key={idx}>{i.name}</p>
-                  ))}
-                  {sheetPreview.investors.length > 5 && <p>…and {sheetPreview.investors.length - 5} more</p>}
-                </div>
-                <div>
-                  <p className="font-medium text-[var(--text)] mb-1">Sample founders:</p>
-                  {sheetPreview.founders.slice(0, 5).map((f, idx) => (
-                    <p key={idx}>
-                      {f.name}
-                      {f.notes && ` — ${f.notes.split(" | ")[0]}`}
-                    </p>
-                  ))}
-                  {sheetPreview.founders.length > 5 && <p>…and {sheetPreview.founders.length - 5} more</p>}
-                </div>
-              </div>
-              <p className="text-xs text-[var(--text-muted)]">
-                These will be staged for enrichment — Kevin will search the web to fill in contact details, sectors,
-                ticket sizes, and more before you import.
-              </p>
-              <div className="flex gap-2 flex-wrap">
-                <button
-                  type="button"
-                  onClick={() => onStageContacts("all")}
-                  className="px-4 py-2 bg-[#6c5ce7] text-white rounded-xl text-sm font-medium hover:bg-[#7d6ff0]"
-                >
-                  Stage all {sheetPreview.investors.length + sheetPreview.founders.length} for enrichment
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onStageContacts("investors")}
-                  className="px-3 py-2 bg-[rgba(108,92,231,0.15)] text-[#6c5ce7] rounded-xl text-sm hover:bg-[rgba(108,92,231,0.25)]"
-                >
-                  Investors only ({sheetPreview.investors.length})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onStageContacts("founders")}
-                  className="px-3 py-2 bg-[rgba(108,92,231,0.15)] text-[#6c5ce7] rounded-xl text-sm hover:bg-[rgba(108,92,231,0.25)]"
-                >
-                  Founders only ({sheetPreview.founders.length})
-                </button>
-                <button type="button" onClick={() => setSheetPreview(null)} className="px-3 py-2 text-[var(--text-muted)] text-sm">
-                  Cancel
-                </button>
-              </div>
+              <button type="button" onClick={() => sheetInputRef.current?.click()} className={btn}>
+                Upload spreadsheet
+              </button>
             </div>
           )}
-        </div>
 
-        {stagingTotal > 0 && (
-          <div className="space-y-3">
-            <div className="flex items-center justify-between flex-wrap gap-2">
-              <div className="flex gap-2">
-                {(["investor", "founder", "all"] as const).map((t) => (
-                  <button
-                    key={t}
-                    type="button"
-                    onClick={() => setStagingTab(t)}
-                    className={`px-3 py-1 rounded-lg text-xs font-medium ${
-                      stagingTab === t
-                        ? "bg-[#6c5ce7] text-white"
-                        : "text-[var(--text-muted)] hover:text-[var(--text)]"
-                    }`}
-                  >
-                    {t === "all" ? "All" : t === "investor" ? "Investors" : "Founders"}
-                    <span className="ml-1 opacity-70">
-                      (
-                      {t === "all"
-                        ? stagingTotal
-                        : t === "investor"
-                          ? stagedInvestorCount
-                          : stagedFounderCount}
-                      )
-                    </span>
-                  </button>
-                ))}
+          {stagingTotal > 0 && (
+            <>
+              <div className="flex flex-col gap-1.5">
+                <div className="flex justify-between text-[13px] text-[var(--text-muted)]">
+                  <span>
+                    {stagingCounts.enriched} of {stagingTotal} enriched
+                    {stagingCounts.enriching > 0 && <span className="ml-2 animate-pulse text-[var(--accent-fg)]">· {stagingCounts.enriching} in progress</span>}
+                    {stagingCounts.failed > 0 && <span className="ml-2 text-[var(--danger)]">· {stagingCounts.failed} failed</span>}
+                  </span>
+                  <span>{Math.round((stagingCounts.enriched / stagingTotal) * 100)}%</span>
+                </div>
+                <div className="h-1.5 overflow-hidden rounded-full bg-[var(--overlay-8)]">
+                  <div className="h-full rounded-full bg-metatron-accent transition-all duration-500" style={{ width: `${(stagingCounts.enriched / stagingTotal) * 100}%` }} />
+                </div>
               </div>
-              <div className="flex gap-2 items-center flex-wrap">
+
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div role="group" aria-label="Show" className="flex gap-1 rounded-[10px] border border-[var(--border)] p-1">
+                  {(["all", "investor", "founder"] as const).map((t) => (
+                    <button key={t} type="button" aria-pressed={stagingTab === t} onClick={() => setStagingTab(t)} className={seg(stagingTab === t)}>
+                      {t === "all" ? "All" : t === "investor" ? "Investors" : "Founders"}
+                      <span className="text-xs text-[var(--text-muted)]">
+                        {t === "all" ? stagingTotal : t === "investor" ? stagedInvestorCount : stagedFounderCount}
+                      </span>
+                    </button>
+                  ))}
+                </div>
                 {selectedStaged.size > 0 && (
-                  <>
-                    <button type="button" onClick={onEnrichSelected} className="px-3 py-1 bg-[#6c5ce7] text-white rounded-lg text-xs">
+                  <div className="flex gap-2">
+                    <button type="button" onClick={() => void onEnrichSelected()} className={btnSm}>
                       Enrich selected ({selectedStaged.size})
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => onImportEnriched(Array.from(selectedStaged))}
-                      disabled={importingStaged}
-                      className="px-3 py-1 bg-green-600 text-white rounded-lg text-xs disabled:opacity-50"
-                    >
+                    <button type="button" onClick={() => void onImportEnriched(Array.from(selectedStaged))} disabled={importingStaged} className={btnSm}>
                       Import selected
                     </button>
-                  </>
+                  </div>
                 )}
-                {(["table", "cards"] as const).map((v) => (
-                  <button
-                    key={v}
-                    type="button"
-                    onClick={() => setStagingView(v)}
-                    className={`px-2 py-1 rounded text-xs ${
-                      stagingView === v ? "bg-[rgba(108,92,231,0.2)] text-[#6c5ce7]" : "text-[var(--text-muted)]"
-                    }`}
-                  >
-                    {v === "table" ? "Table" : "Cards"}
-                  </button>
-                ))}
               </div>
-            </div>
 
-            {stagingTotal > 50 && (
-              <div className="flex items-center justify-between pt-2">
-                <p className="text-xs text-[var(--text-muted)]">
-                  Showing {stagingPage * 50 + 1}–{Math.min((stagingPage + 1) * 50, stagingTotal)} of {stagingTotal}
-                </p>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setStagingPage((p) => Math.max(0, p - 1))}
-                    disabled={stagingPage === 0}
-                    className="px-3 py-1.5 text-xs rounded-xl bg-[var(--overlay-4)] text-[var(--text-muted)] hover:text-[var(--text)] disabled:opacity-30 disabled:cursor-not-allowed"
-                  >
-                    ← Prev
-                  </button>
-                  <span className="text-xs text-[var(--text-muted)]">
-                    Page {stagingPage + 1} of {Math.ceil(stagingTotal / 50)}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setStagingPage((p) => Math.min(Math.ceil(stagingTotal / 50) - 1, p + 1))}
-                    disabled={stagingPage >= Math.ceil(stagingTotal / 50) - 1}
-                    className="px-3 py-1.5 text-xs rounded-xl bg-[var(--overlay-4)] text-[var(--text-muted)] hover:text-[var(--text)] disabled:opacity-30 disabled:cursor-not-allowed"
-                  >
-                    Next →
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {(stagingCounts.enriching > 0 || stagingCounts.pending > 0) && recentFeed.length > 0 && (
-              <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--bg)]">
-                <div className="border-b border-[var(--border)] px-3 py-2">
-                  <span className="text-[10px] uppercase tracking-wide text-[#6c5ce7]">Live feed</span>
-                  <p className="mt-0.5 text-[10px] text-[var(--text-muted)]">Newest enriched first</p>
-                </div>
-                <ul className="divide-y divide-[var(--overlay-6)]">
-                  {recentFeed.map((r) => {
-                    const flash = recentlyEnriched.has(r.id);
-                    return (
+              {enrichingNow > 0 && recentFeed.length > 0 && (
+                <div className="overflow-hidden rounded-[10px] border border-[var(--border)]">
+                  <p className="border-b border-[var(--border)] px-3 py-2 font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--accent-fg)]">Just enriched</p>
+                  <ul>
+                    {recentFeed.map((r) => (
                       <li
                         key={r.id}
-                        className={`flex items-center justify-between gap-3 px-3 py-2 transition-all duration-1000 ${
-                          flash ? `border-l-2 border-l-green-400/50 ${STAGING_RECENT_HIGHLIGHT_BG}` : ""
-                        }`}
+                        className={`flex items-center justify-between gap-3 border-t border-[var(--border)] px-3 py-2 first:border-t-0 ${recentlyEnriched.has(r.id) ? STAGING_RECENT_HIGHLIGHT_BG : ""}`}
                       >
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-xs font-medium text-[var(--text)]">{r.name}</p>
-                          <p className="truncate text-[10px] text-[var(--text-muted)]">{r.sector_focus?.trim() || "—"}</p>
-                        </div>
-                        <span className="shrink-0 rounded-md bg-[rgba(0,200,100,0.12)] px-2 py-0.5 text-[10px] font-medium text-green-400">
-                          enriched
+                        <span className="min-w-0 truncate text-[13px]">
+                          <strong className="font-medium">{r.name}</strong>
+                          <span className="text-[var(--text-muted)]"> · {r.sector_focus?.trim() || "no sector found"}</span>
                         </span>
+                        {statusBadge("enriched")}
                       </li>
-                    );
-                  })}
-                </ul>
-              </div>
-            )}
+                    ))}
+                  </ul>
+                </div>
+              )}
 
-            {stagingView === "table" ? (
               <div className="overflow-x-auto">
-                <table className="w-full text-xs">
+                <table className="w-full min-w-[760px] text-[13px]">
                   <thead>
-                    <tr className="text-[var(--text-muted)] border-b border-[var(--border)]">
-                      <th className="text-left pb-2 pr-2">
+                    <tr className="border-b border-[var(--border)] text-left font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--text-muted)]">
+                      <th className="w-8 py-2 pr-2 font-normal">
                         <input
                           type="checkbox"
+                          aria-label="Select all"
                           checked={selectedStaged.size === filteredStaged.length && filteredStaged.length > 0}
-                          onChange={(e) =>
-                            setSelectedStaged(
-                              e.target.checked ? new Set(filteredStaged.map((s) => s.id)) : new Set(),
-                            )
-                          }
-                          className="rounded"
+                          onChange={(e) => setSelectedStaged(e.target.checked ? new Set(filteredStaged.map((s) => s.id)) : new Set())}
                         />
                       </th>
-                      <th className="text-left pb-2">Name / Firm</th>
-                      <th className="text-left pb-2">Contact</th>
-                      <th className="text-left pb-2">Sector</th>
-                      <th className="text-left pb-2">Stage</th>
-                      <th className="text-left pb-2">Ticket</th>
-                      <th className="text-left pb-2">Location</th>
-                      <th className="text-left pb-2">Website</th>
-                      <th className="text-left pb-2">Status</th>
-                      <th className="text-left pb-2" />
+                      <th className="py-2 pr-3 font-normal">Name</th>
+                      <th className="py-2 pr-3 font-normal">Contact</th>
+                      <th className="py-2 pr-3 font-normal">Focus</th>
+                      <th className="py-2 pr-3 font-normal">Ticket</th>
+                      <th className="py-2 pr-3 font-normal">Status</th>
+                      <th className="py-2 font-normal">
+                        <span className="sr-only">Actions</span>
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
                     {filteredStaged.map((s) => (
                       <Fragment key={s.id}>
-                        <tr
-                          className={
-                            recentlyEnriched.has(s.id)
-                              ? `border-b border-green-400/30 ${STAGING_RECENT_HIGHLIGHT_BG}`
-                              : "border-b border-[var(--overlay-3)] hover:bg-[var(--overlay-2)]"
-                          }
-                        >
-                          <td className="py-2 pr-2">
+                        <tr className={`border-b border-[var(--border)] align-top ${recentlyEnriched.has(s.id) ? STAGING_RECENT_HIGHLIGHT_BG : ""}`}>
+                          <td className="py-2.5 pr-2">
                             <input
                               type="checkbox"
+                              aria-label={`Select ${s.name}`}
                               checked={selectedStaged.has(s.id)}
                               onChange={(e) =>
                                 setSelectedStaged((prev) => {
@@ -1601,103 +1329,89 @@ function ConnectorNetworkPageInner() {
                                   return next;
                                 })
                               }
-                              className="rounded"
                             />
                           </td>
-                          <td className="py-2 pr-2">
-                            <p className="text-[var(--text)] font-medium">{s.name}</p>
-                            {s.firm_or_company && s.firm_or_company !== s.name && (
-                              <p className="text-[var(--text-muted)]">{s.firm_or_company}</p>
-                            )}
-                          </td>
-                          <td className="py-2 pr-2 text-[var(--text-muted)]">
-                            {s.contact_name && <p>{s.contact_name}</p>}
-                            {s.email && <p>{s.email}</p>}
-                          </td>
-                          <td className="py-2 pr-2 text-[var(--text-muted)] max-w-[120px] truncate">{s.sector_focus ?? "—"}</td>
-                          <td className="py-2 pr-2 text-[var(--text-muted)]">{s.stage_focus ?? "—"}</td>
-                          <td className="py-2 pr-2 text-[var(--text-muted)]">{s.ticket_size ?? "—"}</td>
-                          <td className="py-2 pr-2 text-[var(--text-muted)]">{s.geography ?? "—"}</td>
-                          <td className="py-2 pr-2 text-[var(--text-muted)] max-w-[100px] truncate">
-                            {s.website ? (
-                              <a href={s.website} target="_blank" rel="noreferrer" className="text-[#6c5ce7] hover:underline">
-                                link
+                          <td className="max-w-[200px] py-2.5 pr-3">
+                            <p className="truncate font-medium">{s.name}</p>
+                            {s.firm_or_company && s.firm_or_company !== s.name && <p className="truncate text-[var(--text-muted)]">{s.firm_or_company}</p>}
+                            {s.website && (
+                              <a href={s.website} target="_blank" rel="noreferrer" className="block truncate text-xs text-[var(--accent-fg)] hover:underline">
+                                {s.website.replace(/^https?:\/\//, "")}
                               </a>
-                            ) : (
-                              "—"
                             )}
                           </td>
-                          <td className="py-2 pr-2">{statusBadge(s.status)}</td>
-                          <td className="py-2">
-                            <div className="flex gap-1">
-                              <button type="button" onClick={() => startEditStaged(s)} className="text-[#6c5ce7] hover:underline">
-                                Edit
-                              </button>
+                          <td className="max-w-[180px] py-2.5 pr-3 text-[var(--text-muted)]">
+                            {s.contact_name && <p className="truncate">{s.contact_name}</p>}
+                            {s.email && <p className="truncate">{s.email}</p>}
+                            {!s.contact_name && !s.email && "—"}
+                          </td>
+                          <td className="max-w-[200px] py-2.5 pr-3 text-[var(--text-muted)]">
+                            <p className="truncate">{[s.sector_focus, s.stage_focus].filter(Boolean).join(" · ") || "—"}</p>
+                            {s.geography && <p className="truncate">{s.geography}</p>}
+                          </td>
+                          <td className="py-2.5 pr-3 text-[var(--text-muted)]">{s.ticket_size ?? "—"}</td>
+                          <td className="py-2.5 pr-3">
+                            {statusBadge(s.status)}
+                            {s.enrichment_error && <p className="mt-1 max-w-[180px] text-xs text-[var(--danger)]">{s.enrichment_error}</p>}
+                          </td>
+                          <td className="py-2.5">
+                            <div className="flex justify-end gap-3 whitespace-nowrap text-[13px] font-medium">
                               {s.status === "enriched" && (
-                                <button
-                                  type="button"
-                                  onClick={() => onImportEnriched([s.id])}
-                                  className="text-green-400 hover:underline ml-1"
-                                >
+                                <button type="button" onClick={() => void onImportEnriched([s.id])} className="text-[var(--accent-fg)] hover:underline">
                                   Import
                                 </button>
                               )}
                               {s.status === "failed" && (
-                                <button
-                                  type="button"
-                                  onClick={() => onRetryContact(s.id)}
-                                  className="text-orange-400 hover:underline ml-1"
-                                >
+                                <button type="button" onClick={() => void onRetryContact(s.id)} className="text-[var(--warn)] hover:underline">
                                   Retry
                                 </button>
                               )}
-                              <button type="button" onClick={() => onDeleteStaged(s.id)} className="text-red-400 hover:underline ml-1">
-                                Del
+                              <button type="button" onClick={() => startEditStaged(s)} className="text-[var(--text-muted)] hover:text-[var(--text)]">
+                                Edit
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void onDeleteStaged(s.id)}
+                                aria-label={`Remove ${s.name}`}
+                                className="text-[var(--text-muted)] hover:text-[var(--danger)]"
+                              >
+                                Remove
                               </button>
                             </div>
                           </td>
                         </tr>
                         {editingStagedId === s.id && (
-                          <tr className="bg-[rgba(108,92,231,0.05)]">
-                            <td colSpan={10} className="py-3 px-2">
-                              <div className="grid grid-cols-3 gap-2">
+                          <tr className="border-b border-[var(--border)] bg-[var(--overlay-3)]">
+                            <td colSpan={7} className="p-3">
+                              <div className="grid gap-3 sm:grid-cols-3">
                                 {(
                                   [
                                     ["contact_name", "Contact name"],
                                     ["email", "Email"],
-                                    ["linkedin_url", "LinkedIn URL"],
+                                    ["linkedin_url", "LinkedIn"],
                                     ["website", "Website"],
-                                    ["sector_focus", "Sector focus"],
-                                    ["stage_focus", "Stage focus"],
+                                    ["sector_focus", "Sector"],
+                                    ["stage_focus", "Stage"],
                                     ["ticket_size", "Ticket size"],
-                                    ["geography", "Geography"],
-                                    ["one_liner", "One liner"],
+                                    ["geography", "Location"],
+                                    ["one_liner", "One-liner"],
                                   ] as [keyof typeof editStagedForm, string][]
                                 ).map(([f, label]) => (
-                                  <div key={f}>
-                                    <label className="block text-[10px] text-[var(--text-muted)] mb-0.5">{label}</label>
+                                  <label key={f} className="flex flex-col gap-1 text-xs font-semibold">
+                                    <span>{label}</span>
                                     <input
                                       value={(editStagedForm[f] as string) ?? ""}
                                       onChange={(e) => setEditStagedForm((ef) => ({ ...ef, [f]: e.target.value }))}
-                                      className="w-full bg-[var(--bg)] border border-[var(--border)] rounded-lg px-2 py-1 text-xs text-[var(--text)]"
+                                      className="min-h-9 rounded-[8px] border border-[var(--overlay-12)] bg-[var(--bg)] px-2.5 text-[13px] font-normal text-[var(--text)] outline-none focus:border-metatron-accent"
                                     />
-                                  </div>
+                                  </label>
                                 ))}
                               </div>
-                              <div className="flex gap-2 mt-2">
-                                <button
-                                  type="button"
-                                  onClick={() => onSaveStagedEdit(s.id)}
-                                  disabled={savingStagedEdit}
-                                  className="px-3 py-1 bg-[#6c5ce7] text-white rounded-lg text-xs disabled:opacity-50"
-                                >
-                                  Save
+                              <div className="mt-3 flex gap-2">
+                                <button type="button" onClick={() => void onSaveStagedEdit(s.id)} disabled={savingStagedEdit} className={btnPrimary}>
+                                  {savingStagedEdit ? "Saving…" : "Save"}
                                 </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setEditingStagedId(null)}
-                                  className="px-3 py-1 text-[var(--text-muted)] text-xs"
-                                >
+                                <button type="button" onClick={() => setEditingStagedId(null)} className={btn}>
                                   Cancel
                                 </button>
                               </div>
@@ -1709,300 +1423,197 @@ function ConnectorNetworkPageInner() {
                   </tbody>
                 </table>
               </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {filteredStaged.map((s) => (
-                  <div
-                    key={s.id}
-                    className={`rounded-xl p-4 space-y-2 ${
-                      recentlyEnriched.has(s.id)
-                        ? `border ${STAGING_RECENT_HIGHLIGHT}`
-                        : "border border-[var(--border)] bg-[var(--bg)]"
-                    }`}
-                  >
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <p className="text-sm font-medium text-[var(--text)]">{s.name}</p>
-                        {s.one_liner && <p className="text-xs text-[var(--text-muted)]">{s.one_liner}</p>}
-                      </div>
-                      {statusBadge(s.status)}
-                    </div>
-                    <div className="grid grid-cols-2 gap-1 text-xs text-[var(--text-muted)]">
-                      {s.contact_name && <span>Contact: {s.contact_name}</span>}
-                      {s.email && <span>Email: {s.email}</span>}
-                      {s.sector_focus && <span>Sector: {s.sector_focus}</span>}
-                      {s.stage_focus && <span>Stage: {s.stage_focus}</span>}
-                      {s.ticket_size && <span>Ticket: {s.ticket_size}</span>}
-                      {s.geography && <span>Location: {s.geography}</span>}
-                    </div>
-                    {s.enrichment_error && <p className="text-xs text-red-400">{s.enrichment_error}</p>}
-                    <div className="flex gap-2">
-                      <button type="button" onClick={() => startEditStaged(s)} className="text-xs text-[#6c5ce7] hover:underline">
-                        Edit
-                      </button>
-                      {s.status === "enriched" && (
-                        <button type="button" onClick={() => onImportEnriched([s.id])} className="text-xs text-green-400 hover:underline">
-                          Import
-                        </button>
-                      )}
-                      {s.status === "failed" && (
-                        <button type="button" onClick={() => onRetryContact(s.id)} className="text-xs text-orange-400 hover:underline">
-                          Retry
-                        </button>
-                      )}
-                      <button type="button" onClick={() => onDeleteStaged(s.id)} className="text-xs text-red-400 hover:underline">
-                        Delete
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-            {stagingTotal > 50 && (
-              <div className="flex items-center justify-between pt-2">
-                <p className="text-xs text-[var(--text-muted)]">
-                  Showing {stagingPage * 50 + 1}–{Math.min((stagingPage + 1) * 50, stagingTotal)} of {stagingTotal}
-                </p>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setStagingPage((p) => Math.max(0, p - 1))}
-                    disabled={stagingPage === 0}
-                    className="px-3 py-1.5 text-xs rounded-xl bg-[var(--overlay-4)] text-[var(--text-muted)] hover:text-[var(--text)] disabled:opacity-30 disabled:cursor-not-allowed"
-                  >
-                    ← Prev
-                  </button>
-                  <span className="text-xs text-[var(--text-muted)]">
-                    Page {stagingPage + 1} of {Math.ceil(stagingTotal / 50)}
+
+              {stagingTotal > 50 && (
+                <div className="flex flex-wrap items-center justify-between gap-2 text-[13px] text-[var(--text-muted)]">
+                  <span>
+                    Showing {stagingPage * 50 + 1}–{Math.min((stagingPage + 1) * 50, stagingTotal)} of {stagingTotal}
                   </span>
-                  <button
-                    type="button"
-                    onClick={() => setStagingPage((p) => Math.min(Math.ceil(stagingTotal / 50) - 1, p + 1))}
-                    disabled={stagingPage >= Math.ceil(stagingTotal / 50) - 1}
-                    className="px-3 py-1.5 text-xs rounded-xl bg-[var(--overlay-4)] text-[var(--text-muted)] hover:text-[var(--text)] disabled:opacity-30 disabled:cursor-not-allowed"
-                  >
-                    Next →
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      {viewingContact && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto py-8 px-4">
-          <div className="absolute inset-0 bg-black/60" aria-hidden onClick={closeContactModal} />
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="contact-modal-title"
-            className="relative z-10 flex w-full max-w-2xl max-h-[min(90vh,800px)] flex-col rounded-xl border border-[var(--border)] bg-[var(--bg-card)]"
-          >
-            <div className="flex shrink-0 items-start justify-between gap-3 border-b border-[var(--border)] px-5 py-4">
-              <div className="min-w-0 pr-2">
-                {contactModalMode === "view" ? (
-                  <>
-                    <h2 id="contact-modal-title" className="text-2xl font-semibold leading-tight text-[var(--text)]">
-                      {viewingContact.name}
-                    </h2>
-                    {viewingContact.firm_or_company && viewingContact.firm_or_company !== viewingContact.name && (
-                      <p className="mt-1 text-base text-[var(--text-muted)]">{viewingContact.firm_or_company}</p>
-                    )}
-                    <p className="mt-2 text-[10px] uppercase tracking-wide text-[#6c5ce7]">{viewingContact.role}</p>
-                  </>
-                ) : (
-                  <>
-                    <h2 id="contact-modal-title" className="text-lg font-semibold leading-tight text-[var(--text)]">
-                      Edit contact
-                    </h2>
-                    <p className="mt-1 text-xs text-[var(--text-muted)] truncate">{viewingContact.name}</p>
-                  </>
-                )}
-              </div>
-              <div className="flex shrink-0 items-center gap-1">
-                <button
-                  type="button"
-                  onClick={closeContactModal}
-                  className="shrink-0 rounded-lg p-2 text-[var(--text-muted)] transition-colors hover:bg-[var(--overlay-6)] hover:text-[var(--text)]"
-                  aria-label="Close"
-                >
-                  <span className="block text-xl leading-none" aria-hidden>
-                    ×
-                  </span>
-                </button>
-              </div>
-            </div>
-
-            <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-              {contactModalMode === "view" ? (
-                <>
-                  {viewingContact.one_liner && (
-                    <p className="mb-5 text-sm italic leading-relaxed text-[var(--text-muted)]">{viewingContact.one_liner}</p>
-                  )}
-
-                  <div className="space-y-3 border-t border-[var(--border)] pt-4">
-                    {(
-                      [
-                        ["Email", viewingContact.email] as const,
-                        ["Sector", viewingContact.sector_focus] as const,
-                        ["Stage", viewingContact.stage_focus] as const,
-                        ["Ticket", viewingContact.ticket_size] as const,
-                        ["Geography", viewingContact.geography] as const,
-                        ["Website", viewingContact.website] as const,
-                        ["LinkedIn", viewingContact.linkedin_url] as const,
-                      ] as const
-                    ).map(([label, val]) => (
-                      <div key={label}>
-                        <p className="text-[10px] uppercase tracking-wide text-[var(--text-muted)]">{label}</p>
-                        <div className="mt-0.5 text-sm text-[var(--text)]">
-                          {!val ? (
-                            <span className="text-[var(--text-muted)]">—</span>
-                          ) : label === "Website" ? (
-                            <a
-                              href={val}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="break-all text-[#6c5ce7] hover:underline"
-                            >
-                              {val.replace(/^https?:\/\//, "")}
-                            </a>
-                          ) : label === "LinkedIn" ? (
-                            <a href={val} target="_blank" rel="noreferrer" className="break-all text-[#6c5ce7] hover:underline">
-                              View profile
-                            </a>
-                          ) : label === "Email" ? (
-                            <a href={`mailto:${val}`} className="break-all text-[#6c5ce7] hover:underline">
-                              {val}
-                            </a>
-                          ) : (
-                            val
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="mt-5 border-t border-[var(--border)] pt-4">
-                    <p className="text-[10px] uppercase tracking-wide text-[var(--text-muted)]">Notes</p>
-                    <div className="mt-2 max-h-40 overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-2">
-                      {viewingContact.notes ? (
-                        <p className="whitespace-pre-wrap text-xs leading-relaxed text-[var(--text-muted)]">{viewingContact.notes}</p>
-                      ) : (
-                        <span className="text-xs text-[var(--text-muted)]">—</span>
-                      )}
-                    </div>
-                  </div>
-
-                  {viewingContact.joined_user_id && (
-                    <p className="mt-4 text-xs text-[#6c5ce7]">On platform</p>
-                  )}
-                </>
-              ) : (
-                <div className="space-y-4">
-                  {(
-                    [
-                      ["name", "Name", "text"] as const,
-                      ["firm_or_company", "Firm / company", "text"] as const,
-                      ["email", "Email", "text"] as const,
-                      ["linkedin_url", "LinkedIn URL", "text"] as const,
-                      ["website", "Website", "text"] as const,
-                      ["sector_focus", "Sector focus", "text"] as const,
-                      ["stage_focus", "Stage focus", "text"] as const,
-                      ["ticket_size", "Ticket size", "text"] as const,
-                      ["geography", "Geography", "text"] as const,
-                    ] as const
-                  ).map(([key, label, kind]) => (
-                    <div key={key}>
-                      <label className="block text-xs text-[var(--text-muted)] mb-1">{label}</label>
-                      <input
-                        type={kind}
-                        value={editForm[key]}
-                        onChange={(e) => setEditForm((ef) => ({ ...ef, [key]: e.target.value }))}
-                        className="w-full bg-[var(--bg)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm text-[var(--text)]"
-                      />
-                    </div>
-                  ))}
-                  <div>
-                    <label className="block text-xs text-[var(--text-muted)] mb-1">One-liner</label>
-                    <textarea
-                      value={editForm.one_liner}
-                      onChange={(e) => setEditForm((ef) => ({ ...ef, one_liner: e.target.value }))}
-                      rows={3}
-                      className="w-full bg-[var(--bg)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm text-[var(--text)] resize-y min-h-[4rem]"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-[var(--text-muted)] mb-1">Notes</label>
-                    <textarea
-                      value={editForm.notes}
-                      onChange={(e) => setEditForm((ef) => ({ ...ef, notes: e.target.value }))}
-                      rows={4}
-                      className="w-full bg-[var(--bg)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm text-[var(--text)] resize-y min-h-[5rem]"
-                    />
+                  <div className="flex gap-2">
+                    <button type="button" onClick={() => setStagingPage((p) => Math.max(0, p - 1))} disabled={stagingPage === 0} className={btnSm}>
+                      Previous
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setStagingPage((p) => Math.min(Math.ceil(stagingTotal / 50) - 1, p + 1))}
+                      disabled={stagingPage >= Math.ceil(stagingTotal / 50) - 1}
+                      className={btnSm}
+                    >
+                      Next
+                    </button>
                   </div>
                 </div>
               )}
+            </>
+          )}
+        </section>
+
+        {viewingContact && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto px-4 py-8">
+            <div className="absolute inset-0 bg-black/60" aria-hidden onClick={closeContactModal} />
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="contact-modal-title"
+              className="relative z-10 flex max-h-[min(90vh,800px)] w-full max-w-2xl flex-col rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] shadow-[var(--card-shadow)]"
+            >
+              <div className="flex shrink-0 items-start justify-between gap-3 border-b border-[var(--border)] px-5 py-4">
+                <div className="flex min-w-0 items-center gap-3">
+                  <span aria-hidden className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[var(--overlay-6)] text-sm font-semibold text-[var(--text-muted)]">
+                    {initials(viewingContact.name)}
+                  </span>
+                  <div className="min-w-0">
+                    <h2 id="contact-modal-title" className="truncate text-xl font-semibold">
+                      {contactModalMode === "view" ? viewingContact.name : `Edit ${viewingContact.name}`}
+                    </h2>
+                    <p className="truncate text-[13px] text-[var(--text-muted)]">
+                      {[viewingContact.firm_or_company !== viewingContact.name ? viewingContact.firm_or_company : null, viewingContact.role === "investor" ? "Investor" : "Founder"]
+                        .filter(Boolean)
+                        .join(" · ")}
+                      {viewingContact.joined_user_id ? " · On metatron" : ""}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={closeContactModal}
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] text-[var(--text-muted)] hover:bg-[var(--overlay-6)] hover:text-[var(--text)]"
+                  aria-label="Close"
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+                    <path d="M18 6l-12 12" />
+                    <path d="M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+
+              <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+                {contactModalMode === "view" ? (
+                  <div className="flex flex-col gap-4">
+                    {viewingContact.one_liner && <p className="text-sm leading-relaxed text-[var(--text-muted)]">{viewingContact.one_liner}</p>}
+                    <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
+                      {(
+                        [
+                          ["Email", viewingContact.email],
+                          ["Sector", viewingContact.sector_focus],
+                          ["Stage", viewingContact.stage_focus],
+                          ["Ticket", viewingContact.ticket_size],
+                          ["Location", viewingContact.geography],
+                          ["Website", viewingContact.website],
+                          ["LinkedIn", viewingContact.linkedin_url],
+                        ] as const
+                      ).map(([label, val]) => (
+                        <div key={label} className="min-w-0">
+                          <dt className="font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--text-muted)]">{label}</dt>
+                          <dd className="mt-0.5 text-sm">
+                            {!val ? (
+                              <span className="text-[var(--text-muted)]">—</span>
+                            ) : label === "Website" ? (
+                              <a href={val} target="_blank" rel="noreferrer" className="break-all text-[var(--accent-fg)] hover:underline">
+                                {val.replace(/^https?:\/\//, "")}
+                              </a>
+                            ) : label === "LinkedIn" ? (
+                              <a href={val} target="_blank" rel="noreferrer" className="text-[var(--accent-fg)] hover:underline">
+                                View profile
+                              </a>
+                            ) : label === "Email" ? (
+                              <a href={`mailto:${val}`} className="break-all text-[var(--accent-fg)] hover:underline">
+                                {val}
+                              </a>
+                            ) : (
+                              val
+                            )}
+                          </dd>
+                        </div>
+                      ))}
+                    </dl>
+                    {viewingContact.notes && (
+                      <div className="flex flex-col gap-1.5">
+                        <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--text-muted)]">Notes</span>
+                        <p className="max-h-40 overflow-y-auto whitespace-pre-wrap rounded-[10px] bg-[var(--overlay-3)] px-3 py-2 text-[13px] leading-relaxed text-[var(--text-muted)]">
+                          {viewingContact.notes}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    {(
+                      [
+                        ["name", "Name"],
+                        ["firm_or_company", "Firm or company"],
+                        ["email", "Email"],
+                        ["linkedin_url", "LinkedIn"],
+                        ["website", "Website"],
+                        ["sector_focus", "Sector"],
+                        ["stage_focus", "Stage"],
+                        ["ticket_size", "Ticket size"],
+                        ["geography", "Location"],
+                      ] as const
+                    ).map(([key, label]) => (
+                      <label key={key} className={field}>
+                        <span>{label}</span>
+                        <input value={editForm[key]} onChange={(e) => setEditForm((ef) => ({ ...ef, [key]: e.target.value }))} className={input} />
+                      </label>
+                    ))}
+                    <label className={`${field} sm:col-span-2`}>
+                      <span>One-liner</span>
+                      <textarea
+                        value={editForm.one_liner}
+                        onChange={(e) => setEditForm((ef) => ({ ...ef, one_liner: e.target.value }))}
+                        rows={2}
+                        className={`${input} resize-y`}
+                      />
+                    </label>
+                    <label className={`${field} sm:col-span-2`}>
+                      <span>Notes</span>
+                      <textarea
+                        value={editForm.notes}
+                        onChange={(e) => setEditForm((ef) => ({ ...ef, notes: e.target.value }))}
+                        rows={4}
+                        className={`${input} resize-y`}
+                      />
+                    </label>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-[var(--border)] px-5 py-3">
+                {contactModalMode === "view" ? (
+                  <>
+                    <a href={introduceHref(viewingContact)} className={btnPrimary}>
+                      Introduce
+                    </a>
+                    <button type="button" onClick={() => openContactModalEdit(viewingContact)} className={btn}>
+                      Edit
+                    </button>
+                    <span className="flex-1" />
+                    <button type="button" onClick={() => void onArchive(viewingContact.id)} className={btn}>
+                      Archive
+                    </button>
+                    <button type="button" onClick={() => void onDelete(viewingContact.id)} className={`${btn} text-[var(--danger)]`}>
+                      Delete
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    {editMsg && (
+                      <p role="alert" className="w-full text-[13px] text-[var(--danger)]">
+                        {editMsg}
+                      </p>
+                    )}
+                    <button type="button" onClick={() => void onSaveContactModal()} disabled={savingEdit} className={btnPrimary}>
+                      {savingEdit ? "Saving…" : "Save"}
+                    </button>
+                    <button type="button" onClick={cancelContactModalEdit} disabled={savingEdit} className={btn}>
+                      Cancel
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
-
-            {contactModalMode === "view" && (
-              <div className="shrink-0 border-t border-[var(--border)] px-5 py-3">
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      populateEditFormFromContact(viewingContact);
-                      setContactModalMode("edit");
-                      setEditMsg(null);
-                    }}
-                    className="rounded-xl px-4 py-2 text-sm font-medium text-[#6c5ce7] transition-colors hover:bg-[rgba(108,92,231,0.12)]"
-                  >
-                    Edit
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void onArchive(viewingContact.id)}
-                    className="rounded-xl px-4 py-2 text-sm font-medium text-[var(--text-muted)] transition-colors hover:bg-[var(--overlay-6)] hover:text-[var(--text)]"
-                  >
-                    Archive
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void onDelete(viewingContact.id)}
-                    className="rounded-xl px-4 py-2 text-sm font-medium text-red-400 transition-colors hover:bg-[rgba(255,80,80,0.12)]"
-                  >
-                    Delete
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {contactModalMode === "edit" && (
-              <div className="shrink-0 border-t border-[var(--border)] px-5 py-3 space-y-2">
-                {editMsg && <p className="text-xs text-red-400">{editMsg}</p>}
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => void onSaveContactModal()}
-                    disabled={savingEdit}
-                    className="px-4 py-2 bg-[#6c5ce7] text-white rounded-xl text-sm font-medium hover:bg-[#7d6ff0] disabled:opacity-50"
-                  >
-                    {savingEdit ? "Saving…" : "Save"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={cancelContactModalEdit}
-                    disabled={savingEdit}
-                    className="px-4 py-2 text-sm text-[var(--text-muted)] rounded-xl hover:bg-[var(--overlay-6)] hover:text-[var(--text)] disabled:opacity-50"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            )}
           </div>
-        </div>
-      )}
+        )}
       </div>
     </main>
   );

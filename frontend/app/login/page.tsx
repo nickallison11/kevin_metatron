@@ -267,7 +267,7 @@ export default function LoginPage() {
                       setOauthConsentError(null);
                       window.location.href = `${API_BASE}/auth/oauth/${provider}/authorize`;
                     }}
-                    className="w-full inline-flex items-center justify-center gap-3 rounded-lg border border-[var(--border)] bg-transparent px-4 py-2.5 text-sm font-semibold text-[var(--text)] hover:border-metatron-accent/30 hover:shadow-[0_0_24px_rgba(108,92,231,0.08)] transition-all disabled:opacity-60 disabled:hover:border-[var(--border)] disabled:hover:shadow-none"
+                    className="w-full inline-flex items-center justify-center gap-3 rounded-lg border border-[var(--border)] bg-transparent px-4 py-2.5 text-sm font-semibold text-[var(--text)] hover:border-metatron-accent/30 hover:shadow-[0_0_24px_rgba(var(--accent-rgb),0.08)] transition-all disabled:opacity-60 disabled:hover:border-[var(--border)] disabled:hover:shadow-none"
                   >
                     <Icon />
                     {label}
@@ -335,7 +335,7 @@ export default function LoginPage() {
                 <button
                   type="submit"
                   disabled={loading}
-                  className="w-full rounded-lg bg-metatron-accent py-2.5 text-sm font-semibold text-white hover:bg-metatron-accent-hover hover:shadow-[0_4px_20px_rgba(108,92,231,0.3)] transition-all disabled:opacity-60"
+                  className="w-full rounded-lg bg-metatron-accent py-2.5 text-sm font-semibold text-white hover:bg-metatron-accent-hover hover:shadow-[0_4px_20px_rgba(var(--accent-rgb),0.3)] transition-all disabled:opacity-60"
                 >
                   {loading ? "Signing in…" : "Log in"}
                 </button>
@@ -381,7 +381,7 @@ export default function LoginPage() {
               <button
                 type="submit"
                 disabled={twoFaLoading || twoFaCode.length !== 6}
-                className="w-full rounded-lg bg-metatron-accent py-2.5 text-sm font-semibold text-white hover:bg-metatron-accent-hover hover:shadow-[0_4px_20px_rgba(108,92,231,0.3)] transition-all disabled:opacity-60"
+                className="w-full rounded-lg bg-metatron-accent py-2.5 text-sm font-semibold text-white hover:bg-metatron-accent-hover hover:shadow-[0_4px_20px_rgba(var(--accent-rgb),0.3)] transition-all disabled:opacity-60"
               >
                 {twoFaLoading ? "Verifying…" : "Verify"}
               </button>

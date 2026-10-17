@@ -3,24 +3,18 @@
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import {
-  IconCreditCard,
+  IconBuilding,
+  IconGift,
   IconLayoutDashboard,
   IconNetwork,
   IconRobot,
-  IconSettings,
   IconUserCircle,
+  IconUsers,
   IconUsersPlus,
 } from "@tabler/icons-react";
 import { API_BASE, authJsonHeaders } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import DashboardChrome, { type ChromeNavItem } from "@/components/DashboardChrome";
-
-const FREE_NAV = [
-  { href: "/connector", label: "Dashboard", icon: IconLayoutDashboard },
-  { href: "/connector/kevin", label: "Chat with Kevin", icon: IconRobot },
-  { href: "/connector/profile", label: "Profile Settings", icon: IconUserCircle },
-  { href: "/connector/network", label: "My Network", icon: IconNetwork },
-];
+import DashboardChrome, { type ChromeNavGroup, type ChromeNavItem } from "@/components/DashboardChrome";
 
 export default function ConnectorShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
@@ -38,7 +32,7 @@ export default function ConnectorShell({ children }: { children: ReactNode }) {
         });
         if (!res.ok) return;
         const data = (await res.json()) as { connector_tier?: string | null };
-        if (!cancelled) setIsPaid(data.connector_tier === "paid");
+        if (!cancelled) setIsPaid(data.connector_tier === "paid" || data.connector_tier === "connector_basic");
       } catch {
         /* ignore */
       }
@@ -58,56 +52,40 @@ export default function ConnectorShell({ children }: { children: ReactNode }) {
 
   if (!token) return null;
 
-  const navItems: ChromeNavItem[] = FREE_NAV.map((item) => ({
-    key: item.href,
-    href: item.href,
-    label: item.label,
-    icon: item.icon,
-    kind: "link",
-  }));
+  // Introductions needs a paid connector plan.
+  const introductions: ChromeNavItem = isPaid
+    ? { key: "/connector/introductions", href: "/connector/introductions", label: "Introductions", icon: IconUsersPlus, kind: "link" }
+    : {
+        key: "introductions-locked",
+        label: "Introductions",
+        icon: IconUsersPlus,
+        kind: "locked",
+        onClick: () => router.push("/connector/settings/subscription"),
+      };
 
-  navItems.push(
-    isPaid
-      ? {
-          key: "/connector/introductions",
-          href: "/connector/introductions",
-          label: "Introductions",
-          icon: IconUsersPlus,
-          kind: "link",
-        }
-      : {
-          key: "introductions-locked",
-          label: "Introductions",
-          icon: IconUsersPlus,
-          kind: "locked",
-          onClick: () => router.push("/connector/settings/subscription"),
-        },
-  );
-
-  const footerItems: ChromeNavItem[] = [
+  const groups: ChromeNavGroup[] = [
     {
-      key: "/connector/settings/subscription",
-      href: "/connector/settings/subscription",
-      label: "Subscription",
-      icon: IconCreditCard,
-      kind: "link",
+      title: "Home",
+      items: [
+        { key: "/connector", href: "/connector", label: "Dashboard", icon: IconLayoutDashboard, kind: "link" },
+        { key: "/connector/kevin", href: "/connector/kevin", label: "Chat with Kevin", icon: IconRobot, kind: "link" },
+        { key: "/connector/profile", href: "/connector/profile", label: "Connector Profile", icon: IconUserCircle, kind: "link" },
+      ],
     },
     {
-      key: "/connector/settings",
-      href: "/connector/settings",
-      label: "Account Settings",
-      icon: IconSettings,
-      kind: "link",
+      title: "Network",
+      items: [
+        { key: "/connector/network", href: "/connector/network", label: "My Network", icon: IconNetwork, kind: "link" },
+        introductions,
+        { key: "/connector/referrals", href: "/connector/referrals", label: "Referrals", icon: IconGift, kind: "link" },
+        { key: "/connector/startups", href: "/connector/startups", label: "Browse Startups", icon: IconBuilding, kind: "link", matchPrefix: true },
+        { key: "/connector/investors", href: "/connector/investors", label: "Browse Investors", icon: IconUsers, kind: "link", matchPrefix: true },
+      ],
     },
   ];
 
   return (
-    <DashboardChrome
-      roleLabel="Connector"
-      pathname={pathname}
-      navItems={navItems}
-      footerItems={footerItems}
-    >
+    <DashboardChrome roleLabel="Connector" pathname={pathname} groups={groups}>
       {children}
     </DashboardChrome>
   );

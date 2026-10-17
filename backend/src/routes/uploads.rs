@@ -5,7 +5,7 @@ use axum::{
     extract::{Multipart, Path, State},
     http::{header, StatusCode},
     response::{IntoResponse, Response},
-    routing::{post, put},
+    routing::{get, post, put},
     Json,
     Router,
 };
@@ -29,6 +29,9 @@ const MAX_UPLOAD_BYTES: usize = 52 * 1024 * 1024;
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/pitch-deck", post(upload_pitch_deck))
+        .route("/file/:cid", get(serve_ipfs_file))
+        .route("/logo", post(upload_logo))
+        .route("/logo/from-website", post(logo_from_website))
         .route("/ipfs-visibility", put(set_ipfs_visibility))
 }
 
@@ -50,6 +53,86 @@ fn sanitize_upload_filename(raw: &str) -> String {
         safe
     } else {
         format!("{safe}.pdf")
+    }
+}
+
+/// Pins bytes to IPFS via Pinata (v3 upload, falling back to v2 pinFileToIPFS)
+/// and returns the CID.
+async fn pin_to_ipfs(
+    state: &AppState,
+    pinata_jwt: &str,
+    raw: Vec<u8>,
+    filename: &str,
+    display_name: &str,
+    mime: &str,
+    pinata_group: Option<String>,
+) -> Result<String, (StatusCode, String)> {
+    // v3 (uploads.pinata.cloud) has no body-size limit and supports group_id.
+    let file_part = reqwest::multipart::Part::bytes(raw.clone())
+        .file_name(filename.to_string())
+        .mime_str(mime)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let mut v3_form = reqwest::multipart::Form::new()
+        .text("name", display_name.to_string())
+        .text("network", "public")
+        .part("file", file_part);
+    if let Some(ref gid) = pinata_group {
+        v3_form = v3_form.text("group_id", gid.clone());
+    }
+
+    let v3_res = state
+        .http_client
+        .post("https://uploads.pinata.cloud/v3/files")
+        .bearer_auth(pinata_jwt)
+        .multipart(v3_form)
+        .send()
+        .await;
+
+    match v3_res {
+        Ok(r) if r.status().is_success() => {
+            let text = r.text().await.unwrap_or_default();
+            let j: serde_json::Value = serde_json::from_str(&text)
+                .map_err(|_| (StatusCode::BAD_GATEWAY, "pinata v3 parse failed".into()))?;
+            let c = j.pointer("/data/cid").and_then(|v| v.as_str())
+                .ok_or((StatusCode::BAD_GATEWAY, "pinata v3 missing data.cid".into()))?
+                .to_string();
+            tracing::info!("pinata: v3 uploaded CID {} group {:?}", c, pinata_group);
+            Ok(c)
+        }
+        Ok(r) => {
+            let status = r.status();
+            let body = r.text().await.unwrap_or_default();
+            tracing::warn!("pinata: v3 upload returned {} — falling back to v2: {}", status, body.chars().take(200).collect::<String>());
+            let meta = json!({ "name": display_name });
+            let part2 = reqwest::multipart::Part::bytes(raw)
+                .file_name(filename.to_string())
+                .mime_str(mime)
+                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+            let form2 = reqwest::multipart::Form::new()
+                .text("pinataMetadata", meta.to_string())
+                .part("file", part2);
+            let res2 = state.http_client
+                .post("https://api.pinata.cloud/pinning/pinFileToIPFS")
+                .bearer_auth(pinata_jwt)
+                .multipart(form2)
+                .send()
+                .await
+                .map_err(|e| (StatusCode::BAD_GATEWAY, format!("pinata v2 failed: {e}")))?;
+            let s2 = res2.status();
+            let t2 = res2.text().await.unwrap_or_default();
+            if !s2.is_success() {
+                tracing::error!("pinata v2 failed: status={} body={}", s2, t2.chars().take(300).collect::<String>());
+                return Err((StatusCode::BAD_GATEWAY, format!("pinata upload failed: {t2}")));
+            }
+            let j2: serde_json::Value = serde_json::from_str(&t2)
+                .map_err(|_| (StatusCode::BAD_GATEWAY, "pinata v2 parse failed".into()))?;
+            let c = j2.get("IpfsHash").and_then(|v| v.as_str())
+                .ok_or((StatusCode::BAD_GATEWAY, "pinata v2 missing IpfsHash".into()))?
+                .to_string();
+            tracing::info!("pinata: v2 fallback uploaded CID {}", c);
+            Ok(c)
+        }
+        Err(e) => Err((StatusCode::BAD_GATEWAY, format!("pinata upload failed: {e}"))),
     }
 }
 
@@ -80,12 +163,6 @@ async fn upload_pitch_deck(
         }
     };
 
-    let pinata_gateway = state
-        .pinata_gateway
-        .as_deref()
-        .unwrap_or("gateway.pinata.cloud")
-        .trim_end_matches('/')
-        .to_string();
 
     let mut file_bytes: Option<Vec<u8>> = None;
     let mut original = String::from("deck");
@@ -139,80 +216,12 @@ async fn upload_pitch_deck(
         _ => state.pinata_group_free.clone(),
     };
 
-    // Try v3 upload (uploads.pinata.cloud — no body-size limit, supports group_id).
-    // Fall back to v2 pinFileToIPFS if v3 fails.
-    let file_part = reqwest::multipart::Part::bytes(raw.clone())
-        .file_name(filename.clone())
-        .mime_str(mime)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    let mut v3_form = reqwest::multipart::Form::new()
-        .text("name", display_name.clone())
-        .text("network", "public")
-        .part("file", file_part);
-    if let Some(ref gid) = pinata_group {
-        v3_form = v3_form.text("group_id", gid.clone());
-    }
-
-    let v3_res = state
-        .http_client
-        .post("https://uploads.pinata.cloud/v3/files")
-        .bearer_auth(&pinata_jwt)
-        .multipart(v3_form)
-        .send()
-        .await;
-
-    let cid: String = match v3_res {
-        Ok(r) if r.status().is_success() => {
-            let text = r.text().await.unwrap_or_default();
-            let j: serde_json::Value = serde_json::from_str(&text)
-                .map_err(|_| (StatusCode::BAD_GATEWAY, "pinata v3 parse failed".into()))?;
-            let c = j.pointer("/data/cid").and_then(|v| v.as_str())
-                .ok_or((StatusCode::BAD_GATEWAY, "pinata v3 missing data.cid".into()))?
-                .to_string();
-            tracing::info!("pinata: v3 uploaded CID {} group {:?}", c, pinata_group);
-            c
-        }
-        Ok(r) => {
-            let status = r.status();
-            let body = r.text().await.unwrap_or_default();
-            tracing::warn!("pinata: v3 upload returned {} — falling back to v2: {}", status, body.chars().take(200).collect::<String>());
-            // v2 fallback
-            let meta = json!({ "name": display_name });
-            let part2 = reqwest::multipart::Part::bytes(raw.clone())
-                .file_name(filename)
-                .mime_str(mime)
-                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-            let form2 = reqwest::multipart::Form::new()
-                .text("pinataMetadata", meta.to_string())
-                .part("file", part2);
-            let res2 = state.http_client
-                .post("https://api.pinata.cloud/pinning/pinFileToIPFS")
-                .bearer_auth(&pinata_jwt)
-                .multipart(form2)
-                .send()
-                .await
-                .map_err(|e| (StatusCode::BAD_GATEWAY, format!("pinata v2 failed: {e}")))?;
-            let s2 = res2.status();
-            let t2 = res2.text().await.unwrap_or_default();
-            if !s2.is_success() {
-                tracing::error!("pinata v2 failed: status={} body={}", s2, t2.chars().take(300).collect::<String>());
-                return Err((StatusCode::BAD_GATEWAY, format!("pinata upload failed: {t2}")));
-            }
-            let j2: serde_json::Value = serde_json::from_str(&t2)
-                .map_err(|_| (StatusCode::BAD_GATEWAY, "pinata v2 parse failed".into()))?;
-            let c = j2.get("IpfsHash").and_then(|v| v.as_str())
-                .ok_or((StatusCode::BAD_GATEWAY, "pinata v2 missing IpfsHash".into()))?
-                .to_string();
-            tracing::info!("pinata: v2 fallback uploaded CID {}", c);
-            c
-        }
-        Err(e) => {
-            return Err((StatusCode::BAD_GATEWAY, format!("pinata upload failed: {e}")));
-        }
-    };
+    let cid = pin_to_ipfs(&state, &pinata_jwt, raw.clone(), &filename, &display_name, mime, pinata_group).await?;
     let cid = cid.as_str();
 
-    let url = format!("https://{pinata_gateway}/ipfs/{cid}");
+    // Shown on the metatron domain; the frontend's /deck/:cid rewrite goes to
+    // GET /uploads/file/:cid, which only serves files we stored.
+    let url = format!("{}/deck/{cid}", crate::email::frontend_url());
     let visibility = "public";
     let cid_out: Option<String> = Some(cid.to_string());
 
@@ -271,7 +280,9 @@ async fn upload_pitch_deck(
                     )
                     .await;
                     extracted = Some(v.clone());
-                    match insert_pitch_from_extracted(&state.db, id, &v).await {
+                    // Uploading a deck refreshes every profile and pitch field the deck
+                    // covers (fields it doesn't mention keep what the founder wrote).
+                    match apply_deck_extraction(&state.db, id, &v, true).await {
                         Ok(pid) => {
                             let org_id = ensure_user_org(&state.db, id).await.map_err(|_| {
                                 (StatusCode::INTERNAL_SERVER_ERROR, "db error".into())
@@ -279,28 +290,12 @@ async fn upload_pitch_deck(
                             match pitch_response_for_org_pitch(&state.db, org_id, pid).await {
                                 Ok(p) => pitch = Some(p),
                                 Err(e) => {
-                                    tracing::error!("pitch_response after deck insert: {e}");
+                                    tracing::error!("pitch_response after deck extraction: {e}");
                                 }
                             }
                         }
                         Err(e) => {
-                            tracing::error!("insert_pitch_from_extracted: {e}");
-                        }
-                    }
-                    let deck_full_text = v
-                        .get("full_text")
-                        .and_then(|x| x.as_str())
-                        .map(|s| s.to_string());
-                    if let Some(t) = deck_full_text.as_deref() {
-                        let trimmed = t.trim();
-                        if !trimmed.is_empty() {
-                            let _ = sqlx::query(
-                                "UPDATE profiles SET deck_text = $1, updated_at = NOW() WHERE user_id = $2",
-                            )
-                            .bind(trimmed)
-                            .bind(id)
-                            .execute(&state.db)
-                            .await;
+                            tracing::error!("apply_deck_extraction: {e}");
                         }
                     }
                 }
@@ -331,6 +326,11 @@ async fn upload_pitch_deck(
     let snap_uid = id;
     tokio::spawn(async move {
         snapshot_user_context(snap_state, snap_uid).await;
+    });
+    // The deck may have given us the company website: look for the logo there.
+    let logo_state = Arc::clone(&state);
+    tokio::spawn(async move {
+        refresh_logo_from_website(logo_state, id).await;
     });
 
     Ok((StatusCode::CREATED, Json(body)).into_response())
@@ -481,6 +481,343 @@ async fn insert_pitch_from_extracted(
     .await?;
 
     Ok(pitch_id)
+}
+
+const DECK_STAGES: [&str; 8] = [
+    "idea", "pre-seed", "seed", "series-a", "series-b", "series-c", "growth", "profitable",
+];
+
+/// Stage slug as used by the profile form (`frontend/lib/stages.ts`).
+fn deck_stage(v: &JsonValue) -> Option<String> {
+    let s = ev_str(v, "stage")?.to_lowercase().replace([' ', '_'], "-");
+    DECK_STAGES.contains(&s.as_str()).then_some(s)
+}
+
+/// Sector tags joined the way the profile form stores them ("FinTech, Payments").
+fn deck_sectors(v: &JsonValue) -> Option<String> {
+    let tags: Vec<String> = v
+        .get("sectors")?
+        .as_array()?
+        .iter()
+        .filter_map(|t| t.as_str().map(str::trim))
+        .filter(|t| !t.is_empty())
+        .take(4)
+        .map(str::to_string)
+        .collect();
+    (!tags.is_empty()).then(|| tags.join(", "))
+}
+
+/// ISO 3166-1 alpha-2 code (profiles.country is CHAR(2)).
+fn deck_country_code(v: &JsonValue) -> Option<String> {
+    let c = ev_str(v, "country_code")?.to_uppercase();
+    (c.len() == 2 && c.chars().all(|ch| ch.is_ascii_uppercase())).then_some(c)
+}
+
+/// SQL for one text column: with `$2` (overwrite) true the deck value replaces the
+/// current one (kept when the deck has nothing for it); otherwise the deck value
+/// only fills a blank.
+fn fill_col(col: &str, param: &str) -> String {
+    format!(
+        "{col} = CASE WHEN $2 THEN COALESCE({param}::text, {col}::text) \
+         ELSE COALESCE(NULLIF(TRIM({col}::text), ''), {param}::text) END"
+    )
+}
+
+/// Applies Kevin's deck extraction to the founder's profile (company name, one-liner,
+/// stage, sectors, country, website, deck text) and to their pitch — updating the
+/// existing pitch rather than creating another one. `overwrite = false` fills only
+/// empty fields (a new upload); `true` refreshes every field the deck covers
+/// ("Fill from my deck"). Returns the pitch id.
+async fn apply_deck_extraction(
+    db: &sqlx::PgPool,
+    user_id: Uuid,
+    extracted: &JsonValue,
+    overwrite: bool,
+) -> Result<Uuid, sqlx::Error> {
+    let company = ev_str(extracted, "company_name").or_else(|| ev_str(extracted, "company"));
+    let one_liner = ev_str(extracted, "one_liner");
+    let stage = deck_stage(extracted);
+    let sectors = deck_sectors(extracted);
+    let deck_text = ev_str(extracted, "full_text");
+
+    sqlx::query("INSERT INTO profiles (user_id) VALUES ($1) ON CONFLICT (user_id) DO NOTHING")
+        .bind(user_id)
+        .execute(db)
+        .await?;
+    let profile_sql = format!(
+        "UPDATE profiles SET {}, {}, {}, {}, {}, {}, deck_text = COALESCE($9, deck_text), updated_at = now() \
+         WHERE user_id = $1",
+        fill_col("company_name", "$3"),
+        fill_col("one_liner", "$4"),
+        fill_col("stage", "$5"),
+        fill_col("sector", "$6"),
+        fill_col("country", "$7"),
+        fill_col("website", "$8"),
+    );
+    sqlx::query(&profile_sql)
+        .bind(user_id)
+        .bind(overwrite)
+        .bind(&company)
+        .bind(&one_liner)
+        .bind(&stage)
+        .bind(&sectors)
+        .bind(deck_country_code(extracted))
+        .bind(ev_str(extracted, "website"))
+        .bind(&deck_text)
+        .execute(db)
+        .await?;
+
+    // The founder's current pitch is the newest one (same order as GET /pitches).
+    let org_id = ensure_user_org(db, user_id).await?;
+    let existing: Option<Uuid> = sqlx::query_scalar(
+        "SELECT id FROM pitches WHERE organization_id = $1 ORDER BY created_at DESC LIMIT 1",
+    )
+    .bind(org_id)
+    .fetch_optional(db)
+    .await?;
+    // No pitch yet: create it, then the update below also fills stage and sector.
+    let pitch_id = match existing {
+        Some(id) => id,
+        None => insert_pitch_from_extracted(db, user_id, extracted).await?,
+    };
+
+    let pitch_sql = format!(
+        "UPDATE pitches SET \
+         title = CASE WHEN $2 THEN COALESCE($3, title) \
+                 ELSE COALESCE(NULLIF(NULLIF(TRIM(title), ''), 'Untitled pitch'), $3) END, \
+         {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, \
+         team_members = CASE \
+             WHEN $2 THEN COALESCE($15, team_members) \
+             WHEN team_members IS NULL OR team_members = '[]'::jsonb THEN COALESCE($15, team_members) \
+             ELSE team_members END, \
+         updated_at = now() \
+         WHERE id = $1",
+        fill_col("description", "$4"),
+        fill_col("problem", "$5"),
+        fill_col("solution", "$6"),
+        fill_col("market_size", "$7"),
+        fill_col("business_model", "$8"),
+        fill_col("traction", "$9"),
+        fill_col("funding_ask", "$10"),
+        fill_col("use_of_funds", "$11"),
+        fill_col("incorporation_country", "$12"),
+        fill_col("stage", "$13"),
+        fill_col("sector", "$14"),
+    );
+    sqlx::query(&pitch_sql)
+        .bind(pitch_id)
+        .bind(overwrite)
+        .bind(&company)
+        .bind(&one_liner)
+        .bind(ev_str(extracted, "problem"))
+        .bind(ev_str(extracted, "solution"))
+        .bind(ev_str(extracted, "market_size").or_else(|| ev_str(extracted, "market size")))
+        .bind(ev_str(extracted, "business_model"))
+        .bind(ev_str(extracted, "traction"))
+        .bind(ev_str(extracted, "funding_ask").or_else(|| ev_str(extracted, "funding ask")))
+        .bind(ev_str(extracted, "use_of_funds").or_else(|| ev_str(extracted, "use of funds")))
+        .bind(ev_str(extracted, "incorporation_country"))
+        .bind(&stage)
+        .bind(&sectors)
+        .bind(normalize_team_members(extracted))
+        .execute(db)
+        .await?;
+
+    Ok(pitch_id)
+}
+
+const MAX_SERVED_BYTES: usize = 64 * 1024 * 1024;
+const MAX_LOGO_BYTES: usize = 2 * 1024 * 1024;
+
+fn ipfs_gateway_base(state: &AppState) -> String {
+    let gw = state.pinata_gateway.as_deref().unwrap_or("gateway.pinata.cloud").trim_end_matches('/');
+    let host = gw.trim_start_matches("https://").trim_start_matches("http://");
+    format!("https://{host}/ipfs")
+}
+
+/// GET /uploads/file/:cid — what {FRONTEND_URL}/deck/<cid> and /media/<cid>
+/// rewrite to. Serves only files metatron stored (a founder's deck or a user's
+/// logo), and only PDFs and raster images, so nobody can get arbitrary IPFS
+/// content (e.g. an HTML page) served from the app's own domain.
+async fn serve_ipfs_file(State(state): State<Arc<AppState>>, Path(cid): Path<String>) -> Response {
+    let not_found = || (StatusCode::NOT_FOUND, "Not found").into_response();
+    // CIDv0 (Qm…) and CIDv1 (bafy…) are plain alphanumerics.
+    if cid.len() < 32 || cid.len() > 100 || !cid.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return not_found();
+    }
+    let known: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM profiles WHERE pitch_deck_url LIKE '%/' || $1) \
+             OR EXISTS(SELECT 1 FROM users WHERE logo_url LIKE '%/' || $1)",
+    )
+    .bind(&cid)
+    .fetch_one(&state.db)
+    .await
+    .unwrap_or(false);
+    if !known {
+        return not_found();
+    }
+
+    let upstream = match state
+        .http_client
+        .get(format!("{}/{cid}", ipfs_gateway_base(&state)))
+        .timeout(std::time::Duration::from_secs(90))
+        .send()
+        .await
+    {
+        Ok(r) if r.status().is_success() => r,
+        Ok(r) => {
+            tracing::warn!("serve_file: gateway {} for {cid}", r.status());
+            return (StatusCode::BAD_GATEWAY, "File unavailable").into_response();
+        }
+        Err(e) => {
+            tracing::warn!("serve_file: gateway error for {cid}: {e}");
+            return (StatusCode::BAD_GATEWAY, "File unavailable").into_response();
+        }
+    };
+    let bytes = match upstream.bytes().await {
+        Ok(b) if b.len() <= MAX_SERVED_BYTES => b,
+        _ => return (StatusCode::BAD_GATEWAY, "File unavailable").into_response(),
+    };
+
+    let (mime, is_pdf) = if bytes.starts_with(b"%PDF") {
+        ("application/pdf", true)
+    } else if let Some((_, mime)) = crate::net::sniff_image(&bytes) {
+        (mime, false)
+    } else {
+        return (StatusCode::UNSUPPORTED_MEDIA_TYPE, "Unsupported file").into_response();
+    };
+
+    let mut builder = Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, mime)
+        .header("X-Content-Type-Options", "nosniff")
+        // A CID's content never changes.
+        .header(header::CACHE_CONTROL, "public, max-age=31536000, immutable");
+    if is_pdf {
+        builder = builder.header(header::CONTENT_DISPOSITION, "inline; filename=\"pitch-deck.pdf\"");
+    } else {
+        builder = builder.header("Content-Security-Policy", "default-src 'none'; img-src 'self'; sandbox");
+    }
+    builder.body(Body::from(bytes)).unwrap_or_else(|_| not_found())
+}
+
+/// Stores a logo image on IPFS and records it on the user.
+async fn store_logo(
+    state: &AppState,
+    user_id: Uuid,
+    bytes: Vec<u8>,
+    ext: &str,
+    mime: &str,
+    source: &str,
+) -> Result<String, (StatusCode, String)> {
+    let jwt = state
+        .pinata_jwt
+        .as_deref()
+        .filter(|v| !v.trim().is_empty())
+        .ok_or((StatusCode::SERVICE_UNAVAILABLE, "File storage isn't configured.".to_string()))?
+        .to_string();
+    let filename = format!("{}.{}", Uuid::new_v4(), ext);
+    let cid = pin_to_ipfs(state, &jwt, bytes, &filename, &format!("logo-{user_id}.{ext}"), mime, None).await?;
+    let url = format!("{}/media/{cid}", crate::email::frontend_url());
+    sqlx::query("UPDATE users SET logo_url = $1, logo_source = $2 WHERE id = $3")
+        .bind(&url)
+        .bind(source)
+        .bind(user_id)
+        .execute(&state.db)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "db error".to_string()))?;
+    Ok(url)
+}
+
+/// The website a user's logo should come from: their own website field, else
+/// their email's company domain.
+async fn logo_site_for(state: &AppState, user_id: Uuid) -> Option<String> {
+    let row: Option<(String, Option<String>)> = sqlx::query_as(
+        r#"SELECT u.email,
+                  COALESCE(NULLIF(TRIM(p.website), ''), NULLIF(TRIM(ip.website), ''), NULLIF(TRIM(cp.website), ''))
+           FROM users u
+           LEFT JOIN profiles p ON p.user_id = u.id
+           LEFT JOIN investor_profiles ip ON ip.user_id = u.id
+           LEFT JOIN connector_profiles cp ON cp.user_id = u.id
+           WHERE u.id = $1"#,
+    )
+    .bind(user_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+    let (email, website) = row?;
+    crate::logo::logo_source_site(website.as_deref(), &email)
+}
+
+/// Looks for the user's logo on their website and stores it — unless they
+/// uploaded one themselves. Called in the background after a profile save or a
+/// deck upload; safe to call repeatedly.
+pub async fn refresh_logo_from_website(state: Arc<AppState>, user_id: Uuid) {
+    let source: Option<Option<String>> = sqlx::query_scalar("SELECT logo_source FROM users WHERE id = $1")
+        .bind(user_id)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten();
+    if source.flatten().as_deref() == Some("upload") {
+        return;
+    }
+    let Some(site) = logo_site_for(&state, user_id).await else { return };
+    match crate::logo::find_logo(&site).await {
+        Ok((bytes, ext, mime)) => {
+            if let Err((_, e)) = store_logo(&state, user_id, bytes, ext, mime, "website").await {
+                tracing::warn!("refresh_logo_from_website: store failed for {user_id}: {e}");
+            }
+        }
+        Err(e) => tracing::info!("refresh_logo_from_website: none for {user_id} on {site}: {e}"),
+    }
+}
+
+/// POST /uploads/logo — the user's own logo (PNG, JPG, WebP or GIF, up to 2 MB).
+async fn upload_logo(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+    mut multipart: Multipart,
+) -> Result<Json<JsonValue>, (StatusCode, String)> {
+    let user = require_user(&state, bearer.token()).await?;
+    let mut bytes: Option<Vec<u8>> = None;
+    while let Some(field) = multipart.next_field().await.map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))? {
+        if field.name() == Some("file") {
+            let data = field.bytes().await.map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+            if data.len() > MAX_LOGO_BYTES {
+                return Err((StatusCode::PAYLOAD_TOO_LARGE, "Logos can be up to 2 MB.".into()));
+            }
+            bytes = Some(data.to_vec());
+            break;
+        }
+    }
+    let bytes = bytes.ok_or((StatusCode::BAD_REQUEST, "Choose an image to upload.".to_string()))?;
+    let (ext, mime) = crate::net::sniff_image(&bytes)
+        .filter(|(ext, _)| *ext != "ico")
+        .ok_or((StatusCode::UNSUPPORTED_MEDIA_TYPE, "Upload a PNG, JPG or WebP image.".to_string()))?;
+    let url = store_logo(&state, user.id, bytes, ext, mime, "upload").await?;
+    Ok(Json(json!({ "logo_url": url, "logo_source": "upload" })))
+}
+
+/// POST /uploads/logo/from-website — look for the logo on the user's website
+/// (or email domain) now. Replaces a previous website logo, and also an
+/// uploaded one, since the user asked for it explicitly.
+async fn logo_from_website(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+) -> Result<Json<JsonValue>, (StatusCode, String)> {
+    let user = require_user(&state, bearer.token()).await?;
+    let site = logo_site_for(&state, user.id).await.ok_or((
+        StatusCode::NOT_FOUND,
+        "Add your website first, then we can look for your logo there.".to_string(),
+    ))?;
+    let host = crate::logo::display_host(&site);
+    let (bytes, ext, mime) = crate::logo::find_logo(&site)
+        .await
+        .map_err(|_| (StatusCode::NOT_FOUND, format!("We couldn't find a logo on {host}. Upload yours instead.")))?;
+    let url = store_logo(&state, user.id, bytes, ext, mime, "website").await?;
+    Ok(Json(json!({ "logo_url": url, "logo_source": "website", "site": host })))
 }
 
 #[derive(Deserialize)]

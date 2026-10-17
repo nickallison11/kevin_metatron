@@ -30,6 +30,88 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/kevin/knowledge", get(list_kevin_knowledge).post(create_kevin_knowledge))
         .route("/kevin/knowledge/upload", post(upload_kevin_knowledge_file))
         .route("/kevin/knowledge/:id", delete(delete_kevin_knowledge))
+        .route("/ratings/flagged", get(list_flagged_ratings))
+        .route("/ratings/:id/moderate", put(moderate_rating))
+}
+
+#[derive(Serialize, sqlx::FromRow)]
+pub struct AdminFlaggedRating {
+    pub id: Uuid,
+    pub startup_user_id: Uuid,
+    pub tier: String,
+    pub overall_stars: i16,
+    pub comment: Option<String>,
+    pub flag_reason: Option<String>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+async fn list_flagged_ratings(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+) -> Result<Json<Vec<AdminFlaggedRating>>, (StatusCode, String)> {
+    let _ = require_admin(&state, bearer.token()).await?;
+
+    let rows = sqlx::query_as::<_, AdminFlaggedRating>(
+        r#"
+        SELECT id, startup_user_id, tier, overall_stars, comment, flag_reason, created_at
+        FROM startup_ratings
+        WHERE is_flagged = TRUE
+        ORDER BY created_at DESC
+        "#,
+    )
+    .fetch_all(&state.db)
+    .await
+    .map_err(|e| {
+        tracing::error!("admin list_flagged_ratings: {e}");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "database error".to_string(),
+        )
+    })?;
+
+    Ok(Json(rows))
+}
+
+#[derive(Deserialize)]
+struct ModerateRatingRequest {
+    action: String, // "clear" | "remove"
+}
+
+async fn moderate_rating(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+    Path(id): Path<Uuid>,
+    Json(body): Json<ModerateRatingRequest>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let admin = require_admin(&state, bearer.token()).await?;
+
+    match body.action.as_str() {
+        "clear" => {
+            sqlx::query(
+                "UPDATE startup_ratings SET is_flagged = FALSE, moderated_at = now(), moderated_by = $1 WHERE id = $2",
+            )
+            .bind(admin.id)
+            .bind(id)
+            .execute(&state.db)
+            .await
+        }
+        "remove" => {
+            sqlx::query("DELETE FROM startup_ratings WHERE id = $1")
+                .bind(id)
+                .execute(&state.db)
+                .await
+        }
+        _ => return Err((StatusCode::BAD_REQUEST, "action must be 'clear' or 'remove'".to_string())),
+    }
+    .map_err(|e| {
+        tracing::error!("admin moderate_rating: {e}");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "database error".to_string(),
+        )
+    })?;
+
+    Ok(StatusCode::OK)
 }
 
 #[derive(Serialize, sqlx::FromRow)]

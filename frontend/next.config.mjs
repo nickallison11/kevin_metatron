@@ -16,8 +16,16 @@ const LEGACY_BACKEND_PATHS = [
 
 const nextConfig = {
   reactStrictMode: true,
+  // Pitch decks and logos are shown on the metatron domain
+  // ({site}/deck/<cid>, {site}/media/<cid>). Both go to the backend's
+  // GET /uploads/file/:cid, which serves only files metatron stored, and only
+  // PDFs and raster images — never arbitrary IPFS content on the app's origin.
   async rewrites() {
-    return LEGACY_BACKEND_PATHS.map((source) => ({ source, destination: `${API_BASE}${source}` }));
+    return [
+      { source: "/deck/:cid", destination: `${API_BASE}/uploads/file/:cid` },
+      { source: "/media/:cid", destination: `${API_BASE}/uploads/file/:cid` },
+      ...LEGACY_BACKEND_PATHS.map((source) => ({ source, destination: `${API_BASE}${source}` })),
+    ];
   },
 };
 

@@ -249,7 +249,7 @@ export function StartupKevinChatCard({
             onClick={() => setShowHistory((o) => !o)}
             aria-label="Chat history"
             title="History"
-            className="rounded-lg p-2 text-[var(--text-muted)] transition-colors hover:bg-[rgba(108,92,231,0.15)] hover:text-metatron-accent"
+            className="rounded-lg p-2 text-[var(--text-muted)] transition-colors hover:bg-[rgba(var(--accent-rgb),0.15)] hover:text-metatron-accent"
           >
             <svg
               width="18"
@@ -272,7 +272,7 @@ export function StartupKevinChatCard({
           <button
             type="button"
             onClick={newChat}
-            className="mb-1 w-full rounded-lg px-3 py-2 text-left text-sm font-medium text-metatron-accent transition-colors hover:bg-[rgba(108,92,231,0.12)]"
+            className="mb-1 w-full rounded-lg px-3 py-2 text-left text-sm font-medium text-metatron-accent transition-colors hover:bg-[rgba(var(--accent-rgb),0.12)]"
           >
             New chat
           </button>
@@ -284,7 +284,7 @@ export function StartupKevinChatCard({
               key={s.session_id}
               type="button"
               onClick={() => void loadSession(s.session_id)}
-              className="flex w-full flex-col gap-0.5 rounded-lg px-3 py-2 text-left transition-colors hover:bg-[rgba(108,92,231,0.12)]"
+              className="flex w-full flex-col gap-0.5 rounded-lg px-3 py-2 text-left transition-colors hover:bg-[rgba(var(--accent-rgb),0.12)]"
             >
               <span className="line-clamp-2 text-sm text-[var(--text)]">
                 {s.title.trim() || "Chat"}

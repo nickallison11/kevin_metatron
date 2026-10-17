@@ -33,7 +33,7 @@ export const AuroraBackground = ({
           className="animate-aurora absolute -inset-[12px] opacity-[0.28] blur-[14px] will-change-transform [background-size:300%_200%] [background-position:50%_50%]"
           style={{
             backgroundImage:
-              "repeating-linear-gradient(100deg,#6c5ce7_10%,#9d8df5_14%,#7b6ae8_18%,#b39ffb_22%,#6c5ce7_28%)",
+              "repeating-linear-gradient(100deg,var(--accent)_10%,#9d8df5_14%,#7b6ae8_18%,#b39ffb_22%,var(--accent)_28%)",
           }}
         />
       </div>

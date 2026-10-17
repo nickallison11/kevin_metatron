@@ -155,3 +155,63 @@ pub async fn require_role(
     }
     Ok(u)
 }
+
+/// Like `require_user`, but for routes usable both logged-in and logged-out
+/// (e.g. rating submission) -- returns `Ok(None)` instead of erroring when
+/// no token is present or the token is invalid/expired.
+pub async fn require_user_optional(
+    state: &AppState,
+    token: Option<&str>,
+) -> Result<Option<AuthedUser>, (StatusCode, String)> {
+    match token {
+        Some(t) => match require_user(state, t).await {
+            Ok(u) => Ok(Some(u)),
+            Err((StatusCode::UNAUTHORIZED, _)) => Ok(None),
+            Err(e) => Err(e),
+        },
+        None => Ok(None),
+    }
+}
+
+pub struct ReviewerAuthed {
+    pub id: Uuid,
+    pub email: String,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// Auth for the lightweight `reviewer_accounts` tier (magic-link JWTs with
+/// `role: "REVIEWER"`) -- entirely separate from `require_user`, which only
+/// ever looks up `users`.
+pub async fn require_reviewer(
+    state: &AppState,
+    token: &str,
+) -> Result<ReviewerAuthed, (StatusCode, String)> {
+    let claims = decode::<Claims>(
+        token,
+        &state.jwt_decoding,
+        &Validation::new(Algorithm::HS256),
+    )
+    .map_err(|_| (StatusCode::UNAUTHORIZED, "invalid token".to_string()))?
+    .claims;
+
+    if claims.role != "REVIEWER" {
+        return Err((StatusCode::UNAUTHORIZED, "invalid token".to_string()));
+    }
+
+    let rid = Uuid::parse_str(&claims.sub)
+        .map_err(|_| (StatusCode::UNAUTHORIZED, "invalid token".to_string()))?;
+
+    let (email, created_at): (String, chrono::DateTime<chrono::Utc>) = sqlx::query_as(
+        "SELECT email, created_at FROM reviewer_accounts WHERE id = $1",
+    )
+    .bind(rid)
+    .fetch_one(&state.db)
+    .await
+    .map_err(|_| (StatusCode::UNAUTHORIZED, "reviewer not found".to_string()))?;
+
+    Ok(ReviewerAuthed {
+        id: rid,
+        email,
+        created_at,
+    })
+}

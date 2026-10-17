@@ -98,6 +98,15 @@ export function FounderCard({
             href={founder.pitch_deck_url}
             target="_blank"
             rel="noreferrer"
+            onClick={() => {
+              fetch(`${API_BASE}/deck-views/${founder.user_id}`, {
+                method: "POST",
+                headers: authJsonHeaders(token),
+                keepalive: true,
+              }).catch(() => {
+                /* view tracking is best-effort, never block the link */
+              });
+            }}
             className="rounded-lg border border-metatron-accent/30 bg-metatron-accent/15 px-3 py-1.5 text-xs font-semibold text-metatron-accent hover:bg-metatron-accent/25"
           >
             Pitch deck

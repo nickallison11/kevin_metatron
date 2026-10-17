@@ -72,7 +72,7 @@ function ChatPanel({
       <div className="flex items-center justify-between border-b border-[var(--border)] px-3 py-2.5">
         <div className="flex items-center gap-2 min-w-0">
           {pane.type === "kevin" ? (
-            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[rgba(108,92,231,0.2)] text-[11px] font-bold text-[#6c5ce7]">
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[rgba(var(--accent-rgb),0.2)] text-[11px] font-bold text-[var(--accent)]">
               K
             </span>
           ) : (
@@ -175,7 +175,7 @@ function ChatPanel({
                 <div
                   className={`max-w-[85%] rounded-xl px-3 py-2 text-sm leading-snug whitespace-pre-wrap ${
                     m.is_mine
-                      ? "bg-[#6c5ce7] text-white"
+                      ? "bg-[var(--accent)] text-white"
                       : "bg-[rgba(255,255,255,0.06)] text-[var(--text)]"
                   }`}
                 >
@@ -219,7 +219,7 @@ function ChatPanel({
               type="button"
               onClick={onSend}
               disabled={pane.sending || !pane.input.trim()}
-              className="shrink-0 rounded-lg bg-[#6c5ce7] px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40 hover:bg-[#7d6ff0]"
+              className="shrink-0 rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40 hover:bg-[var(--accent-hover)]"
             >
               Send
             </button>
@@ -618,7 +618,7 @@ export default function MessagingWidget({ token }: { token: string | null }) {
             </svg>
             <span className="text-sm font-semibold text-[var(--text)]">Messaging</span>
             {totalUnread > 0 && (
-              <span className="rounded-full bg-[#6c5ce7] px-1.5 py-0.5 text-[10px] font-bold text-white">
+              <span className="rounded-full bg-[var(--accent)] px-1.5 py-0.5 text-[10px] font-bold text-white">
                 {totalUnread}
               </span>
             )}
@@ -651,17 +651,17 @@ export default function MessagingWidget({ token }: { token: string | null }) {
           <button
             type="button"
             onClick={() => void openKevinChat()}
-            className="flex w-full items-center gap-3 border-b border-[var(--border)] px-4 py-3 text-left transition-colors hover:bg-[rgba(108,92,231,0.06)]"
+            className="flex w-full items-center gap-3 border-b border-[var(--border)] px-4 py-3 text-left transition-colors hover:bg-[rgba(var(--accent-rgb),0.06)]"
           >
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[rgba(108,92,231,0.2)] text-sm font-bold text-[#6c5ce7]">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[rgba(var(--accent-rgb),0.2)] text-sm font-bold text-[var(--accent)]">
               K
             </span>
             <div className="min-w-0 flex-1">
               <div className="flex items-center justify-between gap-2">
-                <p className="text-sm font-semibold text-[#6c5ce7]">Kevin AI</p>
+                <p className="text-sm font-semibold text-[var(--accent)]">Kevin AI</p>
                 <div className="flex items-center gap-1 shrink-0">
                   {(kevinConv?.unread_count ?? 0) > 0 && (
-                    <span className="rounded-full bg-[#6c5ce7] px-1.5 py-0.5 text-[10px] font-bold text-white">
+                    <span className="rounded-full bg-[var(--accent)] px-1.5 py-0.5 text-[10px] font-bold text-white">
                       {kevinConv!.unread_count}
                     </span>
                   )}
@@ -686,7 +686,7 @@ export default function MessagingWidget({ token }: { token: string | null }) {
                         ];
                       });
                     }}
-                    className="rounded p-1 text-[var(--text-muted)] hover:text-[#6c5ce7] hover:bg-[rgba(108,92,231,0.12)] transition-colors"
+                    className="rounded p-1 text-[var(--text-muted)] hover:text-[var(--accent)] hover:bg-[rgba(var(--accent-rgb),0.12)] transition-colors"
                   >
                     <svg
                       width="13"
@@ -733,7 +733,7 @@ export default function MessagingWidget({ token }: { token: string | null }) {
                     {conv.other_name ?? "User"}
                   </p>
                   {conv.unread_count > 0 && (
-                    <span className="shrink-0 rounded-full bg-[#6c5ce7] px-1.5 py-0.5 text-[10px] font-bold text-white">
+                    <span className="shrink-0 rounded-full bg-[var(--accent)] px-1.5 py-0.5 text-[10px] font-bold text-white">
                       {conv.unread_count}
                     </span>
                   )}

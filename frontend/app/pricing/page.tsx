@@ -424,7 +424,7 @@ function PricingPageInner() {
 
           {/* Founder Basic */}
           <section
-            className={`${cardBase} border-metatron-accent/40 shadow-[0_0_40px_rgba(108,92,231,0.12)]`}
+            className={`${cardBase} border-metatron-accent/40 shadow-[0_0_40px_rgba(var(--accent-rgb),0.12)]`}
           >
             <div className="flex items-start justify-between gap-2">
               <p className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
@@ -564,7 +564,7 @@ function PricingPageInner() {
             </section>
 
             <section
-              className={`${cardBase} border-metatron-accent/40 shadow-[0_0_40px_rgba(108,92,231,0.12)]`}
+              className={`${cardBase} border-metatron-accent/40 shadow-[0_0_40px_rgba(var(--accent-rgb),0.12)]`}
             >
               <p className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
                 Connector Basic
@@ -701,7 +701,7 @@ function PricingPageInner() {
             </section>
 
             <section
-              className={`${cardBase} border-metatron-accent/40 shadow-[0_0_40px_rgba(108,92,231,0.12)]`}
+              className={`${cardBase} border-metatron-accent/40 shadow-[0_0_40px_rgba(var(--accent-rgb),0.12)]`}
             >
               <p className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
                 Investor Basic

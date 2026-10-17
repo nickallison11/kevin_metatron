@@ -10,9 +10,10 @@ const config: Config = {
           card: "#16161f",
           text: "#e8e8ed",
           muted: "#8888a0",
-          accent: "#6c5ce7",
-          "accent-hover": "#5b4bd4",
-          "accent-glow": "rgba(108, 92, 231, 0.2)",
+          // Theme-aware (purple in dark, green in light) — see globals.css.
+          accent: "rgb(var(--accent-ch) / <alpha-value>)",
+          "accent-hover": "rgb(var(--accent-hover-ch) / <alpha-value>)",
+          "accent-glow": "rgba(var(--accent-rgb), 0.2)",
           border: "rgba(255, 255, 255, 0.06)"
         }
       },
@@ -34,7 +35,7 @@ const config: Config = {
         "metatron-grid":
           "linear-gradient(rgba(255,255,255,0.06) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.06) 1px, transparent 1px)",
         "metatron-orb":
-          "radial-gradient(circle, rgba(108, 92, 231, 0.2) 0%, transparent 65%)"
+          "radial-gradient(circle, rgba(var(--accent-rgb), 0.2) 0%, transparent 65%)"
       },
       backgroundSize: {
         grid: "52px 52px"

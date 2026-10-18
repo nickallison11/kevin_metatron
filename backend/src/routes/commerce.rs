@@ -712,11 +712,28 @@ fn usd_pro_amounts_for_billing(billing: &str) -> (&'static str, Decimal) {
     }
 }
 
+fn eur_amounts_for_billing(billing: &str) -> (&'static str, Decimal) {
+    match billing {
+        "annual" => ("€99.99 EUR", Decimal::from_str("99.99").unwrap()),
+        _ => ("€9.99 EUR", Decimal::from_str("9.99").unwrap()),
+    }
+}
+
+fn eur_pro_amounts_for_billing(billing: &str) -> (&'static str, Decimal) {
+    match billing {
+        "annual" => ("€199.99 EUR", Decimal::from_str("199.99").unwrap()),
+        _ => ("€19.99 EUR", Decimal::from_str("19.99").unwrap()),
+    }
+}
+
 fn amounts_for_billing_and_level(billing: &str, plan_level: &str, currency: &str) -> (&'static str, Decimal) {
-    if plan_level == "pro" {
-        if currency == "ZAR" { zar_pro_amounts_for_billing(billing) } else { usd_pro_amounts_for_billing(billing) }
-    } else {
-        if currency == "ZAR" { zar_amounts_for_billing(billing) } else { usd_amounts_for_billing(billing) }
+    match (plan_level == "pro", currency) {
+        (true, "ZAR") => zar_pro_amounts_for_billing(billing),
+        (true, "EUR") => eur_pro_amounts_for_billing(billing),
+        (true, _) => usd_pro_amounts_for_billing(billing),
+        (false, "ZAR") => zar_amounts_for_billing(billing),
+        (false, "EUR") => eur_amounts_for_billing(billing),
+        (false, _) => usd_amounts_for_billing(billing),
     }
 }
 
@@ -1826,6 +1843,8 @@ struct NowpaymentsSubscribeBody {
     billing: String,
     role: String,
     plan: Option<String>,
+    /// "USD" (default) or "EUR" -- the currency the invoice is priced in.
+    currency: Option<String>,
 }
 
 async fn nowpayments_subscribe(
@@ -1895,6 +1914,19 @@ async fn nowpayments_subscribe(
         "basic".to_string()
     };
 
+    let currency = body
+        .currency
+        .as_deref()
+        .unwrap_or("USD")
+        .to_ascii_uppercase();
+    if currency != "USD" && currency != "EUR" {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "currency must be USD or EUR" })),
+        ));
+    }
+
+    // USD and EUR plans use the same numbers.
     let amount = match (plan_level.as_str(), billing.as_str()) {
         ("pro", "annual") => 199.99,
         ("pro", _) => 19.99,
@@ -1903,12 +1935,13 @@ async fn nowpayments_subscribe(
     };
 
     let pending_id: Uuid = sqlx::query_scalar(
-        r#"INSERT INTO nowpayments_pending (user_id, role, billing, plan_level) VALUES ($1, $2, $3, $4) RETURNING id"#,
+        r#"INSERT INTO nowpayments_pending (user_id, role, billing, plan_level, currency) VALUES ($1, $2, $3, $4, $5) RETURNING id"#,
     )
     .bind(authed.id)
     .bind(&role_norm)
     .bind(&billing)
     .bind(&plan_level)
+    .bind(&currency)
     .fetch_one(&state.db)
     .await
     .map_err(|_| {
@@ -1932,7 +1965,7 @@ async fn nowpayments_subscribe(
 
     let payload = json!({
         "price_amount": amount,
-        "price_currency": "usd",
+        "price_currency": currency.to_ascii_lowercase(),
         "order_id": pending_id.to_string(),
         "order_description": order_description,
         "ipn_callback_url": ipn_callback_url,
@@ -2064,15 +2097,15 @@ async fn nowpayments_webhook(
         return Ok(StatusCode::OK);
     }
 
-    let claimed: Option<(Uuid, String, String, String)> = sqlx::query_as(
-        r#"UPDATE nowpayments_pending SET fulfilled = TRUE WHERE id = $1 AND fulfilled = FALSE RETURNING user_id, role, billing, plan_level"#,
+    let claimed: Option<(Uuid, String, String, String, String)> = sqlx::query_as(
+        r#"UPDATE nowpayments_pending SET fulfilled = TRUE WHERE id = $1 AND fulfilled = FALSE RETURNING user_id, role, billing, plan_level, currency"#,
     )
     .bind(order_uuid)
     .fetch_optional(&state.db)
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let Some((user_id, role, billing, plan_level)) = claimed else {
+    let Some((user_id, role, billing, plan_level, currency)) = claimed else {
         return Ok(StatusCode::OK);
     };
 
@@ -2088,7 +2121,7 @@ async fn nowpayments_webhook(
 
     let billing_lc = billing.to_ascii_lowercase();
     let plan_level_lc = plan_level.to_ascii_lowercase();
-    let (amount_display, invoice_amount) = amounts_for_billing_and_level(&billing_lc, &plan_level_lc, "USD");
+    let (amount_display, invoice_amount) = amounts_for_billing_and_level(&billing_lc, &plan_level_lc, currency.as_str());
     let reference_owned = order_uuid.to_string();
 
     let finalize_res: Result<(), (StatusCode, Json<Value>)> = match role.as_str() {
@@ -2103,7 +2136,7 @@ async fn nowpayments_webhook(
                 amount_display,
                 "nowpayments",
                 Some(reference_owned.as_str()),
-                "USD",
+                currency.as_str(),
                 invoice_amount,
                 false,
             )
@@ -2118,7 +2151,7 @@ async fn nowpayments_webhook(
                 &plan_level_lc,
                 "nowpayments",
                 Some(reference_owned.as_str()),
-                "USD",
+                currency.as_str(),
                 invoice_amount,
                 false,
             )
@@ -2131,7 +2164,7 @@ async fn nowpayments_webhook(
                 billing_lc.as_str(),
                 "nowpayments",
                 Some(reference_owned.as_str()),
-                "USD",
+                currency.as_str(),
                 invoice_amount,
                 false,
             )

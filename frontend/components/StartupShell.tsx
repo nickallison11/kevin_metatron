@@ -33,7 +33,7 @@ export default function StartupShell({ children }: { children: ReactNode }) {
   // Call Intelligence needs a paid plan (Basic or Pro).
   const calls: ChromeNavItem = isPro
     ? { key: "/startup/calls", href: "/startup/calls", label: "Call Intelligence", icon: IconHeadset, kind: "link" }
-    : { key: "calls-locked", label: "Call Intelligence", icon: IconHeadset, kind: "locked", onClick: () => router.push("/pricing") };
+    : { key: "calls-locked", label: "Call Intelligence", icon: IconHeadset, kind: "locked", onClick: () => router.push("/startup/settings/subscription") };
 
   const groups: ChromeNavGroup[] = [
     {

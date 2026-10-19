@@ -36,7 +36,7 @@ export default function StartupCallsPage() {
   const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
-    if (!loading && token && !isPro) router.replace("/pricing");
+    if (!loading && token && !isPro) router.replace("/startup/settings/subscription");
   }, [loading, token, isPro, router]);
 
   const load = useCallback(async () => {

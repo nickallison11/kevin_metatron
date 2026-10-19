@@ -1,5 +1,5 @@
 import { InvestorDirectory } from "@/components/browse/InvestorDirectory";
 
 export default function ConnectorBrowseInvestorsPage() {
-  return <InvestorDirectory detailBase="/connector/investors" />;
+  return <InvestorDirectory detailBase="/connector/investors" upgradeHref="/connector/settings/subscription" />;
 }

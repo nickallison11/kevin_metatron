@@ -463,7 +463,7 @@ export default function StartupProfilePage() {
             )}
           </div>
           {freeDeckUsed ? (
-            <Link href="/pricing" className={btn}>
+            <Link href="/startup/settings/subscription" className={btn}>
               Upgrade to replace your deck
             </Link>
           ) : (

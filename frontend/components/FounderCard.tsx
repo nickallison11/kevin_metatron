@@ -144,14 +144,14 @@ export function FounderCard({
   );
 }
 
-export function ProBlurOverlay({ label }: { label: string }) {
+export function ProBlurOverlay({ label, href = "/pricing" }: { label: string; href?: string }) {
   return (
     <div className="pointer-events-none absolute inset-0 z-[1] flex flex-col items-center justify-center gap-2 rounded-[var(--radius)] bg-[var(--bg)]/80 px-4 backdrop-blur-sm">
       <p className="text-center text-xs font-medium text-[var(--text)]">
         {label}
       </p>
       <Link
-        href="/pricing"
+        href={href}
         className="pointer-events-auto rounded-lg bg-metatron-accent px-4 py-2 text-xs font-semibold text-white hover:bg-metatron-accent-hover"
       >
         Upgrade Plan

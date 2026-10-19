@@ -124,13 +124,13 @@ html.light .orb {
   justify-content: space-between;
   padding: 20px 32px;
   background: rgba(10, 10, 15, 0.85);
+  border-bottom: 1px solid var(--border);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
 }
 
 html.light .nav-metatron {
   background: rgba(255, 255, 255, 0.92);
-  border-bottom: 1px solid var(--border);
 }
 
 /* Scrollbar (reference) */

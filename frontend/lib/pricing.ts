@@ -25,12 +25,12 @@ const EUR_COUNTRIES = new Set([
 
 const PRICES: Record<PlanLevel, Record<Billing, Record<Currency, number>>> = {
   basic: {
-    monthly: { ZAR: 169.99, USD: 9.99, EUR: 9.99 },
-    annual: { ZAR: 1699.99, USD: 99.99, EUR: 99.99 },
+    monthly: { ZAR: 169.99, USD: 9.99, EUR: 8.99 },
+    annual: { ZAR: 1699.99, USD: 99.99, EUR: 89.99 },
   },
   pro: {
-    monthly: { ZAR: 339.99, USD: 19.99, EUR: 19.99 },
-    annual: { ZAR: 3399.99, USD: 199.99, EUR: 199.99 },
+    monthly: { ZAR: 339.99, USD: 19.99, EUR: 17.99 },
+    annual: { ZAR: 3399.99, USD: 199.99, EUR: 179.99 },
   },
 };
 

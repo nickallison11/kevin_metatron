@@ -714,15 +714,15 @@ fn usd_pro_amounts_for_billing(billing: &str) -> (&'static str, Decimal) {
 
 fn eur_amounts_for_billing(billing: &str) -> (&'static str, Decimal) {
     match billing {
-        "annual" => ("€99.99 EUR", Decimal::from_str("99.99").unwrap()),
-        _ => ("€9.99 EUR", Decimal::from_str("9.99").unwrap()),
+        "annual" => ("€89.99 EUR", Decimal::from_str("89.99").unwrap()),
+        _ => ("€8.99 EUR", Decimal::from_str("8.99").unwrap()),
     }
 }
 
 fn eur_pro_amounts_for_billing(billing: &str) -> (&'static str, Decimal) {
     match billing {
-        "annual" => ("€199.99 EUR", Decimal::from_str("199.99").unwrap()),
-        _ => ("€19.99 EUR", Decimal::from_str("19.99").unwrap()),
+        "annual" => ("€179.99 EUR", Decimal::from_str("179.99").unwrap()),
+        _ => ("€17.99 EUR", Decimal::from_str("17.99").unwrap()),
     }
 }
 
@@ -1926,12 +1926,13 @@ async fn nowpayments_subscribe(
         ));
     }
 
-    // USD and EUR plans use the same numbers.
+    // Must match usd_/eur_*_amounts_for_billing above.
+    let eur = currency == "EUR";
     let amount = match (plan_level.as_str(), billing.as_str()) {
-        ("pro", "annual") => 199.99,
-        ("pro", _) => 19.99,
-        (_, "annual") => 99.99,
-        _ => 9.99,
+        ("pro", "annual") => if eur { 179.99 } else { 199.99 },
+        ("pro", _) => if eur { 17.99 } else { 19.99 },
+        (_, "annual") => if eur { 89.99 } else { 99.99 },
+        _ => if eur { 8.99 } else { 9.99 },
     };
 
     let pending_id: Uuid = sqlx::query_scalar(

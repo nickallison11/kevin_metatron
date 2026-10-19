@@ -298,6 +298,7 @@ function PricingPageInner() {
     async (
       role: "founder" | "investor" | "connector",
       bill: Billing,
+      plan: "basic" | "pro" = "basic",
     ) => {
       const authToken = getAccessToken();
       if (!authToken) {
@@ -313,6 +314,7 @@ function PricingPageInner() {
           body: JSON.stringify({
             billing: bill,
             role,
+            plan,
             currency: currency === "EUR" ? "EUR" : "USD",
           }),
         });
@@ -337,8 +339,7 @@ function PricingPageInner() {
   );
 
   const handleZarSubscribe = useCallback(
-    async (overrideTier?: Billing) => {
-      const tier = overrideTier ?? billing;
+    async (zarTier: "founder_basic" | "founder_pro" = "founder_basic") => {
       const authToken = getAccessToken();
       if (!authToken) {
         router.push("/login");
@@ -351,8 +352,8 @@ function PricingPageInner() {
           method: "POST",
           headers: authJsonHeaders(authToken),
           body: JSON.stringify({
-            tier: "founder_basic",
-            billing: tier,
+            tier: zarTier,
+            billing,
             currency: "ZAR",
           }),
         });
@@ -409,7 +410,8 @@ function PricingPageInner() {
     "flex flex-col rounded-[12px] border bg-[var(--bg-card)] p-6 text-left";
 
   const basicDisplay = planPrice("basic", billing, currency);
-  const proComingSoonDisplay = planPrice("pro", billing, currency);
+  const proDisplay = planPrice("pro", billing, currency);
+  const proOptions = paymentOptions("pro", billing, currency);
   const basicOptions = paymentOptions("basic", billing, currency);
   const freePrice = formatAmount(0, currency);
 
@@ -519,29 +521,30 @@ function PricingPageInner() {
             </ul>
           </section>
 
-          {/* Founder Pro — coming soon */}
-          <section
-            className={`${cardBase} border-[var(--border)] opacity-50 cursor-not-allowed`}
-          >
-            <div className="flex items-start justify-between gap-2">
-              <p className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
-                Founder Pro
-              </p>
-              <span className="rounded-full bg-[var(--border)] px-2.5 py-1 text-[10px] font-semibold text-[var(--text-muted)]">
-                Coming Soon
-              </span>
-            </div>
+          {/* Founder Pro */}
+          <section className={`${cardBase} border-[var(--border)]`}>
+            <p className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
+              Founder Pro
+            </p>
             <p className="mt-1 text-sm text-[var(--text-muted)]">
               {billing === "monthly"
                 ? "Billed monthly"
                 : "Billed annually · save vs monthly"}
             </p>
             <p className="mt-4 text-4xl font-bold tracking-tight text-[var(--text)]">
-              {proComingSoonDisplay.price}{" "}
+              {proDisplay.price}{" "}
               <span className="text-lg font-semibold text-[var(--text-muted)]">
-                {proComingSoonDisplay.unit}
+                {proDisplay.unit}
               </span>
             </p>
+            <PayButtons
+              options={proOptions}
+              loading={loading}
+              onPaystack={() => void handleZarSubscribe("founder_pro")}
+              onNowpayments={() =>
+                void handleNowpaymentsSubscribe("founder", billing, "pro")
+              }
+            />
             <div className="my-6 border-t border-[var(--border)]" />
             <ul className="flex flex-col gap-3">
               {founderProFeatures.map((f) => (
@@ -634,9 +637,9 @@ function PricingPageInner() {
                   : "Billed annually · save vs monthly"}
               </p>
               <p className="mt-4 text-4xl font-bold tracking-tight text-[var(--text)]">
-                {proComingSoonDisplay.price}{" "}
+                {proDisplay.price}{" "}
                 <span className="text-lg font-semibold text-[var(--text-muted)]">
-                  {proComingSoonDisplay.unit}
+                  {proDisplay.unit}
                 </span>
               </p>
               <div className="my-6 border-t border-[var(--border)]" />
@@ -721,28 +724,29 @@ function PricingPageInner() {
               </ul>
             </section>
 
-            <section
-              className={`${cardBase} border-[var(--border)] opacity-50 cursor-not-allowed`}
-            >
-              <div className="flex items-start justify-between gap-2">
-                <p className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
-                  Investor Pro
-                </p>
-                <span className="rounded-full bg-[var(--border)] px-2.5 py-1 text-[10px] font-semibold text-[var(--text-muted)]">
-                  Coming Soon
-                </span>
-              </div>
+            <section className={`${cardBase} border-[var(--border)]`}>
+              <p className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
+                Investor Pro
+              </p>
               <p className="mt-1 text-sm text-[var(--text-muted)]">
                 {billing === "monthly"
                   ? "Billed monthly"
                   : "Billed annually · save vs monthly"}
               </p>
               <p className="mt-4 text-4xl font-bold tracking-tight text-[var(--text)]">
-                {proComingSoonDisplay.price}{" "}
+                {proDisplay.price}{" "}
                 <span className="text-lg font-semibold text-[var(--text-muted)]">
-                  {proComingSoonDisplay.unit}
+                  {proDisplay.unit}
                 </span>
               </p>
+              <PayButtons
+                options={proOptions}
+                loading={loading}
+                paystackHref="/investor/settings/subscription"
+                onNowpayments={() =>
+                  void handleNowpaymentsSubscribe("investor", billing, "pro")
+                }
+              />
               <div className="my-6 border-t border-[var(--border)]" />
               <ul className="flex flex-col gap-3">
                 {investorProFeatures.map((f) => (

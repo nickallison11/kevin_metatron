@@ -163,7 +163,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
             src={LOGO_URL}
             alt="metatron"
             height={42}
-            width={160}
+            width={37}
             className="h-[42px] w-auto"
           />
         </Link>

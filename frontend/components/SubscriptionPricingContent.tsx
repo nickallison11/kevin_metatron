@@ -93,6 +93,8 @@ function PlanCard({
   submitting,
   onPaystack,
   onNowpayments,
+  featured = false,
+  status = "available",
 }: {
   label: string;
   billingLabel: string;
@@ -103,12 +105,40 @@ function PlanCard({
   submitting: boolean;
   onPaystack: () => void;
   onNowpayments: () => void;
+  /** Highlighted border and "Most popular" badge, as on /pricing. */
+  featured?: boolean;
+  /** "current" and "coming-soon" cards show a badge instead of pay buttons. */
+  status?: "available" | "current" | "coming-soon";
 }) {
+  const badge =
+    status === "current" ? (
+      <span className="rounded-full bg-[var(--good-bg)] px-2.5 py-1 text-[10px] font-semibold text-[var(--good)]">
+        Current plan
+      </span>
+    ) : status === "coming-soon" ? (
+      <span className="rounded-full bg-[var(--border)] px-2.5 py-1 text-[10px] font-semibold text-[var(--text-muted)]">
+        Coming Soon
+      </span>
+    ) : featured ? (
+      <span className="rounded-full bg-metatron-accent/15 px-2.5 py-1 text-[10px] font-semibold text-metatron-accent">
+        Most popular
+      </span>
+    ) : null;
+
   return (
-    <section className="flex flex-col rounded-[12px] border border-metatron-accent/40 bg-[var(--bg-card)] p-6 text-left shadow-[0_0_40px_rgba(var(--accent-rgb),0.12)]">
-      <p className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
-        {label}
-      </p>
+    <section
+      className={`flex flex-col rounded-[12px] border bg-[var(--bg-card)] p-6 text-left ${
+        featured
+          ? "border-metatron-accent/40 shadow-[0_0_40px_rgba(var(--accent-rgb),0.12)]"
+          : "border-[var(--border)]"
+      } ${status === "coming-soon" ? "cursor-not-allowed opacity-50" : ""}`}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <p className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
+          {label}
+        </p>
+        {badge}
+      </div>
       <p className="mt-1 text-sm text-[var(--text-muted)]">{billingLabel}</p>
       <p className="mt-4 text-4xl font-bold tracking-tight text-[var(--text)]">
         {price}{" "}
@@ -117,7 +147,7 @@ function PlanCard({
         </span>
       </p>
       <div className="mt-6 flex flex-col gap-3">
-        {options.map((opt, i) => (
+        {status === "available" && options.map((opt, i) => (
           <div key={opt.method}>
             <button
               type="button"
@@ -170,6 +200,7 @@ export default function SubscriptionPricingContent(
   } = props;
 
   const { currency, currencies, setCurrency } = useRegionalCurrency();
+  const [billing, setBilling] = useState<Billing>("monthly");
   const [submitting, setSubmitting] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -468,10 +499,10 @@ export default function SubscriptionPricingContent(
   // only founder and investor can see the Pro upgrade card.
   const roleHasProTier = role === "STARTUP" || role === "INVESTOR";
 
-  // Show the upgrade section for: free users, or basic subscribers (founder/investor) who can upgrade to Pro
+  // Show the plans for: free users, or basic subscribers (founder/investor) who can upgrade to Pro
   const showUpgradeSection = !isPaid || (roleHasProTier && planLevel === "basic");
-  const showBasicCard = !isPaid; // only for free users, not basic→pro upgraders
-  const showProCard = roleHasProTier && planLevel !== "pro";
+  const billingLabel =
+    billing === "monthly" ? "Billed monthly" : "Billed annually · save vs monthly";
 
   return (
     <div className="mx-auto w-full max-w-5xl space-y-6 p-6 md:p-10">
@@ -613,73 +644,64 @@ export default function SubscriptionPricingContent(
             {planLevel === "basic" ? "Upgrade to Pro" : "Upgrade"}
           </h2>
 
-          <div className="flex flex-wrap justify-center gap-2">
-            {currencies.map((c) => (
-              <button
-                key={c}
-                type="button"
-                onClick={() => setCurrency(c)}
-                className={`rounded-lg border px-4 py-1.5 text-sm font-semibold transition-colors ${
-                  currency === c
-                    ? "border-metatron-accent bg-metatron-accent/10 text-metatron-accent"
-                    : "border-[var(--border)] text-[var(--text-muted)] hover:border-metatron-accent/30"
-                }`}
-              >
-                {CURRENCY_LABELS[c]}
-              </button>
-            ))}
+          <div>
+            <div className="mb-4 flex justify-center gap-2">
+              {currencies.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => setCurrency(c)}
+                  className={`rounded-lg border px-4 py-1.5 text-sm font-semibold transition-colors ${
+                    currency === c
+                      ? "border-metatron-accent bg-metatron-accent/10 text-metatron-accent"
+                      : "border-[var(--border)] text-[var(--text-muted)] hover:border-metatron-accent/30"
+                  }`}
+                >
+                  {CURRENCY_LABELS[c]}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex flex-wrap justify-center gap-2">
+              {(["monthly", "annual"] as const).map((b) => (
+                <button
+                  key={b}
+                  type="button"
+                  onClick={() => setBilling(b)}
+                  className={`rounded-lg border px-4 py-1.5 text-sm font-semibold transition-colors ${
+                    billing === b
+                      ? "border-metatron-accent bg-metatron-accent/10 text-metatron-accent"
+                      : "border-[var(--border)] text-[var(--text-muted)] hover:border-metatron-accent/30"
+                  }`}
+                >
+                  {b === "monthly" ? "Monthly" : "Annual · save 17%"}
+                </button>
+              ))}
+            </div>
           </div>
 
-          <div
-            className={`grid grid-cols-1 gap-6 sm:grid-cols-2 ${
-              showBasicCard && showProCard ? "lg:grid-cols-4" : ""
-            }`}
-          >
-            {showBasicCard && (
-              <>
-                <PlanCard
-                  label={planName}
-                  billingLabel="Billed monthly"
-                  {...offer("basic", "monthly", currency)}
-                  features={planFeatures}
-                  submitting={submitting}
-                  onPaystack={() => void handleZarSubscribe("monthly")}
-                  onNowpayments={() => void handleNowpaymentsSubscribe("monthly")}
-                />
-                <PlanCard
-                  label={planName}
-                  billingLabel="Billed annually · save 17%"
-                  {...offer("basic", "annual", currency)}
-                  features={planFeatures}
-                  submitting={submitting}
-                  onPaystack={() => void handleZarSubscribe("annual")}
-                  onNowpayments={() => void handleNowpaymentsSubscribe("annual")}
-                />
-              </>
-            )}
-
-            {showProCard && (
-              <>
-                <PlanCard
-                  label={`${proName} Monthly`}
-                  billingLabel="Billed monthly"
-                  {...offer("pro", "monthly", currency)}
-                  features={proFeatures}
-                  submitting={submitting}
-                  onPaystack={() => void handleZarProSubscribe("monthly")}
-                  onNowpayments={() => void handleNowpaymentsProSubscribe("monthly")}
-                />
-                <PlanCard
-                  label={`${proName} Annual`}
-                  billingLabel="Billed annually · save 17%"
-                  {...offer("pro", "annual", currency)}
-                  features={proFeatures}
-                  submitting={submitting}
-                  onPaystack={() => void handleZarProSubscribe("annual")}
-                  onNowpayments={() => void handleNowpaymentsProSubscribe("annual")}
-                />
-              </>
-            )}
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+            <PlanCard
+              label={planName}
+              billingLabel={billingLabel}
+              {...offer("basic", billing, currency)}
+              features={planFeatures}
+              submitting={submitting}
+              featured
+              status={planLevel === "basic" ? "current" : "available"}
+              onPaystack={() => void handleZarSubscribe(billing)}
+              onNowpayments={() => void handleNowpaymentsSubscribe(billing)}
+            />
+            <PlanCard
+              label={proName}
+              billingLabel={billingLabel}
+              {...offer("pro", billing, currency)}
+              features={proFeatures}
+              submitting={submitting}
+              status={roleHasProTier ? "available" : "coming-soon"}
+              onPaystack={() => void handleZarProSubscribe(billing)}
+              onNowpayments={() => void handleNowpaymentsProSubscribe(billing)}
+            />
           </div>
 
           <p className="text-center text-sm text-[var(--text-muted)]">

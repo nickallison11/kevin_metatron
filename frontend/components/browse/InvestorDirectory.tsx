@@ -41,7 +41,7 @@ function ticket(inv: InvestorPublic): string | null {
  * founder and connector dashboards (and on the legacy /investors page).
  * Free accounts see the first two investors; the rest are blurred.
  */
-export function InvestorDirectory({ detailBase, upgradeHref }: { detailBase?: string; upgradeHref?: string } = {}) {
+export function InvestorDirectory({ detailBase, upgradeHref }: { detailBase?: string; upgradeHref: string }) {
   const { token, loading, isPro } = useAuth();
   const [rows, setRows] = useState<InvestorPublic[]>([]);
   const [loaded, setLoaded] = useState(false);

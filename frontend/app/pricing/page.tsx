@@ -457,6 +457,10 @@ function PricingPageInner() {
         </div>
 
         {showFounder && (
+        <section>
+          <h2 className="mb-4 text-xl font-semibold text-[var(--text)]">
+            For Founders
+          </h2>
         <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
           {/* Free */}
           <section className={`${cardBase} border-[var(--border)]`}>
@@ -481,13 +485,13 @@ function PricingPageInner() {
             </ul>
           </section>
 
-          {/* Founder Basic */}
+          {/* Kevin AI Basic for Founders */}
           <section
             className={`${cardBase} border-metatron-accent/40 shadow-[0_0_40px_rgba(var(--accent-rgb),0.12)]`}
           >
             <div className="flex items-start justify-between gap-2">
               <p className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
-                Founder Basic
+                Kevin AI Basic for Founders
               </p>
               <span className="rounded-full bg-metatron-accent/15 px-2.5 py-1 text-[10px] font-semibold text-metatron-accent">
                 Most popular
@@ -521,10 +525,10 @@ function PricingPageInner() {
             </ul>
           </section>
 
-          {/* Founder Pro */}
+          {/* Kevin AI Pro for Founders */}
           <section className={`${cardBase} border-[var(--border)]`}>
             <p className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
-              Founder Pro
+              Kevin AI Pro for Founders
             </p>
             <p className="mt-1 text-sm text-[var(--text-muted)]">
               {billing === "monthly"
@@ -553,6 +557,7 @@ function PricingPageInner() {
             </ul>
           </section>
         </div>
+        </section>
         )}
 
         {showConnector && (
@@ -591,7 +596,7 @@ function PricingPageInner() {
               className={`${cardBase} border-metatron-accent/40 shadow-[0_0_40px_rgba(var(--accent-rgb),0.12)]`}
             >
               <p className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
-                Connector Basic
+                Kevin AI Basic for Connectors
               </p>
               <p className="mt-1 text-sm text-[var(--text-muted)]">
                 {billing === "monthly"
@@ -625,7 +630,7 @@ function PricingPageInner() {
             >
               <div className="flex items-start justify-between gap-2">
                 <p className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
-                  Connector Pro
+                  Kevin AI Pro for Connectors
                 </p>
                 <span className="rounded-full bg-[var(--border)] px-2.5 py-1 text-[10px] font-semibold text-[var(--text-muted)]">
                   Coming Soon
@@ -695,7 +700,7 @@ function PricingPageInner() {
               className={`${cardBase} border-metatron-accent/40 shadow-[0_0_40px_rgba(var(--accent-rgb),0.12)]`}
             >
               <p className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
-                Investor Basic
+                Kevin AI Basic for Investors
               </p>
               <p className="mt-1 text-sm text-[var(--text-muted)]">
                 {billing === "monthly"
@@ -726,7 +731,7 @@ function PricingPageInner() {
 
             <section className={`${cardBase} border-[var(--border)]`}>
               <p className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
-                Investor Pro
+                Kevin AI Pro for Investors
               </p>
               <p className="mt-1 text-sm text-[var(--text-muted)]">
                 {billing === "monthly"

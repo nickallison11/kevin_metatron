@@ -20,7 +20,7 @@ export default function ConnectorUpgradeGate({ feature }: { feature: string }) {
           <path d="M7 11V7a5 5 0 0 1 10 0v4" />
         </svg>
       </div>
-      <h2 className="text-lg font-semibold text-[var(--text)]">{feature} requires Connector Basic</h2>
+      <h2 className="text-lg font-semibold text-[var(--text)]">{feature} requires Kevin AI Basic</h2>
       <p className="mt-2 max-w-xs text-sm text-[var(--text-muted)]">
         Upgrade to unlock this feature and grow your network impact.
       </p>
@@ -28,7 +28,7 @@ export default function ConnectorUpgradeGate({ feature }: { feature: string }) {
         href="/connector/settings/subscription"
         className="mt-6 inline-flex rounded-[12px] bg-metatron-accent px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-metatron-accent-hover"
       >
-        Upgrade to Connector Basic →
+        Upgrade to Kevin AI Basic →
       </Link>
     </div>
   );

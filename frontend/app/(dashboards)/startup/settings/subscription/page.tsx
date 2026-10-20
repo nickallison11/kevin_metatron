@@ -78,7 +78,7 @@ export default function StartupSubscriptionPage() {
     : status?.subscription_tier === "pro"
       ? "pro"
       : "basic";
-  const planName = planLevel === "pro" ? "Founder Pro" : "Founder Basic";
+  const planName = planLevel === "pro" ? "Kevin AI Pro for Founders" : "Kevin AI Basic for Founders";
 
   return (
     <SubscriptionPricingContent
@@ -88,7 +88,7 @@ export default function StartupSubscriptionPage() {
       planLevel={planLevel}
       planName={planName}
       planFeatures={basicFeatures}
-      proName="Founder Pro"
+      proName="Kevin AI Pro for Founders"
       proFeatures={proFeatures}
       zarSubscribeEndpoint="/commerce/subscribe"
       zarVerifyEndpoint="/commerce/verify"

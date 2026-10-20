@@ -179,8 +179,21 @@ function LandingPage() {
             "radial-gradient(ellipse 80% 40% at 50% calc(8% + 250px), rgba(var(--accent-rgb),0.22), transparent 60%)",
         }}
       />
+      {/* ── Hero ─────────────────────────────────────────────────────────── */}
+      <section className="mx-auto max-w-3xl px-5 pt-24 text-center">
+        <h1 className="text-[36px] font-bold leading-tight tracking-tight text-[var(--text)] md:text-[52px]">
+          Kevin AI
+        </h1>
+        <p className="mt-4 text-[18px] leading-relaxed text-[var(--text)] md:text-[22px]">
+          Your AI dealmaker for founders and investors.
+        </p>
+        <p className="mt-3 font-mono text-[11px] uppercase tracking-[3px] text-[var(--text-muted)]">
+          Built by metatron
+        </p>
+      </section>
+
       {/* ── Role sections ────────────────────────────────────────────────── */}
-      <section id="roles" className="mx-auto max-w-5xl px-5 pt-24 pb-24">
+      <section id="roles" className="mx-auto max-w-5xl px-5 pt-20 pb-24">
         <p className="mb-2 text-center font-mono text-[10px] uppercase tracking-[4px] text-[var(--text-muted)]">
           Built for every participant
         </p>
@@ -298,7 +311,7 @@ function LandingPage() {
             Ready to connect?
           </h2>
           <p className="mb-8 text-[15px] leading-relaxed text-[var(--text-muted)]">
-            metatron is currently invite-only. Use your invitation link to create an account,
+            Kevin AI is currently invite-only. Use your invitation link to create an account,
             or sign in if you already have one.
           </p>
           <Link
@@ -315,7 +328,7 @@ function LandingPage() {
         <div className="mx-auto flex max-w-5xl items-center justify-center gap-3">
           <img src="/metatron-logo.png" alt="metatron" className="h-[28px] w-auto opacity-70" />
           <p className="text-[12px] text-[var(--text-muted)]">
-            © {new Date().getFullYear()} Metatron DAO (Pty) Ltd
+            © {new Date().getFullYear()} Metatron Labs (Pty) Ltd · Kevin AI is a product of metatron
           </p>
         </div>
       </footer>

@@ -89,7 +89,7 @@ export default function TermsPage() {
 
         <Section title="8. Subscriptions and payments">
           <p>
-            Paid tiers (Founder Basic, Founder Pro) are billed monthly via Paystack. Subscriptions renew automatically.
+            Paid plans (Kevin AI Basic and Kevin AI Pro) are billed monthly or annually. Subscriptions renew automatically.
             You may cancel at any time; cancellation takes effect at the end of the current billing period.
             Refunds are not provided for partial periods.
           </p>

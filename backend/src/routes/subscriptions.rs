@@ -333,7 +333,7 @@ async fn confirm_subscription(
             finalize_pro_subscription(
                 &state,
                 authed.id,
-                "Founder Basic",
+                "Kevin AI Basic for Founders",
                 "basic",
                 &tier,
                 amount_paid_display,
@@ -639,7 +639,7 @@ async fn cancel_subscription(
         state.resend_api_key.as_deref(),
         &state.email_from,
         &user_email,
-        &format!("Your metatron {plan_name} cancellation is confirmed"),
+        &format!("Your {plan_name} cancellation is confirmed"),
         &email::subscription_cancelled_email_html(&period_end_display),
     )
     .await;
@@ -756,7 +756,7 @@ async fn downgrade_subscription(
         state.resend_api_key.as_deref(),
         &state.email_from,
         &user_email,
-        "Your metatron downgrade to Basic is scheduled",
+        "Your Kevin AI downgrade to Basic is scheduled",
         &email::subscription_downgrade_scheduled_email_html(&period_end_display),
     )
     .await;

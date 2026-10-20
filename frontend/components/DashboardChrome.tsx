@@ -207,13 +207,7 @@ export default function DashboardChrome({
 
         {groups.map((g) => (
           <nav key={g.title} aria-label={g.title} className={expanded ? "flex flex-col gap-0.5" : "flex flex-col items-center gap-1"}>
-            {expanded ? (
-              <span className="px-3 pb-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--text-muted)] opacity-80">
-                {g.title}
-              </span>
-            ) : (
-              <span className="mb-1 h-px w-6 bg-[var(--border)]" aria-hidden />
-            )}
+            {!expanded && <span className="mb-1 h-px w-6 bg-[var(--border)]" aria-hidden />}
             {g.items.map((item) => (
               <NavRow key={item.key} item={item} active={isActive(item, pathname)} expanded={expanded} />
             ))}

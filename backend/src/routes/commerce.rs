@@ -466,9 +466,9 @@ pub async fn finalize_connector_subscription(
                 state.resend_api_key.as_deref(),
                 &state.email_from,
                 &user_email,
-                "Your metatron Connector Basic subscription has renewed",
+                "Your Kevin AI Basic for Connectors subscription has renewed",
                 &email::subscription_invoice_email_html(
-                    "Connector Basic",
+                    "Kevin AI Basic for Connectors",
                     "connector_basic",
                     &period_start_display,
                     &period_end_display,
@@ -483,9 +483,9 @@ pub async fn finalize_connector_subscription(
                 state.resend_api_key.as_deref(),
                 &state.email_from,
                 &user_email,
-                "Your metatron Connector Basic subscription is active",
+                "Your Kevin AI Basic for Connectors subscription is active",
                 &email::subscription_activated_email_html(
-                    "Connector Basic",
+                    "Kevin AI Basic for Connectors",
                     "connector_basic",
                     &period_end_display,
                     &format!("{invoice_amount:.2} {currency}"),
@@ -574,7 +574,7 @@ pub async fn finalize_investor_subscription(
     .await
     .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": "internal error" }))))?;
 
-    let plan_name = if plan_level == "pro" { "Investor Pro" } else { "Investor Basic" };
+    let plan_name = if plan_level == "pro" { "Kevin AI Pro for Investors" } else { "Kevin AI Basic for Investors" };
     if let Ok(user_email) = sqlx::query_scalar::<_, String>("SELECT email FROM users WHERE id = $1")
         .bind(user_id)
         .fetch_one(&state.db)
@@ -586,7 +586,7 @@ pub async fn finalize_investor_subscription(
                 state.resend_api_key.as_deref(),
                 &state.email_from,
                 &user_email,
-                &format!("Your metatron {plan_name} subscription has renewed"),
+                &format!("Your {plan_name} subscription has renewed"),
                 &email::subscription_invoice_email_html(
                     plan_name,
                     &invoice_tier,
@@ -603,7 +603,7 @@ pub async fn finalize_investor_subscription(
                 state.resend_api_key.as_deref(),
                 &state.email_from,
                 &user_email,
-                &format!("Your metatron {plan_name} subscription is active"),
+                &format!("Your {plan_name} subscription is active"),
                 &email::subscription_activated_email_html(
                     plan_name,
                     &invoice_tier,
@@ -712,11 +712,28 @@ fn usd_pro_amounts_for_billing(billing: &str) -> (&'static str, Decimal) {
     }
 }
 
+fn eur_amounts_for_billing(billing: &str) -> (&'static str, Decimal) {
+    match billing {
+        "annual" => ("€89.99 EUR", Decimal::from_str("89.99").unwrap()),
+        _ => ("€8.99 EUR", Decimal::from_str("8.99").unwrap()),
+    }
+}
+
+fn eur_pro_amounts_for_billing(billing: &str) -> (&'static str, Decimal) {
+    match billing {
+        "annual" => ("€179.99 EUR", Decimal::from_str("179.99").unwrap()),
+        _ => ("€17.99 EUR", Decimal::from_str("17.99").unwrap()),
+    }
+}
+
 fn amounts_for_billing_and_level(billing: &str, plan_level: &str, currency: &str) -> (&'static str, Decimal) {
-    if plan_level == "pro" {
-        if currency == "ZAR" { zar_pro_amounts_for_billing(billing) } else { usd_pro_amounts_for_billing(billing) }
-    } else {
-        if currency == "ZAR" { zar_amounts_for_billing(billing) } else { usd_amounts_for_billing(billing) }
+    match (plan_level == "pro", currency) {
+        (true, "ZAR") => zar_pro_amounts_for_billing(billing),
+        (true, "EUR") => eur_pro_amounts_for_billing(billing),
+        (true, _) => usd_pro_amounts_for_billing(billing),
+        (false, "ZAR") => zar_amounts_for_billing(billing),
+        (false, "EUR") => eur_amounts_for_billing(billing),
+        (false, _) => usd_amounts_for_billing(billing),
     }
 }
 
@@ -834,7 +851,7 @@ async fn verify_payment(
 
     let (tier_lower, plan_level) = resolve_finalize_tier_and_level(&state, &data, &metadata)?;
     let (amount_paid, invoice_amount) = amounts_for_billing_and_level(&tier_lower, &plan_level, pay_currency);
-    let plan_name = if plan_level == "pro" { "Founder Pro" } else { "Founder Basic" };
+    let plan_name = if plan_level == "pro" { "Kevin AI Pro for Founders" } else { "Kevin AI Basic for Founders" };
 
     // A prior founder invoice means this user already has a real Paystack
     // Subscription object -- creating another here would double-bill them
@@ -1510,7 +1527,7 @@ async fn finalize_from_paystack_data(
         .unwrap_or("USD");
 
     let (amount_paid, invoice_amount) = amounts_for_billing_and_level(&tier_lower, &plan_level, pay_currency);
-    let plan_name = if plan_level == "pro" { "Founder Pro" } else { "Founder Basic" };
+    let plan_name = if plan_level == "pro" { "Kevin AI Pro for Founders" } else { "Kevin AI Basic for Founders" };
 
     let plan_code = match (plan_level.as_str(), tier_lower.as_str()) {
         ("pro", "annual") => state.paystack_plan_pro_annual.as_str(),
@@ -1647,7 +1664,7 @@ async fn handle_invoice_payment_success(
         .map_err(|(s, _)| s)?;
     } else if let Some((billing, plan_level)) = founder_billing_and_level {
         let (amount_paid, invoice_amount) = amounts_for_billing_and_level(billing, plan_level, "ZAR");
-        let plan_name = if plan_level == "pro" { "Founder Pro" } else { "Founder Basic" };
+        let plan_name = if plan_level == "pro" { "Kevin AI Pro for Founders" } else { "Kevin AI Basic for Founders" };
         finalize_pro_subscription(
             state,
             user_id,
@@ -1826,6 +1843,8 @@ struct NowpaymentsSubscribeBody {
     billing: String,
     role: String,
     plan: Option<String>,
+    /// "USD" (default) or "EUR" -- the currency the invoice is priced in.
+    currency: Option<String>,
 }
 
 async fn nowpayments_subscribe(
@@ -1895,20 +1914,35 @@ async fn nowpayments_subscribe(
         "basic".to_string()
     };
 
+    let currency = body
+        .currency
+        .as_deref()
+        .unwrap_or("USD")
+        .to_ascii_uppercase();
+    if currency != "USD" && currency != "EUR" {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "currency must be USD or EUR" })),
+        ));
+    }
+
+    // Must match usd_/eur_*_amounts_for_billing above.
+    let eur = currency == "EUR";
     let amount = match (plan_level.as_str(), billing.as_str()) {
-        ("pro", "annual") => 199.99,
-        ("pro", _) => 19.99,
-        (_, "annual") => 99.99,
-        _ => 9.99,
+        ("pro", "annual") => if eur { 179.99 } else { 199.99 },
+        ("pro", _) => if eur { 17.99 } else { 19.99 },
+        (_, "annual") => if eur { 89.99 } else { 99.99 },
+        _ => if eur { 8.99 } else { 9.99 },
     };
 
     let pending_id: Uuid = sqlx::query_scalar(
-        r#"INSERT INTO nowpayments_pending (user_id, role, billing, plan_level) VALUES ($1, $2, $3, $4) RETURNING id"#,
+        r#"INSERT INTO nowpayments_pending (user_id, role, billing, plan_level, currency) VALUES ($1, $2, $3, $4, $5) RETURNING id"#,
     )
     .bind(authed.id)
     .bind(&role_norm)
     .bind(&billing)
     .bind(&plan_level)
+    .bind(&currency)
     .fetch_one(&state.db)
     .await
     .map_err(|_| {
@@ -1932,7 +1966,7 @@ async fn nowpayments_subscribe(
 
     let payload = json!({
         "price_amount": amount,
-        "price_currency": "usd",
+        "price_currency": currency.to_ascii_lowercase(),
         "order_id": pending_id.to_string(),
         "order_description": order_description,
         "ipn_callback_url": ipn_callback_url,
@@ -2064,15 +2098,15 @@ async fn nowpayments_webhook(
         return Ok(StatusCode::OK);
     }
 
-    let claimed: Option<(Uuid, String, String, String)> = sqlx::query_as(
-        r#"UPDATE nowpayments_pending SET fulfilled = TRUE WHERE id = $1 AND fulfilled = FALSE RETURNING user_id, role, billing, plan_level"#,
+    let claimed: Option<(Uuid, String, String, String, String)> = sqlx::query_as(
+        r#"UPDATE nowpayments_pending SET fulfilled = TRUE WHERE id = $1 AND fulfilled = FALSE RETURNING user_id, role, billing, plan_level, currency"#,
     )
     .bind(order_uuid)
     .fetch_optional(&state.db)
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let Some((user_id, role, billing, plan_level)) = claimed else {
+    let Some((user_id, role, billing, plan_level, currency)) = claimed else {
         return Ok(StatusCode::OK);
     };
 
@@ -2088,12 +2122,12 @@ async fn nowpayments_webhook(
 
     let billing_lc = billing.to_ascii_lowercase();
     let plan_level_lc = plan_level.to_ascii_lowercase();
-    let (amount_display, invoice_amount) = amounts_for_billing_and_level(&billing_lc, &plan_level_lc, "USD");
+    let (amount_display, invoice_amount) = amounts_for_billing_and_level(&billing_lc, &plan_level_lc, currency.as_str());
     let reference_owned = order_uuid.to_string();
 
     let finalize_res: Result<(), (StatusCode, Json<Value>)> = match role.as_str() {
         "founder" => {
-            let plan_name = if plan_level_lc == "pro" { "Founder Pro" } else { "Founder Basic" };
+            let plan_name = if plan_level_lc == "pro" { "Kevin AI Pro for Founders" } else { "Kevin AI Basic for Founders" };
             finalize_pro_subscription(
                 &state,
                 user_id,
@@ -2103,7 +2137,7 @@ async fn nowpayments_webhook(
                 amount_display,
                 "nowpayments",
                 Some(reference_owned.as_str()),
-                "USD",
+                currency.as_str(),
                 invoice_amount,
                 false,
             )
@@ -2118,7 +2152,7 @@ async fn nowpayments_webhook(
                 &plan_level_lc,
                 "nowpayments",
                 Some(reference_owned.as_str()),
-                "USD",
+                currency.as_str(),
                 invoice_amount,
                 false,
             )
@@ -2131,7 +2165,7 @@ async fn nowpayments_webhook(
                 billing_lc.as_str(),
                 "nowpayments",
                 Some(reference_owned.as_str()),
-                "USD",
+                currency.as_str(),
                 invoice_amount,
                 false,
             )

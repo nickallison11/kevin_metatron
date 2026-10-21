@@ -2256,7 +2256,7 @@ pub(crate) async fn execute_kevin_tool(
                 );
 
                 let body = serde_json::json!({
-                    "from": "Kevin AI <kevin@metatron.id>",
+                    "from": "Kevin from metatron AI <kevin@metatron.id>",
                     "to": [notify_row.email.clone()],
                     "subject": subject,
                     "html": email::localize_links(&html),
@@ -2531,7 +2531,7 @@ pub(crate) async fn execute_kevin_tool(
                     .post("https://api.resend.com/emails")
                     .header("Authorization", format!("Bearer {resend_key}"))
                     .json(&serde_json::json!({
-                        "from": "Kevin AI <kevin@metatron.id>",
+                        "from": "Kevin from metatron AI <kevin@metatron.id>",
                         "to": [user_email],
                         "subject": format!("Pitch deck: {}", pd.title),
                         "html": email::localize_links(&html),

@@ -144,7 +144,7 @@ pub fn start_cleanup_task(state: Arc<AppState>) {
                             .await
                         } else {
                             crate::routes::subscription_finalize::finalize_pro_subscription(
-                                &state, id, "Kevin AI Basic for Founders", "basic", billing, amount_display, "card", None, "ZAR",
+                                &state, id, "metatron AI Basic for Founders", "basic", billing, amount_display, "card", None, "ZAR",
                                 invoice_amount, false,
                             )
                             .await
@@ -189,7 +189,7 @@ pub fn start_cleanup_task(state: Arc<AppState>) {
                             state.resend_api_key.as_deref(),
                             &state.email_from,
                             &email_addr,
-                            "Your Kevin AI subscription renews in 3 days",
+                            "Your metatron AI subscription renews in 3 days",
                             &email::renewal_reminder_email_html(&expiry, &role),
                         )
                         .await;

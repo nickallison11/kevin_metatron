@@ -166,10 +166,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
             width={37}
             className="h-[42px] w-auto"
           />
-          <span className="flex flex-col leading-none">
-            <span className="text-[17px] font-semibold tracking-tight text-[var(--text)]">Kevin AI</span>
-            <span className="mt-1 font-mono text-[10px] tracking-[0.08em] text-[var(--text-muted)]">by metatron</span>
-          </span>
+          <span className="text-[17px] font-semibold tracking-tight text-[var(--text)]">metatron AI</span>
         </Link>
 
         {/* Desktop nav links — centered, hidden on mobile */}

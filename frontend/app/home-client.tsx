@@ -182,13 +182,10 @@ function LandingPage() {
       {/* ── Hero ─────────────────────────────────────────────────────────── */}
       <section className="mx-auto max-w-3xl px-5 pt-24 text-center">
         <h1 className="text-[36px] font-bold leading-tight tracking-tight text-[var(--text)] md:text-[52px]">
-          Kevin AI
+          metatron AI
         </h1>
         <p className="mt-4 text-[18px] leading-relaxed text-[var(--text)] md:text-[22px]">
-          Your AI dealmaker for founders and investors.
-        </p>
-        <p className="mt-3 font-mono text-[11px] uppercase tracking-[3px] text-[var(--text-muted)]">
-          Built by metatron
+          Meet Kevin, your AI dealmaker for founders and investors.
         </p>
       </section>
 
@@ -311,7 +308,7 @@ function LandingPage() {
             Ready to connect?
           </h2>
           <p className="mb-8 text-[15px] leading-relaxed text-[var(--text-muted)]">
-            Kevin AI is currently invite-only. Use your invitation link to create an account,
+            metatron AI is currently invite-only. Use your invitation link to create an account,
             or sign in if you already have one.
           </p>
           <Link
@@ -328,7 +325,7 @@ function LandingPage() {
         <div className="mx-auto flex max-w-5xl items-center justify-center gap-3">
           <img src="/metatron-logo.png" alt="metatron" className="h-[28px] w-auto opacity-70" />
           <p className="text-[12px] text-[var(--text-muted)]">
-            © {new Date().getFullYear()} Metatron Labs · Kevin AI is a product of metatron
+            © {new Date().getFullYear()} Metatron Labs
           </p>
         </div>
       </footer>

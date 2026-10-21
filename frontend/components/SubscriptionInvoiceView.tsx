@@ -50,10 +50,10 @@ function tierLabel(tier: string) {
 }
 
 function planLabel(settingsHref: string) {
-  if (settingsHref.includes("/startup/")) return "Kevin AI Basic for Founders";
-  if (settingsHref.includes("/investor/")) return "Kevin AI Basic for Investors";
-  if (settingsHref.includes("/connector/")) return "Kevin AI Basic for Connectors";
-  return "Kevin AI subscription";
+  if (settingsHref.includes("/startup/")) return "metatron AI Basic for Founders";
+  if (settingsHref.includes("/investor/")) return "metatron AI Basic for Investors";
+  if (settingsHref.includes("/connector/")) return "metatron AI Basic for Connectors";
+  return "metatron AI subscription";
 }
 
 export default function SubscriptionInvoiceView({

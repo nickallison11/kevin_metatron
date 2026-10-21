@@ -177,7 +177,7 @@ impl Settings {
             .ok()
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| "Kevin AI <kevin@metatron.id>".to_string());
+            .unwrap_or_else(|| "Kevin from metatron AI <kevin@metatron.id>".to_string());
         let internal_automation_token = env::var("INTERNAL_AUTOMATION_TOKEN")
             .ok()
             .and_then(|s| (!s.trim().is_empty()).then_some(s));

@@ -761,10 +761,10 @@ pub fn subscription_invoice_email_html(
 
 pub fn subscription_cancelled_email_html(period_end: &str) -> String {
     shell_html(
-        "Your Kevin AI subscription has been cancelled",
+        "Your metatron AI subscription has been cancelled",
         &format!(
             r#"
-<p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">Your Kevin AI subscription has been set to cancel at the end of your current billing period.</p>
+<p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">Your metatron AI subscription has been set to cancel at the end of your current billing period.</p>
 <p style="margin:0 0 12px 0;font-size:13px;color:#e8e8ed;">You will retain full access until: <strong>{period_end}</strong></p>
 <p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">After that date your account will revert to the free tier.</p>
 <p style="margin:0 0 0 0;font-size:14px;">
@@ -820,10 +820,10 @@ pub fn renewal_reminder_email_html(expiry_date: &str, role: &str) -> String {
         ),
     };
     shell_html(
-        "Your Kevin AI subscription is expiring soon",
+        "Your metatron AI subscription is expiring soon",
         &format!(
             r#"
-<p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">Your Kevin AI subscription renews in 3 days.</p>
+<p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">Your metatron AI subscription renews in 3 days.</p>
 <p style="margin:0 0 12px 0;font-size:13px;color:#e8e8ed;">Expiry date: {expiry_date}</p>
 <p style="margin:0 0 12px 0;font-size:14px;">
   <a href="https://platform.metatron.id/pricing" style="color:#6c5ce7;text-decoration:none;">Renew your subscription</a>

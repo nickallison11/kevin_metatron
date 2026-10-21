@@ -198,7 +198,7 @@ export function StartupKevinChatCard({
             role: "assistant",
             content:
               limitText.trim() ||
-              "You've used your 20 daily Kevin messages across all channels. Upgrade to Kevin AI Basic at platform.metatron.id/pricing for 200 messages/day.",
+              "You've used your 20 daily Kevin messages across all channels. Upgrade to metatron AI Basic at platform.metatron.id/pricing for 200 messages/day.",
           },
         ]);
         return;

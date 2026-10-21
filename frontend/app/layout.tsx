@@ -17,9 +17,9 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Kevin AI — the AI dealmaker for founders and investors",
+  title: "metatron AI — meet Kevin, the AI dealmaker for founders and investors",
   description:
-    "Kevin AI matches founders with aligned investors and makes warm introductions. Built by metatron.",
+    "metatron AI: Kevin matches founders with aligned investors and makes warm introductions.",
   icons: {
     icon: [{ url: "/favicon-icon.png", type: "image/png" }],
   },

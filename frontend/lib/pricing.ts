@@ -5,14 +5,15 @@ import { COUNTRY_COOKIE } from "@/lib/countryCookie";
  * Regional pricing: which currency a visitor sees and which payment options
  * are offered for it. The visitor's country comes from Vercel's
  * `x-vercel-ip-country` header, which `middleware.ts` copies into the
- * `metatron_country` cookie. These amounts are for display only; the backend
- * (`backend/src/routes/commerce.rs`) decides what is actually charged.
+ * `metatron_country` cookie. These amounts are for display only: Stripe charges
+ * the price behind each lookup key (`backend/src/routes/stripe_billing.rs`).
+ * ZAR is no longer offered; the type keeps it for old saved choices.
  */
 
 export type Currency = "ZAR" | "USD" | "EUR";
 export type PlanLevel = "basic" | "pro";
 export type Billing = "monthly" | "annual";
-export type PaymentMethod = "paystack" | "nowpayments";
+export type PaymentMethod = "stripe";
 
 const CURRENCY_CHOICE_KEY = "metatron_currency";
 
@@ -36,24 +37,15 @@ const PRICES: Record<PlanLevel, Record<Billing, Record<Currency, number>>> = {
 
 const SYMBOLS: Record<Currency, string> = { ZAR: "R", USD: "$", EUR: "€" };
 
-/**
- * Paystack can only charge in ZAR for a South African business. Visitors
- * outside South Africa can still pay by card in ZAR, but only once
- * international payments are switched on in the Paystack dashboard, so the
- * option stays hidden until NEXT_PUBLIC_PAYSTACK_INTERNATIONAL_CARDS=1.
- */
-const PAYSTACK_INTERNATIONAL_CARDS =
-  process.env.NEXT_PUBLIC_PAYSTACK_INTERNATIONAL_CARDS === "1";
-
 export function currencyForCountry(country: string | null): Currency {
-  if (country === "ZA") return "ZAR";
   if (country && EUR_COUNTRIES.has(country)) return "EUR";
   return "USD";
 }
 
-/** ZAR is offered only to South African visitors; everyone can pick USD or EUR. */
-export function currenciesForCountry(country: string | null): Currency[] {
-  return country === "ZA" ? ["ZAR", "USD", "EUR"] : ["USD", "EUR"];
+/** Everyone can pick USD or EUR (EU visitors default to EUR). */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function currenciesForCountry(_country: string | null): Currency[] {
+  return ["USD", "EUR"];
 }
 
 export function formatAmount(amount: number, currency: Currency): string {
@@ -77,39 +69,14 @@ export type PaymentOption = {
   note: string;
 };
 
-/** Payment options for a plan, in the order they should be shown. */
-export function paymentOptions(
-  plan: PlanLevel,
-  billing: Billing,
-  currency: Currency,
-): PaymentOption[] {
-  if (currency === "ZAR") {
-    return [
-      { method: "paystack", label: "Pay with card", note: "Visa & Mastercard · Powered by Paystack" },
-    ];
-  }
-  const options: PaymentOption[] = [];
-  if (PAYSTACK_INTERNATIONAL_CARDS) {
-    const zar = formatAmount(PRICES[plan][billing].ZAR, "ZAR");
-    options.push({
-      method: "paystack",
-      label: "Pay by card",
-      note: `Charged ${zar} ZAR via Paystack · your bank converts`,
-    });
-  }
-  options.push({
-    method: "nowpayments",
-    label: "Pay with crypto",
-    note: "USDC, USDT & more · Powered by NowPayments",
-  });
-  return options;
+/** Payment options for a plan: card checkout through Stripe. */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function paymentOptions(_plan: PlanLevel, _billing: Billing, _currency: Currency): PaymentOption[] {
+  return [{ method: "stripe", label: "Subscribe", note: "Pay by card · Powered by Stripe" }];
 }
 
 export function checkoutFootnote(currency: Currency): string {
-  if (currency === "ZAR") return "Pay with Visa or Mastercard via Paystack. Billed in ZAR.";
-  return PAYSTACK_INTERNATIONAL_CARDS
-    ? `Crypto is billed in ${currency}. Card payments are charged in ZAR via Paystack and converted by your bank.`
-    : `Billed in ${currency} via NowPayments. Card payments in ${currency} are coming soon.`;
+  return `Billed in ${currency} by card via Stripe. Cancel any time.`;
 }
 
 function readCountryCookie(): string | null {

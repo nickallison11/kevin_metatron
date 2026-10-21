@@ -588,7 +588,7 @@ async fn invite_user(
             .post("https://api.resend.com/emails")
             .bearer_auth(&resend_key)
             .json(&serde_json::json!({
-                "from": "Kevin from metatron AI <kevin@metatron.id>",
+                "from": "Kevin from metatronAI <kevin@metatron.id>",
                 "to": &body.email,
                 "subject": "You've been invited to metatron",
                 "html": format!(r#"<div style="background:#0a0a0f;color:#e8e8ed;font-family:'DM Sans',Arial,sans-serif;padding:40px;max-width:560px;margin:0 auto;border-radius:12px;"><img src="https://metatron.id/metatron-logo.png" alt="metatron" height="42" style="margin-bottom:32px;" /><h1 style="font-size:22px;font-weight:600;margin-bottom:16px;">You've been invited.</h1><p style="color:#8888a0;font-size:15px;line-height:1.6;margin-bottom:32px;">You've been invited to join metatron as a <strong style="color:#e8e8ed;">{}</strong>. Click below to create your account.</p><a href="{}" style="display:inline-block;background:#6c5ce7;color:#fff;padding:12px 28px;border-radius:10px;text-decoration:none;font-weight:600;font-size:15px;">Create account</a><hr style="border:none;border-top:1px solid rgba(255,255,255,0.06);margin:32px 0;" /><p style="color:#8888a0;font-size:13px;">metatron — Eliminating information asymmetry between founders and capital, globally.</p></div>"#, role, invite_link),

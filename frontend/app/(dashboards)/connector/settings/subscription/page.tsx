@@ -87,9 +87,9 @@ export default function ConnectorSubscriptionPage() {
       token={token}
       role="INTERMEDIARY"
       isPaid={isPaid}
-      planName="metatron AI Basic for Connectors"
+      planName="metatronAI Basic for Connectors"
       planFeatures={basicFeatures}
-      proName="metatron AI Pro for Connectors"
+      proName="metatronAI Pro for Connectors"
       proFeatures={proFeatures}
       zarSubscribeEndpoint="/commerce/connector/subscribe"
       zarVerifyEndpoint="/commerce/connector/verify"

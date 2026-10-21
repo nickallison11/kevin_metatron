@@ -75,7 +75,7 @@ export default function InvestorSubscriptionPage() {
     : status?.subscription_tier === "pro"
       ? "pro"
       : "basic";
-  const planName = planLevel === "pro" ? "metatron AI Pro for Investors" : "metatron AI Basic for Investors";
+  const planName = planLevel === "pro" ? "metatronAI Pro for Investors" : "metatronAI Basic for Investors";
 
   return (
     <SubscriptionPricingContent
@@ -85,7 +85,7 @@ export default function InvestorSubscriptionPage() {
       planLevel={planLevel}
       planName={planName}
       planFeatures={basicFeatures}
-      proName="metatron AI Pro for Investors"
+      proName="metatronAI Pro for Investors"
       proFeatures={proFeatures}
       zarSubscribeEndpoint="/commerce/investor/subscribe"
       zarVerifyEndpoint="/commerce/investor/verify"

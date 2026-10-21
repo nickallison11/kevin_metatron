@@ -1516,7 +1516,7 @@ async fn request_intro(
             // Notify the connector by email
             let resend_key = std::env::var("RESEND_API_KEY").unwrap_or_default();
             let notif = serde_json::json!({
-                "from": "Kevin from metatron AI <kevin@metatron.id>",
+                "from": "Kevin from metatronAI <kevin@metatron.id>",
                 "to": [connector_email],
                 "subject": format!("New intro request: {} → {}", company_name, investor_name),
                 "html": format!(

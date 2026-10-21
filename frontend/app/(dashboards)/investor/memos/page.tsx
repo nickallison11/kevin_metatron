@@ -112,10 +112,10 @@ export default function InvestorMemosPage() {
           <p className="text-sm text-[var(--text-muted)]">Loading…</p>
         ) : tier === "free" ? (
           <section className={`${card} flex flex-col items-start gap-3 p-6`}>
-            <h2 className="text-lg font-semibold">Memos are on metatron AI Basic and Pro</h2>
+            <h2 className="text-lg font-semibold">Memos are on metatronAI Basic and Pro</h2>
             <p className="text-sm text-[var(--text-muted)]">Kevin writes a structured first memo for any startup: market, model, traction, team, risks and a recommendation.</p>
             <Link href="/investor/settings/subscription" className={btnPrimary}>
-              Upgrade to metatron AI Basic
+              Upgrade to metatronAI Basic
             </Link>
           </section>
         ) : (

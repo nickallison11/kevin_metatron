@@ -401,7 +401,7 @@ async fn require_connector_paid(
     if !matches!(tier.as_deref(), Some("paid") | Some("connector_basic")) {
         return Err((
             axum::http::StatusCode::PAYMENT_REQUIRED,
-            "metatron AI Basic required".into(),
+            "metatronAI Basic required".into(),
         ));
     }
     Ok(())
@@ -1349,7 +1349,7 @@ async fn enrich_staged_contacts(
                     .post("https://api.resend.com/emails")
                     .bearer_auth(&resend_key)
                     .json(&serde_json::json!({
-                        "from": "Kevin from metatron AI <kevin@metatron.id>",
+                        "from": "Kevin from metatronAI <kevin@metatron.id>",
                         "to": to_email,
                         "subject": format!("{} contacts enriched and ready to import — metatron", enriched_count),
                         "html": crate::email::localize_links(&format!(

@@ -182,7 +182,7 @@ function LandingPage() {
       {/* ── Hero ─────────────────────────────────────────────────────────── */}
       <section className="mx-auto max-w-3xl px-5 pt-24 text-center">
         <h1 className="text-[36px] font-bold leading-tight tracking-tight text-[var(--text)] md:text-[52px]">
-          metatron AI
+          metatronAI
         </h1>
         <p className="mt-4 text-[18px] leading-relaxed text-[var(--text)] md:text-[22px]">
           Meet Kevin, your AI dealmaker for founders and investors.
@@ -308,7 +308,7 @@ function LandingPage() {
             Ready to connect?
           </h2>
           <p className="mb-8 text-[15px] leading-relaxed text-[var(--text-muted)]">
-            metatron AI is currently invite-only. Use your invitation link to create an account,
+            metatronAI is currently invite-only. Use your invitation link to create an account,
             or sign in if you already have one.
           </p>
           <Link

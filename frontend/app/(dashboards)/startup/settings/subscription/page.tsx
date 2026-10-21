@@ -78,7 +78,7 @@ export default function StartupSubscriptionPage() {
     : status?.subscription_tier === "pro"
       ? "pro"
       : "basic";
-  const planName = planLevel === "pro" ? "metatron AI Pro for Founders" : "metatron AI Basic for Founders";
+  const planName = planLevel === "pro" ? "metatronAI Pro for Founders" : "metatronAI Basic for Founders";
 
   return (
     <SubscriptionPricingContent
@@ -88,7 +88,7 @@ export default function StartupSubscriptionPage() {
       planLevel={planLevel}
       planName={planName}
       planFeatures={basicFeatures}
-      proName="metatron AI Pro for Founders"
+      proName="metatronAI Pro for Founders"
       proFeatures={proFeatures}
       zarSubscribeEndpoint="/commerce/subscribe"
       zarVerifyEndpoint="/commerce/verify"

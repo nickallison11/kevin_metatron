@@ -485,13 +485,13 @@ function PricingPageInner() {
             </ul>
           </section>
 
-          {/* metatron AI Basic for Founders */}
+          {/* metatronAI Basic for Founders */}
           <section
             className={`${cardBase} border-metatron-accent/40 shadow-[0_0_40px_rgba(var(--accent-rgb),0.12)]`}
           >
             <div className="flex items-start justify-between gap-2">
               <p className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
-                metatron AI Basic for Founders
+                metatronAI Basic for Founders
               </p>
               <span className="rounded-full bg-metatron-accent/15 px-2.5 py-1 text-[10px] font-semibold text-metatron-accent">
                 Most popular
@@ -525,10 +525,10 @@ function PricingPageInner() {
             </ul>
           </section>
 
-          {/* metatron AI Pro for Founders */}
+          {/* metatronAI Pro for Founders */}
           <section className={`${cardBase} border-[var(--border)]`}>
             <p className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
-              metatron AI Pro for Founders
+              metatronAI Pro for Founders
             </p>
             <p className="mt-1 text-sm text-[var(--text-muted)]">
               {billing === "monthly"
@@ -596,7 +596,7 @@ function PricingPageInner() {
               className={`${cardBase} border-metatron-accent/40 shadow-[0_0_40px_rgba(var(--accent-rgb),0.12)]`}
             >
               <p className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
-                metatron AI Basic for Connectors
+                metatronAI Basic for Connectors
               </p>
               <p className="mt-1 text-sm text-[var(--text-muted)]">
                 {billing === "monthly"
@@ -630,7 +630,7 @@ function PricingPageInner() {
             >
               <div className="flex items-start justify-between gap-2">
                 <p className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
-                  metatron AI Pro for Connectors
+                  metatronAI Pro for Connectors
                 </p>
                 <span className="rounded-full bg-[var(--border)] px-2.5 py-1 text-[10px] font-semibold text-[var(--text-muted)]">
                   Coming Soon
@@ -700,7 +700,7 @@ function PricingPageInner() {
               className={`${cardBase} border-metatron-accent/40 shadow-[0_0_40px_rgba(var(--accent-rgb),0.12)]`}
             >
               <p className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
-                metatron AI Basic for Investors
+                metatronAI Basic for Investors
               </p>
               <p className="mt-1 text-sm text-[var(--text-muted)]">
                 {billing === "monthly"
@@ -731,7 +731,7 @@ function PricingPageInner() {
 
             <section className={`${cardBase} border-[var(--border)]`}>
               <p className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
-                metatron AI Pro for Investors
+                metatronAI Pro for Investors
               </p>
               <p className="mt-1 text-sm text-[var(--text-muted)]">
                 {billing === "monthly"

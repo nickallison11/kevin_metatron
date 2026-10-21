@@ -19,8 +19,8 @@ export default function TermsPage() {
         <Section title="1. About metatron">
           <p>
             metatron (metatron.id) is an AI-powered network that connects founders, investors, and ecosystem partners globally.
-            metatron is operated by Metatron Labs, the trading name of [Andrew Nicholas Allison], a sole trader in
-            Austria ([street and number], [postcode] Freistadt, Austria; see the{" "}
+            metatron is operated by Metatron Labs, the trading name of Andrew Nicholas Allison, a sole trader in
+            Austria (Obermayrstraße 5/4, 4240 Freistadt, Austria; see the{" "}
             <a href="https://metatron.id/impressum" className="text-metatron-accent hover:underline">Impressum</a>).
             By creating an account you agree to these Terms of Service (&ldquo;Terms&rdquo;) and our{" "}
             <a href="https://metatron.id/privacy" className="text-metatron-accent hover:underline">Privacy Policy</a>.

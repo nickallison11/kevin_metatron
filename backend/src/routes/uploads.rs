@@ -225,7 +225,9 @@ async fn upload_pitch_deck(
     let visibility = "public";
     let cid_out: Option<String> = Some(cid.to_string());
 
-    let deck_expires_at: Option<chrono::DateTime<Utc>> = if authed_user.is_basic || authed_user.is_pro {
+    // Free decks expire after 14 days, but not while paid plans are switched off:
+    // there would be no way to keep them.
+    let deck_expires_at: Option<chrono::DateTime<Utc>> = if authed_user.is_basic || authed_user.is_pro || !state.payments_enabled {
         None
     } else {
         Some(Utc::now() + ChronoDuration::days(14))

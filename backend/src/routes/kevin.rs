@@ -80,8 +80,30 @@ fn free_limit_message(state: &AppState) -> String {
     if state.payments_enabled {
         email::localize_links("You've used your 20 daily Kevin messages across all channels. Upgrade to Basic at platform.metatron.id/pricing for 200 messages/day.")
     } else {
-        "You've used your 20 daily Kevin messages across all channels. They reset at midnight UTC.".to_string()
+        "You've used your 20 daily Kevin messages across all channels. They reset at midnight UTC.
+
+Basic (200 messages a day) is coming soon. Reply \"notify me\" and I'll tell you when it launches.".to_string()
     }
+}
+
+/// While paid plans are off, a Free user replying "notify me" joins the Basic
+/// launch list instead of using a Kevin message. Returns the reply if handled.
+async fn handle_notify_me(
+    state: &AppState,
+    user_id: Uuid,
+    is_paid: bool,
+    text: &str,
+    source: &str,
+) -> Option<String> {
+    let t = text.trim().trim_end_matches(['.', '!']).to_lowercase();
+    if state.payments_enabled || is_paid || t != "notify me" {
+        return None;
+    }
+    if let Err(e) = super::subscriptions::record_plan_interest(&state.db, user_id, "basic", source).await {
+        tracing::error!("notify me: insert failed: {e}");
+        return Some("Something went wrong. Please try again.".to_string());
+    }
+    Some("Done. I'll let you know as soon as Basic is available.".to_string())
 }
 
 fn telegram_bot_secret_header_ok(headers: &HeaderMap, expected: &str) -> bool {
@@ -577,6 +599,11 @@ pub(crate) async fn kevin_reply_for_linked_user(
     user: UserForTelegram,
     message: String,
 ) -> Result<String, KevinReplyError> {
+    if let Some(reply) =
+        handle_notify_me(state, user.id, user.is_basic || user.is_pro, &message, "messaging").await
+    {
+        return Ok(reply);
+    }
     let last_user_message = message.clone();
     let msgs = vec![("user".to_string(), message)];
 
@@ -886,6 +913,12 @@ async fn chat(
         .rev()
         .find_map(|(role, content)| (role == "user").then_some(content.clone()))
         .unwrap_or_default();
+
+    if let Some(reply) =
+        handle_notify_me(&state, user.id, user.is_basic || user.is_pro, &last_user_message, "web_chat").await
+    {
+        return Ok(Json(ChatResponse { reply }));
+    }
 
     let recalled = if last_user_message.trim().is_empty() {
         Vec::new()

@@ -84,6 +84,56 @@ function FeatureCheck({ children }: { children: React.ReactNode }) {
   );
 }
 
+/** "Notify me" buttons shown while paid plans are switched off. */
+function NotifyMeButtons({ token, plans }: { token: string; plans: ("basic" | "pro")[] }) {
+  const [joined, setJoined] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    fetch(`${API_BASE}/subscriptions/notify-me`, { headers: authJsonHeaders(token) })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { plans?: string[] } | null) => setJoined(d?.plans ?? []))
+      .catch(() => {});
+  }, [token]);
+
+  const join = async (plan: "basic" | "pro") => {
+    setBusy(true);
+    try {
+      const res = await fetch(`${API_BASE}/subscriptions/notify-me`, {
+        method: "POST",
+        headers: authJsonHeaders(token),
+        body: JSON.stringify({ plan, source: "web" }),
+      });
+      if (res.ok) setJoined((j) => (j.includes(plan) ? j : [...j, plan]));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="mt-4 flex flex-wrap gap-3">
+      {plans.map((plan) => {
+        const label = plan === "basic" ? "Basic" : "Pro";
+        return joined.includes(plan) ? (
+          <span key={plan} className="rounded-[12px] border border-[var(--border)] px-4 py-2 text-sm text-[var(--text-muted)]">
+            ✓ We&apos;ll tell you when {label} launches
+          </span>
+        ) : (
+          <button
+            key={plan}
+            type="button"
+            disabled={busy}
+            onClick={() => void join(plan)}
+            className="rounded-[12px] bg-metatron-accent px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-metatron-accent-hover disabled:opacity-60"
+          >
+            Notify me when {label} launches
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function PlanCard({
   label,
   billingLabel,
@@ -649,6 +699,10 @@ export default function SubscriptionPricingContent(
           <p className="mt-1 text-sm text-[var(--text-muted)]">
             Paid plans aren&apos;t available yet. On Free you get 20 Kevin messages a day and 1 match a week.
           </p>
+          <NotifyMeButtons
+            token={token}
+            plans={planLevel === "basic" ? ["pro"] : roleHasProTier ? ["basic", "pro"] : ["basic"]}
+          />
         </section>
       )}
 

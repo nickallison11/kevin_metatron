@@ -38,6 +38,63 @@ pub fn router() -> Router<Arc<AppState>> {
             post(downgrade_subscription).delete(undo_downgrade_subscription),
         )
         .route("/email-preferences", get(get_email_prefs).put(update_email_prefs))
+        .route("/notify-me", get(get_plan_interest).post(add_plan_interest))
+}
+
+/// Records that a user wants to hear when a paid plan launches. Idempotent.
+pub(crate) async fn record_plan_interest(
+    db: &sqlx::PgPool,
+    user_id: Uuid,
+    plan: &str,
+    source: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "INSERT INTO plan_interest (user_id, plan, source) VALUES ($1, $2, $3)
+         ON CONFLICT (user_id, plan) DO NOTHING",
+    )
+    .bind(user_id)
+    .bind(plan)
+    .bind(source)
+    .execute(db)
+    .await
+    .map(|_| ())
+}
+
+#[derive(Deserialize)]
+struct PlanInterestBody {
+    plan: String,
+    source: Option<String>,
+}
+
+async fn add_plan_interest(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+    Json(body): Json<PlanInterestBody>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let authed = require_user(&state, bearer.token()).await?;
+    let plan = body.plan.trim().to_ascii_lowercase();
+    if plan != "basic" && plan != "pro" {
+        return Err((StatusCode::BAD_REQUEST, "plan must be basic or pro".into()));
+    }
+    let source = body.source.as_deref().unwrap_or("web").trim();
+    let source = if source.is_empty() { "web" } else { source };
+    record_plan_interest(&state.db, authed.id, &plan, source)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".into()))?;
+    Ok(Json(json!({ "ok": true })))
+}
+
+async fn get_plan_interest(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let authed = require_user(&state, bearer.token()).await?;
+    let plans: Vec<String> = sqlx::query_scalar("SELECT plan FROM plan_interest WHERE user_id = $1")
+        .bind(authed.id)
+        .fetch_all(&state.db)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".into()))?;
+    Ok(Json(json!({ "plans": plans })))
 }
 
 #[derive(Serialize)]

@@ -6,6 +6,9 @@ import { Suspense, useState } from "react";
 
 type Role = "founder" | "investor" | "connector";
 
+// Connector card hidden on the landing page until the connector offer is finalised.
+const HIDDEN_LANDING_ROLES: Role[] = ["connector"];
+
 const ROLES: {
   id: Role;
   label: string;
@@ -196,7 +199,7 @@ function LandingPage() {
         </h2>
 
         <div className="flex flex-col gap-4">
-          {ROLES.map((r) => {
+          {ROLES.filter((r) => !HIDDEN_LANDING_ROLES.includes(r.id)).map((r) => {
             const isOpen = activeRole === r.id;
             return (
               <div

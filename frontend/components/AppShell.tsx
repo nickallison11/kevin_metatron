@@ -161,12 +161,11 @@ export default function AppShell({ children }: { children: ReactNode }) {
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={LOGO_URL}
-            alt=""
+            alt="metatron"
             height={42}
             width={37}
             className="h-[42px] w-auto"
           />
-          <span className="text-[17px] font-semibold tracking-tight text-[var(--text)]">metatron</span>
         </Link>
 
         {/* Desktop nav links — centered, hidden on mobile */}

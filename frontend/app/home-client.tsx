@@ -181,12 +181,9 @@ function LandingPage() {
       />
       {/* ── Hero ─────────────────────────────────────────────────────────── */}
       <section className="mx-auto max-w-3xl px-5 pt-24 text-center">
-        <h1 className="text-[36px] font-bold leading-tight tracking-tight text-[var(--text)] md:text-[52px]">
-          metatronAI
-        </h1>
-        <p className="mt-4 text-[18px] leading-relaxed text-[var(--text)] md:text-[22px]">
+        <h1 className="text-[32px] font-bold leading-tight tracking-tight text-[var(--text)] md:text-[48px]">
           Meet Kevin, your AI dealmaker for founders and investors.
-        </p>
+        </h1>
       </section>
 
       {/* ── Role sections ────────────────────────────────────────────────── */}
@@ -325,7 +322,7 @@ function LandingPage() {
         <div className="mx-auto flex max-w-5xl items-center justify-center gap-3">
           <img src="/metatron-logo.png" alt="metatron" className="h-[28px] w-auto opacity-70" />
           <p className="text-[12px] text-[var(--text-muted)]">
-            © {new Date().getFullYear()} metatronAI
+            © {new Date().getFullYear()} metatron
           </p>
         </div>
       </footer>

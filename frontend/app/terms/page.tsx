@@ -13,20 +13,24 @@ export default function TermsPage() {
             ← metatron.id
           </Link>
           <h1 className="mt-4 text-3xl font-semibold">Terms of Service</h1>
-          <p className="mt-2 text-sm text-[var(--text-muted)]">Last updated: June 2026</p>
+          <p className="mt-2 text-sm text-[var(--text-muted)]">Last updated: October 2026</p>
         </div>
 
         <Section title="1. About metatron">
           <p>
             metatron (metatron.id) is an AI-powered network that connects founders, investors, and ecosystem partners globally.
-            By creating an account you agree to these Terms of Service (&ldquo;Terms&rdquo;) and our Privacy Policy.
+            metatron is operated by Metatron Labs, the trading name of [Andrew Nicholas Allison], a sole trader in
+            Austria ([street and number], [postcode] Freistadt, Austria; see the{" "}
+            <a href="https://metatron.id/impressum" className="text-metatron-accent hover:underline">Impressum</a>).
+            By creating an account you agree to these Terms of Service (&ldquo;Terms&rdquo;) and our{" "}
+            <a href="https://metatron.id/privacy" className="text-metatron-accent hover:underline">Privacy Policy</a>.
             If you do not agree, do not use the platform.
           </p>
         </Section>
 
         <Section title="2. Eligibility and accounts">
           <p>
-            You must be at least 18 years old to use metatron. Accounts are currently created by invitation only.
+            You must be at least 18 years old to use metatron. Anyone can create a free account as a founder or investor.
             You are responsible for keeping your login credentials secure and for all activity under your account.
           </p>
         </Section>
@@ -45,7 +49,7 @@ export default function TermsPage() {
           </ul>
           <p>
             <strong>You retain ownership of your data.</strong> metatron will not sell your raw pitch materials to third parties.
-            You may request deletion of your data at any time by contacting us at nick.allison@metatrondao.io.
+            You may request deletion of your data at any time by contacting us at contact@metatron.id.
           </p>
         </Section>
 
@@ -89,9 +93,15 @@ export default function TermsPage() {
 
         <Section title="8. Subscriptions and payments">
           <p>
-            Paid plans (Basic and Pro) are billed monthly or annually. Subscriptions renew automatically.
-            You may cancel at any time; cancellation takes effect at the end of the current billing period.
-            Refunds are not provided for partial periods.
+            Paid plans (Basic and Pro) are billed monthly or annually in USD or EUR by card, processed by Stripe.
+            Prices are shown before checkout; any applicable VAT is added on top. Subscriptions renew automatically
+            until cancelled. You can change plan or cancel at any time under Billing &amp; invoices; cancellation
+            takes effect at the end of the current billing period. Refunds are not provided for partial periods.
+          </p>
+          <p>
+            If you are a consumer in the EU, you have a 14-day right to withdraw from a subscription. By starting a
+            paid plan you ask us to provide it immediately and acknowledge that you lose the right of withdrawal once
+            the service has been fully provided; if you withdraw earlier, you pay for the part already provided.
           </p>
         </Section>
 
@@ -117,11 +127,19 @@ export default function TermsPage() {
           </p>
         </Section>
 
-        <Section title="12. Contact">
+        <Section title="12. Governing law">
+          <p>
+            These Terms are governed by Austrian law, excluding its conflict-of-law rules and the UN Convention on
+            Contracts for the International Sale of Goods. If you are a consumer, you keep the protection of the
+            mandatory consumer laws of the country where you live.
+          </p>
+        </Section>
+
+        <Section title="13. Contact">
           <p>
             For questions about these Terms, contact us at{" "}
-            <a href="mailto:nick.allison@metatrondao.io" className="text-metatron-accent hover:underline">
-              nick.allison@metatrondao.io
+            <a href="mailto:contact@metatron.id" className="text-metatron-accent hover:underline">
+              contact@metatron.id
             </a>
             .
           </p>

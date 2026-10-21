@@ -13,7 +13,7 @@ use axum_extra::{
     headers::{authorization::Bearer, Authorization},
     TypedHeader,
 };
-use chrono::{Duration as ChronoDuration, Utc};
+use chrono::Utc;
 use serde::Deserialize;
 use serde_json::{json, Value as JsonValue};
 use uuid::Uuid;
@@ -148,9 +148,6 @@ async fn upload_pitch_deck(
     }
     let id = authed_user.id;
 
-    if let Err(resp) = check_deck_upload_allowed(&state, id, authed_user.is_basic, authed_user.is_pro).await {
-        return Ok(resp);
-    }
 
     let pinata_jwt = match state.pinata_jwt.as_deref() {
         Some(v) if !v.trim().is_empty() => v.to_string(),
@@ -225,13 +222,8 @@ async fn upload_pitch_deck(
     let visibility = "public";
     let cid_out: Option<String> = Some(cid.to_string());
 
-    // Free decks expire after 14 days, but not while paid plans are switched off:
-    // there would be no way to keep them.
-    let deck_expires_at: Option<chrono::DateTime<Utc>> = if authed_user.is_basic || authed_user.is_pro || !state.payments_enabled {
-        None
-    } else {
-        Some(Utc::now() + ChronoDuration::days(14))
-    };
+    // Decks never expire, on any plan (free founders keep theirs up; decided 2026-10-21).
+    let deck_expires_at: Option<chrono::DateTime<Utc>> = None;
 
     sqlx::query(
         r#"
@@ -336,43 +328,6 @@ async fn upload_pitch_deck(
     });
 
     Ok((StatusCode::CREATED, Json(body)).into_response())
-}
-
-async fn check_deck_upload_allowed(
-    state: &AppState,
-    user_id: Uuid,
-    is_basic: bool,
-    is_pro: bool,
-) -> Result<(), axum::response::Response> {
-    let deck_count: i32 = sqlx::query_scalar(
-        r#"
-        SELECT COALESCE(deck_upload_count, 0)::int
-        FROM profiles WHERE user_id = $1
-        "#,
-    )
-    .bind(user_id)
-    .fetch_optional(&state.db)
-    .await
-    .map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": "db error" })),
-        )
-            .into_response()
-    })?
-    .unwrap_or(0);
-
-    // The one-deck limit only applies once paid plans can be bought.
-    if state.payments_enabled && !is_basic && !is_pro && deck_count >= 1 {
-        return Err((
-            StatusCode::FORBIDDEN,
-            Json(json!({
-                "error": "Free accounts can upload one deck"
-            })),
-        )
-            .into_response());
-    }
-    Ok(())
 }
 
 fn ev_str(obj: &JsonValue, key: &str) -> Option<String> {

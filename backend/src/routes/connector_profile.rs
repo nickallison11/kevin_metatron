@@ -1349,7 +1349,7 @@ async fn enrich_staged_contacts(
                     .post("https://api.resend.com/emails")
                     .bearer_auth(&resend_key)
                     .json(&serde_json::json!({
-                        "from": "Kevin from metatron <kevin@metatron.id>",
+                        "from": "Kevin AI <kevin@metatron.id>",
                         "to": to_email,
                         "subject": format!("{} contacts enriched and ready to import — metatron", enriched_count),
                         "html": crate::email::localize_links(&format!(

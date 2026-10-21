@@ -121,8 +121,6 @@ export default function StartupProfilePage() {
   }
 
   const hasDeck = Boolean(profile?.pitch_deck_url?.trim());
-  const deckCount = profile?.deck_upload_count ?? 0;
-  const freeDeckUsed = !isPro && deckCount >= 1;
   const members = membersFrom(pitch?.team_members);
   const value = (f: PitchField) => String((pitch?.[f] as string | null | undefined) ?? "").trim();
   const complete = (s: Section) => (s.team ? members.length > 0 : (s.fields ?? []).every((x) => value(x.f)));
@@ -423,12 +421,11 @@ export default function StartupProfilePage() {
         <section
           aria-label="Pitch deck"
           onDragOver={(e) => {
-            if (freeDeckUsed) return;
             e.preventDefault();
             setDragging(true);
           }}
           onDragLeave={() => setDragging(false)}
-          onDrop={(e) => (freeDeckUsed ? undefined : onDrop(e))}
+          onDrop={(e) => onDrop(e)}
           className={`flex flex-wrap items-center gap-4 rounded-[var(--radius)] border border-dashed p-5 ${
             dragging ? "border-metatron-accent bg-metatron-accent/10" : "border-metatron-accent/45 bg-[var(--bg-card)]"
           }`}
@@ -462,15 +459,9 @@ export default function StartupProfilePage() {
               </span>
             )}
           </div>
-          {freeDeckUsed ? (
-            <Link href="/startup/settings/subscription" className={btn}>
-              Upgrade to replace your deck
-            </Link>
-          ) : (
-            <button type="button" onClick={() => deckInput.current?.click()} className={`${hasDeck ? btn : btnPrimary} min-h-11 px-5 text-sm`}>
-              {hasDeck ? "Upload new deck" : "Upload deck"}
-            </button>
-          )}
+          <button type="button" onClick={() => deckInput.current?.click()} className={`${hasDeck ? btn : btnPrimary} min-h-11 px-5 text-sm`}>
+            {hasDeck ? "Upload new deck" : "Upload deck"}
+          </button>
           {deckInputEl}
         </section>
 

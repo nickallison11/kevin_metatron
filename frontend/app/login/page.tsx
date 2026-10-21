@@ -216,10 +216,10 @@ export default function LoginPage() {
             <>
               <div className="mb-4">
                 <h1 className="text-xl font-semibold text-[var(--text)]">
-                  Sign in to Kevin AI
+                  Sign in
                 </h1>
                 <p className="text-xs text-[var(--text-muted)] mt-1">
-                  Use OAuth or email/password
+                  Kevin from metatron will pick up where you left off.
                 </p>
               </div>
 

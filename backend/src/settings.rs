@@ -62,6 +62,8 @@ pub struct Settings {
     pub whatsapp_phone_number_id: Option<String>,
     /// When set, signup must include a matching `invite_secret` (shared invite link code).
     pub invite_secret: Option<String>,
+    /// Paid checkout (Paystack, NowPayments) is refused unless PAYMENTS_ENABLED=1.
+    pub payments_enabled: bool,
     /// Pinata group IDs for tier-based file organisation. Env: PINATA_GROUP_FREE / PINATA_GROUP_BASIC / PINATA_GROUP_PRO.
     pub pinata_group_free: Option<String>,
     pub pinata_group_basic: Option<String>,
@@ -177,7 +179,7 @@ impl Settings {
             .ok()
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| "Kevin AI <kevin@metatron.id>".to_string());
+            .unwrap_or_else(|| "Kevin from metatron <kevin@metatron.id>".to_string());
         let internal_automation_token = env::var("INTERNAL_AUTOMATION_TOKEN")
             .ok()
             .and_then(|s| (!s.trim().is_empty()).then_some(s));
@@ -259,6 +261,8 @@ impl Settings {
         let whatsapp_phone_number_id = env::var("WHATSAPP_PHONE_NUMBER_ID")
             .ok()
             .and_then(|s| (!s.trim().is_empty()).then_some(s));
+
+        let payments_enabled = env::var("PAYMENTS_ENABLED").map(|v| v.trim() == "1").unwrap_or(false);
 
         let invite_secret = env::var("INVITE_SECRET")
             .ok()
@@ -371,6 +375,7 @@ impl Settings {
             whatsapp_access_token,
             whatsapp_phone_number_id,
             invite_secret,
+            payments_enabled,
             pinata_group_free,
             pinata_group_basic,
             pinata_group_pro,

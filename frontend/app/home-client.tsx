@@ -6,6 +6,9 @@ import { Suspense, useState } from "react";
 
 type Role = "founder" | "investor" | "connector";
 
+// Connector hidden on the landing page and sign-up role choice until the connector offer is finalised.
+const HIDDEN_LANDING_ROLES: Role[] = ["connector"];
+
 const ROLES: {
   id: Role;
   label: string;
@@ -123,7 +126,7 @@ function OAuthRoleSelector() {
           Select your role
         </h1>
         <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
-          {ROLES.map((r) => (
+          {ROLES.filter((r) => !HIDDEN_LANDING_ROLES.includes(r.id)).map((r) => (
             <button
               key={r.id}
               type="button"
@@ -181,15 +184,9 @@ function LandingPage() {
       />
       {/* ── Hero ─────────────────────────────────────────────────────────── */}
       <section className="mx-auto max-w-3xl px-5 pt-24 text-center">
-        <h1 className="text-[36px] font-bold leading-tight tracking-tight text-[var(--text)] md:text-[52px]">
-          Kevin AI
+        <h1 className="text-[32px] font-bold leading-tight tracking-tight text-[var(--text)] md:text-[48px]">
+          Meet Kevin, your AI dealmaker for founders and investors.
         </h1>
-        <p className="mt-4 text-[18px] leading-relaxed text-[var(--text)] md:text-[22px]">
-          Your AI dealmaker for founders and investors.
-        </p>
-        <p className="mt-3 font-mono text-[11px] uppercase tracking-[3px] text-[var(--text-muted)]">
-          Built by metatron
-        </p>
       </section>
 
       {/* ── Role sections ────────────────────────────────────────────────── */}
@@ -202,7 +199,7 @@ function LandingPage() {
         </h2>
 
         <div className="flex flex-col gap-4">
-          {ROLES.map((r) => {
+          {ROLES.filter((r) => !HIDDEN_LANDING_ROLES.includes(r.id)).map((r) => {
             const isOpen = activeRole === r.id;
             return (
               <div
@@ -311,7 +308,7 @@ function LandingPage() {
             Ready to connect?
           </h2>
           <p className="mb-8 text-[15px] leading-relaxed text-[var(--text-muted)]">
-            Kevin AI is currently invite-only. Use your invitation link to create an account,
+            Choose founder or investor above to create a free account,
             or sign in if you already have one.
           </p>
           <Link
@@ -328,7 +325,7 @@ function LandingPage() {
         <div className="mx-auto flex max-w-5xl items-center justify-center gap-3">
           <img src="/metatron-logo.png" alt="metatron" className="h-[28px] w-auto opacity-70" />
           <p className="text-[12px] text-[var(--text-muted)]">
-            © {new Date().getFullYear()} Metatron Labs (Pty) Ltd · Kevin AI is a product of metatron
+            © {new Date().getFullYear()} metatron
           </p>
         </div>
       </footer>

@@ -87,9 +87,9 @@ export default function ConnectorSubscriptionPage() {
       token={token}
       role="INTERMEDIARY"
       isPaid={isPaid}
-      planName="Kevin AI Basic for Connectors"
+      planName="Basic for Connectors"
       planFeatures={basicFeatures}
-      proName="Kevin AI Pro for Connectors"
+      proName="Pro for Connectors"
       proFeatures={proFeatures}
       zarSubscribeEndpoint="/commerce/connector/subscribe"
       zarVerifyEndpoint="/commerce/connector/verify"

@@ -15,6 +15,7 @@ import {
   type PaymentOption,
 } from "@/lib/pricing";
 import { getAccessToken } from "@/lib/tokenStore";
+import { usePaymentsEnabled } from "@/lib/payments";
 
 const CURRENCY_LABELS: Record<Currency, string> = {
   ZAR: "ZAR (R)",
@@ -177,6 +178,7 @@ function PricingPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { currency, currencies, setCurrency } = useRegionalCurrency();
+  const paymentsEnabled = usePaymentsEnabled();
   const [billing, setBilling] = useState<Billing>("monthly");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -400,6 +402,25 @@ function PricingPageInner() {
     );
   }
 
+  if (!paymentsEnabled) {
+    return (
+      <main className="flex min-h-[calc(100vh-72px)] items-center justify-center px-5">
+        <div className="max-w-md text-center">
+          <p className="text-lg font-semibold text-[var(--text)]">Paid plans are coming soon</p>
+          <p className="mt-2 text-sm text-[var(--text-muted)]">
+            Sign up free as a founder or investor: 20 Kevin messages a day and 1 match a week.
+          </p>
+          <Link
+            href="/"
+            className="mt-6 inline-flex rounded-[12px] bg-metatron-accent px-6 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-metatron-accent-hover"
+          >
+            Get started free
+          </Link>
+        </div>
+      </main>
+    );
+  }
+
   // Wait until the visitor's currency is known so prices never flash in the
   // wrong one.
   if (!currency) {
@@ -485,13 +506,13 @@ function PricingPageInner() {
             </ul>
           </section>
 
-          {/* Kevin AI Basic for Founders */}
+          {/* Basic for Founders */}
           <section
             className={`${cardBase} border-metatron-accent/40 shadow-[0_0_40px_rgba(var(--accent-rgb),0.12)]`}
           >
             <div className="flex items-start justify-between gap-2">
               <p className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
-                Kevin AI Basic for Founders
+                Basic for Founders
               </p>
               <span className="rounded-full bg-metatron-accent/15 px-2.5 py-1 text-[10px] font-semibold text-metatron-accent">
                 Most popular
@@ -525,10 +546,10 @@ function PricingPageInner() {
             </ul>
           </section>
 
-          {/* Kevin AI Pro for Founders */}
+          {/* Pro for Founders */}
           <section className={`${cardBase} border-[var(--border)]`}>
             <p className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
-              Kevin AI Pro for Founders
+              Pro for Founders
             </p>
             <p className="mt-1 text-sm text-[var(--text-muted)]">
               {billing === "monthly"
@@ -596,7 +617,7 @@ function PricingPageInner() {
               className={`${cardBase} border-metatron-accent/40 shadow-[0_0_40px_rgba(var(--accent-rgb),0.12)]`}
             >
               <p className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
-                Kevin AI Basic for Connectors
+                Basic for Connectors
               </p>
               <p className="mt-1 text-sm text-[var(--text-muted)]">
                 {billing === "monthly"
@@ -630,7 +651,7 @@ function PricingPageInner() {
             >
               <div className="flex items-start justify-between gap-2">
                 <p className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
-                  Kevin AI Pro for Connectors
+                  Pro for Connectors
                 </p>
                 <span className="rounded-full bg-[var(--border)] px-2.5 py-1 text-[10px] font-semibold text-[var(--text-muted)]">
                   Coming Soon
@@ -700,7 +721,7 @@ function PricingPageInner() {
               className={`${cardBase} border-metatron-accent/40 shadow-[0_0_40px_rgba(var(--accent-rgb),0.12)]`}
             >
               <p className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
-                Kevin AI Basic for Investors
+                Basic for Investors
               </p>
               <p className="mt-1 text-sm text-[var(--text-muted)]">
                 {billing === "monthly"
@@ -731,7 +752,7 @@ function PricingPageInner() {
 
             <section className={`${cardBase} border-[var(--border)]`}>
               <p className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
-                Kevin AI Pro for Investors
+                Pro for Investors
               </p>
               <p className="mt-1 text-sm text-[var(--text-muted)]">
                 {billing === "monthly"

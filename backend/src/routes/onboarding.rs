@@ -52,7 +52,7 @@ async fn onboarding_reply(
             .await
             .map_err(|e| e.to_string())?;
 
-            Ok("Welcome to metatron. I'm Kevin, your AI matchmaking agent for founders, connectors and investors.\n\nWhat's your email address?".to_string())
+            Ok("Hi, I'm Kevin from metatron, your AI dealmaker for founders and investors.\n\nWhat's your email address?".to_string())
         }
 
         Some((current_state, email, _role)) => match current_state.as_str() {
@@ -81,27 +81,88 @@ async fn onboarding_reply(
                     ));
                 }
 
-                sqlx::query(
-                    "UPDATE messaging_onboarding SET email = $1, state = 'awaiting_role'
-                     WHERE channel = $2 AND channel_id = $3",
+                send_email_code(state, channel, channel_id, &text_lower).await?;
+
+                Ok(format!(
+                    "Thanks. I've emailed a 6-digit code to {}. Reply here with the code to confirm it's you.\n\nWrong address? Reply with \"change email\".",
+                    text_lower
+                ))
+            }
+
+            "awaiting_code" => {
+                let email = email.ok_or_else(|| "missing email in onboarding row".to_string())?;
+
+                if text_lower == "change email" {
+                    sqlx::query(
+                        "UPDATE messaging_onboarding
+                         SET state = 'awaiting_email', email = NULL, email_code = NULL,
+                             email_code_expires_at = NULL, email_code_attempts = 0
+                         WHERE channel = $1 AND channel_id = $2",
+                    )
+                    .bind(channel)
+                    .bind(channel_id)
+                    .execute(&state.db)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                    return Ok("No problem. What's your email address?".to_string());
+                }
+
+                if text_lower == "resend" {
+                    send_email_code(state, channel, channel_id, &email).await?;
+                    return Ok(format!("I've sent a new code to {}.", email));
+                }
+
+                let (code, expires_ok, attempts): (Option<String>, bool, i32) = sqlx::query_as(
+                    "SELECT email_code, COALESCE(email_code_expires_at > NOW(), FALSE), email_code_attempts
+                     FROM messaging_onboarding WHERE channel = $1 AND channel_id = $2",
                 )
-                .bind(&text_lower)
+                .bind(channel)
+                .bind(channel_id)
+                .fetch_one(&state.db)
+                .await
+                .map_err(|e| e.to_string())?;
+
+                if attempts >= MAX_CODE_ATTEMPTS {
+                    return Ok("Too many wrong codes. Reply with \"resend\" to get a new one.".to_string());
+                }
+                if !expires_ok {
+                    return Ok("That code has expired. Reply with \"resend\" to get a new one.".to_string());
+                }
+
+                let entered: String = text.chars().filter(|c| c.is_ascii_digit()).collect();
+                if code.as_deref() != Some(entered.as_str()) {
+                    sqlx::query(
+                        "UPDATE messaging_onboarding SET email_code_attempts = email_code_attempts + 1
+                         WHERE channel = $1 AND channel_id = $2",
+                    )
+                    .bind(channel)
+                    .bind(channel_id)
+                    .execute(&state.db)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                    return Ok("That code doesn't match. Please check your email and try again, or reply with \"resend\".".to_string());
+                }
+
+                sqlx::query(
+                    "UPDATE messaging_onboarding
+                     SET state = 'awaiting_role', email_code = NULL, email_code_expires_at = NULL
+                     WHERE channel = $1 AND channel_id = $2",
+                )
                 .bind(channel)
                 .bind(channel_id)
                 .execute(&state.db)
                 .await
                 .map_err(|e| e.to_string())?;
 
-                Ok("Got it. Are you a founder, connector or investor?\nReply with founder, connector or investor.".to_string())
+                Ok("Email confirmed. Are you a founder or an investor?\nReply with founder or investor.".to_string())
             }
 
             "awaiting_role" => {
                 let role_db = match text_lower.as_str() {
                     "founder" => "STARTUP",
-                    "connector" => "INTERMEDIARY",
                     "investor" => "INVESTOR",
                     _ => {
-                        return Ok("Please reply with founder, connector or investor.".to_string());
+                        return Ok("Please reply with founder or investor.".to_string());
                     }
                 };
 
@@ -186,4 +247,50 @@ async fn onboarding_reply(
             _ => Ok("Something went wrong. Message Kevin again to start over.".to_string()),
         },
     }
+}
+
+const MAX_CODE_ATTEMPTS: i32 = 5;
+
+/// Emails a fresh 6-digit code and moves the onboarding row to `awaiting_code`.
+async fn send_email_code(
+    state: &Arc<AppState>,
+    channel: &str,
+    channel_id: &str,
+    email: &str,
+) -> Result<(), String> {
+    let code = {
+        use rand::Rng;
+        format!("{:06}", rand::thread_rng().gen_range(0..1_000_000))
+    };
+
+    sqlx::query(
+        "UPDATE messaging_onboarding
+         SET email = $1, state = 'awaiting_code', email_code = $2,
+             email_code_expires_at = NOW() + INTERVAL '15 minutes', email_code_attempts = 0
+         WHERE channel = $3 AND channel_id = $4",
+    )
+    .bind(email)
+    .bind(&code)
+    .bind(channel)
+    .bind(channel_id)
+    .execute(&state.db)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let channel_label = if channel == "whatsapp" { "WhatsApp" } else { "Telegram" };
+    let html = format!(
+        r#"<p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">Here's your code to finish signing up with Kevin on {channel_label}:</p>
+<p style="margin:0 0 16px 0;font-size:28px;font-weight:700;letter-spacing:6px;color:#e8e8ed;">{code}</p>
+<p style="margin:0;font-size:13px;color:#8888a0;">Reply to Kevin with this code. It expires in 15 minutes. If you didn't ask for it, you can ignore this email.</p>"#
+    );
+    crate::email::send_email(
+        &state.http_client,
+        state.resend_api_key.as_deref(),
+        &state.email_from,
+        email,
+        &format!("Your code: {code}"),
+        &html,
+    )
+    .await;
+    Ok(())
 }

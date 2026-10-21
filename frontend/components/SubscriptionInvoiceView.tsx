@@ -50,10 +50,10 @@ function tierLabel(tier: string) {
 }
 
 function planLabel(settingsHref: string) {
-  if (settingsHref.includes("/startup/")) return "Kevin AI Basic for Founders";
-  if (settingsHref.includes("/investor/")) return "Kevin AI Basic for Investors";
-  if (settingsHref.includes("/connector/")) return "Kevin AI Basic for Connectors";
-  return "Kevin AI subscription";
+  if (settingsHref.includes("/startup/")) return "Basic for Founders";
+  if (settingsHref.includes("/investor/")) return "Basic for Investors";
+  if (settingsHref.includes("/connector/")) return "Basic for Connectors";
+  return "Subscription";
 }
 
 export default function SubscriptionInvoiceView({
@@ -201,7 +201,7 @@ export default function SubscriptionInvoiceView({
         <p className="text-center text-xs text-[var(--text-muted)]">
           metatron · platform.metatron.id
         </p>
-        <p className="mt-1 text-center text-xs text-[var(--text-muted)]">Metatron Labs (Pty) Ltd</p>
+        <p className="mt-1 text-center text-xs text-[var(--text-muted)]">metatronAI</p>
       </div>
     </>
   );

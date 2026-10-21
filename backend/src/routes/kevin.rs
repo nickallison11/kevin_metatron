@@ -75,6 +75,37 @@ fn kevin_daily_limit(is_basic: bool, is_pro: bool) -> i32 {
     }
 }
 
+/// Shown to Free users at the 20-message limit; only mentions upgrading while paid plans are on.
+fn free_limit_message(state: &AppState) -> String {
+    if state.payments_enabled {
+        email::localize_links("You've used your 20 daily Kevin messages across all channels. Upgrade to Basic at platform.metatron.id/pricing for 200 messages/day.")
+    } else {
+        "You've used your 20 daily Kevin messages across all channels. They reset at midnight UTC.
+
+Basic (200 messages a day) is coming soon. Reply \"notify me\" and I'll tell you when it launches.".to_string()
+    }
+}
+
+/// While paid plans are off, a Free user replying "notify me" joins the Basic
+/// launch list instead of using a Kevin message. Returns the reply if handled.
+async fn handle_notify_me(
+    state: &AppState,
+    user_id: Uuid,
+    is_paid: bool,
+    text: &str,
+    source: &str,
+) -> Option<String> {
+    let t = text.trim().trim_end_matches(['.', '!']).to_lowercase();
+    if state.payments_enabled || is_paid || t != "notify me" {
+        return None;
+    }
+    if let Err(e) = super::subscriptions::record_plan_interest(&state.db, user_id, "basic", source).await {
+        tracing::error!("notify me: insert failed: {e}");
+        return Some("Something went wrong. Please try again.".to_string());
+    }
+    Some("Done. I'll let you know as soon as Basic is available.".to_string())
+}
+
 fn telegram_bot_secret_header_ok(headers: &HeaderMap, expected: &str) -> bool {
     if expected.is_empty() {
         return false;
@@ -276,9 +307,9 @@ async fn inbound_email_process(state: Arc<AppState>, body: InboundEmailRequest) 
             .await;
 
             let limit_body = if !user.is_pro && !user.is_basic {
-                "You've used your 20 daily Kevin messages across all channels. Upgrade to Basic at platform.metatron.id/pricing for 200 messages/day."
+                free_limit_message(&state)
             } else {
-                "You've reached your daily Kevin limit. It resets at midnight UTC."
+                "You've reached your daily Kevin limit. It resets at midnight UTC.".to_string()
             };
 
             email::send_kevin_email_reply(
@@ -287,7 +318,7 @@ async fn inbound_email_process(state: Arc<AppState>, body: InboundEmailRequest) 
                 "kevin@metatron.id",
                 &from_addr,
                 &reply_subject,
-                limit_body,
+                &limit_body,
             )
             .await;
             return;
@@ -568,6 +599,11 @@ pub(crate) async fn kevin_reply_for_linked_user(
     user: UserForTelegram,
     message: String,
 ) -> Result<String, KevinReplyError> {
+    if let Some(reply) =
+        handle_notify_me(state, user.id, user.is_basic || user.is_pro, &message, "messaging").await
+    {
+        return Ok(reply);
+    }
     let last_user_message = message.clone();
     let msgs = vec![("user".to_string(), message)];
 
@@ -673,7 +709,7 @@ Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. 
             .await;
 
             let limit_msg = if !user.is_pro && !user.is_basic {
-                email::localize_links("You've used your 20 daily Kevin messages across all channels. Upgrade to Basic at platform.metatron.id/pricing for 200 messages/day.")
+                free_limit_message(&state)
             } else {
                 "You've reached your daily Kevin limit. It resets at midnight UTC.".to_string()
             };
@@ -878,6 +914,12 @@ async fn chat(
         .find_map(|(role, content)| (role == "user").then_some(content.clone()))
         .unwrap_or_default();
 
+    if let Some(reply) =
+        handle_notify_me(&state, user.id, user.is_basic || user.is_pro, &last_user_message, "web_chat").await
+    {
+        return Ok(Json(ChatResponse { reply }));
+    }
+
     let recalled = if last_user_message.trim().is_empty() {
         Vec::new()
     } else {
@@ -958,7 +1000,7 @@ Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. 
             .await;
 
             let msg = if !user.is_pro && !user.is_basic {
-                email::localize_links("You've used your 20 daily Kevin messages across all channels. Upgrade to Basic at platform.metatron.id/pricing for 200 messages/day.")
+                free_limit_message(&state)
             } else {
                 "You've reached your daily Kevin limit. It resets at midnight UTC.".to_string()
             };
@@ -2256,7 +2298,7 @@ pub(crate) async fn execute_kevin_tool(
                 );
 
                 let body = serde_json::json!({
-                    "from": "Kevin AI <kevin@metatron.id>",
+                    "from": "Kevin from metatron <kevin@metatron.id>",
                     "to": [notify_row.email.clone()],
                     "subject": subject,
                     "html": email::localize_links(&html),
@@ -2531,7 +2573,7 @@ pub(crate) async fn execute_kevin_tool(
                     .post("https://api.resend.com/emails")
                     .header("Authorization", format!("Bearer {resend_key}"))
                     .json(&serde_json::json!({
-                        "from": "Kevin AI <kevin@metatron.id>",
+                        "from": "Kevin from metatron <kevin@metatron.id>",
                         "to": [user_email],
                         "subject": format!("Pitch deck: {}", pd.title),
                         "html": email::localize_links(&html),

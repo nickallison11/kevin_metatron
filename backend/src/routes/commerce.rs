@@ -26,7 +26,7 @@ use crate::state::AppState;
 type HmacSha512 = Hmac<Sha512>;
 
 /// Refuses new checkouts while paid plans are switched off (PAYMENTS_ENABLED unset).
-fn require_payments_enabled(state: &AppState) -> Result<(), (StatusCode, Json<Value>)> {
+pub(crate) fn require_payments_enabled(state: &AppState) -> Result<(), (StatusCode, Json<Value>)> {
     if state.payments_enabled {
         Ok(())
     } else {
@@ -45,6 +45,7 @@ async fn payments_config(State(state): State<Arc<AppState>>) -> Json<Value> {
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/config", get(payments_config))
+        .nest("/stripe", super::stripe_billing::router())
         .route("/subscribe", post(create_subscription))
         .route("/verify", post(verify_payment))
         .route("/connector/subscribe", post(create_connector_subscription))

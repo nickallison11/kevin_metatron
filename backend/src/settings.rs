@@ -43,6 +43,9 @@ pub struct Settings {
     pub email_from: String,
     pub internal_automation_token: Option<String>,
     pub paystack_secret_key: Option<String>,
+    /// Stripe secret key (sk_test_/sk_live_) and webhook signing secret (whsec_).
+    pub stripe_secret_key: Option<String>,
+    pub stripe_webhook_secret: Option<String>,
     pub paystack_currency: String,
     pub paystack_plan_basic_monthly: String,
     pub paystack_plan_basic_annual: String,
@@ -183,6 +186,13 @@ impl Settings {
         let internal_automation_token = env::var("INTERNAL_AUTOMATION_TOKEN")
             .ok()
             .and_then(|s| (!s.trim().is_empty()).then_some(s));
+
+        let stripe_secret_key = env::var("STRIPE_SECRET_KEY")
+            .ok()
+            .and_then(|s| (!s.trim().is_empty()).then_some(s.trim().to_string()));
+        let stripe_webhook_secret = env::var("STRIPE_WEBHOOK_SECRET")
+            .ok()
+            .and_then(|s| (!s.trim().is_empty()).then_some(s.trim().to_string()));
 
         let paystack_secret_key = env::var("PAYSTACK_SECRET_KEY")
             .ok()
@@ -357,6 +367,8 @@ impl Settings {
             email_from,
             internal_automation_token,
             paystack_secret_key,
+            stripe_secret_key,
+            stripe_webhook_secret,
             paystack_currency,
             paystack_plan_basic_monthly,
             paystack_plan_basic_annual,

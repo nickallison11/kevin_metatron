@@ -12,6 +12,7 @@ import {
   type Currency,
   type PaymentOption,
 } from "@/lib/pricing";
+import { usePaymentsEnabled } from "@/lib/payments";
 
 const CURRENCY_LABELS: Record<Currency, string> = {
   ZAR: "ZAR (R)",
@@ -200,6 +201,7 @@ export default function SubscriptionPricingContent(
   } = props;
 
   const { currency, currencies, setCurrency } = useRegionalCurrency();
+  const paymentsEnabled = usePaymentsEnabled();
   const [billing, setBilling] = useState<Billing>("monthly");
   const [submitting, setSubmitting] = useState(false);
   const [verifying, setVerifying] = useState(false);
@@ -638,7 +640,19 @@ export default function SubscriptionPricingContent(
         )}
       </section>
 
-      {showUpgradeSection && currency && (
+      {showUpgradeSection && !paymentsEnabled && (
+        <section className={card}>
+          <h2 className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
+            Basic and Pro
+          </h2>
+          <p className="mt-3 text-lg font-semibold text-[var(--text)]">Coming soon</p>
+          <p className="mt-1 text-sm text-[var(--text-muted)]">
+            Paid plans aren&apos;t available yet. On Free you get 20 Kevin messages a day and 1 match a week.
+          </p>
+        </section>
+      )}
+
+      {showUpgradeSection && paymentsEnabled && currency && (
         <div className="space-y-6">
           <h2 className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
             {planLevel === "basic" ? "Upgrade to Pro" : "Upgrade"}

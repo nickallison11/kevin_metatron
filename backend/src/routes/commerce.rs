@@ -3,7 +3,7 @@ use std::sync::Arc;
 use axum::body::Bytes;
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
-use axum::routing::post;
+use axum::routing::{get, post};
 use axum::Json;
 use axum::Router;
 use axum_extra::{
@@ -25,8 +25,26 @@ use crate::state::AppState;
 
 type HmacSha512 = Hmac<Sha512>;
 
+/// Refuses new checkouts while paid plans are switched off (PAYMENTS_ENABLED unset).
+fn require_payments_enabled(state: &AppState) -> Result<(), (StatusCode, Json<Value>)> {
+    if state.payments_enabled {
+        Ok(())
+    } else {
+        Err((
+            StatusCode::FORBIDDEN,
+            Json(json!({ "error": "Paid plans are coming soon." })),
+        ))
+    }
+}
+
+/// Public: whether paid plans can be bought right now, so the site can hide pricing.
+async fn payments_config(State(state): State<Arc<AppState>>) -> Json<Value> {
+    Json(json!({ "payments_enabled": state.payments_enabled }))
+}
+
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
+        .route("/config", get(payments_config))
         .route("/subscribe", post(create_subscription))
         .route("/verify", post(verify_payment))
         .route("/connector/subscribe", post(create_connector_subscription))
@@ -62,6 +80,7 @@ async fn create_subscription(
     TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
     Json(body): Json<SubscribeBody>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    require_payments_enabled(&state)?;
     let secret = state.paystack_secret_key.as_deref().filter(|s| !s.is_empty()).ok_or_else(|| {
         (
             StatusCode::SERVICE_UNAVAILABLE,
@@ -205,6 +224,7 @@ async fn create_connector_subscription(
     TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
     Json(body): Json<ConnectorSubscribeBody>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    require_payments_enabled(&state)?;
     let secret = state
         .paystack_secret_key
         .as_deref()
@@ -1072,6 +1092,7 @@ async fn create_investor_subscription(
     TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
     Json(body): Json<InvestorSubscribeBody>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    require_payments_enabled(&state)?;
     let secret = state.paystack_secret_key.as_deref().filter(|s| !s.is_empty()).ok_or_else(|| {
         (StatusCode::SERVICE_UNAVAILABLE, Json(json!({ "error": "Paystack not configured" })))
     })?;
@@ -1852,6 +1873,7 @@ async fn nowpayments_subscribe(
     TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
     Json(body): Json<NowpaymentsSubscribeBody>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    require_payments_enabled(&state)?;
     let api_key = state
         .nowpayments_api_key
         .as_deref()

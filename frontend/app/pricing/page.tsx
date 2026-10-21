@@ -15,6 +15,7 @@ import {
   type PaymentOption,
 } from "@/lib/pricing";
 import { getAccessToken } from "@/lib/tokenStore";
+import { usePaymentsEnabled } from "@/lib/payments";
 
 const CURRENCY_LABELS: Record<Currency, string> = {
   ZAR: "ZAR (R)",
@@ -177,6 +178,7 @@ function PricingPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { currency, currencies, setCurrency } = useRegionalCurrency();
+  const paymentsEnabled = usePaymentsEnabled();
   const [billing, setBilling] = useState<Billing>("monthly");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -395,6 +397,25 @@ function PricingPageInner() {
           <p className="mt-2 text-sm text-[var(--text-muted)]">
             You&apos;ll be redirected shortly.
           </p>
+        </div>
+      </main>
+    );
+  }
+
+  if (!paymentsEnabled) {
+    return (
+      <main className="flex min-h-[calc(100vh-72px)] items-center justify-center px-5">
+        <div className="max-w-md text-center">
+          <p className="text-lg font-semibold text-[var(--text)]">Paid plans are coming soon</p>
+          <p className="mt-2 text-sm text-[var(--text-muted)]">
+            Sign up free as a founder or investor: 20 Kevin messages a day and 1 match a week.
+          </p>
+          <Link
+            href="/"
+            className="mt-6 inline-flex rounded-[12px] bg-metatron-accent px-6 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-metatron-accent-hover"
+          >
+            Get started free
+          </Link>
         </div>
       </main>
     );

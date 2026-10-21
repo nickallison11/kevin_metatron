@@ -75,6 +75,15 @@ fn kevin_daily_limit(is_basic: bool, is_pro: bool) -> i32 {
     }
 }
 
+/// Shown to Free users at the 20-message limit; only mentions upgrading while paid plans are on.
+fn free_limit_message(state: &AppState) -> String {
+    if state.payments_enabled {
+        email::localize_links("You've used your 20 daily Kevin messages across all channels. Upgrade to Basic at platform.metatron.id/pricing for 200 messages/day.")
+    } else {
+        "You've used your 20 daily Kevin messages across all channels. They reset at midnight UTC.".to_string()
+    }
+}
+
 fn telegram_bot_secret_header_ok(headers: &HeaderMap, expected: &str) -> bool {
     if expected.is_empty() {
         return false;
@@ -276,9 +285,9 @@ async fn inbound_email_process(state: Arc<AppState>, body: InboundEmailRequest) 
             .await;
 
             let limit_body = if !user.is_pro && !user.is_basic {
-                "You've used your 20 daily Kevin messages across all channels. Upgrade to Basic at platform.metatron.id/pricing for 200 messages/day."
+                free_limit_message(&state)
             } else {
-                "You've reached your daily Kevin limit. It resets at midnight UTC."
+                "You've reached your daily Kevin limit. It resets at midnight UTC.".to_string()
             };
 
             email::send_kevin_email_reply(
@@ -287,7 +296,7 @@ async fn inbound_email_process(state: Arc<AppState>, body: InboundEmailRequest) 
                 "kevin@metatron.id",
                 &from_addr,
                 &reply_subject,
-                limit_body,
+                &limit_body,
             )
             .await;
             return;
@@ -673,7 +682,7 @@ Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. 
             .await;
 
             let limit_msg = if !user.is_pro && !user.is_basic {
-                email::localize_links("You've used your 20 daily Kevin messages across all channels. Upgrade to Basic at platform.metatron.id/pricing for 200 messages/day.")
+                free_limit_message(&state)
             } else {
                 "You've reached your daily Kevin limit. It resets at midnight UTC.".to_string()
             };
@@ -958,7 +967,7 @@ Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. 
             .await;
 
             let msg = if !user.is_pro && !user.is_basic {
-                email::localize_links("You've used your 20 daily Kevin messages across all channels. Upgrade to Basic at platform.metatron.id/pricing for 200 messages/day.")
+                free_limit_message(&state)
             } else {
                 "You've reached your daily Kevin limit. It resets at midnight UTC.".to_string()
             };

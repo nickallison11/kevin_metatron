@@ -15,6 +15,7 @@ import {
 } from "@tabler/icons-react";
 import { API_BASE, authHeaders } from "@/lib/api";
 import type { MeResponse } from "@/lib/me";
+import { usePaymentsEnabled } from "@/lib/payments";
 
 type Status = { subscription_status: string; subscription_period_end: string | null; cancel_at_period_end: boolean };
 type Usage = { messages_today: number; daily_limit: number | null };
@@ -223,6 +224,9 @@ export default function AccountMenu({
 
   const name = me ? [me.first_name, me.last_name].filter(Boolean).join(" ").trim() || me.email : "";
   const tier = me?.is_pro ? "Pro" : me?.is_basic ? "Basic" : "Free";
+  const paymentsEnabled = usePaymentsEnabled();
+  // While paid plans are off, Free users get no upgrade link; paid users can still manage.
+  const planLink = tier === "Pro" || (!paymentsEnabled && tier === "Basic") ? "Manage" : paymentsEnabled ? "Upgrade" : null;
   const end = status?.subscription_period_end ? new Date(status.subscription_period_end) : null;
   const periodEnd =
     end && tier !== "Free" && end.getTime() > Date.now()
@@ -261,9 +265,11 @@ export default function AccountMenu({
                 <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--text-muted)]">
                   {planLine}
                 </span>
-                <Link href={`${base}/settings/subscription`} className="text-xs font-semibold text-[var(--accent-fg)] hover:underline">
-                  {tier === "Pro" ? "Manage" : "Upgrade"}
-                </Link>
+                {planLink && (
+                  <Link href={`${base}/settings/subscription`} className="text-xs font-semibold text-[var(--accent-fg)] hover:underline">
+                    {planLink}
+                  </Link>
+                )}
               </div>
               {usage && (
                 <div className="flex flex-col gap-1.5">

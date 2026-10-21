@@ -6,7 +6,7 @@ import { Suspense, useState } from "react";
 
 type Role = "founder" | "investor" | "connector";
 
-// Connector card hidden on the landing page until the connector offer is finalised.
+// Connector hidden on the landing page and sign-up role choice until the connector offer is finalised.
 const HIDDEN_LANDING_ROLES: Role[] = ["connector"];
 
 const ROLES: {
@@ -126,7 +126,7 @@ function OAuthRoleSelector() {
           Select your role
         </h1>
         <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
-          {ROLES.map((r) => (
+          {ROLES.filter((r) => !HIDDEN_LANDING_ROLES.includes(r.id)).map((r) => (
             <button
               key={r.id}
               type="button"
@@ -308,7 +308,7 @@ function LandingPage() {
             Ready to connect?
           </h2>
           <p className="mb-8 text-[15px] leading-relaxed text-[var(--text-muted)]">
-            Kevin from metatron is currently invite-only. Use your invitation link to create an account,
+            Choose founder or investor above to create a free account,
             or sign in if you already have one.
           </p>
           <Link

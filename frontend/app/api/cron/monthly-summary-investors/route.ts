@@ -104,7 +104,7 @@ export async function GET(req: NextRequest) {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          from: "Kevin from metatronAI <kevin@metatron.id>",
+          from: "Kevin from metatron <kevin@metatron.id>",
           to: [inv.email],
           subject: `Your top founder matches for ${summaryData.month_name}`,
           html,

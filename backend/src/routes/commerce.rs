@@ -466,9 +466,9 @@ pub async fn finalize_connector_subscription(
                 state.resend_api_key.as_deref(),
                 &state.email_from,
                 &user_email,
-                "Your metatronAI Basic for Connectors subscription has renewed",
+                "Your Basic for Connectors subscription has renewed",
                 &email::subscription_invoice_email_html(
-                    "metatronAI Basic for Connectors",
+                    "Basic for Connectors",
                     "connector_basic",
                     &period_start_display,
                     &period_end_display,
@@ -483,9 +483,9 @@ pub async fn finalize_connector_subscription(
                 state.resend_api_key.as_deref(),
                 &state.email_from,
                 &user_email,
-                "Your metatronAI Basic for Connectors subscription is active",
+                "Your Basic for Connectors subscription is active",
                 &email::subscription_activated_email_html(
-                    "metatronAI Basic for Connectors",
+                    "Basic for Connectors",
                     "connector_basic",
                     &period_end_display,
                     &format!("{invoice_amount:.2} {currency}"),
@@ -574,7 +574,7 @@ pub async fn finalize_investor_subscription(
     .await
     .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": "internal error" }))))?;
 
-    let plan_name = if plan_level == "pro" { "metatronAI Pro for Investors" } else { "metatronAI Basic for Investors" };
+    let plan_name = if plan_level == "pro" { "Pro for Investors" } else { "Basic for Investors" };
     if let Ok(user_email) = sqlx::query_scalar::<_, String>("SELECT email FROM users WHERE id = $1")
         .bind(user_id)
         .fetch_one(&state.db)
@@ -851,7 +851,7 @@ async fn verify_payment(
 
     let (tier_lower, plan_level) = resolve_finalize_tier_and_level(&state, &data, &metadata)?;
     let (amount_paid, invoice_amount) = amounts_for_billing_and_level(&tier_lower, &plan_level, pay_currency);
-    let plan_name = if plan_level == "pro" { "metatronAI Pro for Founders" } else { "metatronAI Basic for Founders" };
+    let plan_name = if plan_level == "pro" { "Pro for Founders" } else { "Basic for Founders" };
 
     // A prior founder invoice means this user already has a real Paystack
     // Subscription object -- creating another here would double-bill them
@@ -1527,7 +1527,7 @@ async fn finalize_from_paystack_data(
         .unwrap_or("USD");
 
     let (amount_paid, invoice_amount) = amounts_for_billing_and_level(&tier_lower, &plan_level, pay_currency);
-    let plan_name = if plan_level == "pro" { "metatronAI Pro for Founders" } else { "metatronAI Basic for Founders" };
+    let plan_name = if plan_level == "pro" { "Pro for Founders" } else { "Basic for Founders" };
 
     let plan_code = match (plan_level.as_str(), tier_lower.as_str()) {
         ("pro", "annual") => state.paystack_plan_pro_annual.as_str(),
@@ -1664,7 +1664,7 @@ async fn handle_invoice_payment_success(
         .map_err(|(s, _)| s)?;
     } else if let Some((billing, plan_level)) = founder_billing_and_level {
         let (amount_paid, invoice_amount) = amounts_for_billing_and_level(billing, plan_level, "ZAR");
-        let plan_name = if plan_level == "pro" { "metatronAI Pro for Founders" } else { "metatronAI Basic for Founders" };
+        let plan_name = if plan_level == "pro" { "Pro for Founders" } else { "Basic for Founders" };
         finalize_pro_subscription(
             state,
             user_id,
@@ -2127,7 +2127,7 @@ async fn nowpayments_webhook(
 
     let finalize_res: Result<(), (StatusCode, Json<Value>)> = match role.as_str() {
         "founder" => {
-            let plan_name = if plan_level_lc == "pro" { "metatronAI Pro for Founders" } else { "metatronAI Basic for Founders" };
+            let plan_name = if plan_level_lc == "pro" { "Pro for Founders" } else { "Basic for Founders" };
             finalize_pro_subscription(
                 &state,
                 user_id,

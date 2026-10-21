@@ -308,7 +308,7 @@ function LandingPage() {
             Ready to connect?
           </h2>
           <p className="mb-8 text-[15px] leading-relaxed text-[var(--text-muted)]">
-            metatronAI is currently invite-only. Use your invitation link to create an account,
+            Kevin from metatron is currently invite-only. Use your invitation link to create an account,
             or sign in if you already have one.
           </p>
           <Link
@@ -325,7 +325,7 @@ function LandingPage() {
         <div className="mx-auto flex max-w-5xl items-center justify-center gap-3">
           <img src="/metatron-logo.png" alt="metatron" className="h-[28px] w-auto opacity-70" />
           <p className="text-[12px] text-[var(--text-muted)]">
-            © {new Date().getFullYear()} Metatron Labs
+            © {new Date().getFullYear()} metatronAI
           </p>
         </div>
       </footer>

@@ -52,7 +52,7 @@ async fn onboarding_reply(
             .await
             .map_err(|e| e.to_string())?;
 
-            Ok("Welcome to metatron. I'm Kevin, your AI matchmaking agent for founders, connectors and investors.\n\nWhat's your email address?".to_string())
+            Ok("Hi, I'm Kevin from metatron, your AI dealmaker for founders and investors.\n\nWhat's your email address?".to_string())
         }
 
         Some((current_state, email, _role)) => match current_state.as_str() {

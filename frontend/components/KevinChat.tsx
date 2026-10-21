@@ -193,7 +193,7 @@ export default function KevinChat() {
             role: "assistant",
             content:
               limitText.trim() ||
-              "You've used your 20 daily Kevin messages across all channels. Upgrade to metatronAI Basic at platform.metatron.id/pricing for 200 messages/day.",
+              "You've used your 20 daily Kevin messages across all channels. Upgrade to Basic at platform.metatron.id/pricing for 200 messages/day.",
           },
         ]);
         return;

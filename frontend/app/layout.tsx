@@ -17,9 +17,9 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "metatronAI — meet Kevin, the AI dealmaker for founders and investors",
+  title: "Kevin from metatron — the AI dealmaker for founders and investors",
   description:
-    "metatronAI: Kevin matches founders with aligned investors and makes warm introductions.",
+    "Kevin from metatron matches founders with aligned investors and makes warm introductions.",
   icons: {
     icon: [{ url: "/favicon-icon.png", type: "image/png" }],
   },

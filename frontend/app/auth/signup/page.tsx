@@ -1,7 +1,6 @@
 "use client";
 
 import { CardHoverEffect } from "@/components/ui/card-hover-effect";
-import Link from "next/link";
 import { FormEvent, Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { setTokenPair } from "@/lib/tokenStore";
@@ -103,34 +102,6 @@ function dashboardPathForRole(role: string | null): string {
   }
 }
 
-function InviteOnlyMessage() {
-  return (
-    <div className="relative flex min-h-[calc(100vh-88px)] items-center justify-center px-5 py-10">
-      <CardHoverEffect
-        layoutId="metatron-signup-card-hover"
-        className="relative z-[1] w-full max-w-sm"
-      >
-        <div className="w-full space-y-4 rounded-metatron border border-[var(--border)] bg-[var(--bg-card)] p-6 text-center">
-          <h1 className="text-xl font-semibold text-[var(--text)]">
-            This platform is currently invite-only
-          </h1>
-          <p className="text-sm leading-relaxed text-[var(--text-muted)]">
-            New accounts are created through invitation links only. Your link
-            must include both the invite token and the secret code query
-            parameters.
-          </p>
-          <Link
-            href="/login"
-            className="inline-flex w-full items-center justify-center rounded-lg border border-[var(--border)] py-2.5 text-sm font-semibold text-[var(--text)] transition-colors hover:border-metatron-accent/30"
-          >
-            Sign in
-          </Link>
-        </div>
-      </CardHoverEffect>
-    </div>
-  );
-}
-
 function SignupForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -166,10 +137,6 @@ function SignupForm() {
     const selectedRole =
       sessionRole ?? inviteRoleMap[inviteCode.toLowerCase()] ?? null;
     const referralCode = searchParams.get("ref")?.trim() ?? null;
-    if (!inviteCode || !inviteSecret) {
-      setResult("Missing invitation link. Use the full URL you were sent.");
-      return;
-    }
     try {
       const res = await fetch(
         `${process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000"}/auth/register`,
@@ -179,8 +146,8 @@ function SignupForm() {
           body: JSON.stringify({
             email,
             password,
-            invite_code: inviteCode,
-            invite_secret: inviteSecret,
+            ...(inviteCode ? { invite_code: inviteCode } : {}),
+            ...(inviteSecret ? { invite_secret: inviteSecret } : {}),
             ...(selectedRole ? { role: selectedRole } : {}),
             ...(referralCode ? { referral_code: referralCode } : {}),
             email_opt_in: emailOptIn,
@@ -336,15 +303,6 @@ function SignupForm() {
   );
 }
 
-function SignupGate() {
-  const searchParams = useSearchParams();
-  const hasInvite = Boolean(searchParams.get("invite")?.trim());
-  const hasCode = Boolean(searchParams.get("code")?.trim());
-  if (!hasInvite || !hasCode) {
-    return <InviteOnlyMessage />;
-  }
-  return <SignupForm />;
-}
 
 export default function SignupPage() {
   return (
@@ -355,7 +313,7 @@ export default function SignupPage() {
         </div>
       }
     >
-      <SignupGate />
+      <SignupForm />
     </Suspense>
   );
 }

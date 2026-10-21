@@ -201,7 +201,7 @@ export default function SubscriptionInvoiceView({
         <p className="text-center text-xs text-[var(--text-muted)]">
           metatron · platform.metatron.id
         </p>
-        <p className="mt-1 text-center text-xs text-[var(--text-muted)]">Metatron Labs (Pty) Ltd</p>
+        <p className="mt-1 text-center text-xs text-[var(--text-muted)]">Metatron Labs</p>
       </div>
     </>
   );

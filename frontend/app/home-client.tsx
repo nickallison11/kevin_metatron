@@ -328,7 +328,7 @@ function LandingPage() {
         <div className="mx-auto flex max-w-5xl items-center justify-center gap-3">
           <img src="/metatron-logo.png" alt="metatron" className="h-[28px] w-auto opacity-70" />
           <p className="text-[12px] text-[var(--text-muted)]">
-            © {new Date().getFullYear()} Metatron Labs (Pty) Ltd · Kevin AI is a product of metatron
+            © {new Date().getFullYear()} Metatron Labs · Kevin AI is a product of metatron
           </p>
         </div>
       </footer>

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState, type DragEvent } from "react"
 import { IconCheck, IconCircle, IconSparkles, IconUpload } from "@tabler/icons-react";
 import { API_BASE, authHeaders, authJsonHeaders } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { usePaymentsEnabled } from "@/lib/payments";
 import { COUNTRIES } from "@/lib/countries";
 import { STAGES } from "@/lib/stages";
 import { SECTIONS, membersFrom, type Member, type Pitch, type PitchField, type Section } from "@/lib/pitchSections";
@@ -71,6 +72,7 @@ const countryName = (c: string | null | undefined) => COUNTRIES.find((x) => x.co
 
 export default function StartupProfilePage() {
   const { token, isPro, loading: authLoading } = useAuth();
+  const paymentsEnabled = usePaymentsEnabled();
   const [profile, setProfile] = useState<ApiProfile | null>(null);
   const [pitch, setPitch] = useState<Pitch | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -122,7 +124,8 @@ export default function StartupProfilePage() {
 
   const hasDeck = Boolean(profile?.pitch_deck_url?.trim());
   const deckCount = profile?.deck_upload_count ?? 0;
-  const freeDeckUsed = !isPro && deckCount >= 1;
+  // Free founders can replace their deck freely until paid plans launch.
+  const freeDeckUsed = paymentsEnabled && !isPro && deckCount >= 1;
   const members = membersFrom(pitch?.team_members);
   const value = (f: PitchField) => String((pitch?.[f] as string | null | undefined) ?? "").trim();
   const complete = (s: Section) => (s.team ? members.length > 0 : (s.fields ?? []).every((x) => value(x.f)));

@@ -362,7 +362,8 @@ async fn check_deck_upload_allowed(
     })?
     .unwrap_or(0);
 
-    if !is_basic && !is_pro && deck_count >= 1 {
+    // The one-deck limit only applies once paid plans can be bought.
+    if state.payments_enabled && !is_basic && !is_pro && deck_count >= 1 {
         return Err((
             StatusCode::FORBIDDEN,
             Json(json!({

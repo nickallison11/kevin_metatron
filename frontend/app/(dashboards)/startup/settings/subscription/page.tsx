@@ -90,9 +90,6 @@ export default function StartupSubscriptionPage() {
       planFeatures={basicFeatures}
       proName="Pro for Founders"
       proFeatures={proFeatures}
-      zarSubscribeEndpoint="/commerce/subscribe"
-      zarVerifyEndpoint="/commerce/verify"
-      zarTier="founder_basic"
       basePath="/startup/settings/subscription"
       invoices={invoices}
       onVerifySuccess={loadData}

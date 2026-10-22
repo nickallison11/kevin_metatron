@@ -34,35 +34,19 @@ pub struct Settings {
     pub platform_bot_secret: String,
     pub pinata_jwt: Option<String>,
     pub pinata_gateway: Option<String>,
-    pub solana_rpc_url: String,
-    pub solana_treasury: String,
-    pub usdc_mint: Option<String>,
-    pub usdt_mint: Option<String>,
     pub whisper_url: String,
     pub resend_api_key: Option<String>,
     pub email_from: String,
     pub internal_automation_token: Option<String>,
-    pub paystack_secret_key: Option<String>,
-    pub paystack_currency: String,
-    pub paystack_plan_basic_monthly: String,
-    pub paystack_plan_basic_annual: String,
-    pub paystack_connector_plan_basic_monthly: String,
-    pub paystack_connector_plan_basic_annual: String,
-    pub paystack_investor_plan_basic_monthly: String,
-    pub paystack_investor_plan_basic_annual: String,
-    pub paystack_investor_plan_pro_monthly: String,
-    pub paystack_investor_plan_pro_annual: String,
-    pub paystack_plan_pro_monthly: String,
-    pub paystack_plan_pro_annual: String,
-    pub nowpayments_api_key: Option<String>,
-    pub nowpayments_ipn_secret: Option<String>,
-    pub nowpayments_api_base: String,
+    /// Stripe secret key (sk_test_/sk_live_) and webhook signing secret (whsec_).
+    pub stripe_secret_key: Option<String>,
+    pub stripe_webhook_secret: Option<String>,
     pub whatsapp_verify_token: Option<String>,
     pub whatsapp_access_token: Option<String>,
     pub whatsapp_phone_number_id: Option<String>,
     /// When set, signup must include a matching `invite_secret` (shared invite link code).
     pub invite_secret: Option<String>,
-    /// Paid checkout (Paystack, NowPayments) is refused unless PAYMENTS_ENABLED=1.
+    /// Stripe checkout is refused unless PAYMENTS_ENABLED=1.
     pub payments_enabled: bool,
     /// Pinata group IDs for tier-based file organisation. Env: PINATA_GROUP_FREE / PINATA_GROUP_BASIC / PINATA_GROUP_PRO.
     pub pinata_group_free: Option<String>,
@@ -160,16 +144,6 @@ impl Settings {
                 s.to_string()
             })
             .and_then(|s| (!s.is_empty()).then_some(s));
-        let solana_rpc_url = env::var("SOLANA_RPC_URL")
-            .map_err(|_| "SOLANA_RPC_URL must be set".to_string())?;
-        let solana_treasury = env::var("SOLANA_TREASURY")
-            .map_err(|_| "SOLANA_TREASURY must be set".to_string())?;
-        let usdc_mint = env::var("USDC_MINT")
-            .ok()
-            .and_then(|s| (!s.trim().is_empty()).then_some(s));
-        let usdt_mint = env::var("USDT_MINT")
-            .ok()
-            .and_then(|s| (!s.trim().is_empty()).then_some(s));
         let whisper_url =
             env::var("WHISPER_URL").unwrap_or_else(|_| "http://localhost:9000".to_string());
         let resend_api_key = env::var("RESEND_API_KEY")
@@ -184,73 +158,12 @@ impl Settings {
             .ok()
             .and_then(|s| (!s.trim().is_empty()).then_some(s));
 
-        let paystack_secret_key = env::var("PAYSTACK_SECRET_KEY")
+        let stripe_secret_key = env::var("STRIPE_SECRET_KEY")
             .ok()
             .and_then(|s| (!s.trim().is_empty()).then_some(s.trim().to_string()));
-        let paystack_currency = env::var("PAYSTACK_CURRENCY")
-            .ok()
-            .map(|s| s.trim().to_uppercase())
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| "USD".to_string());
-
-        let paystack_plan_basic_monthly = env::var("PAYSTACK_FOUNDER_BASIC_MONTHLY")
-            .unwrap_or_default()
-            .trim()
-            .to_string();
-        let paystack_plan_basic_annual = env::var("PAYSTACK_FOUNDER_BASIC_ANNUAL")
-            .unwrap_or_default()
-            .trim()
-            .to_string();
-        let paystack_connector_plan_basic_monthly =
-            env::var("PAYSTACK_CONNECTOR_PLAN_BASIC_MONTHLY")
-                .unwrap_or_default()
-                .trim()
-                .to_string();
-        let paystack_connector_plan_basic_annual =
-            env::var("PAYSTACK_CONNECTOR_PLAN_BASIC_ANNUAL")
-                .unwrap_or_default()
-                .trim()
-                .to_string();
-        let paystack_investor_plan_basic_monthly =
-            env::var("PAYSTACK_INVESTOR_PLAN_BASIC_MONTHLY")
-                .unwrap_or_default()
-                .trim()
-                .to_string();
-        let paystack_investor_plan_basic_annual =
-            env::var("PAYSTACK_INVESTOR_PLAN_BASIC_ANNUAL")
-                .unwrap_or_default()
-                .trim()
-                .to_string();
-        let paystack_plan_pro_monthly = env::var("PAYSTACK_FOUNDER_PRO_MONTHLY")
-            .unwrap_or_default()
-            .trim()
-            .to_string();
-        let paystack_plan_pro_annual = env::var("PAYSTACK_FOUNDER_PRO_ANNUAL")
-            .unwrap_or_default()
-            .trim()
-            .to_string();
-        let paystack_investor_plan_pro_monthly =
-            env::var("PAYSTACK_INVESTOR_PLAN_PRO_MONTHLY")
-                .unwrap_or_default()
-                .trim()
-                .to_string();
-        let paystack_investor_plan_pro_annual =
-            env::var("PAYSTACK_INVESTOR_PLAN_PRO_ANNUAL")
-                .unwrap_or_default()
-                .trim()
-                .to_string();
-
-        let nowpayments_api_key = env::var("NOWPAYMENTS_API_KEY")
+        let stripe_webhook_secret = env::var("STRIPE_WEBHOOK_SECRET")
             .ok()
             .and_then(|s| (!s.trim().is_empty()).then_some(s.trim().to_string()));
-        let nowpayments_ipn_secret = env::var("NOWPAYMENTS_IPN_SECRET")
-            .ok()
-            .and_then(|s| (!s.trim().is_empty()).then_some(s.trim().to_string()));
-        let nowpayments_api_base = env::var("NOWPAYMENTS_API_BASE")
-            .ok()
-            .map(|s| s.trim_end_matches('/').to_string())
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| "https://api.nowpayments.io".to_string());
 
         let whatsapp_verify_token = env::var("WHATSAPP_VERIFY_TOKEN")
             .ok()
@@ -348,29 +261,12 @@ impl Settings {
             platform_bot_secret,
             pinata_jwt,
             pinata_gateway,
-            solana_rpc_url,
-            solana_treasury,
-            usdc_mint,
-            usdt_mint,
             whisper_url,
             resend_api_key,
             email_from,
             internal_automation_token,
-            paystack_secret_key,
-            paystack_currency,
-            paystack_plan_basic_monthly,
-            paystack_plan_basic_annual,
-            paystack_connector_plan_basic_monthly,
-            paystack_connector_plan_basic_annual,
-            paystack_investor_plan_basic_monthly,
-            paystack_investor_plan_basic_annual,
-            paystack_investor_plan_pro_monthly,
-            paystack_investor_plan_pro_annual,
-            paystack_plan_pro_monthly,
-            paystack_plan_pro_annual,
-            nowpayments_api_key,
-            nowpayments_ipn_secret,
-            nowpayments_api_base,
+            stripe_secret_key,
+            stripe_webhook_secret,
             whatsapp_verify_token,
             whatsapp_access_token,
             whatsapp_phone_number_id,

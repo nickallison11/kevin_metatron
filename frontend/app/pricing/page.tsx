@@ -120,56 +120,23 @@ export default function PricingPage() {
 }
 
 /**
- * One button per payment option available in the visitor's currency. The
- * first option is the primary button. Paystack either starts checkout here
- * (`onPaystack`) or links to the role's subscription settings (`paystackHref`).
+ * The pay button(s) for a plan card. Checkout itself happens on the signed-in
+ * subscription page (Stripe), so these link there, or to sign-up first.
  */
-function PayButtons({
-  options,
-  loading,
-  onPaystack,
-  paystackHref,
-  onNowpayments,
-  primaryId,
-}: {
-  options: PaymentOption[];
-  loading: boolean;
-  onPaystack?: () => void;
-  paystackHref?: string;
-  onNowpayments: () => void;
-  primaryId?: string;
-}) {
+function PayButtons({ options, href }: { options: PaymentOption[]; href: string }) {
   return (
     <div className="mt-6 flex flex-col gap-3">
-      {options.map((opt, i) => {
-        const className = `inline-flex w-full items-center justify-center rounded-[12px] px-4 py-2.5 text-sm font-semibold transition-colors disabled:opacity-60 ${
-          i === 0
-            ? "bg-metatron-accent text-white hover:bg-metatron-accent-hover"
-            : "border border-[var(--border)] text-[var(--text)] hover:border-metatron-accent/30"
-        }`;
-        return (
-          <div key={opt.method}>
-            {opt.method === "paystack" && paystackHref ? (
-              <Link href={paystackHref} className={className}>
-                {opt.label}
-              </Link>
-            ) : (
-              <button
-                id={i === 0 ? primaryId : undefined}
-                type="button"
-                onClick={opt.method === "paystack" ? onPaystack : onNowpayments}
-                disabled={loading}
-                className={className}
-              >
-                {loading ? "Redirecting..." : opt.label}
-              </button>
-            )}
-            <p className="mt-1.5 text-center text-[10px] text-[var(--text-muted)]">
-              {opt.note}
-            </p>
-          </div>
-        );
-      })}
+      {options.map((opt) => (
+        <div key={opt.method}>
+          <Link
+            href={href}
+            className="inline-flex w-full items-center justify-center rounded-[12px] bg-metatron-accent px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-metatron-accent-hover"
+          >
+            {opt.label}
+          </Link>
+          <p className="mt-1.5 text-center text-[10px] text-[var(--text-muted)]">{opt.note}</p>
+        </div>
+      ))}
     </div>
   );
 }
@@ -180,8 +147,6 @@ function PricingPageInner() {
   const { currency, currencies, setCurrency } = useRegionalCurrency();
   const paymentsEnabled = usePaymentsEnabled();
   const [billing, setBilling] = useState<Billing>("monthly");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<string | null>(null);
 
   const decodeRoleFromJwt = useCallback((t: string): string | null => {
@@ -235,20 +200,6 @@ function PricingPageInner() {
     } = { current: undefined };
 
     const run = async () => {
-      const reference = searchParams.get("reference");
-      if (reference && token) {
-        try {
-          await fetch(`${API_BASE}/commerce/verify`, {
-            method: "POST",
-            headers: authJsonHeaders(token),
-            body: JSON.stringify({ reference }),
-          });
-        } catch {
-          /* continue to poll */
-        }
-      }
-      if (cancelled) return;
-
       const tryRedirectIfActive = async (): Promise<boolean> => {
         try {
           const res = await fetch(`${API_BASE}/subscriptions/status`, {
@@ -296,92 +247,8 @@ function PricingPageInner() {
     };
   }, [searchParams, router, decodeRoleFromJwt, dashboardPathForRole]);
 
-  const handleNowpaymentsSubscribe = useCallback(
-    async (
-      role: "founder" | "investor" | "connector",
-      bill: Billing,
-      plan: "basic" | "pro" = "basic",
-    ) => {
-      const authToken = getAccessToken();
-      if (!authToken) {
-        router.push("/login");
-        return;
-      }
-      setLoading(true);
-      setError(null);
-      try {
-        const res = await fetch(`${API_BASE}/commerce/nowpayments/subscribe`, {
-          method: "POST",
-          headers: authJsonHeaders(authToken),
-          body: JSON.stringify({
-            billing: bill,
-            role,
-            plan,
-            currency: currency === "EUR" ? "EUR" : "USD",
-          }),
-        });
-        const data = (await res.json().catch(() => ({}))) as {
-          invoice_url?: string;
-          error?: string;
-        };
-        if (data.invoice_url) {
-          window.location.href = data.invoice_url;
-        } else {
-          throw new Error(data.error || "Could not start checkout.");
-        }
-      } catch (e) {
-        setError(
-          e instanceof Error ? e.message : "Could not start checkout.",
-        );
-      } finally {
-        setLoading(false);
-      }
-    },
-    [router, currency],
-  );
-
-  const handleZarSubscribe = useCallback(
-    async (zarTier: "founder_basic" | "founder_pro" = "founder_basic") => {
-      const authToken = getAccessToken();
-      if (!authToken) {
-        router.push("/login");
-        return;
-      }
-      setLoading(true);
-      setError(null);
-      try {
-        const res = await fetch(`${API_BASE}/commerce/subscribe`, {
-          method: "POST",
-          headers: authJsonHeaders(authToken),
-          body: JSON.stringify({
-            tier: zarTier,
-            billing,
-            currency: "ZAR",
-          }),
-        });
-        const data = (await res.json()) as {
-          hosted_url?: string;
-          error?: string;
-        };
-        if (!res.ok) {
-          throw new Error(data?.error || "Payment failed");
-        }
-        if (!data.hosted_url) {
-          throw new Error("Payment failed");
-        }
-        window.location.href = data.hosted_url;
-      } catch (e) {
-        setError(
-          e instanceof Error
-            ? e.message
-            : "Payment failed. Please try again.",
-        );
-      } finally {
-        setLoading(false);
-      }
-    },
-    [router, billing],
-  );
+  // Signed-in users subscribe from their own subscription page; visitors sign up first.
+  const planHref = userRole ? `${dashboardPathForRole(userRole)}/settings/subscription` : "/";
 
   if (
     searchParams.get("success") === "1" &&
@@ -437,7 +304,8 @@ function PricingPageInner() {
   const freePrice = formatAmount(0, currency);
 
   const showFounder = !userRole || userRole === "STARTUP";
-  const showConnector = !userRole || userRole === "INTERMEDIARY";
+  // Connector plans come later.
+  const showConnector = false;
   const showInvestor = !userRole || userRole === "INVESTOR";
 
   return (
@@ -529,15 +397,7 @@ function PricingPageInner() {
                 {basicDisplay.unit}
               </span>
             </p>
-            <PayButtons
-              options={basicOptions}
-              loading={loading}
-              primaryId="btn-subscribe-founder-basic"
-              onPaystack={() => void handleZarSubscribe()}
-              onNowpayments={() =>
-                void handleNowpaymentsSubscribe("founder", billing)
-              }
-            />
+            <PayButtons options={basicOptions} href={planHref} />
             <div className="my-6 border-t border-[var(--border)]" />
             <ul className="flex flex-col gap-3">
               {basicFeatures.map((f) => (
@@ -562,14 +422,7 @@ function PricingPageInner() {
                 {proDisplay.unit}
               </span>
             </p>
-            <PayButtons
-              options={proOptions}
-              loading={loading}
-              onPaystack={() => void handleZarSubscribe("founder_pro")}
-              onNowpayments={() =>
-                void handleNowpaymentsSubscribe("founder", billing, "pro")
-              }
-            />
+            <PayButtons options={proOptions} href={planHref} />
             <div className="my-6 border-t border-[var(--border)]" />
             <ul className="flex flex-col gap-3">
               {founderProFeatures.map((f) => (
@@ -630,14 +483,7 @@ function PricingPageInner() {
                   {basicDisplay.unit}
                 </span>
               </p>
-              <PayButtons
-                options={basicOptions}
-                loading={loading}
-                paystackHref="/connector/settings/subscription"
-                onNowpayments={() =>
-                  void handleNowpaymentsSubscribe("connector", billing)
-                }
-              />
+              <PayButtons options={basicOptions} href={planHref} />
               <div className="my-6 border-t border-[var(--border)]" />
               <ul className="flex flex-col gap-3">
                 {connectorBasicFeatures.map((f) => (
@@ -734,14 +580,7 @@ function PricingPageInner() {
                   {basicDisplay.unit}
                 </span>
               </p>
-              <PayButtons
-                options={basicOptions}
-                loading={loading}
-                paystackHref="/investor/settings/subscription"
-                onNowpayments={() =>
-                  void handleNowpaymentsSubscribe("investor", billing)
-                }
-              />
+              <PayButtons options={basicOptions} href={planHref} />
               <div className="my-6 border-t border-[var(--border)]" />
               <ul className="flex flex-col gap-3">
                 {investorBasicFeatures.map((f) => (
@@ -765,14 +604,7 @@ function PricingPageInner() {
                   {proDisplay.unit}
                 </span>
               </p>
-              <PayButtons
-                options={proOptions}
-                loading={loading}
-                paystackHref="/investor/settings/subscription"
-                onNowpayments={() =>
-                  void handleNowpaymentsSubscribe("investor", billing, "pro")
-                }
-              />
+              <PayButtons options={proOptions} href={planHref} />
               <div className="my-6 border-t border-[var(--border)]" />
               <ul className="flex flex-col gap-3">
                 {investorProFeatures.map((f) => (
@@ -787,11 +619,6 @@ function PricingPageInner() {
         <p className="mt-8 text-center text-sm text-[var(--text-muted)]">
           {checkoutFootnote(currency)}
         </p>
-        {error && (
-          <p className="mt-3 text-center text-sm text-[var(--text-muted)]">
-            {error}
-          </p>
-        )}
       </div>
     </main>
   );

@@ -44,9 +44,6 @@ export type SubscriptionPricingContentProps = {
   planFeatures: string[];
   proName: string;
   proFeatures: string[];
-  zarSubscribeEndpoint: string;
-  zarVerifyEndpoint: string;
-  zarTier: string;
   basePath: string;
   invoices: InvoiceRow[];
   extraPaidInfo?: React.ReactNode;
@@ -142,8 +139,9 @@ function PlanCard({
   features,
   options,
   submitting,
-  onPaystack,
-  onNowpayments,
+  onSubscribe,
+  actionLabel,
+  actionNote,
   featured = false,
   status = "available",
 }: {
@@ -154,8 +152,10 @@ function PlanCard({
   features: string[];
   options: PaymentOption[];
   submitting: boolean;
-  onPaystack: () => void;
-  onNowpayments: () => void;
+  onSubscribe: () => void;
+  /** Overrides the button text and note, e.g. "Upgrade to Pro" for Basic subscribers. */
+  actionLabel?: string;
+  actionNote?: string;
   /** Highlighted border and "Most popular" badge, as on /pricing. */
   featured?: boolean;
   /** "current" and "coming-soon" cards show a badge instead of pay buttons. */
@@ -202,7 +202,7 @@ function PlanCard({
           <div key={opt.method}>
             <button
               type="button"
-              onClick={opt.method === "paystack" ? onPaystack : onNowpayments}
+              onClick={onSubscribe}
               disabled={submitting}
               className={`inline-flex w-full items-center justify-center rounded-[12px] px-4 py-2.5 text-sm font-semibold transition-colors disabled:opacity-60 ${
                 i === 0
@@ -210,10 +210,10 @@ function PlanCard({
                   : "border border-[var(--border)] text-[var(--text)] hover:border-metatron-accent/30"
               }`}
             >
-              {submitting ? "Redirecting…" : opt.label}
+              {submitting ? "Redirecting…" : actionLabel ?? opt.label}
             </button>
             <p className="mt-1.5 text-center text-[10px] text-[var(--text-muted)]">
-              {opt.note}
+              {actionNote ?? opt.note}
             </p>
           </div>
         ))}
@@ -240,9 +240,6 @@ export default function SubscriptionPricingContent(
     planFeatures,
     proName,
     proFeatures,
-    zarSubscribeEndpoint,
-    zarVerifyEndpoint,
-    zarTier,
     basePath,
     invoices,
     extraPaidInfo,
@@ -257,280 +254,70 @@ export default function SubscriptionPricingContent(
   const [verifying, setVerifying] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
-  const [showDowngradeChoice, setShowDowngradeChoice] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined" || !token) return;
     const params = new URLSearchParams(window.location.search);
     if (params.get("success") !== "1") return;
-    const reference = params.get("reference")?.trim() ?? "";
 
+    // Back from Stripe Checkout: the webhook activates the plan within a few
+    // seconds, so reload the status a few times.
     let cancelled = false;
-
-    const runPaystackVerify = async (reference: string) => {
-      setVerifying(true);
-      setError(null);
-      try {
-        const res = await fetch(`${API_BASE}${zarVerifyEndpoint}`, {
-          method: "POST",
-          headers: authJsonHeaders(token),
-          body: JSON.stringify({ reference }),
-        });
-        if (!res.ok) {
-          const data = (await res.json().catch(() => ({}))) as {
-            error?: string;
-          };
-          throw new Error(data.error || "Could not verify payment.");
-        }
-        if (!cancelled) {
-          onVerifySuccess();
-          window.history.replaceState({}, "", basePath);
-        }
-      } catch (e) {
-        if (!cancelled) {
-          setError(
-            e instanceof Error ? e.message : "Could not verify payment.",
-          );
-        }
-      } finally {
-        if (!cancelled) setVerifying(false);
-      }
-    };
-
-    if (reference.length > 0) {
-      void runPaystackVerify(reference);
-    } else {
-      setVerifying(true);
-      setError(null);
-      void (async () => {
-        try {
-          if (!cancelled) {
-            onVerifySuccess();
-            window.history.replaceState({}, "", basePath);
-          }
-        } finally {
-          if (!cancelled) setVerifying(false);
-        }
-      })();
-    }
-
+    setVerifying(true);
+    setError(null);
+    window.history.replaceState({}, "", basePath);
+    onVerifySuccess();
+    const timers = [2000, 5000, 10000].map((ms, i, all) =>
+      setTimeout(() => {
+        if (cancelled) return;
+        onVerifySuccess();
+        if (i === all.length - 1) setVerifying(false);
+      }, ms),
+    );
     return () => {
       cancelled = true;
+      timers.forEach(clearTimeout);
     };
-  }, [token, zarVerifyEndpoint, basePath, onVerifySuccess]);
+  }, [token, basePath, onVerifySuccess]);
 
-  const handleZarSubscribe = useCallback(
-    async (bill: "monthly" | "annual") => {
+  // New subscriptions go through Stripe Checkout; Stripe redirects back here.
+  const handleStripeSubscribe = useCallback(
+    async (plan: "basic" | "pro") => {
+      if (!currency) return;
       setSubmitting(true);
       setError(null);
       try {
-        const body =
-          zarTier === "founder_basic"
-            ? { tier: zarTier, billing: bill, currency: "ZAR" }
-            : { billing: bill };
-        const res = await fetch(`${API_BASE}${zarSubscribeEndpoint}`, {
+        const res = await fetch(`${API_BASE}/commerce/stripe/checkout`, {
           method: "POST",
           headers: authJsonHeaders(token),
-          body: JSON.stringify(body),
+          body: JSON.stringify({ plan, billing, currency }),
         });
-        const data = (await res.json().catch(() => ({}))) as {
-          hosted_url?: string;
-          error?: string;
-        };
-        if (!res.ok) throw new Error(data.error || "Could not start checkout.");
-        if (!data.hosted_url) throw new Error("Missing checkout URL.");
-        window.location.href = data.hosted_url;
+        const data = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
+        if (!res.ok || !data.url) throw new Error(data.error || "Could not start checkout.");
+        window.location.href = data.url;
       } catch (e) {
-        setError(
-          e instanceof Error ? e.message : "Could not start checkout.",
-        );
-      } finally {
+        setError(e instanceof Error ? e.message : "Could not start checkout.");
         setSubmitting(false);
       }
     },
-    [token, zarSubscribeEndpoint, zarTier],
+    [token, billing, currency],
   );
 
-  const handleZarProSubscribe = useCallback(
-    async (bill: "monthly" | "annual") => {
-      setSubmitting(true);
-      setError(null);
-      try {
-        const proTier = role === "INVESTOR" ? "pro" : "founder_pro";
-        const res = await fetch(`${API_BASE}${zarSubscribeEndpoint}`, {
-          method: "POST",
-          headers: authJsonHeaders(token),
-          body: JSON.stringify({ tier: proTier, billing: bill, currency: "ZAR" }),
-        });
-        const data = (await res.json().catch(() => ({}))) as {
-          hosted_url?: string;
-          error?: string;
-        };
-        if (!res.ok) throw new Error(data.error || "Could not start checkout.");
-        if (!data.hosted_url) throw new Error("Missing checkout URL.");
-        window.location.href = data.hosted_url;
-      } catch (e) {
-        setError(
-          e instanceof Error ? e.message : "Could not start checkout.",
-        );
-      } finally {
-        setSubmitting(false);
-      }
-    },
-    [token, zarSubscribeEndpoint, role],
-  );
-
-  const handleNowpaymentsSubscribe = useCallback(
-    async (bill: "monthly" | "annual") => {
-      setSubmitting(true);
-      setError(null);
-      try {
-        const res = await fetch(`${API_BASE}/commerce/nowpayments/subscribe`, {
-          method: "POST",
-          headers: authJsonHeaders(token),
-          body: JSON.stringify({
-            billing: bill,
-            role: zarTier.replace(/_basic$/, ""),
-            currency: currency === "EUR" ? "EUR" : "USD",
-          }),
-        });
-        const data = (await res.json().catch(() => ({}))) as {
-          invoice_url?: string;
-          error?: string;
-        };
-        if (!res.ok) {
-          throw new Error(data.error || "Could not start checkout.");
-        }
-        if (data.invoice_url) {
-          window.location.href = data.invoice_url;
-        } else {
-          throw new Error("Missing checkout URL.");
-        }
-      } catch (e) {
-        setError(
-          e instanceof Error ? e.message : "Could not start checkout.",
-        );
-      } finally {
-        setSubmitting(false);
-      }
-    },
-    [token, zarTier, currency],
-  );
-
-  const handleNowpaymentsProSubscribe = useCallback(
-    async (bill: "monthly" | "annual") => {
-      setSubmitting(true);
-      setError(null);
-      try {
-        const nowpaymentsRole = role === "INVESTOR" ? "investor" : "founder";
-        const res = await fetch(`${API_BASE}/commerce/nowpayments/subscribe`, {
-          method: "POST",
-          headers: authJsonHeaders(token),
-          body: JSON.stringify({
-            billing: bill,
-            role: nowpaymentsRole,
-            plan: "pro",
-            currency: currency === "EUR" ? "EUR" : "USD",
-          }),
-        });
-        const data = (await res.json().catch(() => ({}))) as {
-          invoice_url?: string;
-          error?: string;
-        };
-        if (!res.ok) throw new Error(data.error || "Could not start checkout.");
-        if (data.invoice_url) {
-          window.location.href = data.invoice_url;
-        } else {
-          throw new Error("Missing checkout URL.");
-        }
-      } catch (e) {
-        setError(
-          e instanceof Error ? e.message : "Could not start checkout.",
-        );
-      } finally {
-        setSubmitting(false);
-      }
-    },
-    [token, role, currency],
-  );
-
-  const onCancel = async () => {
-    if (
-      !confirm(
-        "Cancel your subscription at the end of this billing period?",
-      )
-    )
-      return;
-    setActionBusy(true);
-    try {
-      const res = await fetch(`${API_BASE}/subscriptions/cancel`, {
-        method: "POST",
-        headers: authJsonHeaders(token),
-      });
-      if (res.ok) onVerifySuccess();
-    } finally {
-      setActionBusy(false);
-    }
-  };
-
-  const onUndo = async () => {
-    if (
-      !confirm(
-        "Keep your subscription and remove the scheduled cancellation?",
-      )
-    )
-      return;
-    setActionBusy(true);
-    try {
-      const res = await fetch(`${API_BASE}/subscriptions/cancel`, {
-        method: "DELETE",
-        headers: authJsonHeaders(token),
-      });
-      if (res.ok) onVerifySuccess();
-    } finally {
-      setActionBusy(false);
-    }
-  };
-
-  const onDowngrade = async () => {
-    if (
-      !confirm(
-        "Move to Basic at the end of this billing period? You'll keep full Pro access until then.",
-      )
-    )
-      return;
+  // Plan changes, card updates, invoices and cancellation live in Stripe's portal.
+  const openPortal = async (change?: { plan: "basic" | "pro"; billing: Billing }) => {
     setActionBusy(true);
     setError(null);
     try {
-      const res = await fetch(`${API_BASE}/subscriptions/downgrade`, {
+      const res = await fetch(`${API_BASE}/commerce/stripe/portal`, {
         method: "POST",
         headers: authJsonHeaders(token),
+        body: JSON.stringify(change ?? {}),
       });
-      if (res.ok) {
-        setShowDowngradeChoice(false);
-        onVerifySuccess();
-      } else {
-        const data = (await res.json().catch(() => ({}))) as {
-          error?: string;
-        };
-        setError(data.error || "Could not schedule downgrade.");
-      }
-    } finally {
-      setActionBusy(false);
-    }
-  };
-
-  const onUndoDowngrade = async () => {
-    if (!confirm("Stay on Pro and remove the scheduled downgrade to Basic?"))
-      return;
-    setActionBusy(true);
-    try {
-      const res = await fetch(`${API_BASE}/subscriptions/downgrade`, {
-        method: "DELETE",
-        headers: authJsonHeaders(token),
-      });
-      if (res.ok) onVerifySuccess();
-    } finally {
+      const data = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
+      if (!res.ok || !data.url) throw new Error(data.error || "Could not open billing.");
+      window.location.href = data.url;
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not open billing.");
       setActionBusy(false);
     }
   };
@@ -602,86 +389,24 @@ export default function SubscriptionPricingContent(
                 Active until: {formatDate(subMeta.periodEnd)}
               </p>
             )}
-            {subMeta && (
-              <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-                {subMeta.pendingDowngradeTo === "basic" ? (
-                  <>
-                    <p className="text-sm text-[var(--text-muted)]">
-                      Downgrade scheduled — moves to Basic on{" "}
-                      {formatDate(subMeta.periodEnd)}
-                    </p>
-                    <button
-                      type="button"
-                      disabled={actionBusy}
-                      onClick={() => void onUndoDowngrade()}
-                      className="rounded-[12px] bg-metatron-accent px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-metatron-accent-hover disabled:opacity-60"
-                    >
-                      Stay on Pro
-                    </button>
-                  </>
-                ) : subMeta.cancelAtPeriodEnd ? (
-                  <>
-                    <p className="text-sm text-[var(--text-muted)]">
-                      Cancellation scheduled — access ends{" "}
-                      {formatDate(subMeta.periodEnd)}
-                    </p>
-                    <button
-                      type="button"
-                      disabled={actionBusy}
-                      onClick={() => void onUndo()}
-                      className="rounded-[12px] bg-metatron-accent px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-metatron-accent-hover disabled:opacity-60"
-                    >
-                      Undo cancellation
-                    </button>
-                  </>
-                ) : planLevel === "pro" && !showDowngradeChoice ? (
-                  <button
-                    type="button"
-                    disabled={actionBusy}
-                    onClick={() => setShowDowngradeChoice(true)}
-                    className="rounded-[12px] border border-[var(--border)] px-4 py-2 text-sm font-semibold text-[var(--text)] transition-colors hover:border-metatron-accent/30 disabled:opacity-60"
-                  >
-                    Cancel or downgrade
-                  </button>
-                ) : planLevel === "pro" && showDowngradeChoice ? (
-                  <>
-                    <button
-                      type="button"
-                      disabled={actionBusy}
-                      onClick={() => void onDowngrade()}
-                      className="rounded-[12px] bg-metatron-accent px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-metatron-accent-hover disabled:opacity-60"
-                    >
-                      Downgrade to Basic
-                    </button>
-                    <button
-                      type="button"
-                      disabled={actionBusy}
-                      onClick={() => void onCancel()}
-                      className="rounded-[12px] border border-[var(--border)] px-4 py-2 text-sm font-semibold text-[var(--text)] transition-colors hover:border-metatron-accent/30 disabled:opacity-60"
-                    >
-                      Cancel completely
-                    </button>
-                    <button
-                      type="button"
-                      disabled={actionBusy}
-                      onClick={() => setShowDowngradeChoice(false)}
-                      className="text-sm text-[var(--text-muted)] hover:text-[var(--text)]"
-                    >
-                      Never mind
-                    </button>
-                  </>
-                ) : (
-                  <button
-                    type="button"
-                    disabled={actionBusy}
-                    onClick={() => void onCancel()}
-                    className="rounded-[12px] border border-[var(--border)] px-4 py-2 text-sm font-semibold text-[var(--text)] transition-colors hover:border-metatron-accent/30 disabled:opacity-60"
-                  >
-                    Cancel at end of term
-                  </button>
-                )}
-              </div>
+            {subMeta?.cancelAtPeriodEnd && (
+              <p className="mt-2 text-sm text-[var(--text-muted)]">
+                Cancellation scheduled — access ends {formatDate(subMeta.periodEnd)}
+              </p>
             )}
+            <div className="mt-4">
+              <button
+                type="button"
+                disabled={actionBusy}
+                onClick={() => void openPortal()}
+                className="rounded-[12px] border border-[var(--border)] px-4 py-2 text-sm font-semibold text-[var(--text)] transition-colors hover:border-metatron-accent/30 disabled:opacity-60"
+              >
+                {actionBusy ? "Opening…" : "Manage billing"}
+              </button>
+              <p className="mt-1.5 text-xs text-[var(--text-muted)]">
+                Change plan, update your card, download invoices or cancel.
+              </p>
+            </div>
           </>
         ) : (
           <p className="mt-3 text-lg font-semibold text-[var(--text)]">
@@ -757,8 +482,7 @@ export default function SubscriptionPricingContent(
               submitting={submitting}
               featured
               status={planLevel === "basic" ? "current" : "available"}
-              onPaystack={() => void handleZarSubscribe(billing)}
-              onNowpayments={() => void handleNowpaymentsSubscribe(billing)}
+              onSubscribe={() => void handleStripeSubscribe("basic")}
             />
             <PlanCard
               label={proName}
@@ -767,8 +491,17 @@ export default function SubscriptionPricingContent(
               features={proFeatures}
               submitting={submitting}
               status={roleHasProTier ? "available" : "coming-soon"}
-              onPaystack={() => void handleZarProSubscribe(billing)}
-              onNowpayments={() => void handleNowpaymentsProSubscribe(billing)}
+              onSubscribe={() =>
+                planLevel === "basic"
+                  ? void openPortal({ plan: "pro", billing })
+                  : void handleStripeSubscribe("pro")
+              }
+              actionLabel={planLevel === "basic" ? "Upgrade to Pro" : undefined}
+              actionNote={
+                planLevel === "basic"
+                  ? "Confirm in Stripe · you pay only the difference for this period"
+                  : undefined
+              }
             />
           </div>
 

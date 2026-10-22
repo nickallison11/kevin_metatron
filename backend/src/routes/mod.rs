@@ -28,7 +28,7 @@ pub mod pools;
 pub mod profile;
 pub mod ratings;
 pub mod reviewer_accounts;
-pub mod subscription_finalize;
+pub mod stripe_billing;
 pub mod subscriptions;
 pub mod uploads;
 pub mod unsubscribe;

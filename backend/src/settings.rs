@@ -34,7 +34,6 @@ pub struct Settings {
     pub platform_bot_secret: String,
     pub pinata_jwt: Option<String>,
     pub pinata_gateway: Option<String>,
-    pub solana_rpc_url: String,
     pub whisper_url: String,
     pub resend_api_key: Option<String>,
     pub email_from: String,
@@ -145,8 +144,6 @@ impl Settings {
                 s.to_string()
             })
             .and_then(|s| (!s.is_empty()).then_some(s));
-        let solana_rpc_url = env::var("SOLANA_RPC_URL")
-            .map_err(|_| "SOLANA_RPC_URL must be set".to_string())?;
         let whisper_url =
             env::var("WHISPER_URL").unwrap_or_else(|_| "http://localhost:9000".to_string());
         let resend_api_key = env::var("RESEND_API_KEY")
@@ -264,7 +261,6 @@ impl Settings {
             platform_bot_secret,
             pinata_jwt,
             pinata_gateway,
-            solana_rpc_url,
             whisper_url,
             resend_api_key,
             email_from,

@@ -195,15 +195,24 @@ async fn create_checkout(
     Ok(Json(json!({ "url": url })))
 }
 
+#[derive(Deserialize)]
+struct PortalBody {
+    /// With plan + billing, the portal opens straight on confirming that change
+    /// (e.g. Basic -> Pro); otherwise it opens on the overview.
+    plan: Option<String>,
+    billing: Option<String>,
+}
+
 async fn create_portal(
     State(state): State<Arc<AppState>>,
     TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+    body: Option<Json<PortalBody>>,
 ) -> Result<Json<Value>, ApiError> {
     let user = require_user(&state, bearer.token())
         .await
         .map_err(|(s, m)| err(s, &m))?;
-    let customer_id: Option<String> =
-        sqlx::query_scalar("SELECT stripe_customer_id FROM users WHERE id = $1")
+    let (customer_id, subscription_id): (Option<String>, Option<String>) =
+        sqlx::query_as("SELECT stripe_customer_id, stripe_subscription_id FROM users WHERE id = $1")
             .bind(user.id)
             .fetch_one(&state.db)
             .await
@@ -216,13 +225,45 @@ async fn create_portal(
         crate::email::frontend_url(),
         role_path(&user.role)
     );
-    let session = stripe_call(
-        &state,
-        reqwest::Method::POST,
-        "billing_portal/sessions",
-        &[("customer", customer_id), ("return_url", return_url)],
-    )
-    .await?;
+    let mut form = vec![("customer", customer_id), ("return_url", return_url.clone())];
+
+    let change = body.as_ref().and_then(|Json(b)| {
+        let plan = b.plan.as_deref()?.trim().to_ascii_lowercase();
+        let billing = b.billing.as_deref()?.trim().to_ascii_lowercase();
+        (matches!(plan.as_str(), "basic" | "pro") && matches!(billing.as_str(), "monthly" | "annual"))
+            .then_some((plan, billing))
+    });
+    if let (Some((plan, billing)), Some(sub_id)) = (change, subscription_id) {
+        require_payments_enabled(&state)?;
+        // Stay in the subscription's own currency; Stripe can't switch it mid-subscription.
+        let sub = stripe_call(&state, reqwest::Method::GET, &format!("subscriptions/{sub_id}"), &[]).await?;
+        let item = &sub["items"]["data"][0];
+        let item_id = item["id"].as_str().unwrap_or("").to_string();
+        let currency = item["price"]["currency"].as_str().unwrap_or("usd").to_string();
+        let lookup_key = format!("{plan}_{billing}_{currency}");
+        let prices = stripe_call(
+            &state,
+            reqwest::Method::GET,
+            "prices",
+            &[("lookup_keys[]", lookup_key.clone()), ("active", "true".into())],
+        )
+        .await?;
+        let price_id = prices["data"][0]["id"].as_str().unwrap_or("").to_string();
+        if item_id.is_empty() || price_id.is_empty() {
+            tracing::error!("stripe portal: cannot build plan change to {lookup_key}");
+            return Err(err(StatusCode::SERVICE_UNAVAILABLE, "That plan isn't available right now."));
+        }
+        form.extend([
+            ("flow_data[type]", "subscription_update_confirm".to_string()),
+            ("flow_data[subscription_update_confirm][subscription]", sub_id),
+            ("flow_data[subscription_update_confirm][items][0][id]", item_id),
+            ("flow_data[subscription_update_confirm][items][0][price]", price_id),
+            ("flow_data[after_completion][type]", "redirect".to_string()),
+            ("flow_data[after_completion][redirect][return_url]", format!("{return_url}?success=1")),
+        ]);
+    }
+
+    let session = stripe_call(&state, reqwest::Method::POST, "billing_portal/sessions", &form).await?;
     let url = session["url"]
         .as_str()
         .ok_or_else(|| err(StatusCode::BAD_GATEWAY, "Payment provider error."))?;

@@ -143,6 +143,8 @@ function PlanCard({
   options,
   submitting,
   onSubscribe,
+  actionLabel,
+  actionNote,
   featured = false,
   status = "available",
 }: {
@@ -154,6 +156,9 @@ function PlanCard({
   options: PaymentOption[];
   submitting: boolean;
   onSubscribe: () => void;
+  /** Overrides the button text and note, e.g. "Upgrade to Pro" for Basic subscribers. */
+  actionLabel?: string;
+  actionNote?: string;
   /** Highlighted border and "Most popular" badge, as on /pricing. */
   featured?: boolean;
   /** "current" and "coming-soon" cards show a badge instead of pay buttons. */
@@ -208,10 +213,10 @@ function PlanCard({
                   : "border border-[var(--border)] text-[var(--text)] hover:border-metatron-accent/30"
               }`}
             >
-              {submitting ? "Redirecting…" : opt.label}
+              {submitting ? "Redirecting…" : actionLabel ?? opt.label}
             </button>
             <p className="mt-1.5 text-center text-[10px] text-[var(--text-muted)]">
-              {opt.note}
+              {actionNote ?? opt.note}
             </p>
           </div>
         ))}
@@ -343,13 +348,14 @@ export default function SubscriptionPricingContent(
   );
 
   // Plan changes, card updates, invoices and cancellation live in Stripe's portal.
-  const openPortal = async () => {
+  const openPortal = async (change?: { plan: "basic" | "pro"; billing: Billing }) => {
     setActionBusy(true);
     setError(null);
     try {
       const res = await fetch(`${API_BASE}/commerce/stripe/portal`, {
         method: "POST",
         headers: authJsonHeaders(token),
+        body: JSON.stringify(change ?? {}),
       });
       const data = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
       if (!res.ok || !data.url) throw new Error(data.error || "Could not open billing.");
@@ -529,7 +535,17 @@ export default function SubscriptionPricingContent(
               features={proFeatures}
               submitting={submitting}
               status={roleHasProTier ? "available" : "coming-soon"}
-              onSubscribe={() => void handleStripeSubscribe("pro")}
+              onSubscribe={() =>
+                planLevel === "basic"
+                  ? void openPortal({ plan: "pro", billing })
+                  : void handleStripeSubscribe("pro")
+              }
+              actionLabel={planLevel === "basic" ? "Upgrade to Pro" : undefined}
+              actionNote={
+                planLevel === "basic"
+                  ? "Confirm in Stripe · you pay only the difference for this period"
+                  : undefined
+              }
             />
           </div>
 

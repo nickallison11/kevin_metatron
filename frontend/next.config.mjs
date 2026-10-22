@@ -7,8 +7,6 @@ const API_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000
 // keep working; new integrations should use the API domain directly.
 const LEGACY_BACKEND_PATHS = [
   "/whatsapp/webhook", // Meta WhatsApp Cloud API
-  "/commerce/webhook", // Paystack
-  "/commerce/nowpayments/webhook", // NowPayments IPN
   "/api/founders/webhook-event", // Resend email events
   "/kevin/inbound-email", // Cloudflare kevin@metatron.id email worker
   "/unsubscribe", // links in sent emails (/unsubscribe?token=...)

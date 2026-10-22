@@ -200,20 +200,6 @@ function PricingPageInner() {
     } = { current: undefined };
 
     const run = async () => {
-      const reference = searchParams.get("reference");
-      if (reference && token) {
-        try {
-          await fetch(`${API_BASE}/commerce/verify`, {
-            method: "POST",
-            headers: authJsonHeaders(token),
-            body: JSON.stringify({ reference }),
-          });
-        } catch {
-          /* continue to poll */
-        }
-      }
-      if (cancelled) return;
-
       const tryRedirectIfActive = async (): Promise<boolean> => {
         try {
           const res = await fetch(`${API_BASE}/subscriptions/status`, {

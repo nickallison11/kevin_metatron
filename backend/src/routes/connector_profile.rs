@@ -396,7 +396,7 @@ async fn require_connector_paid(
     .await
     .map_err(internal)?
     .flatten();
-    // Paystack/NowPayments activation writes 'paid' (commerce.rs); older rows may
+    // Paid connector activation wrote 'paid'; older rows may
     // say 'connector_basic'. Both mean a paying connector.
     if !matches!(tier.as_deref(), Some("paid") | Some("connector_basic")) {
         return Err((

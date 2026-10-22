@@ -91,9 +91,6 @@ export default function ConnectorSubscriptionPage() {
       planFeatures={basicFeatures}
       proName="Pro for Connectors"
       proFeatures={proFeatures}
-      zarSubscribeEndpoint="/commerce/connector/subscribe"
-      zarVerifyEndpoint="/commerce/connector/verify"
-      zarTier="connector_basic"
       basePath="/connector/settings/subscription"
       invoices={invoices}
       extraPaidInfo={<p className="text-sm text-[var(--text-muted)]">Credits remaining: {credits}</p>}

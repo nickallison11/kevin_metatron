@@ -44,9 +44,6 @@ export type SubscriptionPricingContentProps = {
   planFeatures: string[];
   proName: string;
   proFeatures: string[];
-  zarSubscribeEndpoint: string;
-  zarVerifyEndpoint: string;
-  zarTier: string;
   basePath: string;
   invoices: InvoiceRow[];
   extraPaidInfo?: React.ReactNode;
@@ -243,7 +240,6 @@ export default function SubscriptionPricingContent(
     planFeatures,
     proName,
     proFeatures,
-    zarVerifyEndpoint,
     basePath,
     invoices,
     extraPaidInfo,
@@ -263,66 +259,26 @@ export default function SubscriptionPricingContent(
     if (typeof window === "undefined" || !token) return;
     const params = new URLSearchParams(window.location.search);
     if (params.get("success") !== "1") return;
-    const reference = params.get("reference")?.trim() ?? "";
 
+    // Back from Stripe Checkout: the webhook activates the plan within a few
+    // seconds, so reload the status a few times.
     let cancelled = false;
-
-    const runPaystackVerify = async (reference: string) => {
-      setVerifying(true);
-      setError(null);
-      try {
-        const res = await fetch(`${API_BASE}${zarVerifyEndpoint}`, {
-          method: "POST",
-          headers: authJsonHeaders(token),
-          body: JSON.stringify({ reference }),
-        });
-        if (!res.ok) {
-          const data = (await res.json().catch(() => ({}))) as {
-            error?: string;
-          };
-          throw new Error(data.error || "Could not verify payment.");
-        }
-        if (!cancelled) {
-          onVerifySuccess();
-          window.history.replaceState({}, "", basePath);
-        }
-      } catch (e) {
-        if (!cancelled) {
-          setError(
-            e instanceof Error ? e.message : "Could not verify payment.",
-          );
-        }
-      } finally {
-        if (!cancelled) setVerifying(false);
-      }
-    };
-
-    if (reference.length > 0) {
-      void runPaystackVerify(reference);
-    } else {
-      // Back from Stripe Checkout: the webhook activates the plan within a few
-      // seconds, so reload the status a few times.
-      setVerifying(true);
-      setError(null);
-      window.history.replaceState({}, "", basePath);
-      onVerifySuccess();
-      const timers = [2000, 5000, 10000].map((ms, i, all) =>
-        setTimeout(() => {
-          if (cancelled) return;
-          onVerifySuccess();
-          if (i === all.length - 1) setVerifying(false);
-        }, ms),
-      );
-      return () => {
-        cancelled = true;
-        timers.forEach(clearTimeout);
-      };
-    }
-
+    setVerifying(true);
+    setError(null);
+    window.history.replaceState({}, "", basePath);
+    onVerifySuccess();
+    const timers = [2000, 5000, 10000].map((ms, i, all) =>
+      setTimeout(() => {
+        if (cancelled) return;
+        onVerifySuccess();
+        if (i === all.length - 1) setVerifying(false);
+      }, ms),
+    );
     return () => {
       cancelled = true;
+      timers.forEach(clearTimeout);
     };
-  }, [token, zarVerifyEndpoint, basePath, onVerifySuccess]);
+  }, [token, basePath, onVerifySuccess]);
 
   // New subscriptions go through Stripe Checkout; Stripe redirects back here.
   const handleStripeSubscribe = useCallback(

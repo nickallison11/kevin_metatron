@@ -87,9 +87,6 @@ export default function InvestorSubscriptionPage() {
       planFeatures={basicFeatures}
       proName="Pro for Investors"
       proFeatures={proFeatures}
-      zarSubscribeEndpoint="/commerce/investor/subscribe"
-      zarVerifyEndpoint="/commerce/investor/verify"
-      zarTier="investor_basic"
       basePath="/investor/settings/subscription"
       invoices={invoices}
       subMeta={

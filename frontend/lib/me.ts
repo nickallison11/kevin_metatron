@@ -8,6 +8,8 @@ export type MeResponse = {
   is_admin: boolean;
   is_super_admin: boolean;
   totp_enabled: boolean;
+  /** Unused 2FA backup codes left. */
+  backup_codes_remaining: number;
   first_name: string | null;
   last_name: string | null;
   telegram_id: string | null;

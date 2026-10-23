@@ -54,6 +54,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/2fa/confirm", post(two_fa_confirm))
         .route("/2fa", delete(two_fa_disable))
         .route("/2fa/login", post(two_fa_login))
+        .route("/2fa/backup-codes", post(two_fa_regenerate_backup_codes))
         .route("/account", delete(delete_account))
         .route("/me/export", get(export_data))
         .route("/role", put(set_role))
@@ -133,6 +134,17 @@ pub struct TwoFaLoginRequest {
 pub struct TwoFaSetupResponse {
     pub otpauth_uri: String,
     pub secret: String,
+}
+
+#[derive(Deserialize)]
+pub struct TwoFaBackupCodesRequest {
+    pub code: String,
+}
+
+/// Returned once, when backup codes are generated; only hashes are kept.
+#[derive(Serialize)]
+pub struct TwoFaBackupCodesResponse {
+    pub backup_codes: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -637,6 +649,87 @@ fn totp_from_base32_secret(secret_base32: &str, account_name: String) -> Result<
     .map_err(|e| format!("could not build TOTP: {e}"))
 }
 
+const BACKUP_CODE_COUNT: usize = 10;
+/// No 0/o, 1/l/i: easy to copy by hand. 31 symbols x 10 = ~50 bits per code.
+const BACKUP_CODE_ALPHABET: &[u8] = b"abcdefghjkmnpqrstuvwxyz23456789";
+
+/// Lowercase, keep only letters and digits, so "ABCDE-12345" and "abcde12345" match.
+fn normalize_backup_code(code: &str) -> String {
+    code.chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .map(|c| c.to_ascii_lowercase())
+        .collect()
+}
+
+fn hash_backup_code(normalized: &str) -> String {
+    hex::encode(Sha256::digest(normalized.as_bytes()))
+}
+
+/// Replaces the user's backup codes with a fresh set and returns them (xxxxx-xxxxx).
+/// High-entropy random codes, so a plain SHA-256 is enough and allows a direct lookup.
+async fn replace_backup_codes(state: &AppState, user_id: Uuid) -> Result<Vec<String>, (StatusCode, String)> {
+    let internal = |_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string());
+    let codes: Vec<String> = {
+        let mut rng = rand::thread_rng();
+        (0..BACKUP_CODE_COUNT)
+            .map(|_| {
+                let raw: String = (0..10)
+                    .map(|_| BACKUP_CODE_ALPHABET[rng.gen_range(0..BACKUP_CODE_ALPHABET.len())] as char)
+                    .collect();
+                format!("{}-{}", &raw[..5], &raw[5..])
+            })
+            .collect()
+    };
+
+    let mut tx = state.db.begin().await.map_err(internal)?;
+    sqlx::query("DELETE FROM two_fa_backup_codes WHERE user_id = $1")
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(internal)?;
+    for code in &codes {
+        sqlx::query("INSERT INTO two_fa_backup_codes (user_id, code_hash) VALUES ($1, $2)")
+            .bind(user_id)
+            .bind(hash_backup_code(&normalize_backup_code(code)))
+            .execute(&mut *tx)
+            .await
+            .map_err(internal)?;
+    }
+    tx.commit().await.map_err(internal)?;
+    Ok(codes)
+}
+
+/// Accepts the current authenticator code, or an unused backup code, which is
+/// used up in the same statement so it can never work twice.
+async fn second_factor_ok(
+    state: &AppState,
+    user_id: Uuid,
+    totp: &TOTP,
+    code: &str,
+) -> Result<bool, (StatusCode, String)> {
+    let code = code.trim();
+    if code.len() == 6 && code.chars().all(|c| c.is_ascii_digit()) {
+        return totp
+            .check_current(code)
+            .map_err(|_| (StatusCode::BAD_REQUEST, "invalid code".to_string()));
+    }
+    let normalized = normalize_backup_code(code);
+    if normalized.len() != 10 {
+        return Ok(false);
+    }
+    let used: Option<Uuid> = sqlx::query_scalar(
+        "UPDATE two_fa_backup_codes SET used_at = NOW()
+         WHERE user_id = $1 AND code_hash = $2 AND used_at IS NULL
+         RETURNING id",
+    )
+    .bind(user_id)
+    .bind(hash_backup_code(&normalized))
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string()))?;
+    Ok(used.is_some())
+}
+
 fn decode_partial_token(
     state: &AppState,
     partial_token: &str,
@@ -813,6 +906,7 @@ pub struct MeResponse {
     pub is_admin: bool,
     pub is_super_admin: bool,
     pub totp_enabled: bool,
+    pub backup_codes_remaining: i64,
     pub first_name: Option<String>,
     pub last_name: Option<String>,
     pub telegram_id: Option<String>,
@@ -866,6 +960,8 @@ async fn get_me(
             is_admin,
             is_super_admin,
             totp_enabled,
+            (SELECT COUNT(*) FROM two_fa_backup_codes b
+              WHERE b.user_id = users.id AND b.used_at IS NULL) AS backup_codes_remaining,
             first_name,
             last_name,
             telegram_id,
@@ -935,11 +1031,19 @@ async fn two_fa_setup(
 ) -> Result<Json<TwoFaSetupResponse>, (StatusCode, String)> {
     let authed = require_user(&state, bearer.token()).await?;
 
-    let email: String = sqlx::query_scalar("SELECT email FROM users WHERE id = $1")
-        .bind(authed.id)
-        .fetch_one(&state.db)
-        .await
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string()))?;
+    let (email, totp_enabled): (String, bool) =
+        sqlx::query_as("SELECT email, totp_enabled FROM users WHERE id = $1")
+            .bind(authed.id)
+            .fetch_one(&state.db)
+            .await
+            .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string()))?;
+    // Setting up again would replace the secret and switch 2FA off without a code.
+    if totp_enabled {
+        return Err((
+            StatusCode::CONFLICT,
+            "Two-factor authentication is already on. Turn it off first.".to_string(),
+        ));
+    }
 
     let secret = TotpSecret::generate_secret();
     let totp = TOTP::new(
@@ -992,7 +1096,7 @@ async fn two_fa_confirm(
     State(state): State<Arc<AppState>>,
     TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
     Json(body): Json<TwoFaConfirmRequest>,
-) -> Result<StatusCode, (StatusCode, String)> {
+) -> Result<Json<TwoFaBackupCodesResponse>, (StatusCode, String)> {
     let authed = require_user(&state, bearer.token()).await?;
 
     let (totp_enabled, totp_secret_enc): (bool, Option<String>) = sqlx::query_as(
@@ -1041,7 +1145,8 @@ async fn two_fa_confirm(
     // Use `totp_enabled` only to avoid an unused variable warning.
     let _ = totp_enabled;
 
-    Ok(StatusCode::OK)
+    let backup_codes = replace_backup_codes(&state, authed.id).await?;
+    Ok(Json(TwoFaBackupCodesResponse { backup_codes }))
 }
 
 async fn two_fa_disable(
@@ -1076,16 +1181,18 @@ async fn two_fa_disable(
     let totp = totp_from_base32_secret(&secret_base32, email)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
-    let ok = totp
-        .check_current(&body.code)
-        .map_err(|_| (StatusCode::BAD_REQUEST, "invalid code".to_string()))?;
-
-    if !ok {
+    if !second_factor_ok(&state, authed.id, &totp, &body.code).await? {
         return Err((
             StatusCode::BAD_REQUEST,
             "invalid 2FA code".to_string(),
         ));
     }
+
+    sqlx::query("DELETE FROM two_fa_backup_codes WHERE user_id = $1")
+        .bind(authed.id)
+        .execute(&state.db)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string()))?;
 
     sqlx::query(
         r#"
@@ -1101,6 +1208,40 @@ async fn two_fa_disable(
     .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string()))?;
 
     Ok(StatusCode::OK)
+}
+
+/// New set of backup codes (the old ones stop working). Needs a current
+/// authenticator code or an unused backup code.
+async fn two_fa_regenerate_backup_codes(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+    Json(body): Json<TwoFaBackupCodesRequest>,
+) -> Result<Json<TwoFaBackupCodesResponse>, (StatusCode, String)> {
+    let authed = require_user(&state, bearer.token()).await?;
+
+    let (totp_enabled, totp_secret_enc, email): (bool, Option<String>, String) = sqlx::query_as(
+        "SELECT totp_enabled, totp_secret, email FROM users WHERE id = $1",
+    )
+    .bind(authed.id)
+    .fetch_one(&state.db)
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string()))?;
+
+    let totp_secret_enc = match (totp_enabled, totp_secret_enc) {
+        (true, Some(enc)) => enc,
+        _ => return Err((StatusCode::BAD_REQUEST, "2FA not enabled".to_string())),
+    };
+    let secret_base32 = crypto::decrypt(&state.encryption_key, &totp_secret_enc)
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string()))?;
+    let totp = totp_from_base32_secret(&secret_base32, email)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+    if !second_factor_ok(&state, authed.id, &totp, &body.code).await? {
+        return Err((StatusCode::BAD_REQUEST, "invalid 2FA code".to_string()));
+    }
+
+    let backup_codes = replace_backup_codes(&state, authed.id).await?;
+    Ok(Json(TwoFaBackupCodesResponse { backup_codes }))
 }
 
 async fn two_fa_login(
@@ -1139,11 +1280,7 @@ async fn two_fa_login(
 
     let totp = totp_from_base32_secret(&secret_base32, email)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    let ok = totp
-        .check_current(&body.code)
-        .map_err(|_| (StatusCode::BAD_REQUEST, "invalid code".to_string()))?;
-
-    if !ok {
+    if !second_factor_ok(&state, user_id, &totp, &body.code).await? {
         return Err((StatusCode::BAD_REQUEST, "invalid 2FA code".to_string()));
     }
 

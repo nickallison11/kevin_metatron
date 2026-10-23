@@ -1,7 +1,8 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState, type ReactNode } from "react";
+import { FormEvent, useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
+import QRCode from "qrcode";
 import { API_BASE, authHeaders, authJsonHeaders } from "@/lib/api";
 import { clearTokens } from "@/lib/tokenStore";
 import { useAuth } from "@/lib/auth";
@@ -128,9 +129,25 @@ export function AccountSettings({ role }: { role: "STARTUP" | "INVESTOR" | "INTE
 
   const isFounder = role === "STARTUP";
 
-  const qrDataUrl = useMemo(() => {
-    if (!otpauthUri) return null;
-    return `https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(otpauthUri)}&size=200x200`;
+  // Drawn in the browser: the otpauth URI carries the 2FA secret, so it must
+  // never be sent to an outside QR service.
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!otpauthUri) {
+      setQrDataUrl(null);
+      return;
+    }
+    let cancelled = false;
+    QRCode.toDataURL(otpauthUri, { width: 200, margin: 1 })
+      .then((url) => {
+        if (!cancelled) setQrDataUrl(url);
+      })
+      .catch(() => {
+        if (!cancelled) setTwoFaMsg("Could not draw the QR code. Please try again.");
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [otpauthUri]);
 
   useEffect(() => {

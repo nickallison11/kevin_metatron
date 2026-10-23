@@ -77,6 +77,10 @@ run identically against both environments.
       none. Uses STRIPE_SECRET_KEY from the dev env file (test key only).
   19. Paystack fully switched off — no Paystack webhook requests in the
       nginx log in the last 24h [shared]. Paystack was removed 2026-10-22.
+  20a. Two-factor login + backup codes on the dedicated +2fa account:
+      password login stops at the 2FA step, a real authenticator code
+      (computed from TEST_2FA_SECRET in the dev env file) finishes it, then a
+      fresh set of backup codes is issued and one signs in exactly once.
 
 Not covered here: the proactive high-value-match notification (fires once
 per match the first time it crosses the score threshold, so it isn't a good
@@ -190,6 +194,11 @@ STRIPE_LADDER = {
 }
 
 NGINX_ACCESS_LOGS = ["/var/log/nginx/access.log", "/var/log/nginx/access.log.1"]
+
+# Dedicated 2FA account (check 20). Kept out of DEV_ACCOUNTS on purpose: every
+# other check logs in with a password alone, which 2FA would break.
+TWO_FA_EMAIL = "kevin.metatron.testing+2fa@gmail.com"
+DEV_TEST_2FA_SECRET = read_env_file_value(DEV_ENV_FILE, "TEST_2FA_SECRET")
 
 
 def pinata_url(cid):
@@ -953,6 +962,94 @@ def render_stripe_sync_check(lines, drifts, number, tag, base_url, jwts):
     lines.append("")
 
 
+def totp_now(secret_base32, at=None):
+    """RFC 6238 code (SHA1, 6 digits, 30s) -- same settings as the backend."""
+    import base64
+    import hashlib
+    import hmac
+    import struct
+    import time
+
+    key = base64.b32decode(secret_base32.upper() + "=" * (-len(secret_base32) % 8))
+    counter = int((at or time.time()) // 30)
+    digest = hmac.new(key, struct.pack(">Q", counter), hashlib.sha1).digest()
+    offset = digest[-1] & 0x0F
+    value = struct.unpack(">I", digest[offset:offset + 4])[0] & 0x7FFFFFFF
+    return f"{value % 1_000_000:06d}"
+
+
+def render_two_fa_check(lines, drifts, number, tag, base_url, password):
+    """Check 20a: the full 2FA flow on the dedicated +2fa account -- password
+    login stops at the 2FA step, a real authenticator code finishes it, and
+    backup codes work: fresh set, one signs in, the same one is refused the
+    second time, and a made-up one is refused."""
+    lines.append(f"## Check {number} — Two-factor login + backup codes [{tag}]")
+
+    def fail(msg):
+        lines.append(f"- ⚠ DRIFT — {msg}")
+        drifts.append(f"2FA check ({tag}): {msg}")
+
+    if not DEV_TEST_2FA_SECRET:
+        fail("TEST_2FA_SECRET is not set in the dev env file")
+        lines.append("")
+        return
+
+    def password_step():
+        r = requests.post(f"{base_url}/auth/login", json={"email": TWO_FA_EMAIL, "password": password}, timeout=10)
+        r.raise_for_status()
+        return r.json()
+
+    def second_step(partial, code):
+        return requests.post(
+            f"{base_url}/auth/2fa/login", json={"partial_token": partial, "code": code}, timeout=10
+        )
+
+    try:
+        first = password_step()
+        if not first.get("requires_2fa") or "token" in first:
+            fail("password login did not stop at the 2FA step")
+            lines.append("")
+            return
+        lines.append("- password login stops at the 2FA step: ✓")
+
+        r = second_step(first["partial_token"], totp_now(DEV_TEST_2FA_SECRET))
+        if r.status_code != 200 or "token" not in r.json():
+            fail(f"authenticator code rejected ({r.status_code}: {r.text[:120]})")
+            lines.append("")
+            return
+        jwt = r.json()["token"]
+        lines.append("- authenticator code completes login: ✓")
+
+        r = requests.post(
+            f"{base_url}/auth/2fa/backup-codes",
+            headers={"Authorization": f"Bearer {jwt}"},
+            json={"code": totp_now(DEV_TEST_2FA_SECRET)},
+            timeout=10,
+        )
+        codes = r.json().get("backup_codes", []) if r.status_code == 200 else []
+        if len(codes) != 10:
+            fail(f"could not get a fresh set of 10 backup codes ({r.status_code}: {r.text[:120]})")
+            lines.append("")
+            return
+        lines.append("- fresh set of 10 backup codes issued: ✓")
+
+        if second_step(password_step()["partial_token"], codes[0]).status_code == 200:
+            lines.append("- backup code signs in: ✓")
+        else:
+            fail("a fresh backup code was rejected")
+        if second_step(password_step()["partial_token"], codes[0]).status_code != 200:
+            lines.append("- same backup code refused the second time: ✓")
+        else:
+            fail("a backup code worked twice")
+        if second_step(password_step()["partial_token"], "aaaaa-aaaaa").status_code != 200:
+            lines.append("- made-up backup code refused: ✓")
+        else:
+            fail("a made-up backup code was accepted")
+    except Exception as e:
+        fail(f"2FA check failed: {e}")
+    lines.append("")
+
+
 def render_paystack_gone_check(lines, drifts, number, tag):
     """Check 19: Paystack was removed 2026-10-22 but kept charging test cards
     from its side until its subscriptions and webhook URL were cleared
@@ -1372,13 +1469,16 @@ def main():
 
     render_paystack_gone_check(lines, drifts, "19", "SHARED — both environments")
 
+    render_two_fa_check(lines, drifts, "20a", "DEV", DEV_BACKEND_URL, DEV_TEST_PASSWORD)
+    render_na_check(lines, "20b", "PRODUCTION", "Two-factor login + backup codes")
+
     # ── Summary ───────────────────────────────────────────────────────────────
     tag = "DRIFT" if drifts else "OK"
     lines.append(f"## Summary: {tag}")
     lines.append(
-        "(15 checks on [DEV]: 1a,2a,3a,4a,5a,9a,10a,11a,12a,13a,14a,15a,16a,17a,18a · "
-        "15 on [PRODUCTION]: 1b,2b,3b,4b,5b,9b,10b,11b,12b,13b,14b,15b,16b,17b,18b · "
-        "4 [SHARED] shown in both: 6,7,8,19 · 19 checks per environment)"
+        "(16 checks on [DEV]: 1a,2a,3a,4a,5a,9a,10a,11a,12a,13a,14a,15a,16a,17a,18a,20a · "
+        "16 on [PRODUCTION]: 1b,2b,3b,4b,5b,9b,10b,11b,12b,13b,14b,15b,16b,17b,18b,20b · "
+        "4 [SHARED] shown in both: 6,7,8,19 · 20 checks per environment)"
     )
     if drifts:
         for d in drifts:

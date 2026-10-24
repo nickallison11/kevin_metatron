@@ -88,6 +88,17 @@ struct CheckoutBody {
     plan: String,
     billing: String,
     currency: String,
+    /// Dashboard page to go back to once the plan is active, e.g. `/startup/profile`.
+    #[serde(default)]
+    return_to: Option<String>,
+}
+
+/// Only a path inside the user's own dashboard, made of plain path characters.
+fn safe_return_path(raw: Option<&str>, role_base: &str) -> Option<String> {
+    let p = raw?.trim();
+    let inside = p == role_base || p.starts_with(&format!("{role_base}/"));
+    let plain = p.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '-' | '_')) && !p.contains("//");
+    (inside && plain).then(|| p.to_string())
 }
 
 async fn create_checkout(
@@ -173,6 +184,18 @@ async fn create_checkout(
         crate::email::frontend_url(),
         role_path(&user.role)
     );
+    // Back on the subscription page the plan is confirmed, then it forwards to
+    // where the upgrade started (e.g. Startup Profile's "Upgrade to Import Deck").
+    let return_q = safe_return_path(body.return_to.as_deref(), role_path(&user.role))
+        .map(|p| format!("return={p}"));
+    let success_url = match &return_q {
+        Some(q) => format!("{settings_url}?success=1&{q}"),
+        None => format!("{settings_url}?success=1"),
+    };
+    let cancel_url = match &return_q {
+        Some(q) => format!("{settings_url}?{q}"),
+        None => settings_url.clone(),
+    };
     let session = stripe_call(
         &state,
         reqwest::Method::POST,
@@ -184,8 +207,8 @@ async fn create_checkout(
             ("line_items[0][quantity]", "1".into()),
             ("client_reference_id", user.id.to_string()),
             ("subscription_data[metadata][user_id]", user.id.to_string()),
-            ("success_url", format!("{settings_url}?success=1")),
-            ("cancel_url", settings_url),
+            ("success_url", success_url),
+            ("cancel_url", cancel_url),
         ],
     )
     .await?;

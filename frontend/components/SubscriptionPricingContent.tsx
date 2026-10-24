@@ -254,6 +254,20 @@ export default function SubscriptionPricingContent(
   const [verifying, setVerifying] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
+  // Where the upgrade started (e.g. `?return=/startup/profile` from "Upgrade to
+  // Import Deck"); once the plan is active the user goes back there.
+  const [returnTo] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    const r = new URLSearchParams(window.location.search).get("return");
+    return r && r.startsWith(`${basePath.split("/settings")[0]}`) && /^\/[A-Za-z0-9/_-]*$/.test(r) && !r.includes("//") ? r : null;
+  });
+  const [backFromCheckout] = useState(
+    () => typeof window !== "undefined" && new URLSearchParams(window.location.search).get("success") === "1",
+  );
+
+  useEffect(() => {
+    if (backFromCheckout && isPaid && returnTo) window.location.replace(returnTo);
+  }, [backFromCheckout, isPaid, returnTo]);
 
   useEffect(() => {
     if (typeof window === "undefined" || !token) return;
@@ -290,7 +304,7 @@ export default function SubscriptionPricingContent(
         const res = await fetch(`${API_BASE}/commerce/stripe/checkout`, {
           method: "POST",
           headers: authJsonHeaders(token),
-          body: JSON.stringify({ plan, billing, currency }),
+          body: JSON.stringify({ plan, billing, currency, ...(returnTo ? { return_to: returnTo } : {}) }),
         });
         const data = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
         if (!res.ok || !data.url) throw new Error(data.error || "Could not start checkout.");
@@ -300,7 +314,7 @@ export default function SubscriptionPricingContent(
         setSubmitting(false);
       }
     },
-    [token, billing, currency],
+    [token, billing, currency, returnTo],
   );
 
   // Plan changes, card updates, invoices and cancellation live in Stripe's portal.

@@ -141,14 +141,20 @@ export default function DeckCard({
           <a href={url} target="_blank" rel="noreferrer" aria-label="Open pitch deck in a new tab" className={btn}>
             Open <IconArrowUpRight size={15} stroke={2} />
           </a>
-          <button
-            type="button"
-            disabled={status === "reading"}
-            onClick={() => setSheet(true)}
-            className={`${read ? btn : btnPrimary} flex-1 sm:flex-none`}
-          >
-            {read ? "Import again" : "Import Pitch Deck"}
-          </button>
+          {paid ? (
+            <button
+              type="button"
+              disabled={status === "reading"}
+              onClick={() => setSheet(true)}
+              className={`${read ? btn : btnPrimary} flex-1 sm:flex-none`}
+            >
+              {read ? "Import again" : "Import Pitch Deck"}
+            </button>
+          ) : (
+            <Link href="/startup/settings/subscription" className={`${btnPrimary} flex-1 sm:flex-none`}>
+              Upgrade to Import Deck
+            </Link>
+          )}
           <div ref={menuRef} className="relative">
             <button
               type="button"

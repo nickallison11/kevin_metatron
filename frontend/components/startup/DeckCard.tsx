@@ -26,6 +26,8 @@ export default function DeckCard({
   url,
   status,
   paid,
+  cover,
+  facts = [],
   onUpload,
   onImport,
   onRemove,
@@ -33,6 +35,10 @@ export default function DeckCard({
   url: string | null;
   status: DeckStatus;
   paid: boolean;
+  /** Image of the deck's first page, made on the server after upload. */
+  cover?: string | null;
+  /** Short label/value pairs, e.g. Uploaded · 24 Oct. */
+  facts?: { label: string; value: string }[];
   onUpload: (file: File) => void;
   onImport: () => void;
   onRemove: () => void;
@@ -123,22 +129,44 @@ export default function DeckCard({
       {...dropProps}
       className={`relative flex flex-col gap-3.5 rounded-[16px] border p-4 sm:p-5 ${dragging ? "border-metatron-accent bg-metatron-accent/10" : "border-[var(--overlay-12)] bg-[var(--bg-card)]"}`}
     >
-      <div className="flex flex-wrap items-center gap-3 sm:gap-4">
-        <div className="flex min-w-0 flex-[999_1_240px] items-center gap-3.5">
-          <span className="flex h-14 w-11 shrink-0 items-center justify-center rounded-lg border border-[var(--overlay-12)] bg-gradient-to-br from-[var(--overlay-6)] to-transparent font-mono text-[10px] text-[var(--accent-fg)]">
-            PDF
-          </span>
-          <span className="flex min-w-0 flex-col gap-1.5">
-            <span className="text-base font-semibold">Pitch deck</span>
+      <div className="flex flex-col gap-4 md:flex-row md:gap-6">
+        <a
+          href={url}
+          target="_blank"
+          rel="noreferrer"
+          aria-label="Open pitch deck in a new tab"
+          className="relative block aspect-video w-full shrink-0 overflow-hidden rounded-xl border border-[var(--overlay-12)] bg-gradient-to-br from-[var(--overlay-6)] to-transparent md:w-[min(42%,400px)]"
+        >
+          {cover ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={cover} alt="" className="h-full w-full object-cover" />
+          ) : (
+            <span className="flex h-full w-full items-center justify-center font-mono text-xs text-[var(--accent-fg)]">PDF</span>
+          )}
+        </a>
+
+        <div className="flex min-w-0 flex-1 flex-col gap-4">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+            <span className="text-base font-semibold md:text-lg">Pitch deck</span>
             <span className={`inline-flex w-fit items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${chip.cls}`}>
               <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-current" />
               {chip.label}
             </span>
-          </span>
-        </div>
+          </div>
 
-        <div className="flex w-full items-center gap-2 sm:w-auto">
-          <a href={url} target="_blank" rel="noreferrer" aria-label="Open pitch deck in a new tab" className={btn}>
+          {facts.length > 0 && (
+            <dl className="grid grid-cols-3 gap-x-4 gap-y-3 md:grid-cols-2">
+              {facts.map((f) => (
+                <div key={f.label} className="flex min-w-0 flex-col gap-0.5">
+                  <dt className="text-xs text-[var(--text-muted)] md:text-[13px]">{f.label}</dt>
+                  <dd className="truncate text-sm font-medium md:text-[15px]">{f.value}</dd>
+                </div>
+              ))}
+            </dl>
+          )}
+
+        <div className="flex w-full items-center gap-2 md:mt-auto">
+          <a href={url} target="_blank" rel="noreferrer" aria-label="Open pitch deck in a new tab" className={`${btn} flex-1 md:flex-none`}>
             Open <IconArrowUpRight size={15} stroke={2} />
           </a>
           {paid ? (
@@ -146,12 +174,12 @@ export default function DeckCard({
               type="button"
               disabled={status === "reading"}
               onClick={() => setSheet(true)}
-              className={`${read ? btn : btnPrimary} flex-1 sm:flex-none`}
+              className={`${read ? btn : btnPrimary} flex-1 md:flex-none`}
             >
               {read ? "Import again" : "Import Pitch Deck"}
             </button>
           ) : (
-            <UpgradeButton className={`${btnPrimary} flex-1 sm:flex-none`}>Upgrade to Import Deck</UpgradeButton>
+            <UpgradeButton className={`${btnPrimary} flex-1 md:flex-none`}>Upgrade to Import Deck</UpgradeButton>
           )}
           <div ref={menuRef} className="relative">
             <button
@@ -211,6 +239,7 @@ export default function DeckCard({
               </div>
             )}
           </div>
+        </div>
         </div>
       </div>
 

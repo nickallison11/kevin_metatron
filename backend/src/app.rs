@@ -25,6 +25,7 @@ pub fn build_app(_settings: &Settings, state: Arc<AppState>) -> Router {
         .nest("/pitches", routes::pitches::router())
         .nest("/pools", routes::pools::router())
         .nest("/profile", routes::profile::router())
+        .nest("/founder-extras", routes::founder_extras::router())
         .nest("/startup", routes::matches::router())
         .nest("/investor-profile", routes::investor_profile::router())
         .nest("/investor-pipeline", routes::investor_pipeline::router())

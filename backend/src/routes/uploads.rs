@@ -30,6 +30,7 @@ pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/pitch-deck", post(upload_pitch_deck).delete(delete_pitch_deck))
         .route("/pitch-deck/reimport", post(reimport_pitch_deck))
+        .route("/pitch-deck/cover", post(deck_cover))
         .route("/file/:cid", get(serve_ipfs_file))
         .route("/logo", post(upload_logo))
         .route("/logo/from-website", post(logo_from_website))
@@ -228,11 +229,14 @@ async fn upload_pitch_deck(
 
     sqlx::query(
         r#"
-        INSERT INTO profiles (user_id, pitch_deck_url, deck_expires_at, deck_upload_count)
-        VALUES ($1, $2, $3, 1)
+        INSERT INTO profiles (user_id, pitch_deck_url, deck_expires_at, deck_upload_count, deck_uploaded_at)
+        VALUES ($1, $2, $3, 1, now())
         ON CONFLICT (user_id) DO UPDATE SET
             pitch_deck_url = EXCLUDED.pitch_deck_url,
             deck_expires_at = EXCLUDED.deck_expires_at,
+            deck_uploaded_at = now(),
+            deck_cover_url = NULL,
+            deck_pages = NULL,
             deck_upload_count = COALESCE(profiles.deck_upload_count, 0) + 1,
             deck_7day_email_sent = FALSE,
             deck_1day_email_sent = FALSE,
@@ -282,6 +286,14 @@ async fn upload_pitch_deck(
     tokio::spawn(async move {
         refresh_logo_from_website(logo_state, id).await;
     });
+    if is_pdf {
+        let cover_state = Arc::clone(&state);
+        tokio::spawn(async move {
+            if let Err(e) = make_deck_cover(&cover_state, id, &raw).await {
+                tracing::warn!("deck cover for {id}: {e}");
+            }
+        });
+    }
 
     Ok((StatusCode::CREATED, Json(body)).into_response())
 }
@@ -342,20 +354,8 @@ async fn read_deck(
     }
 }
 
-/// Has Kevin read the founder's current deck again, e.g. after a failed read.
-async fn reimport_pitch_deck(
-    State(state): State<Arc<AppState>>,
-    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
-) -> Result<Json<JsonValue>, (StatusCode, String)> {
-    let authed_user = require_user(&state, bearer.token()).await?;
-    if !authed_user.role.eq_ignore_ascii_case("STARTUP") {
-        return Err((StatusCode::FORBIDDEN, "wrong role for this resource".into()));
-    }
-    if !can_import_deck(&authed_user) {
-        return Err((StatusCode::PAYMENT_REQUIRED, DECK_IMPORT_NEEDS_PLAN.into()));
-    }
-    let id = authed_user.id;
-
+/// The founder's current deck as (url, PDF bytes), fetched back from IPFS.
+async fn fetch_own_deck(state: &AppState, id: Uuid) -> Result<(String, Vec<u8>), (StatusCode, String)> {
     let url: Option<String> = sqlx::query_scalar("SELECT pitch_deck_url FROM profiles WHERE user_id = $1")
         .bind(id)
         .fetch_optional(&state.db)
@@ -372,7 +372,7 @@ async fn reimport_pitch_deck(
 
     let res = state
         .http_client
-        .get(format!("{}/{cid}", ipfs_gateway_base(&state)))
+        .get(format!("{}/{cid}", ipfs_gateway_base(state)))
         .send()
         .await
         .map_err(|e| (StatusCode::BAD_GATEWAY, format!("could not fetch deck: {e}")))?;
@@ -383,6 +383,94 @@ async fn reimport_pitch_deck(
     if !raw.starts_with(b"%PDF") {
         return Err((StatusCode::BAD_REQUEST, "Kevin can only read PDF decks. Upload a PDF.".into()));
     }
+    Ok((url, raw.to_vec()))
+}
+
+/// Renders the deck's first page as a PNG (poppler's `pdftoppm`), pins it to
+/// IPFS and saves it with the page count. Returns (cover url, pages).
+async fn make_deck_cover(state: &AppState, user_id: Uuid, pdf: &[u8]) -> Result<(String, Option<i32>), String> {
+    let jwt = state
+        .pinata_jwt
+        .as_deref()
+        .filter(|v| !v.trim().is_empty())
+        .ok_or("file storage not configured")?
+        .to_string();
+    let dir = std::env::temp_dir().join(format!("deck-cover-{}", Uuid::new_v4()));
+    tokio::fs::create_dir_all(&dir).await.map_err(|e| e.to_string())?;
+    let pdf_path = dir.join("deck.pdf");
+    let result = async {
+        tokio::fs::write(&pdf_path, pdf).await.map_err(|e| e.to_string())?;
+        let out = tokio::process::Command::new("pdftoppm")
+            .args(["-f", "1", "-l", "1", "-png", "-scale-to", "1280", "-singlefile"])
+            .arg(&pdf_path)
+            .arg(dir.join("cover"))
+            .output()
+            .await
+            .map_err(|e| format!("pdftoppm: {e}"))?;
+        if !out.status.success() {
+            return Err(format!("pdftoppm: {}", String::from_utf8_lossy(&out.stderr).chars().take(200).collect::<String>()));
+        }
+        let png = tokio::fs::read(dir.join("cover.png")).await.map_err(|e| e.to_string())?;
+        let pages = tokio::process::Command::new("pdfinfo")
+            .arg(&pdf_path)
+            .output()
+            .await
+            .ok()
+            .and_then(|o| {
+                String::from_utf8_lossy(&o.stdout)
+                    .lines()
+                    .find_map(|l| l.strip_prefix("Pages:").and_then(|v| v.trim().parse::<i32>().ok()))
+            });
+        let cid = pin_to_ipfs(state, &jwt, png, "cover.png", "deck cover", "image/png", None)
+            .await
+            .map_err(|(_, m)| m)?;
+        Ok((cid, pages))
+    }
+    .await;
+    let _ = tokio::fs::remove_dir_all(&dir).await;
+    let (cid, pages) = result?;
+    let cover = format!("{}/media/{cid}", crate::email::frontend_url());
+    sqlx::query("UPDATE profiles SET deck_cover_url = $2, deck_pages = $3 WHERE user_id = $1")
+        .bind(user_id)
+        .bind(&cover)
+        .bind(pages)
+        .execute(&state.db)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok((cover, pages))
+}
+
+/// Makes the cover for a deck uploaded before covers existed.
+async fn deck_cover(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+) -> Result<Json<JsonValue>, (StatusCode, String)> {
+    let authed_user = require_user(&state, bearer.token()).await?;
+    if !authed_user.role.eq_ignore_ascii_case("STARTUP") {
+        return Err((StatusCode::FORBIDDEN, "wrong role for this resource".into()));
+    }
+    let (_, raw) = fetch_own_deck(&state, authed_user.id).await?;
+    let (cover, pages) = make_deck_cover(&state, authed_user.id, &raw).await.map_err(|e| {
+        tracing::warn!("deck cover for {}: {e}", authed_user.id);
+        (StatusCode::BAD_GATEWAY, "Couldn't make a cover for this deck.".into())
+    })?;
+    Ok(Json(json!({ "deck_cover_url": cover, "deck_pages": pages })))
+}
+
+/// Has Kevin read the founder's current deck again, e.g. after a failed read.
+async fn reimport_pitch_deck(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+) -> Result<Json<JsonValue>, (StatusCode, String)> {
+    let authed_user = require_user(&state, bearer.token()).await?;
+    if !authed_user.role.eq_ignore_ascii_case("STARTUP") {
+        return Err((StatusCode::FORBIDDEN, "wrong role for this resource".into()));
+    }
+    if !can_import_deck(&authed_user) {
+        return Err((StatusCode::PAYMENT_REQUIRED, DECK_IMPORT_NEEDS_PLAN.into()));
+    }
+    let id = authed_user.id;
+    let (url, raw) = fetch_own_deck(&state, id).await?;
 
     let (extracted, extraction_error, pitch) = read_deck(&state, id, &raw).await?;
     let mut body = json!({ "url": url, "extracted": extracted, "pitch": pitch });
@@ -405,7 +493,10 @@ async fn delete_pitch_deck(
     if !authed_user.role.eq_ignore_ascii_case("STARTUP") {
         return Err((StatusCode::FORBIDDEN, "wrong role for this resource".into()));
     }
-    sqlx::query("UPDATE profiles SET pitch_deck_url = NULL, deck_expires_at = NULL, updated_at = now() WHERE user_id = $1")
+    sqlx::query(
+        "UPDATE profiles SET pitch_deck_url = NULL, deck_expires_at = NULL, deck_cover_url = NULL, deck_pages = NULL, \
+         deck_uploaded_at = NULL, updated_at = now() WHERE user_id = $1",
+    )
         .bind(authed_user.id)
         .execute(&state.db)
         .await
@@ -690,7 +781,7 @@ async fn serve_ipfs_file(State(state): State<Arc<AppState>>, Path(cid): Path<Str
         return not_found();
     }
     let known: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM profiles WHERE pitch_deck_url LIKE '%/' || $1) \
+        "SELECT EXISTS(SELECT 1 FROM profiles WHERE pitch_deck_url LIKE '%/' || $1 OR deck_cover_url LIKE '%/' || $1) \
              OR EXISTS(SELECT 1 FROM users WHERE logo_url LIKE '%/' || $1)",
     )
     .bind(&cid)

@@ -9,6 +9,7 @@ pub mod connections;
 pub mod deals;
 pub mod deck_views;
 pub mod email_ignore;
+pub mod founder_extras;
 pub mod investments;
 pub mod investment_memos;
 pub mod investor_pipeline;

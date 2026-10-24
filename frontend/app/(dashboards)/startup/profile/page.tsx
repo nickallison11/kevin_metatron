@@ -6,6 +6,7 @@ import { IconCheck, IconCircle, IconSparkles, IconUpload } from "@tabler/icons-r
 import { API_BASE, authHeaders, authJsonHeaders } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import DeckCard, { type DeckStatus } from "@/components/startup/DeckCard";
+import AngelBoostCard, { type FounderExtras } from "@/components/startup/AngelBoostCard";
 import { COUNTRIES } from "@/lib/countries";
 import { STAGES } from "@/lib/stages";
 import { SECTIONS, membersFrom, pitchProgress, type Member, type Pitch, type PitchField, type Section } from "@/lib/pitchSections";
@@ -98,20 +99,41 @@ export default function StartupProfilePage() {
   const [dragging, setDragging] = useState(false);
   const [importing, setImporting] = useState(false);
   const [readFailed, setReadFailed] = useState(false);
+  const [extras, setExtras] = useState<FounderExtras | null>(null);
+  const [views30, setViews30] = useState<number | null>(null);
+  const coverTried = useRef(false);
   const deckInput = useRef<HTMLInputElement | null>(null);
   const logoInput = useRef<HTMLInputElement | null>(null);
 
   const load = useCallback(async () => {
     if (!token) return;
     try {
-      const [pr, pi] = await Promise.all([
+      const [pr, pi, ex, dv] = await Promise.all([
         fetch(`${API_BASE}/profile`, { headers: authJsonHeaders(token) }),
         fetch(`${API_BASE}/pitches`, { headers: authHeaders(token) }),
+        fetch(`${API_BASE}/founder-extras`, { headers: authHeaders(token) }),
+        fetch(`${API_BASE}/deck-views/mine`, { headers: authHeaders(token) }),
       ]);
-      if (pr.ok) setProfile((await pr.json()) as ApiProfile);
+      const prof = pr.ok ? ((await pr.json()) as ApiProfile) : null;
+      if (prof) setProfile(prof);
       if (pi.ok) {
         const list = (await pi.json()) as Pitch[];
         setPitch(list[0] ?? null);
+      }
+      const ext = ex.ok ? ((await ex.json()) as FounderExtras) : null;
+      setExtras(ext);
+      if (dv.ok) {
+        const since = Date.now() - 30 * 86400000;
+        setViews30(((await dv.json()) as { viewed_at: string }[]).filter((v) => new Date(v.viewed_at).getTime() >= since).length);
+      }
+      // Decks uploaded before covers existed get one made once.
+      if (prof?.pitch_deck_url?.trim() && ext && !ext.deck_cover_url && !coverTried.current) {
+        coverTried.current = true;
+        const res = await fetch(`${API_BASE}/uploads/pitch-deck/cover`, { method: "POST", headers: authHeaders(token) }).catch(() => null);
+        if (res?.ok) {
+          const c = (await res.json()) as { deck_cover_url: string; deck_pages: number | null };
+          setExtras({ ...ext, deck_cover_url: c.deck_cover_url, deck_pages: c.deck_pages });
+        }
       }
     } catch {
       setNotice({ kind: "error", text: "Couldn't load your profile. Refresh to try again." });
@@ -170,6 +192,8 @@ export default function StartupProfilePage() {
         setNotice({ kind: "error", text: typeof data.error === "string" ? data.error : "Deck upload failed. Try again." });
         return;
       }
+      // The server makes the new deck's cover in the background; the reload below picks it up.
+      coverTried.current = true;
       await load();
       // The deck card's status chip says whether Kevin read it.
       setReadFailed(typeof data.extraction_error === "string" && data.extraction_error.trim() !== "");
@@ -470,10 +494,21 @@ export default function StartupProfilePage() {
           url={profile?.pitch_deck_url?.trim() || null}
           status={deckStatus}
           paid={isPro}
+          cover={extras?.deck_cover_url ?? null}
+          facts={[
+            ...(extras?.deck_uploaded_at
+              ? [{ label: "Uploaded", value: new Date(extras.deck_uploaded_at).toLocaleDateString(undefined, { day: "numeric", month: "short" }) }]
+              : []),
+            ...(extras?.deck_pages ? [{ label: "Pages", value: String(extras.deck_pages) }] : []),
+            ...(views30 != null ? [{ label: "Views · 30d", value: String(views30) }] : []),
+            ...(extras?.angel_score != null ? [{ label: "Angel Score", value: String(extras.angel_score) }] : []),
+          ]}
           onUpload={(f) => void uploadDeck(f)}
           onImport={() => void importDeck()}
           onRemove={() => void removeDeck()}
         />
+
+        {extras && <AngelBoostCard token={token} extras={extras} onChange={setExtras} />}
 
         {/* 2. Logo — from the company website, or uploaded */}
         <section className={`${card} flex flex-wrap items-center gap-4 p-5`} aria-label="Logo">

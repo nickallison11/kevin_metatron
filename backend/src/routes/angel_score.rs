@@ -251,11 +251,15 @@ Return ONLY valid JSON, no markdown, no code fences:
     let pitch_s = parsed["pitch"].as_i64().map(|v| v.clamp(0, 25) as i32);
     let reasoning = parsed["reasoning"].as_str().map(str::to_owned);
 
+    // Gemini's number is the base; each founder/company link filled in adds fixed points.
+    let base = score;
+    let score = (base + crate::routes::founder_extras::profile_bonus(&state.db, user.id).await).min(100);
+
     let row = sqlx::query_as::<_, AngelScore>(
-        "INSERT INTO angel_scores (founder_user_id, score, team_score, market_score, traction_score, pitch_score, reasoning) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7) \
+        "INSERT INTO angel_scores (founder_user_id, score, team_score, market_score, traction_score, pitch_score, reasoning, base_score) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) \
          ON CONFLICT (founder_user_id) DO UPDATE SET \
-           score = EXCLUDED.score, team_score = EXCLUDED.team_score, \
+           score = EXCLUDED.score, base_score = EXCLUDED.base_score, team_score = EXCLUDED.team_score, \
            market_score = EXCLUDED.market_score, traction_score = EXCLUDED.traction_score, \
            pitch_score = EXCLUDED.pitch_score, reasoning = EXCLUDED.reasoning, \
            generated_at = NOW() \
@@ -268,6 +272,7 @@ Return ONLY valid JSON, no markdown, no code fences:
     .bind(traction)
     .bind(pitch_s)
     .bind(reasoning)
+    .bind(base)
     .fetch_one(&state.db)
     .await
     .map_err(internal)?;

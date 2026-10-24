@@ -626,7 +626,8 @@ export default function StartupProfilePage() {
         </section>
 
         <div className="flex flex-wrap items-start gap-7">
-          <nav aria-label="Pitch sections" className="sticky top-24 flex max-w-[230px] flex-1 basis-48 flex-col gap-0.5">
+          {/* Side list on wider screens only: on a phone it would stack above the cards and stick over them. */}
+          <nav aria-label="Pitch sections" className="sticky top-24 hidden max-w-[230px] flex-1 basis-48 flex-col gap-0.5 md:flex">
             {SECTIONS.map((s) => {
               const ok = complete(s);
               return (

@@ -183,10 +183,8 @@ function SignupForm() {
         layoutId="metatron-signup-card-hover"
         className="relative z-[1] w-full max-w-sm"
       >
-      <form
-        onSubmit={onSubmit}
-        className="w-full space-y-4 rounded-metatron border border-[var(--border)] bg-[var(--bg-card)] p-6"
-      >
+      <div className="w-full rounded-metatron border border-[var(--border)] bg-[var(--bg-card)] p-6">
+      <form onSubmit={onSubmit} className="w-full space-y-4">
         <h1 className="text-xl font-semibold text-[var(--text)]">
           Create account
         </h1>
@@ -305,6 +303,7 @@ function SignupForm() {
           Sign in
         </Link>
       </p>
+      </div>
       </CardHoverEffect>
     </div>
   );

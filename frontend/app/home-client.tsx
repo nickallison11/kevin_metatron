@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
+import SignupFlow, { type SignupRole } from "@/components/onboarding/SignupFlow";
 
 type Role = "founder" | "investor" | "connector";
 
@@ -164,13 +165,13 @@ function OAuthRoleSelector() {
 
 // ─── Main landing page ────────────────────────────────────────────────────────
 
-function LandingPage() {
+function LandingPage({ startOpen, referralCode }: { startOpen: boolean; referralCode: string | null }) {
   const [activeRole, setActiveRole] = useState<Role | null>(null);
-  const router = useRouter();
+  // `?start=1` (e.g. from metatron.id) opens sign-up straight away.
+  const [signup, setSignup] = useState<{ role: SignupRole | null } | null>(startOpen ? { role: null } : null);
 
   function startOnboarding(role: Role) {
-    window.sessionStorage.setItem("metatron_role", role);
-    router.push("/auth/signup");
+    setSignup({ role: role === "investor" ? "investor" : "founder" });
   }
 
   return (
@@ -187,7 +188,29 @@ function LandingPage() {
         <h1 className="text-[32px] font-bold leading-tight tracking-tight text-[var(--text)] md:text-[48px]">
           Meet Kevin, your AI dealmaker for founders and investors.
         </h1>
+        <button
+          type="button"
+          onClick={() => setSignup({ role: null })}
+          className="mt-8 inline-flex min-h-[52px] w-full items-center justify-center rounded-[14px] bg-metatron-accent px-8 text-base font-semibold text-white transition-colors hover:bg-metatron-accent-hover sm:w-auto"
+        >
+          Get started free
+        </button>
+        <p className="mt-4 text-sm text-[var(--text-muted)]">
+          Already have an account?{" "}
+          <Link href="/login" className="font-semibold text-[var(--text)] hover:text-metatron-accent">
+            Sign in
+          </Link>
+        </p>
       </section>
+
+      {signup && (
+        <SignupFlow
+          key={signup.role ?? "any"}
+          initialRole={signup.role}
+          referralCode={referralCode}
+          onClose={() => setSignup(null)}
+        />
+      )}
 
       {/* ── Role sections ────────────────────────────────────────────────── */}
       <section id="roles" className="mx-auto max-w-5xl px-5 pt-20 pb-24">
@@ -195,7 +218,7 @@ function LandingPage() {
           Built for every participant
         </p>
         <h2 className="mb-12 text-center text-[28px] font-bold text-[var(--text)] md:text-[36px]">
-          Choose your role
+          What Kevin does for you
         </h2>
 
         <div className="flex flex-col gap-4">
@@ -308,15 +331,23 @@ function LandingPage() {
             Ready to connect?
           </h2>
           <p className="mb-8 text-[15px] leading-relaxed text-[var(--text-muted)]">
-            Choose founder or investor above to create a free account,
-            or sign in if you already have one.
+            Create a free account in a minute, or sign in if you already have one.
           </p>
-          <Link
-            href="/login"
-            className="rounded-[12px] bg-metatron-accent px-7 py-3 text-sm font-semibold text-white transition-colors hover:bg-metatron-accent-hover"
-          >
-            Sign in
-          </Link>
+          <div className="flex flex-col items-center justify-center gap-3 sm:flex-row">
+            <button
+              type="button"
+              onClick={() => setSignup({ role: null })}
+              className="inline-flex min-h-12 w-full items-center justify-center rounded-[12px] bg-metatron-accent px-7 text-sm font-semibold text-white transition-colors hover:bg-metatron-accent-hover sm:w-auto"
+            >
+              Get started free
+            </button>
+            <Link
+              href="/login"
+              className="inline-flex min-h-12 w-full items-center justify-center rounded-[12px] border border-[var(--overlay-12)] px-7 text-sm font-semibold text-[var(--text)] transition-colors hover:bg-[var(--overlay-4)] sm:w-auto"
+            >
+              Sign in
+            </Link>
+          </div>
         </div>
       </section>
 
@@ -340,7 +371,7 @@ function HomePageContent() {
   const selectRoleMode = searchParams.get("select_role") === "1";
 
   if (selectRoleMode) return <OAuthRoleSelector />;
-  return <LandingPage />;
+  return <LandingPage startOpen={searchParams.get("start") === "1"} referralCode={searchParams.get("ref")?.trim() || null} />;
 }
 
 export default function HomeClient() {

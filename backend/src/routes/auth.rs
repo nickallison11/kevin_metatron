@@ -34,6 +34,10 @@ use crate::state::AppState;
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/register", post(signup))
+        .route("/signup/start", post(signup_start))
+        .route("/signup/resend", post(signup_resend))
+        .route("/signup/verify", post(signup_verify))
+        .route("/signup/interest", post(signup_interest))
         .route("/login", post(login))
         .route("/refresh", post(refresh))
         .route("/logout", post(logout))
@@ -203,64 +207,15 @@ async fn signup(
             ),
         })?;
 
-    if let Some(ref code) = body.referral_code {
-        if let Ok(Some(connector_id)) = sqlx::query_scalar::<_, Uuid>(
-            "SELECT user_id FROM connector_profiles WHERE referral_code = $1",
-        )
-        .bind(code.trim())
-        .fetch_optional(&state.db)
-        .await
-        {
-            let _ = sqlx::query(
-                "INSERT INTO referrals (referrer_user_id, referred_email, referred_user_id, status) VALUES ($1, $2, $3, 'signed_up')",
-            )
-            .bind(connector_id)
-            .bind(&body.email)
-            .bind(user_id)
-            .execute(&state.db)
-            .await;
-        }
-    }
-
-    let _ = sqlx::query(
-        "INSERT INTO email_preferences (user_id, weekly_matches, instant_alerts, unsubscribed_all) VALUES ($1, $2, FALSE, FALSE) ON CONFLICT (user_id) DO NOTHING",
-    )
-    .bind(user_id)
-    .bind(body.email_opt_in)
-    .execute(&state.db)
-    .await;
-
-    let (token, refresh_token) = auth::issue_token_pair(&state, user_id, db_role)
-        .await
-        .map_err(|_| {
-            (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                "could not issue token".to_string(),
-            )
-        })?;
-
-    email::send_email(
-        &state.http_client,
-        state.resend_api_key.as_deref(),
-        &state.email_from,
+    let (token, refresh_token) = finish_signup(
+        &state,
+        user_id,
         &body.email,
-        "Welcome to metatron",
-        &email::welcome_email_html(db_role),
+        db_role,
+        body.referral_code.as_deref(),
+        body.email_opt_in,
     )
-    .await;
-
-    let email_type = match db_role {
-        "INVESTOR" => "welcome_investor",
-        "INTERMEDIARY" => "welcome_connector",
-        _ => "welcome_founder",
-    };
-    let _ = sqlx::query(
-        "INSERT INTO email_send_log (user_id, email_type) VALUES ($1, $2)",
-    )
-    .bind(user_id)
-    .bind(email_type)
-    .execute(&state.db)
-    .await;
+    .await?;
 
     if let Some(ref code) = body.invite_code {
         let trimmed = code.trim();
@@ -321,6 +276,400 @@ async fn signup(
     }
 
     Ok(Json(AuthResponse { token, refresh_token }))
+}
+
+/// Steps every new email account goes through once its `users` row exists:
+/// referral credit, email preferences, welcome email, then a token pair.
+async fn finish_signup(
+    state: &Arc<AppState>,
+    user_id: Uuid,
+    email_addr: &str,
+    db_role: &str,
+    referral_code: Option<&str>,
+    email_opt_in: bool,
+) -> Result<(String, String), (StatusCode, String)> {
+    if let Some(code) = referral_code {
+        if let Ok(Some(connector_id)) = sqlx::query_scalar::<_, Uuid>(
+            "SELECT user_id FROM connector_profiles WHERE referral_code = $1",
+        )
+        .bind(code.trim())
+        .fetch_optional(&state.db)
+        .await
+        {
+            let _ = sqlx::query(
+                "INSERT INTO referrals (referrer_user_id, referred_email, referred_user_id, status) VALUES ($1, $2, $3, 'signed_up')",
+            )
+            .bind(connector_id)
+            .bind(email_addr)
+            .bind(user_id)
+            .execute(&state.db)
+            .await;
+        }
+    }
+
+    let _ = sqlx::query(
+        "INSERT INTO email_preferences (user_id, weekly_matches, instant_alerts, unsubscribed_all) VALUES ($1, $2, FALSE, FALSE) ON CONFLICT (user_id) DO NOTHING",
+    )
+    .bind(user_id)
+    .bind(email_opt_in)
+    .execute(&state.db)
+    .await;
+
+    let pair = auth::issue_token_pair(state, user_id, db_role)
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "could not issue token".to_string(),
+            )
+        })?;
+
+    email::send_email(
+        &state.http_client,
+        state.resend_api_key.as_deref(),
+        &state.email_from,
+        email_addr,
+        "Welcome to metatron",
+        &email::welcome_email_html(db_role),
+    )
+    .await;
+
+    let email_type = match db_role {
+        "INVESTOR" => "welcome_investor",
+        "INTERMEDIARY" => "welcome_connector",
+        _ => "welcome_founder",
+    };
+    let _ = sqlx::query(
+        "INSERT INTO email_send_log (user_id, email_type) VALUES ($1, $2)",
+    )
+    .bind(user_id)
+    .bind(email_type)
+    .execute(&state.db)
+    .await;
+
+    Ok(pair)
+}
+
+// ── Home-page sign-up ──────────────────────────────────────────────────────
+// start: checks the details and emails a 6-digit code. verify: checks the code,
+// creates the account with the chosen password and logs the user in.
+
+const SIGNUP_CODE_MAX_ATTEMPTS: i32 = 5;
+
+#[derive(Deserialize)]
+pub struct SignupStartRequest {
+    pub email: String,
+    /// Mobile number with country code; anything but digits is ignored.
+    pub phone: String,
+    /// `whatsapp` or `telegram`.
+    pub channel: String,
+    /// `founder` or `investor`.
+    pub role: String,
+    #[serde(default)]
+    pub referral_code: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct SignupResendRequest {
+    pub email: String,
+}
+
+#[derive(Deserialize)]
+pub struct SignupVerifyRequest {
+    pub email: String,
+    pub code: String,
+    pub password: String,
+}
+
+#[derive(Deserialize)]
+pub struct SignupInterestRequest {
+    pub email: String,
+    pub note: String,
+}
+
+fn normalize_signup_email(raw: &str) -> Option<String> {
+    let e = raw.trim().to_lowercase();
+    let (local, domain) = e.split_once('@')?;
+    if local.is_empty() || !domain.contains('.') || domain.starts_with('.') || domain.ends_with('.') || e.contains(char::is_whitespace) {
+        return None;
+    }
+    Some(e)
+}
+
+async fn email_taken(state: &AppState, email_addr: &str) -> Result<bool, (StatusCode, String)> {
+    sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE LOWER(email) = $1)")
+        .bind(email_addr)
+        .fetch_one(&state.db)
+        .await
+        .map_err(|e| {
+            tracing::error!("signup: email lookup: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "database error".to_string())
+        })
+}
+
+async fn whatsapp_taken(state: &AppState, phone: &str) -> Result<bool, (StatusCode, String)> {
+    sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM users WHERE regexp_replace(COALESCE(whatsapp_number, ''), '[^0-9]', '', 'g') = $1)",
+    )
+    .bind(phone)
+    .fetch_one(&state.db)
+    .await
+    .map_err(|e| {
+        tracing::error!("signup: whatsapp lookup: {e}");
+        (StatusCode::INTERNAL_SERVER_ERROR, "database error".to_string())
+    })
+}
+
+async fn send_signup_code(state: &AppState, email_addr: &str, code: &str) {
+    let html = format!(
+        r#"<p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">Here's your code to finish signing up to metatron:</p>
+<p style="margin:0 0 16px 0;font-size:28px;font-weight:700;letter-spacing:6px;color:#e8e8ed;">{code}</p>
+<p style="margin:0;font-size:13px;color:#8888a0;">Enter it on the sign-up page. It expires in 15 minutes. If you didn't ask for it, you can ignore this email.</p>"#
+    );
+    email::send_email(
+        &state.http_client,
+        state.resend_api_key.as_deref(),
+        &state.email_from,
+        email_addr,
+        &format!("Your metatron code: {code}"),
+        &html,
+    )
+    .await;
+}
+
+fn new_signup_code() -> String {
+    format!("{:06}", rand::thread_rng().gen_range(0..1_000_000))
+}
+
+async fn signup_start(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<SignupStartRequest>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let email_addr = normalize_signup_email(&body.email)
+        .ok_or((StatusCode::BAD_REQUEST, "Enter a valid email address.".to_string()))?;
+    let phone: String = body.phone.chars().filter(|c| c.is_ascii_digit()).collect();
+    if !(8..=15).contains(&phone.len()) {
+        return Err((StatusCode::BAD_REQUEST, "Enter a valid mobile number.".to_string()));
+    }
+    let channel = body.channel.trim().to_lowercase();
+    if channel != "whatsapp" && channel != "telegram" {
+        return Err((StatusCode::BAD_REQUEST, "Choose WhatsApp or Telegram.".to_string()));
+    }
+    let role = body.role.trim().to_lowercase();
+    if role != "founder" && role != "investor" {
+        return Err((StatusCode::BAD_REQUEST, "Choose founder or investor.".to_string()));
+    }
+
+    if email_taken(&state, &email_addr).await? {
+        return Err((
+            StatusCode::CONFLICT,
+            "An account with this email already exists. Sign in instead.".to_string(),
+        ));
+    }
+    if channel == "whatsapp" && whatsapp_taken(&state, &phone).await? {
+        return Err((
+            StatusCode::CONFLICT,
+            "This WhatsApp number is already linked to another account.".to_string(),
+        ));
+    }
+
+    let recent: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM signup_pending WHERE email = $1 AND last_sent_at > NOW() - INTERVAL '30 seconds')",
+    )
+    .bind(&email_addr)
+    .fetch_one(&state.db)
+    .await
+    .unwrap_or(false);
+    if recent {
+        return Err((
+            StatusCode::TOO_MANY_REQUESTS,
+            "We just sent you a code. Wait a few seconds before asking for another.".to_string(),
+        ));
+    }
+
+    let code = new_signup_code();
+    sqlx::query(
+        r#"
+        INSERT INTO signup_pending (email, phone, channel, role, referral_code, code, code_expires_at)
+        VALUES ($1, $2, $3, $4, $5, $6, NOW() + INTERVAL '15 minutes')
+        ON CONFLICT (email) DO UPDATE
+        SET phone = EXCLUDED.phone, channel = EXCLUDED.channel, role = EXCLUDED.role,
+            referral_code = EXCLUDED.referral_code, code = EXCLUDED.code,
+            code_expires_at = EXCLUDED.code_expires_at, code_attempts = 0, last_sent_at = NOW()
+        "#,
+    )
+    .bind(&email_addr)
+    .bind(&phone)
+    .bind(&channel)
+    .bind(&role)
+    .bind(body.referral_code.as_deref().map(str::trim).filter(|s| !s.is_empty()))
+    .bind(&code)
+    .execute(&state.db)
+    .await
+    .map_err(|e| {
+        tracing::error!("signup_start: insert: {e}");
+        (StatusCode::INTERNAL_SERVER_ERROR, "database error".to_string())
+    })?;
+
+    send_signup_code(&state, &email_addr, &code).await;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn signup_resend(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<SignupResendRequest>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let email_addr = normalize_signup_email(&body.email)
+        .ok_or((StatusCode::BAD_REQUEST, "Enter a valid email address.".to_string()))?;
+    let code = new_signup_code();
+    // Only rows last sent over 30 seconds ago get a new code.
+    let updated = sqlx::query(
+        r#"
+        UPDATE signup_pending
+        SET code = $2, code_expires_at = NOW() + INTERVAL '15 minutes', code_attempts = 0, last_sent_at = NOW()
+        WHERE email = $1 AND last_sent_at <= NOW() - INTERVAL '30 seconds'
+        "#,
+    )
+    .bind(&email_addr)
+    .bind(&code)
+    .execute(&state.db)
+    .await
+    .map_err(|e| {
+        tracing::error!("signup_resend: update: {e}");
+        (StatusCode::INTERNAL_SERVER_ERROR, "database error".to_string())
+    })?;
+    if updated.rows_affected() == 0 {
+        let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM signup_pending WHERE email = $1)")
+            .bind(&email_addr)
+            .fetch_one(&state.db)
+            .await
+            .unwrap_or(false);
+        return Err(if exists {
+            (
+                StatusCode::TOO_MANY_REQUESTS,
+                "We just sent you a code. Wait a few seconds before asking for another.".to_string(),
+            )
+        } else {
+            (StatusCode::NOT_FOUND, "Start again to get a new code.".to_string())
+        });
+    }
+    send_signup_code(&state, &email_addr, &code).await;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn signup_verify(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<SignupVerifyRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let email_addr = normalize_signup_email(&body.email)
+        .ok_or((StatusCode::BAD_REQUEST, "Enter a valid email address.".to_string()))?;
+    if body.password.chars().count() < 8 {
+        return Err((StatusCode::BAD_REQUEST, "Your password needs at least 8 characters.".to_string()));
+    }
+
+    let row: Option<(String, String, String, Option<String>, String, bool, i32)> = sqlx::query_as(
+        r#"
+        SELECT phone, channel, role, referral_code, code, code_expires_at > NOW(), code_attempts
+        FROM signup_pending WHERE email = $1
+        "#,
+    )
+    .bind(&email_addr)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| {
+        tracing::error!("signup_verify: lookup: {e}");
+        (StatusCode::INTERNAL_SERVER_ERROR, "database error".to_string())
+    })?;
+    let Some((phone, channel, role, referral_code, code, fresh, attempts)) = row else {
+        return Err((StatusCode::NOT_FOUND, "Start again to get a new code.".to_string()));
+    };
+    if attempts >= SIGNUP_CODE_MAX_ATTEMPTS {
+        return Err((
+            StatusCode::TOO_MANY_REQUESTS,
+            "Too many wrong codes. Send yourself a new one.".to_string(),
+        ));
+    }
+    if !fresh {
+        return Err((StatusCode::BAD_REQUEST, "That code has expired. Send yourself a new one.".to_string()));
+    }
+    let entered: String = body.code.chars().filter(|c| c.is_ascii_digit()).collect();
+    if entered != code {
+        let _ = sqlx::query("UPDATE signup_pending SET code_attempts = code_attempts + 1 WHERE email = $1")
+            .bind(&email_addr)
+            .execute(&state.db)
+            .await;
+        return Err((StatusCode::BAD_REQUEST, "That code doesn't match. Check the email and try again.".to_string()));
+    }
+
+    let db_role = auth::signup_role_from_frontend(Some(&role));
+    let user_id = auth::create_user_with_password(&state.db, &email_addr, &body.password, db_role)
+        .await
+        .map_err(|e| match e {
+            auth::AuthError::EmailExists => (
+                StatusCode::CONFLICT,
+                "An account with this email already exists. Sign in instead.".to_string(),
+            ),
+            _ => (StatusCode::INTERNAL_SERVER_ERROR, "could not create user".to_string()),
+        })?;
+
+    if let Err(e) = sqlx::query("UPDATE users SET phone_number = $2, preferred_channel = $3 WHERE id = $1")
+        .bind(user_id)
+        .bind(&phone)
+        .bind(&channel)
+        .execute(&state.db)
+        .await
+    {
+        tracing::error!("signup_verify: save phone: {e}");
+    }
+    // A WhatsApp number on the account is what lets Kevin recognise the
+    // user's first message. Telegram links through a /start code instead.
+    if channel == "whatsapp" {
+        if let Err(e) = sqlx::query("UPDATE users SET whatsapp_number = $2 WHERE id = $1")
+            .bind(user_id)
+            .bind(&phone)
+            .execute(&state.db)
+            .await
+        {
+            tracing::error!("signup_verify: save whatsapp number: {e}");
+        }
+    }
+
+    let _ = sqlx::query("DELETE FROM signup_pending WHERE email = $1")
+        .bind(&email_addr)
+        .execute(&state.db)
+        .await;
+
+    let (token, refresh_token) =
+        finish_signup(&state, user_id, &email_addr, db_role, referral_code.as_deref(), true).await?;
+
+    Ok(Json(serde_json::json!({
+        "token": token,
+        "refresh_token": refresh_token,
+        "role": db_role,
+    })))
+}
+
+async fn signup_interest(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<SignupInterestRequest>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let email_addr = normalize_signup_email(&body.email)
+        .ok_or((StatusCode::BAD_REQUEST, "Enter a valid email address.".to_string()))?;
+    let note = body.note.trim();
+    if note.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "Tell us what you're looking for.".to_string()));
+    }
+    let note: String = note.chars().take(1000).collect();
+    sqlx::query("INSERT INTO signup_interest (email, note) VALUES ($1, $2)")
+        .bind(&email_addr)
+        .bind(&note)
+        .execute(&state.db)
+        .await
+        .map_err(|e| {
+            tracing::error!("signup_interest: insert: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "database error".to_string())
+        })?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 fn sha256_hex_token(token_hex: &str) -> String {
@@ -911,6 +1260,9 @@ pub struct MeResponse {
     pub last_name: Option<String>,
     pub telegram_id: Option<String>,
     pub whatsapp_number: Option<String>,
+    pub phone_number: Option<String>,
+    pub preferred_channel: Option<String>,
+    pub channel_connected_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 async fn update_profile(
@@ -965,7 +1317,10 @@ async fn get_me(
             first_name,
             last_name,
             telegram_id,
-            whatsapp_number
+            whatsapp_number,
+            phone_number,
+            preferred_channel,
+            channel_connected_at
         FROM users
         WHERE id = $1
         "#,
@@ -1492,7 +1847,9 @@ async fn telegram_confirm(
     let update_user = sqlx::query(
         r#"
         -- One messaging channel per account: linking Telegram disconnects WhatsApp.
-        UPDATE users SET telegram_id = $1, whatsapp_number = NULL WHERE id = $2
+        UPDATE users SET telegram_id = $1, whatsapp_number = NULL,
+            channel_connected_at = COALESCE(channel_connected_at, NOW())
+        WHERE id = $2
         "#,
     )
     .bind(&telegram_id_str)

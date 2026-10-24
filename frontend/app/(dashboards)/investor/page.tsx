@@ -7,6 +7,7 @@ import { API_BASE, authHeaders, authJsonHeaders } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import type { MeResponse } from "@/lib/me";
 import { LogoTile } from "@/components/LogoTile";
+import GetStartedChecklist, { showGetStarted } from "@/components/onboarding/GetStartedChecklist";
 
 const PIPELINE_STAGES = ["watching", "considering", "due_diligence", "invested", "passed"];
 const STAGE_LABELS: Record<string, string> = {
@@ -190,6 +191,8 @@ export default function InvestorDashboardPage() {
   const done = items.filter((i) => i[1]).length;
   const name = p.firm_name?.trim() || me?.first_name?.trim() || "";
   const active = pipeline.filter((r) => r.stage !== "passed").length;
+  const thesisDone = Boolean((p.investment_thesis || p.bio)?.trim() && p.stages?.length && p.sectors?.length);
+  const checklist = showGetStarted(me, thesisDone);
 
   return (
     <main className="min-w-0 flex-1">
@@ -202,7 +205,24 @@ export default function InvestorDashboardPage() {
           </h1>
         </header>
 
-        {profile && done < items.length && (
+        {checklist && me && (
+          <GetStartedChecklist
+            token={token}
+            me={me}
+            onMe={setMe}
+            main={{
+              title: "Set your investment thesis",
+              text: "Your thesis, sectors and stages. Kevin uses them to pick which founders to bring you.",
+              href: "/investor/profile",
+              cta: "Set thesis",
+            }}
+            mainDone={thesisDone}
+            matchesHref="/investor/matches"
+            matchesTitle="See your first founders"
+          />
+        )}
+
+        {!checklist && profile && done < items.length && (
           <section className={`${card} md:flex-row md:flex-wrap md:items-center`}>
             <div className="flex min-w-0 flex-1 basis-72 flex-col gap-1.5">
               <div className="flex justify-between gap-2">

@@ -6,6 +6,7 @@ import AngelScoreCard from "@/components/AngelScoreCard";
 import ShareProfileCard from "@/components/ShareProfileCard";
 import DeckActivityCard from "@/components/startup/DeckActivityCard";
 import StartupReviewsCard from "@/components/startup/StartupReviewsCard";
+import GetStartedChecklist, { showGetStarted } from "@/components/onboarding/GetStartedChecklist";
 import { API_BASE, authHeaders, authJsonHeaders } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import type { MeResponse } from "@/lib/me";
@@ -58,6 +59,7 @@ export default function StartupDashboardPage() {
   const { loading, token } = useAuth();
   const [me, setMe] = useState<MeResponse | null>(null);
   const [company, setCompany] = useState<string | null>(null);
+  const [deckUrl, setDeckUrl] = useState<string | null>(null);
   const [pitch, setPitch] = useState<Pitch | null>(null);
   const [matches, setMatches] = useState<Match[] | null>(null);
   const [requests, setRequests] = useState<Request[]>([]);
@@ -81,6 +83,7 @@ export default function StartupDashboardPage() {
     ]);
     setMe(m as MeResponse | null);
     setCompany((prof as { company_name?: string | null } | null)?.company_name?.trim() || null);
+    setDeckUrl((prof as { pitch_deck_url?: string | null } | null)?.pitch_deck_url?.trim() || null);
     setPitch(((pitches as Pitch[] | null) ?? [])[0] ?? null);
     setRequests(((reqs as Request[] | null) ?? []).filter((r) => !r.intro_accepted_at && !r.intro_passed_at));
     const since = Date.now() - 30 * 86400000;
@@ -125,6 +128,7 @@ export default function StartupDashboardPage() {
   const weekAgo = Date.now() - 7 * 86400000;
   const newThisWeek = (matches ?? []).filter((m) => new Date(m.generated_at).getTime() >= weekAgo).length;
   const name = me?.first_name?.trim() || company || "";
+  const checklist = showGetStarted(me, Boolean(deckUrl));
 
   return (
     <main className="min-w-0 flex-1">
@@ -136,6 +140,23 @@ export default function StartupDashboardPage() {
             {name ? `, ${name}` : ""}
           </h1>
         </header>
+
+        {checklist && me && (
+          <GetStartedChecklist
+            token={token}
+            me={me}
+            onMe={setMe}
+            main={{
+              title: "Upload your pitch deck",
+              text: "Kevin reads it, fills in your profile and gives you your Angel Score, your investor-readiness rating.",
+              href: "/startup/profile",
+              cta: "Upload deck",
+            }}
+            mainDone={Boolean(deckUrl)}
+            matchesHref="/startup/matches"
+            matchesTitle="See your first investor matches"
+          />
+        )}
 
         {req ? (
           <section className={`${card} border-metatron-accent/40 bg-metatron-accent/[0.06] md:flex-row md:flex-wrap md:items-center`}>
@@ -156,7 +177,7 @@ export default function StartupDashboardPage() {
               </button>
             </div>
           </section>
-        ) : missing.length > 0 ? (
+        ) : checklist ? null : missing.length > 0 ? (
           <section className={`${card} border-metatron-accent/40 bg-metatron-accent/[0.06]`}>
             <span className={`${eyebrow} text-[var(--accent-fg)]`}>Next step from Kevin</span>
             <span className="text-xl font-semibold">

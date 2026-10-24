@@ -240,6 +240,19 @@ async fn handle_whatsapp_message(
         return Ok(());
     };
 
+    // First message since the number was added at sign-up: welcome them and
+    // point them at the dashboard instead of answering the pre-filled hello.
+    let first_role: Option<String> = sqlx::query_scalar(
+        "UPDATE users SET channel_connected_at = NOW() WHERE id = $1 AND channel_connected_at IS NULL RETURNING role::text",
+    )
+    .bind(user.id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| e.to_string())?;
+    if let Some(role) = first_role {
+        return send_whatsapp_text(state, from_wa_id, &onboarding::messaging_welcome(&role)).await;
+    }
+
     match kevin_reply_for_linked_user(state, user, text).await {
         Ok(reply) => send_whatsapp_text(state, from_wa_id, &reply).await,
         Err(KevinReplyError::Limit(msg)) => send_whatsapp_text(state, from_wa_id, &msg).await,

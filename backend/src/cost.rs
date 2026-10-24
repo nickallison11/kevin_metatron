@@ -6,8 +6,8 @@
 //!
 //! Pricing changes over time and per-provider — this table is the single
 //! place to update rates, not scattered across call sites. Sourced
-//! 2026-07-25; revisit if a model's actual bill drifts from what this
-//! reports.
+//! 2026-07-25; Gemini rates updated 2026-10-24. Revisit if a model's actual
+//! bill drifts from what this reports.
 
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -15,7 +15,8 @@ use uuid::Uuid;
 /// (input $ per million tokens, output $ per million tokens).
 fn pricing_per_million(provider: &str, model: &str) -> Option<(f64, f64)> {
     match (provider, model) {
-        ("gemini", "gemini-2.5-flash") => Some((0.15, 1.25)),
+        ("gemini", "gemini-2.5-flash") => Some((0.30, 2.50)),
+        ("gemini", "gemini-2.5-flash-lite") => Some((0.10, 0.40)),
         ("gemini", "text-embedding-004") | ("gemini", "gemini-embedding-001") => {
             Some((0.15, 0.0))
         }

@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { UpgradeButton } from "@/components/upgrade/UpgradeProvider";
 import { useEffect, useRef, useState, type DragEvent } from "react";
 import { IconArrowUpRight, IconDots, IconLock, IconPlugConnected, IconSparkles, IconTrash, IconUpload, IconX } from "@tabler/icons-react";
 
@@ -151,9 +151,7 @@ export default function DeckCard({
               {read ? "Import again" : "Import Pitch Deck"}
             </button>
           ) : (
-            <Link href="/startup/settings/subscription?return=/startup/profile" className={`${btnPrimary} flex-1 sm:flex-none`}>
-              Upgrade to Import Deck
-            </Link>
+            <UpgradeButton className={`${btnPrimary} flex-1 sm:flex-none`}>Upgrade to Import Deck</UpgradeButton>
           )}
           <div ref={menuRef} className="relative">
             <button
@@ -274,9 +272,7 @@ export default function DeckCard({
             </div>
 
             {!paid && (
-              <Link href="/startup/settings/subscription?return=/startup/profile" className={`${btnPrimary} mt-1.5 min-h-12 text-[15px]`}>
-                See plans
-              </Link>
+              <UpgradeButton className={`${btnPrimary} mt-1.5 min-h-12 text-[15px]`}>See plans</UpgradeButton>
             )}
           </div>
         </div>

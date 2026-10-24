@@ -15,21 +15,7 @@ type SubStatus = {
   pending_downgrade_to: string | null;
 };
 
-const basicFeatures = [
-  "Full deal-flow visibility",
-  "Kevin match feed (unlimited)",
-  "Pipeline stage management",
-  "Investment memo generation",
-  "Investor profile on metatron",
-];
 
-const proFeatures = [
-  "Everything in Basic",
-  "Advanced portfolio analytics",
-  "Custom deal-flow workflows",
-  "White-label investor profile",
-  "Priority Kevin AI access",
-];
 
 export default function InvestorSubscriptionPage() {
   const { token, loading } = useAuth("INVESTOR");
@@ -84,9 +70,6 @@ export default function InvestorSubscriptionPage() {
       isPaid={isPaid}
       planLevel={planLevel}
       planName={planName}
-      planFeatures={basicFeatures}
-      proName="Pro for Investors"
-      proFeatures={proFeatures}
       basePath="/investor/settings/subscription"
       invoices={invoices}
       subMeta={

@@ -15,24 +15,7 @@ type SubStatus = {
   pending_downgrade_to: string | null;
 };
 
-const basicFeatures = [
-  "Everything in Free",
-  "Kevin AI chat (200 msg/day)",
-  "Call recording + AI analysis",
-  "10 investor matches/week",
-  "Permanent IPFS deck storage",
-  "Kevin extracts pitch data from deck",
-];
 
-const proFeatures = [
-  "Everything in Basic",
-  "Unlimited Kevin messages + matches",
-  "Private encrypted IPFS deck",
-  "Full Virtual Data Room",
-  "Custom AI backend",
-  "Custom subdomain (startup.metatron.id)",
-  "Embeddable widget",
-];
 
 export default function StartupSubscriptionPage() {
   const { token, loading } = useAuth();
@@ -87,9 +70,6 @@ export default function StartupSubscriptionPage() {
       isPaid={isPaid}
       planLevel={planLevel}
       planName={planName}
-      planFeatures={basicFeatures}
-      proName="Pro for Founders"
-      proFeatures={proFeatures}
       basePath="/startup/settings/subscription"
       invoices={invoices}
       onVerifySuccess={loadData}

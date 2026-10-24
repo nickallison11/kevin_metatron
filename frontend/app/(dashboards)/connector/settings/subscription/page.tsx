@@ -20,21 +20,7 @@ type SubStatus = {
   pending_downgrade_to: string | null;
 };
 
-const basicFeatures = [
-  "Unlimited contacts",
-  "50 enrichment credits/month",
-  "IPFS network storage",
-  "Introductions tracker",
-  "Referral programme",
-];
 
-const proFeatures = [
-  "Everything in Basic",
-  "Custom enrichment data sources",
-  "White-label network exports",
-  "Team seats",
-  "Priority enrichment queue",
-];
 
 export default function ConnectorSubscriptionPage() {
   const { token, loading } = useAuth("INTERMEDIARY");
@@ -88,9 +74,6 @@ export default function ConnectorSubscriptionPage() {
       role="INTERMEDIARY"
       isPaid={isPaid}
       planName="Basic for Connectors"
-      planFeatures={basicFeatures}
-      proName="Pro for Connectors"
-      proFeatures={proFeatures}
       basePath="/connector/settings/subscription"
       invoices={invoices}
       extraPaidInfo={<p className="text-sm text-[var(--text-muted)]">Credits remaining: {credits}</p>}

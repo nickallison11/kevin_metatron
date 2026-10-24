@@ -16,6 +16,7 @@ import {
 import { API_BASE, authHeaders } from "@/lib/api";
 import type { MeResponse } from "@/lib/me";
 import { usePaymentsEnabled } from "@/lib/payments";
+import { useUpgrade } from "@/components/upgrade/UpgradeProvider";
 
 type Status = { subscription_status: string; subscription_period_end: string | null; cancel_at_period_end: boolean };
 type Usage = { messages_today: number; daily_limit: number | null };
@@ -205,6 +206,7 @@ export default function AccountMenu({
   onLogout: () => void;
 }) {
   const { open, setOpen, ref } = usePopover();
+  const { openUpgrade } = useUpgrade();
   const [status, setStatus] = useState<Status | null>(null);
   const [usage, setUsage] = useState<Usage | null>(null);
 
@@ -265,10 +267,23 @@ export default function AccountMenu({
                 <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--text-muted)]">
                   {planLine}
                 </span>
-                {planLink && (
-                  <Link href={`${base}/settings/subscription`} className="text-xs font-semibold text-[var(--accent-fg)] hover:underline">
-                    {planLink}
-                  </Link>
+                {planLink === "Upgrade" ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOpen(false);
+                      openUpgrade();
+                    }}
+                    className="text-xs font-semibold text-[var(--accent-fg)] hover:underline"
+                  >
+                    Upgrade
+                  </button>
+                ) : (
+                  planLink && (
+                    <Link href={`${base}/settings/subscription`} className="text-xs font-semibold text-[var(--accent-fg)] hover:underline">
+                      {planLink}
+                    </Link>
+                  )
                 )}
               </div>
               {usage && (

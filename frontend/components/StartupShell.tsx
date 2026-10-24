@@ -1,6 +1,6 @@
 "use client";
 
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import {
   IconArrowsExchange,
@@ -13,12 +13,13 @@ import {
 import { useAuth } from "@/lib/auth";
 import { useIntroRequestCount } from "@/lib/useIntroRequestCount";
 import DashboardChrome, { type ChromeNavGroup, type ChromeNavItem } from "@/components/DashboardChrome";
+import { useUpgrade } from "@/components/upgrade/UpgradeProvider";
 
 export default function StartupShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  const router = useRouter();
   const { token, isPro, loading } = useAuth();
   const requests = useIntroRequestCount(token);
+  const { openUpgrade } = useUpgrade();
 
   if (loading) {
     return (
@@ -33,7 +34,7 @@ export default function StartupShell({ children }: { children: ReactNode }) {
   // Call Intelligence needs a paid plan (Basic or Pro).
   const calls: ChromeNavItem = isPro
     ? { key: "/startup/calls", href: "/startup/calls", label: "Call Intelligence", icon: IconHeadset, kind: "link" }
-    : { key: "calls-locked", label: "Call Intelligence", icon: IconHeadset, kind: "locked", onClick: () => router.push("/startup/settings/subscription") };
+    : { key: "calls-locked", label: "Call Intelligence", icon: IconHeadset, kind: "locked", onClick: openUpgrade };
 
   const groups: ChromeNavGroup[] = [
     {

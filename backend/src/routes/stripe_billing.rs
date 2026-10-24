@@ -184,18 +184,15 @@ async fn create_checkout(
         crate::email::frontend_url(),
         role_path(&user.role)
     );
-    // Back on the subscription page the plan is confirmed, then it forwards to
-    // where the upgrade started (e.g. Startup Profile's "Upgrade to Import Deck").
-    let return_q = safe_return_path(body.return_to.as_deref(), role_path(&user.role))
-        .map(|p| format!("return={p}"));
-    let success_url = match &return_q {
-        Some(q) => format!("{settings_url}?success=1&{q}"),
+    // Checkout started from the upgrade popup goes back to the page it was
+    // opened on (`?upgraded=1` there waits for the plan to switch on).
+    let back = safe_return_path(body.return_to.as_deref(), role_path(&user.role))
+        .map(|p| format!("{}{p}", crate::email::frontend_url()));
+    let success_url = match &back {
+        Some(b) => format!("{b}?upgraded=1"),
         None => format!("{settings_url}?success=1"),
     };
-    let cancel_url = match &return_q {
-        Some(q) => format!("{settings_url}?{q}"),
-        None => settings_url.clone(),
-    };
+    let cancel_url = back.unwrap_or_else(|| settings_url.clone());
     let session = stripe_call(
         &state,
         reqwest::Method::POST,

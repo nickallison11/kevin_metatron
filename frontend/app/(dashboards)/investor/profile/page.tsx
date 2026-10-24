@@ -1,5 +1,6 @@
 "use client";
 
+import { UpgradeButton } from "@/components/upgrade/UpgradeProvider";
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useState, type ReactNode } from "react";
 import { API_BASE, authHeaders, authJsonHeaders } from "@/lib/api";
@@ -309,9 +310,7 @@ export default function InvestorProfilePage() {
                   {!canEditTemplate && (
                     <>
                       {" "}
-                      <Link href="/investor/settings/subscription" className="text-[var(--accent-fg)] hover:underline">
-                        Upgrade to edit it.
-                      </Link>
+                      <UpgradeButton className="text-[var(--accent-fg)] hover:underline">Upgrade to edit it.</UpgradeButton>
                     </>
                   )}
                 </>

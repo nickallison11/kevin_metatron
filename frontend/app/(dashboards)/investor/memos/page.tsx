@@ -1,5 +1,6 @@
 "use client";
 
+import { UpgradeButton } from "@/components/upgrade/UpgradeProvider";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { API_BASE, authHeaders, authJsonHeaders } from "@/lib/api";
@@ -114,9 +115,7 @@ export default function InvestorMemosPage() {
           <section className={`${card} flex flex-col items-start gap-3 p-6`}>
             <h2 className="text-lg font-semibold">Memos are on Basic and Pro</h2>
             <p className="text-sm text-[var(--text-muted)]">Kevin writes a structured first memo for any startup: market, model, traction, team, risks and a recommendation.</p>
-            <Link href="/investor/settings/subscription" className={btnPrimary}>
-              Upgrade to Basic
-            </Link>
+            <UpgradeButton className={btnPrimary}>Upgrade to Basic</UpgradeButton>
           </section>
         ) : (
           <section className={`${card} flex flex-col gap-3 border-dashed p-5 sm:flex-row sm:items-end`}>

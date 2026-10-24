@@ -1,4 +1,6 @@
-import Link from "next/link";
+"use client";
+
+import { UpgradeButton } from "@/components/upgrade/UpgradeProvider";
 
 export default function ConnectorUpgradeGate({ feature }: { feature: string }) {
   return (
@@ -24,12 +26,9 @@ export default function ConnectorUpgradeGate({ feature }: { feature: string }) {
       <p className="mt-2 max-w-xs text-sm text-[var(--text-muted)]">
         Upgrade to unlock this feature and grow your network impact.
       </p>
-      <Link
-        href="/connector/settings/subscription"
-        className="mt-6 inline-flex rounded-[12px] bg-metatron-accent px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-metatron-accent-hover"
-      >
+      <UpgradeButton className="mt-6 inline-flex rounded-[12px] bg-metatron-accent px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-metatron-accent-hover">
         Upgrade to Basic →
-      </Link>
+      </UpgradeButton>
     </div>
   );
 }

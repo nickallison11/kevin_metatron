@@ -14,6 +14,7 @@ import {
 } from "@/lib/tokenStore";
 import MessagingWidget from "@/components/MessagingWidget";
 import AccountMenu from "@/components/AccountMenu";
+import UpgradeProvider from "@/components/upgrade/UpgradeProvider";
 import type { MeResponse } from "@/lib/me";
 
 const LOGO_URL = "/metatron-logo.png";
@@ -144,7 +145,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
   ) : null;
 
   return (
-    <>
+    <UpgradeProvider>
       <div className="grid-bg" aria-hidden />
       <div className="orb" aria-hidden />
 
@@ -183,6 +184,6 @@ export default function AppShell({ children }: { children: ReactNode }) {
       </div>
       </div>
       {/* MessagingWidget hidden — Kevin lives on /startup/kevin */}
-    </>
+    </UpgradeProvider>
   );
 }

@@ -386,8 +386,9 @@ async fn fetch_own_deck(state: &AppState, id: Uuid) -> Result<(String, Vec<u8>),
     Ok((url, raw.to_vec()))
 }
 
-/// Renders the deck's first page as a PNG (poppler's `pdftoppm`), pins it to
-/// IPFS and saves it with the page count. Returns (cover url, pages).
+/// Renders the deck's first page as a JPEG (poppler's `pdftoppm`; ~120 KB vs
+/// ~700 KB as PNG, which matters on mobile data), pins it to IPFS and saves
+/// it with the page count. Returns (cover url, pages).
 async fn make_deck_cover(state: &AppState, user_id: Uuid, pdf: &[u8]) -> Result<(String, Option<i32>), String> {
     let jwt = state
         .pinata_jwt
@@ -401,7 +402,7 @@ async fn make_deck_cover(state: &AppState, user_id: Uuid, pdf: &[u8]) -> Result<
     let result = async {
         tokio::fs::write(&pdf_path, pdf).await.map_err(|e| e.to_string())?;
         let out = tokio::process::Command::new("pdftoppm")
-            .args(["-f", "1", "-l", "1", "-png", "-scale-to", "1280", "-singlefile"])
+            .args(["-f", "1", "-l", "1", "-jpeg", "-jpegopt", "quality=80", "-scale-to", "1280", "-singlefile"])
             .arg(&pdf_path)
             .arg(dir.join("cover"))
             .output()
@@ -410,7 +411,7 @@ async fn make_deck_cover(state: &AppState, user_id: Uuid, pdf: &[u8]) -> Result<
         if !out.status.success() {
             return Err(format!("pdftoppm: {}", String::from_utf8_lossy(&out.stderr).chars().take(200).collect::<String>()));
         }
-        let png = tokio::fs::read(dir.join("cover.png")).await.map_err(|e| e.to_string())?;
+        let jpg = tokio::fs::read(dir.join("cover.jpg")).await.map_err(|e| e.to_string())?;
         let pages = tokio::process::Command::new("pdfinfo")
             .arg(&pdf_path)
             .output()
@@ -421,7 +422,7 @@ async fn make_deck_cover(state: &AppState, user_id: Uuid, pdf: &[u8]) -> Result<
                     .lines()
                     .find_map(|l| l.strip_prefix("Pages:").and_then(|v| v.trim().parse::<i32>().ok()))
             });
-        let cid = pin_to_ipfs(state, &jwt, png, "cover.png", "deck cover", "image/png", None)
+        let cid = pin_to_ipfs(state, &jwt, jpg, "cover.jpg", "deck cover", "image/jpeg", None)
             .await
             .map_err(|(_, m)| m)?;
         Ok((cid, pages))

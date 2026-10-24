@@ -18,9 +18,6 @@ import type { MeResponse } from "@/lib/me";
 
 const LOGO_URL = "/metatron-logo.png";
 
-const navLinkClass =
-  "text-sm text-[var(--text-muted)] transition-colors hover:text-[var(--text)]";
-
 function decodeRoleFromJwt(token: string): string | null {
   try {
     const parts = token.split(".");
@@ -135,7 +132,6 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const role = token ? decodeRoleFromJwt(token) : null;
   const dashboardHref = dashboardPathForRole(role);
   const loggedIn = Boolean(token);
-  const isAdmin = Boolean(me?.is_admin);
 
   function logOut() {
     clearTokens();
@@ -168,10 +164,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
         {/* Desktop nav links — centered, hidden on mobile */}
         <div className="hidden min-w-0 flex-1 items-center justify-center gap-x-6 md:flex">
-          {/* Logged-in navigation lives in the dashboard's left menu. */}
-          {isAdmin && (
-            <Link href="/admin/users" className={navLinkClass}>Admin</Link>
-          )}
+          {/* Logged-in navigation (Admin included) lives in the dashboard's menu. */}
         </div>
 
         {/* Desktop right controls — hidden on mobile */}
@@ -181,9 +174,6 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
         {/* Mobile right — no menu button: the dashboard tabs already cover navigation. */}
         <div className="flex items-center gap-3 md:hidden">
-          {isAdmin && (
-            <Link href="/admin/users" className={navLinkClass}>Admin</Link>
-          )}
           {accountMenu}
         </div>
       </nav>

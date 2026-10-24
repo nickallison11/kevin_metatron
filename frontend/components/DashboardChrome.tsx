@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 import { useEffect, useState, type ComponentType, type ReactNode } from "react";
-import { IconLayoutSidebarLeftCollapse, IconLayoutSidebarLeftExpand } from "@tabler/icons-react";
+import { IconLayoutSidebarLeftCollapse, IconLayoutSidebarLeftExpand, IconShieldLock } from "@tabler/icons-react";
+import { API_BASE, authHeaders } from "@/lib/api";
+import { getAccessToken } from "@/lib/tokenStore";
 
 type IconComponent = ComponentType<{ size?: number | string; stroke?: number | string }>;
 
@@ -142,7 +144,7 @@ function MobileLink({ item, active }: { item: ChromeNavItem; active: boolean }) 
 export default function DashboardChrome({
   roleLabel,
   pathname,
-  groups,
+  groups: roleGroups,
   children,
 }: {
   roleLabel: string;
@@ -151,6 +153,28 @@ export default function DashboardChrome({
   children: ReactNode;
 }) {
   const [expanded, setExpanded] = useState(true);
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  // Admins get Admin as the first item, before Dashboard (sidebar and phone tabs).
+  useEffect(() => {
+    const token = getAccessToken();
+    if (!token) return;
+    void fetch(`${API_BASE}/auth/me`, { headers: authHeaders(token) })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((me: { is_admin?: boolean } | null) => setIsAdmin(Boolean(me?.is_admin)))
+      .catch(() => {});
+  }, []);
+
+  const groups: ChromeNavGroup[] =
+    isAdmin && roleGroups.length > 0
+      ? [
+          {
+            ...roleGroups[0]!,
+            items: [{ key: "/admin/users", href: "/admin/users", label: "Admin", icon: IconShieldLock, kind: "link" }, ...roleGroups[0]!.items],
+          },
+          ...roleGroups.slice(1),
+        ]
+      : roleGroups;
 
   useEffect(() => {
     try {

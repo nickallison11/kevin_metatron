@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState, type DragEvent } from "react"
 import { IconCheck, IconCircle, IconSparkles, IconUpload } from "@tabler/icons-react";
 import { API_BASE, authHeaders, authJsonHeaders } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import DeckCard, { type DeckStatus } from "@/components/startup/DeckCard";
 import { COUNTRIES } from "@/lib/countries";
 import { STAGES } from "@/lib/stages";
 import { SECTIONS, membersFrom, pitchProgress, type Member, type Pitch, type PitchField, type Section } from "@/lib/pitchSections";
@@ -74,13 +75,6 @@ async function readJsonOrText(res: Response): Promise<Record<string, unknown>> {
   }
 }
 
-function readNotice(data: Record<string, unknown>, failText: string): { kind: "ok" | "error"; text: string } {
-  const err = data.extraction_error;
-  return typeof err === "string" && err.trim()
-    ? { kind: "error", text: failText }
-    : { kind: "ok", text: "Kevin read your deck and filled in your profile and pitch. Check them below." };
-}
-
 const stageLabel = (v: string | null | undefined) => STAGES.find((s) => s.v === v)?.label ?? v ?? "";
 const countryName = (c: string | null | undefined) => COUNTRIES.find((x) => x.code === c)?.name ?? c ?? "";
 
@@ -102,21 +96,19 @@ export default function StartupProfilePage() {
   const [logoBusy, setLogoBusy] = useState(false);
   const [logoMsg, setLogoMsg] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
-  const [confirmRemove, setConfirmRemove] = useState(false);
-  const [credits, setCredits] = useState(0);
+  const [importing, setImporting] = useState(false);
+  const [readFailed, setReadFailed] = useState(false);
   const deckInput = useRef<HTMLInputElement | null>(null);
   const logoInput = useRef<HTMLInputElement | null>(null);
 
   const load = useCallback(async () => {
     if (!token) return;
     try {
-      const [pr, pi, me] = await Promise.all([
+      const [pr, pi] = await Promise.all([
         fetch(`${API_BASE}/profile`, { headers: authJsonHeaders(token) }),
         fetch(`${API_BASE}/pitches`, { headers: authHeaders(token) }),
-        fetch(`${API_BASE}/auth/me`, { headers: authHeaders(token) }),
       ]);
       if (pr.ok) setProfile((await pr.json()) as ApiProfile);
-      if (me.ok) setCredits(((await me.json()) as { enrichment_credits?: number }).enrichment_credits ?? 0);
       if (pi.ok) {
         const list = (await pi.json()) as Pitch[];
         setPitch(list[0] ?? null);
@@ -142,9 +134,17 @@ export default function StartupProfilePage() {
   }
 
   const hasDeck = Boolean(profile?.pitch_deck_url?.trim());
-  // Anyone can upload a deck; Kevin reads it on Basic/Pro or for an enrichment credit.
-  const canRead = isPro || credits > 0;
+  // Anyone can upload a deck; Kevin imports it on Basic and Pro.
   const deckRead = pitchProgress(pitch).done.length > 0;
+  const deckStatus: DeckStatus = !hasDeck
+    ? "none"
+    : (reading && isPro) || importing
+      ? "reading"
+      : readFailed
+        ? "failed"
+        : deckRead
+          ? "read"
+          : "unread";
   const members = membersFrom(pitch?.team_members);
   const value = (f: PitchField) => String((pitch?.[f] as string | null | undefined) ?? "").trim();
   const complete = (s: Section) => (s.team ? members.length > 0 : (s.fields ?? []).every((x) => value(x.f)));
@@ -171,11 +171,8 @@ export default function StartupProfilePage() {
         return;
       }
       await load();
-      if (typeof data.read_skipped === "string") {
-        setNotice({ kind: "ok", text: "Deck uploaded. Kevin reads decks on Basic and Pro, or with an enrichment credit. Until then, fill in your pitch below." });
-        return;
-      }
-      setNotice(readNotice(data, "Your deck is uploaded, but Kevin couldn't read it. Try reading it again, or fill in the sections below yourself."));
+      // The deck card's status chip says whether Kevin read it.
+      setReadFailed(typeof data.extraction_error === "string" && data.extraction_error.trim() !== "");
       // Kevin looks for the logo on the company website in the background.
       window.setTimeout(() => void load(), 6000);
     } catch {
@@ -185,12 +182,12 @@ export default function StartupProfilePage() {
     }
   }
 
-  /** Has Kevin read the current deck again, e.g. after a failed read. */
-  async function reimportDeck() {
+  /** Kevin imports the current deck into the pitch (Basic/Pro). */
+  async function importDeck() {
     if (!token) return;
     setNotice(null);
     setEditing(null);
-    setReading(true);
+    setImporting(true);
     try {
       const res = await fetch(`${API_BASE}/uploads/pitch-deck/reimport`, { method: "POST", headers: authHeaders(token) });
       const data = await readJsonOrText(res);
@@ -199,25 +196,24 @@ export default function StartupProfilePage() {
         return;
       }
       await load();
-      setNotice(readNotice(data, "Kevin still couldn't read your deck. Try again in a few minutes, or upload it again."));
+      setReadFailed(typeof data.extraction_error === "string" && data.extraction_error.trim() !== "");
     } catch {
-      setNotice({ kind: "error", text: "Kevin couldn't read your deck. Try again." });
+      setReadFailed(true);
     } finally {
-      setReading(false);
+      setImporting(false);
     }
   }
 
   async function removeDeck() {
     if (!token) return;
-    setConfirmRemove(false);
     setNotice(null);
     const res = await fetch(`${API_BASE}/uploads/pitch-deck`, { method: "DELETE", headers: authHeaders(token) }).catch(() => null);
     if (!res?.ok) {
       setNotice({ kind: "error", text: "Couldn't remove your deck. Try again." });
       return;
     }
+    setReadFailed(false);
     await load();
-    setNotice({ kind: "ok", text: "Deck removed. Your pitch sections are still here." });
   }
 
   function onDrop(e: DragEvent) {
@@ -387,7 +383,7 @@ export default function StartupProfilePage() {
     </p>
   );
 
-  if (reading) {
+  if (reading && isPro) {
     return (
       <main className="min-w-0">
         <section className="mx-auto flex max-w-5xl flex-col gap-6 p-6 md:p-10">
@@ -436,11 +432,6 @@ export default function StartupProfilePage() {
               <IconUpload size={28} stroke={1.75} />
             </span>
             <h2 className="text-xl font-semibold">Drop your pitch deck here</h2>
-            <p className="max-w-md text-[15px] text-[var(--text-muted)]">
-              {canRead
-                ? "Kevin reads it and fills in your company profile and pitch for you. You can edit anything afterwards."
-                : "Investors can view it from your profile. On Basic and Pro, Kevin also reads it and fills in your pitch for you."}
-            </p>
             <button type="button" onClick={() => deckInput.current?.click()} className={`${btnPrimary} min-h-12 px-6 text-[15px]`}>
               Choose PDF
             </button>
@@ -474,97 +465,15 @@ export default function StartupProfilePage() {
 
         {noticeEl}
 
-        {/* 1. Deck — the one action. A new deck re-fills everything below. */}
-        <section
-          aria-label="Pitch deck"
-          onDragOver={(e) => {
-            e.preventDefault();
-            setDragging(true);
-          }}
-          onDragLeave={() => setDragging(false)}
-          onDrop={(e) => onDrop(e)}
-          className={`flex flex-wrap items-center gap-4 rounded-[var(--radius)] border border-dashed p-5 ${
-            dragging ? "border-metatron-accent bg-metatron-accent/10" : "border-metatron-accent/45 bg-[var(--bg-card)]"
-          }`}
-        >
-          <span className="flex h-16 w-[52px] shrink-0 items-center justify-center rounded-lg border border-[var(--overlay-12)] bg-[var(--bg)] font-mono text-[10px] text-[var(--text-muted)]">
-            PDF
-          </span>
-          <div className="flex min-w-0 flex-1 basis-72 flex-col gap-1">
-            {hasDeck ? (
-              <>
-                <a href={profile!.pitch_deck_url!} target="_blank" rel="noreferrer" className="text-[15px] font-semibold text-[var(--text)] hover:underline">
-                  Your pitch deck
-                </a>
-                {/* Only claim Kevin read it when the pitch actually has content and the last upload didn't fail. */}
-                {notice?.kind !== "error" && deckRead ? (
-                  <span className="inline-flex items-center gap-1.5 text-[13px] text-metatron-accent">
-                    <IconSparkles size={14} stroke={1.75} /> Kevin read this deck and filled in your profile and pitch
-                  </span>
-                ) : !canRead ? (
-                  <span className="text-[13px] text-[var(--text-muted)]">
-                    Kevin hasn't read it. Upgrade, use an enrichment credit, or connect your own AI agent (coming soon) and he'll fill in your pitch.
-                  </span>
-                ) : credits > 0 && !isPro ? (
-                  <span className="text-[13px] text-[var(--text-muted)]">
-                    Reading it uses 1 of your {credits} enrichment credit{credits === 1 ? "" : "s"}.
-                  </span>
-                ) : null}
-                <span className="truncate font-mono text-xs text-[var(--text-muted)]">
-                  {host(profile!.pitch_deck_url)}
-                  {new URL(profile!.pitch_deck_url!, "https://x").pathname}
-                </span>
-              </>
-            ) : (
-              <>
-                <span className="text-[15px] font-semibold">No deck yet</span>
-                <span className="text-[13px] text-[var(--text-muted)]">
-                  {canRead ? "Upload a PDF and Kevin fills in everything below." : "Upload a PDF so investors can view it. Kevin reads decks on Basic and Pro."}
-                </span>
-              </>
-            )}
-            {!isPro && profile?.deck_expires_at && (
-              <span className="mt-1 w-fit rounded-md bg-metatron-accent/10 px-2 py-0.5 text-[11px] text-[var(--text)]">
-                {deckExpiryLabel(profile.deck_expires_at)}
-              </span>
-            )}
-          </div>
-          <div className="flex w-full flex-wrap gap-2 sm:w-auto">
-            {confirmRemove ? (
-              <>
-                <span className="self-center text-sm text-[var(--text-muted)]">Remove this deck?</span>
-                <button type="button" onClick={() => setConfirmRemove(false)} className={`${btn} min-h-11 px-4 text-sm`}>
-                  Cancel
-                </button>
-                <button type="button" onClick={() => void removeDeck()} className={`${btnPrimary} min-h-11 px-4 text-sm`}>
-                  Remove
-                </button>
-              </>
-            ) : (
-              <>
-                {hasDeck &&
-                  (canRead ? (
-                    <button type="button" disabled={reading} onClick={() => void reimportDeck()} className={`${deckRead ? btn : btnPrimary} min-h-11 px-4 text-sm`}>
-                      {deckRead ? "Read again" : "Have Kevin read it"}
-                    </button>
-                  ) : (
-                    <Link href="/startup/settings/subscription" className={`${btnPrimary} min-h-11 px-4 text-sm`}>
-                      See plans
-                    </Link>
-                  ))}
-                {hasDeck && (
-                  <button type="button" disabled={reading} onClick={() => setConfirmRemove(true)} className={`${btn} min-h-11 px-4 text-sm`}>
-                    Remove
-                  </button>
-                )}
-                <button type="button" disabled={reading} onClick={() => deckInput.current?.click()} className={`${hasDeck ? btn : btnPrimary} min-h-11 px-5 text-sm`}>
-                  {hasDeck ? "Upload new deck" : "Upload deck"}
-                </button>
-              </>
-            )}
-          </div>
-          {deckInputEl}
-        </section>
+        {/* 1. Deck: open it, import it with Kevin (Basic/Pro), replace or remove it. */}
+        <DeckCard
+          url={profile?.pitch_deck_url?.trim() || null}
+          status={deckStatus}
+          paid={isPro}
+          onUpload={(f) => void uploadDeck(f)}
+          onImport={() => void importDeck()}
+          onRemove={() => void removeDeck()}
+        />
 
         {/* 2. Logo — from the company website, or uploaded */}
         <section className={`${card} flex flex-wrap items-center gap-4 p-5`} aria-label="Logo">

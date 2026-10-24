@@ -302,6 +302,7 @@ async fn summarize_conversation(
 
     if !res.status().is_success() {
         let body = res.text().await.unwrap_or_default();
+        crate::alerts::check_gemini_error(&body);
         return Err(format!("memory summarize error: {body}"));
     }
 
@@ -378,6 +379,7 @@ async fn embed_text(
 
     if !res.status().is_success() {
         let body = res.text().await.unwrap_or_default();
+        crate::alerts::check_gemini_error(&body);
         return Err(format!("embedding error: {body}"));
     }
 

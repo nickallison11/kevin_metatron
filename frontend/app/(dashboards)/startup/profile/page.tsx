@@ -64,6 +64,23 @@ function deckExpiryLabel(iso: string): string {
   return days === 1 ? "Deck expires in 1 day" : `Deck expires in ${days} days`;
 }
 
+/** Error bodies are plain text; success bodies are JSON. */
+async function readJsonOrText(res: Response): Promise<Record<string, unknown>> {
+  const text = (await res.text().catch(() => "")).trim();
+  try {
+    return JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    return text ? { error: text } : {};
+  }
+}
+
+function readNotice(data: Record<string, unknown>, failText: string): { kind: "ok" | "error"; text: string } {
+  const err = data.extraction_error;
+  return typeof err === "string" && err.trim()
+    ? { kind: "error", text: failText }
+    : { kind: "ok", text: "Kevin read your deck and filled in your profile and pitch. Check them below." };
+}
+
 const stageLabel = (v: string | null | undefined) => STAGES.find((s) => s.v === v)?.label ?? v ?? "";
 const countryName = (c: string | null | undefined) => COUNTRIES.find((x) => x.code === c)?.name ?? c ?? "";
 
@@ -85,6 +102,7 @@ export default function StartupProfilePage() {
   const [logoBusy, setLogoBusy] = useState(false);
   const [logoMsg, setLogoMsg] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState(false);
   const deckInput = useRef<HTMLInputElement | null>(null);
   const logoInput = useRef<HTMLInputElement | null>(null);
 
@@ -141,21 +159,13 @@ export default function StartupProfilePage() {
       const fd = new FormData();
       fd.append("file", file);
       const res = await fetch(`${API_BASE}/uploads/pitch-deck`, { method: "POST", headers: authHeaders(token), body: fd });
-      const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      const data = await readJsonOrText(res);
       if (!res.ok) {
-        setNotice({
-          kind: "error",
-          text: typeof data.error === "string" ? data.error : res.status === 403 ? "Free accounts include one deck upload." : "Deck upload failed. Try again.",
-        });
+        setNotice({ kind: "error", text: typeof data.error === "string" ? data.error : "Deck upload failed. Try again." });
         return;
       }
       await load();
-      const err = data.extraction_error;
-      setNotice(
-        typeof err === "string" && err.trim()
-          ? { kind: "error", text: "Your deck is uploaded, but Kevin couldn't read it. Fill in the sections below yourself." }
-          : { kind: "ok", text: "Kevin read your deck and filled in your profile and pitch. Check them below." },
-      );
+      setNotice(readNotice(data, "Your deck is uploaded, but Kevin couldn't read it. Try reading it again, or fill in the sections below yourself."));
       // Kevin looks for the logo on the company website in the background.
       window.setTimeout(() => void load(), 6000);
     } catch {
@@ -165,9 +175,45 @@ export default function StartupProfilePage() {
     }
   }
 
+  /** Has Kevin read the current deck again, e.g. after a failed read. */
+  async function reimportDeck() {
+    if (!token) return;
+    setNotice(null);
+    setEditing(null);
+    setReading(true);
+    try {
+      const res = await fetch(`${API_BASE}/uploads/pitch-deck/reimport`, { method: "POST", headers: authHeaders(token) });
+      const data = await readJsonOrText(res);
+      if (!res.ok) {
+        setNotice({ kind: "error", text: typeof data.error === "string" ? data.error : "Kevin couldn't read your deck. Try again." });
+        return;
+      }
+      await load();
+      setNotice(readNotice(data, "Kevin still couldn't read your deck. Try again in a few minutes, or upload it again."));
+    } catch {
+      setNotice({ kind: "error", text: "Kevin couldn't read your deck. Try again." });
+    } finally {
+      setReading(false);
+    }
+  }
+
+  async function removeDeck() {
+    if (!token) return;
+    setConfirmRemove(false);
+    setNotice(null);
+    const res = await fetch(`${API_BASE}/uploads/pitch-deck`, { method: "DELETE", headers: authHeaders(token) }).catch(() => null);
+    if (!res?.ok) {
+      setNotice({ kind: "error", text: "Couldn't remove your deck. Try again." });
+      return;
+    }
+    await load();
+    setNotice({ kind: "ok", text: "Deck removed. Your pitch sections are still here." });
+  }
+
   function onDrop(e: DragEvent) {
     e.preventDefault();
     setDragging(false);
+    if (!isPro) return;
     const f = e.dataTransfer.files?.[0];
     if (f) void uploadDeck(f);
   }
@@ -357,7 +403,8 @@ export default function StartupProfilePage() {
     );
   }
 
-  if (!hasDeck && !manual && !pitch) {
+  // Deck uploads are Basic/Pro; Free founders go straight to the sections.
+  if (isPro && !hasDeck && !manual && !pitch) {
     return (
       <main className="min-w-0">
         <section className="mx-auto flex max-w-5xl flex-col gap-6 p-6 md:p-10">
@@ -450,10 +497,15 @@ export default function StartupProfilePage() {
                   {new URL(profile!.pitch_deck_url!, "https://x").pathname}
                 </span>
               </>
-            ) : (
+            ) : isPro ? (
               <>
                 <span className="text-[15px] font-semibold">No deck yet</span>
                 <span className="text-[13px] text-[var(--text-muted)]">Upload a PDF and Kevin fills in everything below.</span>
+              </>
+            ) : (
+              <>
+                <span className="text-[15px] font-semibold">Let Kevin read your deck</span>
+                <span className="text-[13px] text-[var(--text-muted)]">Deck uploads are part of Basic and Pro. On Free, fill in your pitch below.</span>
               </>
             )}
             {!isPro && profile?.deck_expires_at && (
@@ -462,9 +514,41 @@ export default function StartupProfilePage() {
               </span>
             )}
           </div>
-          <button type="button" onClick={() => deckInput.current?.click()} className={`${hasDeck ? btn : btnPrimary} min-h-11 px-5 text-sm`}>
-            {hasDeck ? "Upload new deck" : "Upload deck"}
-          </button>
+          <div className="flex w-full flex-wrap gap-2 sm:w-auto">
+            {confirmRemove ? (
+              <>
+                <span className="self-center text-sm text-[var(--text-muted)]">Remove this deck?</span>
+                <button type="button" onClick={() => setConfirmRemove(false)} className={`${btn} min-h-11 px-4 text-sm`}>
+                  Cancel
+                </button>
+                <button type="button" onClick={() => void removeDeck()} className={`${btnPrimary} min-h-11 px-4 text-sm`}>
+                  Remove
+                </button>
+              </>
+            ) : (
+              <>
+                {hasDeck && isPro && (
+                  <button type="button" disabled={reading} onClick={() => void reimportDeck()} className={`${btn} min-h-11 px-4 text-sm`}>
+                    Read again
+                  </button>
+                )}
+                {hasDeck && (
+                  <button type="button" disabled={reading} onClick={() => setConfirmRemove(true)} className={`${btn} min-h-11 px-4 text-sm`}>
+                    Remove
+                  </button>
+                )}
+                {isPro ? (
+                  <button type="button" disabled={reading} onClick={() => deckInput.current?.click()} className={`${hasDeck ? btn : btnPrimary} min-h-11 px-5 text-sm`}>
+                    {hasDeck ? "Upload new deck" : "Upload deck"}
+                  </button>
+                ) : (
+                  <Link href="/startup/settings/subscription" className={`${btnPrimary} min-h-11 px-5 text-sm`}>
+                    See plans
+                  </Link>
+                )}
+              </>
+            )}
+          </div>
           {deckInputEl}
         </section>
 

@@ -208,10 +208,14 @@ Return ONLY valid JSON, no markdown, no code fences:
     .map_err(|_| (StatusCode::GATEWAY_TIMEOUT, "Gemini timeout".to_string()))?
     .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
 
+    let ok = res.status().is_success();
     let body: Value = res
         .json()
         .await
         .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
+    if !ok {
+        crate::alerts::check_gemini_error(&body.to_string());
+    }
 
     let tier = if user.is_pro { "pro" } else if user.is_basic { "basic" } else { "free" };
     crate::cost::record_llm_usage(

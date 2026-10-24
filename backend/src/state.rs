@@ -83,6 +83,12 @@ impl AppState {
             .expect("reqwest Client");
 
         crate::email::init_frontend_url(&settings.frontend_url);
+        crate::alerts::init(
+            http_client.clone(),
+            settings.resend_api_key.clone(),
+            settings.email_from.clone(),
+            &settings.frontend_url,
+        );
 
         Ok(Arc::new(Self {
             db: pool,

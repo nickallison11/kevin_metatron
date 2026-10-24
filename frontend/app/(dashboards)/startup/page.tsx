@@ -128,7 +128,10 @@ export default function StartupDashboardPage() {
   const weekAgo = Date.now() - 7 * 86400000;
   const newThisWeek = (matches ?? []).filter((m) => new Date(m.generated_at).getTime() >= weekAgo).length;
   const name = me?.first_name?.trim() || company || "";
-  const checklist = showGetStarted(me, Boolean(deckUrl));
+  // Paid founders upload a deck; Free founders fill in their pitch by hand.
+  const paid = Boolean(me?.is_basic || me?.is_pro);
+  const pitchDone = Boolean(deckUrl) || missing.length === 0;
+  const checklist = showGetStarted(me, pitchDone);
 
   return (
     <main className="min-w-0 flex-1">
@@ -146,13 +149,22 @@ export default function StartupDashboardPage() {
             token={token}
             me={me}
             onMe={setMe}
-            main={{
-              title: "Upload your pitch deck",
-              text: "Kevin reads it, fills in your profile and gives you your Angel Score, your investor-readiness rating.",
-              href: "/startup/profile",
-              cta: "Upload deck",
-            }}
-            mainDone={Boolean(deckUrl)}
+            main={
+              paid
+                ? {
+                    title: "Upload your pitch deck",
+                    text: "Kevin reads it, fills in your profile and gives you your Angel Score, your investor-readiness rating.",
+                    href: "/startup/profile",
+                    cta: "Upload deck",
+                  }
+                : {
+                    title: "Fill in your pitch",
+                    text: "Your overview, problem and solution, market, traction and team. Kevin matches you on it.",
+                    href: "/startup/profile",
+                    cta: "Fill in pitch",
+                  }
+            }
+            mainDone={pitchDone}
             matchesHref="/startup/matches"
             matchesTitle="See your first investor matches"
           />

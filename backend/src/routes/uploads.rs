@@ -28,7 +28,8 @@ const MAX_UPLOAD_BYTES: usize = 52 * 1024 * 1024;
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
-        .route("/pitch-deck", post(upload_pitch_deck))
+        .route("/pitch-deck", post(upload_pitch_deck).delete(delete_pitch_deck))
+        .route("/pitch-deck/reimport", post(reimport_pitch_deck))
         .route("/file/:cid", get(serve_ipfs_file))
         .route("/logo", post(upload_logo))
         .route("/logo/from-website", post(logo_from_website))
@@ -146,6 +147,7 @@ async fn upload_pitch_deck(
     if !authed_user.role.eq_ignore_ascii_case("STARTUP") {
         return Err((StatusCode::FORBIDDEN, "wrong role for this resource".into()));
     }
+    require_paid_deck_plan(&authed_user)?;
     let id = authed_user.id;
 
 
@@ -246,65 +248,11 @@ async fn upload_pitch_deck(
     .await
     .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "db error".into()))?;
 
-    let mut extracted: Option<JsonValue> = None;
-    let mut extraction_error: Option<String> = None;
-    let mut pitch: Option<PitchResponse> = None;
-
-    if is_pdf {
-        if let Some(api_key) = state.ai_api_key.as_deref().filter(|k| !k.trim().is_empty()) {
-            match ai::extract_pitch_from_deck_pdf(
-                &state.http_client,
-                api_key,
-                &raw,
-                state.gemini_model.as_str(),
-            )
-            .await
-            {
-                Ok((v, usage)) => {
-                    crate::cost::record_llm_usage(
-                        &state.db,
-                        Some(id),
-                        None,
-                        None,
-                        "pitch_extraction",
-                        "gemini",
-                        state.gemini_model.as_str(),
-                        usage.input_tokens,
-                        usage.output_tokens,
-                    )
-                    .await;
-                    extracted = Some(v.clone());
-                    // Uploading a deck refreshes every profile and pitch field the deck
-                    // covers (fields it doesn't mention keep what the founder wrote).
-                    match apply_deck_extraction(&state.db, id, &v, true).await {
-                        Ok(pid) => {
-                            let org_id = ensure_user_org(&state.db, id).await.map_err(|_| {
-                                (StatusCode::INTERNAL_SERVER_ERROR, "db error".into())
-                            })?;
-                            match pitch_response_for_org_pitch(&state.db, org_id, pid).await {
-                                Ok(p) => pitch = Some(p),
-                                Err(e) => {
-                                    tracing::error!("pitch_response after deck extraction: {e}");
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            tracing::error!("apply_deck_extraction: {e}");
-                        }
-                    }
-                }
-                Err(e) => {
-                    tracing::error!(
-                        "deck extraction failed for user {id}: {}",
-                        e.chars().take(300).collect::<String>()
-                    );
-                    extraction_error = Some(e);
-                }
-            }
-        } else {
-            extraction_error = Some("GEMINI_API_KEY not configured".into());
-        }
-    }
+    let (extracted, extraction_error, pitch) = if is_pdf {
+        read_deck(&state, id, &raw).await?
+    } else {
+        (None, None, None)
+    };
 
     let mut body = json!({
         "url": url,
@@ -332,6 +280,139 @@ async fn upload_pitch_deck(
     });
 
     Ok((StatusCode::CREATED, Json(body)).into_response())
+}
+
+/// Deck uploads and re-imports are for Basic and Pro founders: reading a deck
+/// costs a Gemini call each time.
+fn require_paid_deck_plan(user: &crate::identity::AuthedUser) -> Result<(), (StatusCode, String)> {
+    if user.is_basic || user.is_pro || user.is_admin {
+        Ok(())
+    } else {
+        Err((
+            StatusCode::FORBIDDEN,
+            "Uploading a pitch deck is part of Basic and Pro. On Free, fill in your pitch sections yourself.".into(),
+        ))
+    }
+}
+
+/// Has Gemini read a PDF deck and copies what it found into the profile and
+/// pitch. Returns (extracted fields, why it failed, updated pitch).
+async fn read_deck(
+    state: &Arc<AppState>,
+    id: Uuid,
+    raw: &[u8],
+) -> Result<(Option<JsonValue>, Option<String>, Option<PitchResponse>), (StatusCode, String)> {
+    let Some(api_key) = state.ai_api_key.as_deref().filter(|k| !k.trim().is_empty()) else {
+        return Ok((None, Some("GEMINI_API_KEY not configured".into()), None));
+    };
+    match ai::extract_pitch_from_deck_pdf(&state.http_client, api_key, raw, state.gemini_model.as_str()).await {
+        Ok((v, usage)) => {
+            crate::cost::record_llm_usage(
+                &state.db,
+                Some(id),
+                None,
+                None,
+                "pitch_extraction",
+                "gemini",
+                state.gemini_model.as_str(),
+                usage.input_tokens,
+                usage.output_tokens,
+            )
+            .await;
+            let mut pitch = None;
+            // Reading a deck refreshes every profile and pitch field the deck
+            // covers (fields it doesn't mention keep what the founder wrote).
+            match apply_deck_extraction(&state.db, id, &v, true).await {
+                Ok(pid) => {
+                    let org_id = ensure_user_org(&state.db, id)
+                        .await
+                        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "db error".into()))?;
+                    match pitch_response_for_org_pitch(&state.db, org_id, pid).await {
+                        Ok(p) => pitch = Some(p),
+                        Err(e) => tracing::error!("pitch_response after deck extraction: {e}"),
+                    }
+                }
+                Err(e) => tracing::error!("apply_deck_extraction: {e}"),
+            }
+            Ok((Some(v), None, pitch))
+        }
+        Err(e) => {
+            tracing::error!("deck extraction failed for user {id}: {}", e.chars().take(300).collect::<String>());
+            Ok((None, Some(e), None))
+        }
+    }
+}
+
+/// Has Kevin read the founder's current deck again, e.g. after a failed read.
+async fn reimport_pitch_deck(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+) -> Result<Json<JsonValue>, (StatusCode, String)> {
+    let authed_user = require_user(&state, bearer.token()).await?;
+    if !authed_user.role.eq_ignore_ascii_case("STARTUP") {
+        return Err((StatusCode::FORBIDDEN, "wrong role for this resource".into()));
+    }
+    require_paid_deck_plan(&authed_user)?;
+    let id = authed_user.id;
+
+    let url: Option<String> = sqlx::query_scalar("SELECT pitch_deck_url FROM profiles WHERE user_id = $1")
+        .bind(id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "db error".into()))?
+        .flatten();
+    let url = url.filter(|u| !u.trim().is_empty()).ok_or((StatusCode::NOT_FOUND, "No deck to read. Upload one first.".into()))?;
+    // Our own decks are served at <frontend>/deck/<cid>; external links can't be re-read.
+    let cid = url
+        .rsplit_once("/deck/")
+        .map(|(_, c)| c.trim_end_matches('/').to_string())
+        .filter(|c| c.len() >= 32 && c.chars().all(|ch| ch.is_ascii_alphanumeric()))
+        .ok_or((StatusCode::BAD_REQUEST, "Kevin can only re-read decks uploaded here. Upload it again.".into()))?;
+
+    let res = state
+        .http_client
+        .get(format!("{}/{cid}", ipfs_gateway_base(&state)))
+        .send()
+        .await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, format!("could not fetch deck: {e}")))?;
+    if !res.status().is_success() {
+        return Err((StatusCode::BAD_GATEWAY, format!("could not fetch deck: {}", res.status())));
+    }
+    let raw = res.bytes().await.map_err(|e| (StatusCode::BAD_GATEWAY, format!("could not fetch deck: {e}")))?;
+    if !raw.starts_with(b"%PDF") {
+        return Err((StatusCode::BAD_REQUEST, "Kevin can only read PDF decks. Upload a PDF.".into()));
+    }
+
+    let (extracted, extraction_error, pitch) = read_deck(&state, id, &raw).await?;
+    let mut body = json!({ "url": url, "extracted": extracted, "pitch": pitch });
+    if let Some(err) = extraction_error {
+        body.as_object_mut().expect("object").insert("extraction_error".into(), json!(err));
+    } else {
+        let snap_state = Arc::clone(&state);
+        tokio::spawn(async move { snapshot_user_context(snap_state, id).await });
+    }
+    Ok(Json(body))
+}
+
+/// Removes the deck from the profile. The pitch sections Kevin filled in stay.
+/// The file stays pinned: IPFS is public, so unpinning wouldn't remove it.
+async fn delete_pitch_deck(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let authed_user = require_user(&state, bearer.token()).await?;
+    if !authed_user.role.eq_ignore_ascii_case("STARTUP") {
+        return Err((StatusCode::FORBIDDEN, "wrong role for this resource".into()));
+    }
+    sqlx::query("UPDATE profiles SET pitch_deck_url = NULL, deck_expires_at = NULL, updated_at = now() WHERE user_id = $1")
+        .bind(authed_user.id)
+        .execute(&state.db)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "db error".into()))?;
+    let snap_state = Arc::clone(&state);
+    let uid = authed_user.id;
+    tokio::spawn(async move { snapshot_user_context(snap_state, uid).await });
+    Ok(StatusCode::NO_CONTENT)
 }
 
 fn ev_str(obj: &JsonValue, key: &str) -> Option<String> {

@@ -259,7 +259,7 @@ pub(crate) fn messaging_welcome(role: &str) -> String {
             "Hi, I'm Kevin from metatron, your AI dealmaker for founders and investors. You're connected.\n\nNext step is on your dashboard: set your investment thesis so I know which founders to bring you. I'll message you here when I find a fit.\n\n{base}/investor"
         ),
         "STARTUP" => format!(
-            "Hi, I'm Kevin from metatron, your AI dealmaker for founders and investors. You're connected.\n\nNext step is on your dashboard: upload your pitch deck and I'll give you your Angel Score. I'll message you here when I find investors who fit.\n\n{base}/startup"
+            "Hi, I'm Kevin from metatron, your AI dealmaker for founders and investors. You're connected.\n\nNext step is on your dashboard: add your pitch so I can score it and find investors who fit. I'll message you here when I find them.\n\n{base}/startup"
         ),
         _ => format!(
             "Hi, I'm Kevin from metatron, your AI dealmaker for founders and investors. You're connected, and I'll message you here with updates.\n\n{base}"

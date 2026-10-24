@@ -2801,6 +2801,7 @@ async fn run_kevin_with_tools_gemini(
         if !response.status().is_success() {
             let status = response.status();
             let text = response.text().await.unwrap_or_default();
+            crate::alerts::check_gemini_error(&text);
             tracing::error!("gemini tool call error {status}: {text}");
             return ("Kevin is temporarily unavailable.".to_string(), new_rows, usage);
         }

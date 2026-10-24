@@ -3,6 +3,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 mod app;
 mod auth;
 mod ai;
+mod alerts;
 mod cleanup;
 mod compliance;
 mod cost;

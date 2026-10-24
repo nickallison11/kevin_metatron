@@ -133,6 +133,7 @@ async fn complete_chat_gemini(
 
     if !res.status().is_success() {
         let t = res.text().await.unwrap_or_default();
+        crate::alerts::check_gemini_error(&t);
         return Err(format!("gemini error: {t}"));
     }
 
@@ -594,6 +595,7 @@ pub async fn extract_pitch_from_deck_pdf(
 
     if !res.status().is_success() {
         let t = res.text().await.unwrap_or_default();
+        crate::alerts::check_gemini_error(&t);
         return Err(format!("gemini pdf error: {t}"));
     }
 

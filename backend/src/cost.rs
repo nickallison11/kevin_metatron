@@ -9,8 +9,41 @@
 //! 2026-07-25; Gemini rates updated 2026-10-24. Revisit if a model's actual
 //! bill drifts from what this reports.
 
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
+
 use sqlx::PgPool;
 use uuid::Uuid;
+
+/// Monthly AI budget for all Free users together. Past it, Free users drop
+/// from 20 to 5 Kevin messages a day until the month ends, and Nick is emailed.
+pub const FREE_AI_BUDGET_USD: f64 = 100.0;
+const FREE_SPEND_CACHE: Duration = Duration::from_secs(5 * 60);
+static FREE_SPEND: Mutex<Option<(Instant, bool)>> = Mutex::new(None);
+
+/// True once this calendar month's (UTC) Free-tier AI spend passes
+/// `FREE_AI_BUDGET_USD`. Re-checked at most every 5 minutes.
+pub async fn free_budget_exceeded(db: &PgPool) -> bool {
+    let cached = *FREE_SPEND.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((at, over)) = cached {
+        if at.elapsed() < FREE_SPEND_CACHE {
+            return over;
+        }
+    }
+    let spend: f64 = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(cost_usd), 0)::float8 FROM llm_usage
+         WHERE subscription_tier = 'free' AND created_at >= date_trunc('month', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'",
+    )
+    .fetch_one(db)
+    .await
+    .unwrap_or(0.0);
+    let over = spend >= FREE_AI_BUDGET_USD;
+    *FREE_SPEND.lock().unwrap_or_else(|e| e.into_inner()) = Some((Instant::now(), over));
+    if over {
+        crate::alerts::free_budget_reached(db, spend).await;
+    }
+    over
+}
 
 /// (input $ per million tokens, output $ per million tokens).
 fn pricing_per_million(provider: &str, model: &str) -> Option<(f64, f64)> {

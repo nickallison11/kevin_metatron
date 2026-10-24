@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState, type DragEvent } from "react";
-import { IconArrowUpRight, IconDots, IconLock, IconPlugConnected, IconSparkles, IconTrash, IconUpload, IconX } from "@tabler/icons-react";
+import PdfViewer from "@/components/PdfViewer";
+import { IconDots, IconLock, IconPlugConnected, IconSparkles, IconTrash, IconUpload, IconX } from "@tabler/icons-react";
 
 export type DeckStatus = "none" | "unread" | "reading" | "read" | "failed";
 
@@ -41,6 +42,7 @@ export default function DeckCard({
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [sheet, setSheet] = useState(false);
   const [dragging, setDragging] = useState(false);
+  const [viewing, setViewing] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -138,9 +140,9 @@ export default function DeckCard({
         </div>
 
         <div className="flex w-full items-center gap-2 sm:w-auto">
-          <a href={url} target="_blank" rel="noreferrer" aria-label="Open pitch deck in a new tab" className={btn}>
-            Open <IconArrowUpRight size={15} stroke={2} />
-          </a>
+          <button type="button" onClick={() => setViewing(true)} className={btn}>
+            Open
+          </button>
           <button
             type="button"
             disabled={status === "reading"}
@@ -217,6 +219,8 @@ export default function DeckCard({
       )}
 
       {fileInput}
+
+      {viewing && <PdfViewer url={url} title="Pitch deck" onClose={() => setViewing(false)} />}
 
       {sheet && (
         <div className="fixed inset-0 z-[60] flex flex-col bg-black/60 sm:items-center sm:justify-center sm:p-6">

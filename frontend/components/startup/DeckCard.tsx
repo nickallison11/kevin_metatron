@@ -124,22 +124,23 @@ export default function DeckCard({
       className={`relative flex flex-col gap-3.5 rounded-[16px] border p-4 sm:p-5 ${dragging ? "border-metatron-accent bg-metatron-accent/10" : "border-[var(--overlay-12)] bg-[var(--bg-card)]"}`}
     >
       <div className="flex flex-wrap items-center gap-3 sm:gap-4">
-        <a href={url} target="_blank" rel="noreferrer" className="group flex min-w-0 flex-[999_1_240px] items-center gap-3.5 text-[var(--text)]">
+        <div className="flex min-w-0 flex-[999_1_240px] items-center gap-3.5">
           <span className="flex h-14 w-11 shrink-0 items-center justify-center rounded-lg border border-[var(--overlay-12)] bg-gradient-to-br from-[var(--overlay-6)] to-transparent font-mono text-[10px] text-[var(--accent-fg)]">
             PDF
           </span>
           <span className="flex min-w-0 flex-col gap-1.5">
-            <span className="flex items-center gap-1.5 text-base font-semibold group-hover:underline">
-              Pitch deck <IconArrowUpRight size={15} stroke={2} className="text-[var(--text-muted)]" />
-            </span>
+            <span className="text-base font-semibold">Pitch deck</span>
             <span className={`inline-flex w-fit items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${chip.cls}`}>
               <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-current" />
               {chip.label}
             </span>
           </span>
-        </a>
+        </div>
 
         <div className="flex w-full items-center gap-2 sm:w-auto">
+          <a href={url} target="_blank" rel="noreferrer" aria-label="Open pitch deck in a new tab" className={btn}>
+            Open <IconArrowUpRight size={15} stroke={2} />
+          </a>
           <button
             type="button"
             disabled={status === "reading"}

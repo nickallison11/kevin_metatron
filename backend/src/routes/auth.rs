@@ -1287,6 +1287,7 @@ pub struct MeResponse {
     pub phone_number: Option<String>,
     pub preferred_channel: Option<String>,
     pub channel_connected_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub enrichment_credits: i32,
 }
 
 async fn update_profile(
@@ -1344,7 +1345,8 @@ async fn get_me(
             whatsapp_number,
             phone_number,
             preferred_channel,
-            channel_connected_at
+            channel_connected_at,
+            enrichment_credits
         FROM users
         WHERE id = $1
         "#,

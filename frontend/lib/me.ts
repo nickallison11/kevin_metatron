@@ -20,4 +20,6 @@ export type MeResponse = {
   preferred_channel: string | null;
   /** When the user first reached Kevin on WhatsApp or Telegram. */
   channel_connected_at: string | null;
+  /** Credits a Free founder can spend to have Kevin read a deck. */
+  enrichment_credits: number;
 };

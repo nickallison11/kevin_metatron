@@ -103,17 +103,20 @@ export default function StartupProfilePage() {
   const [logoMsg, setLogoMsg] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
+  const [credits, setCredits] = useState(0);
   const deckInput = useRef<HTMLInputElement | null>(null);
   const logoInput = useRef<HTMLInputElement | null>(null);
 
   const load = useCallback(async () => {
     if (!token) return;
     try {
-      const [pr, pi] = await Promise.all([
+      const [pr, pi, me] = await Promise.all([
         fetch(`${API_BASE}/profile`, { headers: authJsonHeaders(token) }),
         fetch(`${API_BASE}/pitches`, { headers: authHeaders(token) }),
+        fetch(`${API_BASE}/auth/me`, { headers: authHeaders(token) }),
       ]);
       if (pr.ok) setProfile((await pr.json()) as ApiProfile);
+      if (me.ok) setCredits(((await me.json()) as { enrichment_credits?: number }).enrichment_credits ?? 0);
       if (pi.ok) {
         const list = (await pi.json()) as Pitch[];
         setPitch(list[0] ?? null);
@@ -139,6 +142,9 @@ export default function StartupProfilePage() {
   }
 
   const hasDeck = Boolean(profile?.pitch_deck_url?.trim());
+  // Anyone can upload a deck; Kevin reads it on Basic/Pro or for an enrichment credit.
+  const canRead = isPro || credits > 0;
+  const deckRead = pitchProgress(pitch).done.length > 0;
   const members = membersFrom(pitch?.team_members);
   const value = (f: PitchField) => String((pitch?.[f] as string | null | undefined) ?? "").trim();
   const complete = (s: Section) => (s.team ? members.length > 0 : (s.fields ?? []).every((x) => value(x.f)));
@@ -165,6 +171,10 @@ export default function StartupProfilePage() {
         return;
       }
       await load();
+      if (typeof data.read_skipped === "string") {
+        setNotice({ kind: "ok", text: "Deck uploaded. Kevin reads decks on Basic and Pro, or with an enrichment credit. Until then, fill in your pitch below." });
+        return;
+      }
       setNotice(readNotice(data, "Your deck is uploaded, but Kevin couldn't read it. Try reading it again, or fill in the sections below yourself."));
       // Kevin looks for the logo on the company website in the background.
       window.setTimeout(() => void load(), 6000);
@@ -213,7 +223,6 @@ export default function StartupProfilePage() {
   function onDrop(e: DragEvent) {
     e.preventDefault();
     setDragging(false);
-    if (!isPro) return;
     const f = e.dataTransfer.files?.[0];
     if (f) void uploadDeck(f);
   }
@@ -403,8 +412,7 @@ export default function StartupProfilePage() {
     );
   }
 
-  // Deck uploads are Basic/Pro; Free founders go straight to the sections.
-  if (isPro && !hasDeck && !manual && !pitch) {
+  if (!hasDeck && !manual && !pitch) {
     return (
       <main className="min-w-0">
         <section className="mx-auto flex max-w-5xl flex-col gap-6 p-6 md:p-10">
@@ -429,7 +437,9 @@ export default function StartupProfilePage() {
             </span>
             <h2 className="text-xl font-semibold">Drop your pitch deck here</h2>
             <p className="max-w-md text-[15px] text-[var(--text-muted)]">
-              Kevin reads it and fills in your company profile and pitch for you. You can edit anything afterwards.
+              {canRead
+                ? "Kevin reads it and fills in your company profile and pitch for you. You can edit anything afterwards."
+                : "Investors can view it from your profile. On Basic and Pro, Kevin also reads it and fills in your pitch for you."}
             </p>
             <button type="button" onClick={() => deckInput.current?.click()} className={`${btnPrimary} min-h-12 px-6 text-[15px]`}>
               Choose PDF
@@ -487,25 +497,30 @@ export default function StartupProfilePage() {
                   Your pitch deck
                 </a>
                 {/* Only claim Kevin read it when the pitch actually has content and the last upload didn't fail. */}
-                {notice?.kind !== "error" && pitchProgress(pitch).done.length > 0 && (
+                {notice?.kind !== "error" && deckRead ? (
                   <span className="inline-flex items-center gap-1.5 text-[13px] text-metatron-accent">
                     <IconSparkles size={14} stroke={1.75} /> Kevin read this deck and filled in your profile and pitch
                   </span>
-                )}
+                ) : !canRead ? (
+                  <span className="text-[13px] text-[var(--text-muted)]">
+                    Kevin hasn't read it. Upgrade, use an enrichment credit, or connect your own AI agent (coming soon) and he'll fill in your pitch.
+                  </span>
+                ) : credits > 0 && !isPro ? (
+                  <span className="text-[13px] text-[var(--text-muted)]">
+                    Reading it uses 1 of your {credits} enrichment credit{credits === 1 ? "" : "s"}.
+                  </span>
+                ) : null}
                 <span className="truncate font-mono text-xs text-[var(--text-muted)]">
                   {host(profile!.pitch_deck_url)}
                   {new URL(profile!.pitch_deck_url!, "https://x").pathname}
                 </span>
               </>
-            ) : isPro ? (
-              <>
-                <span className="text-[15px] font-semibold">No deck yet</span>
-                <span className="text-[13px] text-[var(--text-muted)]">Upload a PDF and Kevin fills in everything below.</span>
-              </>
             ) : (
               <>
-                <span className="text-[15px] font-semibold">Let Kevin read your deck</span>
-                <span className="text-[13px] text-[var(--text-muted)]">Deck uploads are part of Basic and Pro. On Free, fill in your pitch below.</span>
+                <span className="text-[15px] font-semibold">No deck yet</span>
+                <span className="text-[13px] text-[var(--text-muted)]">
+                  {canRead ? "Upload a PDF and Kevin fills in everything below." : "Upload a PDF so investors can view it. Kevin reads decks on Basic and Pro."}
+                </span>
               </>
             )}
             {!isPro && profile?.deck_expires_at && (
@@ -527,25 +542,24 @@ export default function StartupProfilePage() {
               </>
             ) : (
               <>
-                {hasDeck && isPro && (
-                  <button type="button" disabled={reading} onClick={() => void reimportDeck()} className={`${btn} min-h-11 px-4 text-sm`}>
-                    Read again
-                  </button>
-                )}
+                {hasDeck &&
+                  (canRead ? (
+                    <button type="button" disabled={reading} onClick={() => void reimportDeck()} className={`${deckRead ? btn : btnPrimary} min-h-11 px-4 text-sm`}>
+                      {deckRead ? "Read again" : "Have Kevin read it"}
+                    </button>
+                  ) : (
+                    <Link href="/startup/settings/subscription" className={`${btnPrimary} min-h-11 px-4 text-sm`}>
+                      See plans
+                    </Link>
+                  ))}
                 {hasDeck && (
                   <button type="button" disabled={reading} onClick={() => setConfirmRemove(true)} className={`${btn} min-h-11 px-4 text-sm`}>
                     Remove
                   </button>
                 )}
-                {isPro ? (
-                  <button type="button" disabled={reading} onClick={() => deckInput.current?.click()} className={`${hasDeck ? btn : btnPrimary} min-h-11 px-5 text-sm`}>
-                    {hasDeck ? "Upload new deck" : "Upload deck"}
-                  </button>
-                ) : (
-                  <Link href="/startup/settings/subscription" className={`${btnPrimary} min-h-11 px-5 text-sm`}>
-                    See plans
-                  </Link>
-                )}
+                <button type="button" disabled={reading} onClick={() => deckInput.current?.click()} className={`${hasDeck ? btn : btnPrimary} min-h-11 px-5 text-sm`}>
+                  {hasDeck ? "Upload new deck" : "Upload deck"}
+                </button>
               </>
             )}
           </div>

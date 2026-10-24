@@ -147,7 +147,6 @@ async fn upload_pitch_deck(
     if !authed_user.role.eq_ignore_ascii_case("STARTUP") {
         return Err((StatusCode::FORBIDDEN, "wrong role for this resource".into()));
     }
-    require_paid_deck_plan(&authed_user)?;
     let id = authed_user.id;
 
 
@@ -248,8 +247,13 @@ async fn upload_pitch_deck(
     .await
     .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "db error".into()))?;
 
-    let (extracted, extraction_error, pitch) = if is_pdf {
-        read_deck(&state, id, &raw).await?
+    let allowance = deck_read_allowance(&state, &authed_user).await;
+    let (extracted, extraction_error, pitch) = if is_pdf && allowance != DeckRead::NotAllowed {
+        let r = read_deck(&state, id, &raw).await?;
+        if allowance == DeckRead::Credit && r.1.is_none() {
+            spend_deck_credit(&state, id).await;
+        }
+        r
     } else {
         (None, None, None)
     };
@@ -267,6 +271,10 @@ async fn upload_pitch_deck(
             .expect("object")
             .insert("extraction_error".into(), json!(err));
     }
+    if is_pdf && allowance == DeckRead::NotAllowed {
+        // Uploaded, but not read: the founder needs a plan or a credit for that.
+        body.as_object_mut().expect("object").insert("read_skipped".into(), json!(DECK_READ_NEEDS_PLAN));
+    }
 
     let snap_state = Arc::clone(&state);
     let snap_uid = id;
@@ -282,16 +290,43 @@ async fn upload_pitch_deck(
     Ok((StatusCode::CREATED, Json(body)).into_response())
 }
 
-/// Deck uploads and re-imports are for Basic and Pro founders: reading a deck
-/// costs a Gemini call each time.
-fn require_paid_deck_plan(user: &crate::identity::AuthedUser) -> Result<(), (StatusCode, String)> {
+/// How a founder gets Kevin to read their deck. Anyone can upload one, but
+/// each read is a Gemini call: Basic and Pro include it, Free spends an
+/// enrichment credit. (Connecting their own AI agent is the planned third way.)
+#[derive(Clone, Copy, PartialEq)]
+enum DeckRead {
+    Plan,
+    Credit,
+    NotAllowed,
+}
+
+const DECK_READ_NEEDS_PLAN: &str =
+    "Kevin reads decks on Basic and Pro, or with an enrichment credit. Upgrade, or fill in your pitch yourself.";
+
+async fn deck_read_allowance(state: &AppState, user: &crate::identity::AuthedUser) -> DeckRead {
     if user.is_basic || user.is_pro || user.is_admin {
-        Ok(())
+        return DeckRead::Plan;
+    }
+    let credits: i32 = sqlx::query_scalar("SELECT enrichment_credits FROM users WHERE id = $1")
+        .bind(user.id)
+        .fetch_one(&state.db)
+        .await
+        .unwrap_or(0);
+    if credits > 0 {
+        DeckRead::Credit
     } else {
-        Err((
-            StatusCode::FORBIDDEN,
-            "Uploading a pitch deck is part of Basic and Pro. On Free, fill in your pitch sections yourself.".into(),
-        ))
+        DeckRead::NotAllowed
+    }
+}
+
+/// Spends one credit after a successful read.
+async fn spend_deck_credit(state: &AppState, user_id: Uuid) {
+    if let Err(e) = sqlx::query("UPDATE users SET enrichment_credits = enrichment_credits - 1 WHERE id = $1 AND enrichment_credits > 0")
+        .bind(user_id)
+        .execute(&state.db)
+        .await
+    {
+        tracing::error!("spend_deck_credit: {e}");
     }
 }
 
@@ -352,7 +387,10 @@ async fn reimport_pitch_deck(
     if !authed_user.role.eq_ignore_ascii_case("STARTUP") {
         return Err((StatusCode::FORBIDDEN, "wrong role for this resource".into()));
     }
-    require_paid_deck_plan(&authed_user)?;
+    let allowance = deck_read_allowance(&state, &authed_user).await;
+    if allowance == DeckRead::NotAllowed {
+        return Err((StatusCode::PAYMENT_REQUIRED, DECK_READ_NEEDS_PLAN.into()));
+    }
     let id = authed_user.id;
 
     let url: Option<String> = sqlx::query_scalar("SELECT pitch_deck_url FROM profiles WHERE user_id = $1")
@@ -384,6 +422,9 @@ async fn reimport_pitch_deck(
     }
 
     let (extracted, extraction_error, pitch) = read_deck(&state, id, &raw).await?;
+    if allowance == DeckRead::Credit && extraction_error.is_none() {
+        spend_deck_credit(&state, id).await;
+    }
     let mut body = json!({ "url": url, "extracted": extracted, "pitch": pitch });
     if let Some(err) = extraction_error {
         body.as_object_mut().expect("object").insert("extraction_error".into(), json!(err));

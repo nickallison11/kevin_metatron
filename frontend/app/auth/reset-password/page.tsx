@@ -1,7 +1,9 @@
 "use client";
 
 import { CardHoverEffect } from "@/components/ui/card-hover-effect";
+import { PasswordRules } from "@/components/PasswordRules";
 import { API_BASE } from "@/lib/api";
+import { passwordMeetsRules } from "@/lib/passwordRules";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { FormEvent, Suspense, useState } from "react";
@@ -19,6 +21,10 @@ function ResetPasswordForm() {
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
+    if (!passwordMeetsRules(password)) {
+      setError("Your password doesn't meet the rules yet.");
+      return;
+    }
     if (password !== confirm) {
       setError("Passwords do not match");
       return;
@@ -81,11 +87,12 @@ function ResetPasswordForm() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   type="password"
+                  autoComplete="new-password"
                   required
-                  minLength={8}
                   disabled={loading}
                 />
               </label>
+              <PasswordRules password={password} />
               <label className="block text-sm space-y-1 text-[var(--text)]">
                 <span className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
                   Confirm password
@@ -95,8 +102,8 @@ function ResetPasswordForm() {
                   value={confirm}
                   onChange={(e) => setConfirm(e.target.value)}
                   type="password"
+                  autoComplete="new-password"
                   required
-                  minLength={8}
                   disabled={loading}
                 />
               </label>

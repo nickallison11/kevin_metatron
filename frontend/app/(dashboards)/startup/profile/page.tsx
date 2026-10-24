@@ -7,7 +7,7 @@ import { API_BASE, authHeaders, authJsonHeaders } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { COUNTRIES } from "@/lib/countries";
 import { STAGES } from "@/lib/stages";
-import { SECTIONS, membersFrom, type Member, type Pitch, type PitchField, type Section } from "@/lib/pitchSections";
+import { SECTIONS, membersFrom, pitchProgress, type Member, type Pitch, type PitchField, type Section } from "@/lib/pitchSections";
 
 /* ---------------- types ---------------- */
 
@@ -439,9 +439,12 @@ export default function StartupProfilePage() {
                 <a href={profile!.pitch_deck_url!} target="_blank" rel="noreferrer" className="text-[15px] font-semibold text-[var(--text)] hover:underline">
                   Your pitch deck
                 </a>
-                <span className="inline-flex items-center gap-1.5 text-[13px] text-metatron-accent">
-                  <IconSparkles size={14} stroke={1.75} /> Kevin read this deck and filled in your profile and pitch
-                </span>
+                {/* Only claim Kevin read it when the pitch actually has content and the last upload didn't fail. */}
+                {notice?.kind !== "error" && pitchProgress(pitch).done.length > 0 && (
+                  <span className="inline-flex items-center gap-1.5 text-[13px] text-metatron-accent">
+                    <IconSparkles size={14} stroke={1.75} /> Kevin read this deck and filled in your profile and pitch
+                  </span>
+                )}
                 <span className="truncate font-mono text-xs text-[var(--text-muted)]">
                   {host(profile!.pitch_deck_url)}
                   {new URL(profile!.pitch_deck_url!, "https://x").pathname}

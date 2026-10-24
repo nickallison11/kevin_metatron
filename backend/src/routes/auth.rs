@@ -193,6 +193,9 @@ async fn signup(
     Json(body): Json<SignupRequest>,
 ) -> Result<Json<AuthResponse>, (axum::http::StatusCode, String)> {
     // Signup is open to everyone; invite links still work and are logged below.
+    if !password_meets_rules(&body.password) {
+        return Err((StatusCode::BAD_REQUEST, PASSWORD_RULES_MSG.to_string()));
+    }
     let db_role = auth::signup_role_from_frontend(body.role.as_deref());
     let user_id =
         auth::create_user_with_password(&state.db, &body.email, &body.password, db_role).await
@@ -437,7 +440,11 @@ async fn send_signup_code(state: &AppState, email_addr: &str, code: &str) {
     .await;
 }
 
-/// Sign-up password rules; the form's checklist (SignupFlow.tsx) shows the same ones.
+const PASSWORD_RULES_MSG: &str =
+    "Your password needs 12 or more characters, with an uppercase letter, a lowercase letter, a number and a symbol.";
+
+/// Rules for every new password (sign-up, reset, change); the frontend's
+/// checklist (lib/passwordRules.ts) shows the same ones.
 fn password_meets_rules(p: &str) -> bool {
     p.chars().count() >= 12
         && p.chars().any(|c| c.is_ascii_uppercase())
@@ -573,10 +580,7 @@ async fn signup_verify(
     let email_addr = normalize_signup_email(&body.email)
         .ok_or((StatusCode::BAD_REQUEST, "Enter a valid email address.".to_string()))?;
     if !password_meets_rules(&body.password) {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "Your password needs 12 or more characters, with an uppercase letter, a lowercase letter, a number and a symbol.".to_string(),
-        ));
+        return Err((StatusCode::BAD_REQUEST, PASSWORD_RULES_MSG.to_string()));
     }
 
     let row: Option<(String, String, String, Option<String>, String, bool, i32)> = sqlx::query_as(
@@ -748,6 +752,10 @@ async fn reset_password(
             StatusCode::BAD_REQUEST,
             "Invalid or expired reset link".to_string(),
         ));
+    }
+
+    if !password_meets_rules(&body.new_password) {
+        return Err((StatusCode::BAD_REQUEST, PASSWORD_RULES_MSG.to_string()));
     }
 
     let token_hash = sha256_hex_token(token_hex);
@@ -1184,6 +1192,10 @@ async fn change_password(
     Json(body): Json<ChangePasswordRequest>,
 ) -> Result<StatusCode, (StatusCode, String)> {
     let authed = require_user(&state, bearer.token()).await?;
+
+    if !password_meets_rules(&body.new_password) {
+        return Err((StatusCode::BAD_REQUEST, PASSWORD_RULES_MSG.to_string()));
+    }
 
     let stored_hash: Option<String> = sqlx::query_scalar(
         "SELECT password_hash FROM users WHERE id = $1",

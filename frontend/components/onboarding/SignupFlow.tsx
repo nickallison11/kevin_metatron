@@ -7,6 +7,8 @@ import { type FormEvent, useEffect, useRef, useState } from "react";
 import { CountryCodePicker, DIAL_COUNTRIES } from "@/components/onboarding/CountryCodePicker";
 import { API_BASE } from "@/lib/api";
 import { COUNTRY_COOKIE } from "@/lib/countryCookie";
+import { passwordMeetsRules } from "@/lib/passwordRules";
+import { PasswordRules } from "@/components/PasswordRules";
 import { setTokenPair } from "@/lib/tokenStore";
 
 export type SignupRole = "founder" | "investor";
@@ -22,14 +24,6 @@ const OPTIONS: { id: Choice; label: string; hint: string }[] = [
 const CHANNELS: { id: Channel; label: string; help: string }[] = [
   { id: "whatsapp", label: "WhatsApp", help: "Kevin only messages you after you message him." },
   { id: "telegram", label: "Telegram", help: "You'll connect Telegram from your dashboard." },
-];
-// Keep in step with `password_meets_rules` in backend/src/routes/auth.rs.
-const PASSWORD_RULES: { label: string; ok: (p: string) => boolean }[] = [
-  { label: "12+ characters", ok: (p) => p.length >= 12 },
-  { label: "Uppercase letter", ok: (p) => /[A-Z]/.test(p) },
-  { label: "Lowercase letter", ok: (p) => /[a-z]/.test(p) },
-  { label: "Number", ok: (p) => /\d/.test(p) },
-  { label: "Symbol", ok: (p) => /[^A-Za-z0-9\s]/.test(p) },
 ];
 const STEP_NO: Partial<Record<Step, number>> = { choose: 1, other: 1, details: 2, verify: 3 };
 const BACK: Partial<Record<Step, Step>> = { other: "choose", details: "choose", verify: "details" };
@@ -119,7 +113,7 @@ export default function SignupFlow({
   const phone = parsePhoneNumberFromString(national, country);
   const phoneOk = Boolean(phone?.isValid());
   const emailOk = EMAIL_RE.test(email.trim());
-  const passwordOk = PASSWORD_RULES.every((r) => r.ok(password));
+  const passwordOk = passwordMeetsRules(password);
   const role: SignupRole = choice === "investor" ? "investor" : "founder";
   const stepNo = STEP_NO[step] ?? 0;
   const back = BACK[step];
@@ -437,20 +431,7 @@ export default function SignupFlow({
                       </svg>
                     </button>
                   </div>
-                  <ul id="signup-password-rules" aria-label="Password rules" className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-[13px]">
-                    {PASSWORD_RULES.map((r) => {
-                      const met = r.ok(password);
-                      return (
-                        <li key={r.label} className={`flex items-center gap-1.5 ${met ? "text-[var(--text)]" : "text-[var(--text-muted)]"}`}>
-                          <svg aria-hidden width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={met ? "var(--accent)" : "currentColor"} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                            {met ? <path d="M5 12.5l4.5 4.5L19 7.5" /> : <circle cx="12" cy="12" r="4" />}
-                          </svg>
-                          {r.label}
-                          <span className="sr-only">{met ? " (done)" : " (not yet)"}</span>
-                        </li>
-                      );
-                    })}
-                  </ul>
+                  <PasswordRules id="signup-password-rules" password={password} />
                 </div>
                 <p className="text-sm text-[var(--text-muted)]">
                   No email? Check spam, or{" "}

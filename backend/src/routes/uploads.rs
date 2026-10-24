@@ -294,6 +294,10 @@ async fn upload_pitch_deck(
                     }
                 }
                 Err(e) => {
+                    tracing::error!(
+                        "deck extraction failed for user {id}: {}",
+                        e.chars().take(300).collect::<String>()
+                    );
                     extraction_error = Some(e);
                 }
             }

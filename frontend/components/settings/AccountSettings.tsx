@@ -7,6 +7,8 @@ import { API_BASE, authHeaders, authJsonHeaders } from "@/lib/api";
 import { clearTokens } from "@/lib/tokenStore";
 import { useAuth } from "@/lib/auth";
 import type { MeResponse } from "@/lib/me";
+import { passwordMeetsRules } from "@/lib/passwordRules";
+import { PasswordRules } from "@/components/PasswordRules";
 
 type Tab = "account" | "security" | "notifications" | "listing" | "delete";
 
@@ -267,6 +269,10 @@ export function AccountSettings({ role }: { role: "STARTUP" | "INVESTOR" | "INTE
   async function onChangePassword(e: FormEvent) {
     e.preventDefault();
     if (!token) return;
+    if (!passwordMeetsRules(newPassword)) {
+      setChangePasswordMsg("Your new password doesn't meet the rules yet.");
+      return;
+    }
     if (newPassword !== confirmNewPassword) {
       setChangePasswordMsg("New passwords do not match.");
       return;
@@ -654,6 +660,7 @@ export function AccountSettings({ role }: { role: "STARTUP" | "INVESTOR" | "INTE
                           />
                         </Field>
                       </div>
+                      <PasswordRules password={newPassword} />
                       <div className="flex justify-end gap-2">
                         <button type="button" className={btn} onClick={() => setEditingPassword(false)}>
                           Cancel

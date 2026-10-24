@@ -2,6 +2,7 @@
 
 import { CardHoverEffect } from "@/components/ui/card-hover-effect";
 import { FormEvent, Suspense, useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { setTokenPair } from "@/lib/tokenStore";
 
@@ -298,6 +299,12 @@ function SignupForm() {
           </div>
         </>
       )}
+      <p className="mt-4 text-center text-xs text-[var(--text-muted)]">
+        Already have an account?{" "}
+        <Link href="/login" className="font-semibold text-[var(--text)] hover:text-metatron-accent">
+          Sign in
+        </Link>
+      </p>
       </CardHoverEffect>
     </div>
   );

@@ -348,7 +348,10 @@ export default function LoginPage() {
               </form>
 
               <p className="mt-4 text-center text-xs text-[var(--text-muted)]">
-                New accounts require an invitation link.
+                Don&apos;t have an account?{" "}
+                <Link href="/auth/signup" className="font-semibold text-[var(--text)] hover:text-metatron-accent">
+                  Sign up
+                </Link>
               </p>
             </>
           ) : (

@@ -437,6 +437,15 @@ async fn send_signup_code(state: &AppState, email_addr: &str, code: &str) {
     .await;
 }
 
+/// Sign-up password rules; the form's checklist (SignupFlow.tsx) shows the same ones.
+fn password_meets_rules(p: &str) -> bool {
+    p.chars().count() >= 12
+        && p.chars().any(|c| c.is_ascii_uppercase())
+        && p.chars().any(|c| c.is_ascii_lowercase())
+        && p.chars().any(|c| c.is_ascii_digit())
+        && p.chars().any(|c| !c.is_ascii_alphanumeric() && !c.is_whitespace())
+}
+
 fn new_signup_code() -> String {
     format!("{:06}", rand::thread_rng().gen_range(0..1_000_000))
 }
@@ -563,8 +572,11 @@ async fn signup_verify(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let email_addr = normalize_signup_email(&body.email)
         .ok_or((StatusCode::BAD_REQUEST, "Enter a valid email address.".to_string()))?;
-    if body.password.chars().count() < 8 {
-        return Err((StatusCode::BAD_REQUEST, "Your password needs at least 8 characters.".to_string()));
+    if !password_meets_rules(&body.password) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Your password needs 12 or more characters, with an uppercase letter, a lowercase letter, a number and a symbol.".to_string(),
+        ));
     }
 
     let row: Option<(String, String, String, Option<String>, String, bool, i32)> = sqlx::query_as(

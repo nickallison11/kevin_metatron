@@ -20,8 +20,16 @@ const OPTIONS: { id: Choice; label: string; hint: string }[] = [
   { id: "other", label: "Something else", hint: "Tell Kevin what you're after" },
 ];
 const CHANNELS: { id: Channel; label: string; help: string }[] = [
-  { id: "whatsapp", label: "WhatsApp", help: "Use the number your WhatsApp is on. Kevin only messages you after you message him." },
-  { id: "telegram", label: "Telegram", help: "Use the number on your Telegram account. You'll connect Telegram in one tap from your dashboard." },
+  { id: "whatsapp", label: "WhatsApp", help: "Kevin only messages you after you message him." },
+  { id: "telegram", label: "Telegram", help: "You'll connect Telegram from your dashboard." },
+];
+// Keep in step with `password_meets_rules` in backend/src/routes/auth.rs.
+const PASSWORD_RULES: { label: string; ok: (p: string) => boolean }[] = [
+  { label: "12+ characters", ok: (p) => p.length >= 12 },
+  { label: "Uppercase letter", ok: (p) => /[A-Z]/.test(p) },
+  { label: "Lowercase letter", ok: (p) => /[a-z]/.test(p) },
+  { label: "Number", ok: (p) => /\d/.test(p) },
+  { label: "Symbol", ok: (p) => /[^A-Za-z0-9\s]/.test(p) },
 ];
 const STEP_NO: Partial<Record<Step, number>> = { choose: 1, other: 1, details: 2, verify: 3 };
 const BACK: Partial<Record<Step, Step>> = { other: "choose", details: "choose", verify: "details" };
@@ -80,6 +88,7 @@ export default function SignupFlow({
   const [channel, setChannel] = useState<Channel>("whatsapp");
   const [code, setCode] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -110,6 +119,7 @@ export default function SignupFlow({
   const phone = parsePhoneNumberFromString(national, country);
   const phoneOk = Boolean(phone?.isValid());
   const emailOk = EMAIL_RE.test(email.trim());
+  const passwordOk = PASSWORD_RULES.every((r) => r.ok(password));
   const role: SignupRole = choice === "investor" ? "investor" : "founder";
   const stepNo = STEP_NO[step] ?? 0;
   const back = BACK[step];
@@ -186,9 +196,9 @@ export default function SignupFlow({
   if (step === "verify")
     cta = {
       label: "Create my account",
-      ok: /^\d{6}$/.test(code) && password.length >= 8,
+      ok: /^\d{6}$/.test(code) && passwordOk,
       run: () => void submitVerify(),
-      hint: "Enter the 6-digit code and a password of at least 8 characters.",
+      hint: !/^\d{6}$/.test(code) ? "Enter the 6-digit code from the email." : "Your password doesn't meet the rules yet.",
     };
 
   function onSubmit(e: FormEvent) {
@@ -221,9 +231,8 @@ export default function SignupFlow({
               </button>
             ) : (
               <span className="flex h-11 items-center gap-2 pl-3 text-[17px] font-semibold text-[var(--text)]">
-                <svg aria-hidden width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="1.75" strokeLinejoin="round">
-                  <path d="M12 2l8.66 5v10L12 22l-8.66-5V7z" />
-                </svg>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src="/metatron-logo.png" alt="" width={28} height={32} className="h-8 w-auto" />
                 metatron
               </span>
             )}
@@ -287,7 +296,7 @@ export default function SignupFlow({
               <div className="flex flex-col gap-5">
                 <div className="flex flex-col gap-2">
                   {title("What are you after?")}
-                  <p className={sub}>Kevin matches founders with investors today. Tell us what else you'd use him for and we'll let you know when it's ready.</p>
+                  <p className={sub}>Kevin matches founders with investors today. Tell us what you need and we'll let you know.</p>
                 </div>
                 <label className={label}>
                   Email address
@@ -309,14 +318,7 @@ export default function SignupFlow({
 
             {step === "details" && (
               <div className="flex flex-col gap-5">
-                <div className="flex flex-col gap-2">
-                  {title("Let's get introduced.")}
-                  <p className={sub}>
-                    {role === "investor"
-                      ? "A few details, then Kevin starts sending you founders that fit your thesis."
-                      : "A few details, then Kevin starts finding investors that fit your stage and sector."}
-                  </p>
-                </div>
+                {title("Let's get introduced.")}
                 <label className={label}>
                   Email address
                   <input className={field} type="email" inputMode="email" autoComplete="email" placeholder="alex@company.com" value={email} onChange={(e) => setEmail(e.target.value)} required />
@@ -372,7 +374,7 @@ export default function SignupFlow({
                   <a href="/privacy" target="_blank" className={linkBtn}>
                     Privacy Policy
                   </a>
-                  . You let metatron use your pitch deck and company data to make introductions and promote your project in the network, and you keep ownership of it. Conversations with Kevin are processed by AI providers including Google Gemini and Anthropic. We'll email you your weekly matches; you can unsubscribe at any time.
+                  .
                 </p>
               </div>
             )}
@@ -382,7 +384,7 @@ export default function SignupFlow({
                 <div className="flex flex-col gap-2">
                   {title("Check your email.")}
                   <p className={sub}>
-                    We sent a 6-digit code to <span className="font-medium text-[var(--text)]">{email.trim()}</span>. It expires in 15 minutes.
+                    We sent a 6-digit code to <span className="font-medium text-[var(--text)]">{email.trim()}</span>.
                   </p>
                 </div>
                 <label className={label}>
@@ -398,11 +400,58 @@ export default function SignupFlow({
                     onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
                   />
                 </label>
-                <label className={label}>
-                  Create a password
-                  <input className={field} type="password" autoComplete="new-password" placeholder="At least 8 characters" value={password} onChange={(e) => setPassword(e.target.value)} />
-                  <span className="text-[13px] font-normal text-[var(--text-muted)]">You'll use this to sign in to the platform.</span>
-                </label>
+                <div className="flex flex-col gap-2">
+                  <label htmlFor="signup-password" className="text-sm font-medium text-[var(--text)]">
+                    Create a password
+                  </label>
+                  <div className="relative">
+                    <input
+                      id="signup-password"
+                      className={`${field} pr-12`}
+                      type={showPassword ? "text" : "password"}
+                      autoComplete="new-password"
+                      aria-describedby="signup-password-rules"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((v) => !v)}
+                      aria-label={showPassword ? "Hide password" : "Show password"}
+                      aria-pressed={showPassword}
+                      className="absolute inset-y-0 right-0 flex w-12 items-center justify-center text-[var(--text-muted)] hover:text-[var(--text)]"
+                    >
+                      <svg aria-hidden width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                        {showPassword ? (
+                          <>
+                            <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
+                            <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" />
+                            <line x1="1" y1="1" x2="23" y2="23" />
+                          </>
+                        ) : (
+                          <>
+                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                            <circle cx="12" cy="12" r="3" />
+                          </>
+                        )}
+                      </svg>
+                    </button>
+                  </div>
+                  <ul id="signup-password-rules" aria-label="Password rules" className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-[13px]">
+                    {PASSWORD_RULES.map((r) => {
+                      const met = r.ok(password);
+                      return (
+                        <li key={r.label} className={`flex items-center gap-1.5 ${met ? "text-[var(--text)]" : "text-[var(--text-muted)]"}`}>
+                          <svg aria-hidden width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={met ? "var(--accent)" : "currentColor"} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            {met ? <path d="M5 12.5l4.5 4.5L19 7.5" /> : <circle cx="12" cy="12" r="4" />}
+                          </svg>
+                          {r.label}
+                          <span className="sr-only">{met ? " (done)" : " (not yet)"}</span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
                 <p className="text-sm text-[var(--text-muted)]">
                   No email? Check spam, or{" "}
                   <button type="button" onClick={() => void resend()} className={linkBtn}>

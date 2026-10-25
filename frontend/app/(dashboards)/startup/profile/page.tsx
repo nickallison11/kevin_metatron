@@ -5,9 +5,11 @@ import { useCallback, useEffect, useRef, useState, type DragEvent } from "react"
 import { IconCheck, IconCircle, IconSparkles, IconUpload } from "@tabler/icons-react";
 import { API_BASE, authHeaders, authJsonHeaders } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import DeckCard, { type DeckStatus } from "@/components/startup/DeckCard";
+import AngelBoostCard, { type FounderExtras } from "@/components/startup/AngelBoostCard";
 import { COUNTRIES } from "@/lib/countries";
 import { STAGES } from "@/lib/stages";
-import { SECTIONS, membersFrom, type Member, type Pitch, type PitchField, type Section } from "@/lib/pitchSections";
+import { SECTIONS, membersFrom, pitchProgress, type Member, type Pitch, type PitchField, type Section } from "@/lib/pitchSections";
 
 /* ---------------- types ---------------- */
 
@@ -64,6 +66,16 @@ function deckExpiryLabel(iso: string): string {
   return days === 1 ? "Deck expires in 1 day" : `Deck expires in ${days} days`;
 }
 
+/** Error bodies are plain text; success bodies are JSON. */
+async function readJsonOrText(res: Response): Promise<Record<string, unknown>> {
+  const text = (await res.text().catch(() => "")).trim();
+  try {
+    return JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    return text ? { error: text } : {};
+  }
+}
+
 const stageLabel = (v: string | null | undefined) => STAGES.find((s) => s.v === v)?.label ?? v ?? "";
 const countryName = (c: string | null | undefined) => COUNTRIES.find((x) => x.code === c)?.name ?? c ?? "";
 
@@ -85,20 +97,43 @@ export default function StartupProfilePage() {
   const [logoBusy, setLogoBusy] = useState(false);
   const [logoMsg, setLogoMsg] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [readFailed, setReadFailed] = useState(false);
+  const [extras, setExtras] = useState<FounderExtras | null>(null);
+  const [views30, setViews30] = useState<number | null>(null);
+  const coverTried = useRef(false);
   const deckInput = useRef<HTMLInputElement | null>(null);
   const logoInput = useRef<HTMLInputElement | null>(null);
 
   const load = useCallback(async () => {
     if (!token) return;
     try {
-      const [pr, pi] = await Promise.all([
+      const [pr, pi, ex, dv] = await Promise.all([
         fetch(`${API_BASE}/profile`, { headers: authJsonHeaders(token) }),
         fetch(`${API_BASE}/pitches`, { headers: authHeaders(token) }),
+        fetch(`${API_BASE}/founder-extras`, { headers: authHeaders(token) }),
+        fetch(`${API_BASE}/deck-views/mine`, { headers: authHeaders(token) }),
       ]);
-      if (pr.ok) setProfile((await pr.json()) as ApiProfile);
+      const prof = pr.ok ? ((await pr.json()) as ApiProfile) : null;
+      if (prof) setProfile(prof);
       if (pi.ok) {
         const list = (await pi.json()) as Pitch[];
         setPitch(list[0] ?? null);
+      }
+      const ext = ex.ok ? ((await ex.json()) as FounderExtras) : null;
+      setExtras(ext);
+      if (dv.ok) {
+        const since = Date.now() - 30 * 86400000;
+        setViews30(((await dv.json()) as { viewed_at: string }[]).filter((v) => new Date(v.viewed_at).getTime() >= since).length);
+      }
+      // Decks uploaded before covers existed get one made once.
+      if (prof?.pitch_deck_url?.trim() && ext && !ext.deck_cover_url && !coverTried.current) {
+        coverTried.current = true;
+        const res = await fetch(`${API_BASE}/uploads/pitch-deck/cover`, { method: "POST", headers: authHeaders(token) }).catch(() => null);
+        if (res?.ok) {
+          const c = (await res.json()) as { deck_cover_url: string; deck_pages: number | null };
+          setExtras({ ...ext, deck_cover_url: c.deck_cover_url, deck_pages: c.deck_pages });
+        }
       }
     } catch {
       setNotice({ kind: "error", text: "Couldn't load your profile. Refresh to try again." });
@@ -121,6 +156,17 @@ export default function StartupProfilePage() {
   }
 
   const hasDeck = Boolean(profile?.pitch_deck_url?.trim());
+  // Anyone can upload a deck; Kevin imports it on Basic and Pro.
+  const deckRead = pitchProgress(pitch).done.length > 0;
+  const deckStatus: DeckStatus = !hasDeck
+    ? "none"
+    : (reading && isPro) || importing
+      ? "reading"
+      : readFailed
+        ? "failed"
+        : deckRead
+          ? "read"
+          : "unread";
   const members = membersFrom(pitch?.team_members);
   const value = (f: PitchField) => String((pitch?.[f] as string | null | undefined) ?? "").trim();
   const complete = (s: Section) => (s.team ? members.length > 0 : (s.fields ?? []).every((x) => value(x.f)));
@@ -141,21 +187,16 @@ export default function StartupProfilePage() {
       const fd = new FormData();
       fd.append("file", file);
       const res = await fetch(`${API_BASE}/uploads/pitch-deck`, { method: "POST", headers: authHeaders(token), body: fd });
-      const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      const data = await readJsonOrText(res);
       if (!res.ok) {
-        setNotice({
-          kind: "error",
-          text: typeof data.error === "string" ? data.error : res.status === 403 ? "Free accounts include one deck upload." : "Deck upload failed. Try again.",
-        });
+        setNotice({ kind: "error", text: typeof data.error === "string" ? data.error : "Deck upload failed. Try again." });
         return;
       }
+      // The server makes the new deck's cover in the background; the reload below picks it up.
+      coverTried.current = true;
       await load();
-      const err = data.extraction_error;
-      setNotice(
-        typeof err === "string" && err.trim()
-          ? { kind: "error", text: "Your deck is uploaded, but Kevin couldn't read it. Fill in the sections below yourself." }
-          : { kind: "ok", text: "Kevin read your deck and filled in your profile and pitch. Check them below." },
-      );
+      // The deck card's status chip says whether Kevin read it.
+      setReadFailed(typeof data.extraction_error === "string" && data.extraction_error.trim() !== "");
       // Kevin looks for the logo on the company website in the background.
       window.setTimeout(() => void load(), 6000);
     } catch {
@@ -163,6 +204,40 @@ export default function StartupProfilePage() {
     } finally {
       setReading(false);
     }
+  }
+
+  /** Kevin imports the current deck into the pitch (Basic/Pro). */
+  async function importDeck() {
+    if (!token) return;
+    setNotice(null);
+    setEditing(null);
+    setImporting(true);
+    try {
+      const res = await fetch(`${API_BASE}/uploads/pitch-deck/reimport`, { method: "POST", headers: authHeaders(token) });
+      const data = await readJsonOrText(res);
+      if (!res.ok) {
+        setNotice({ kind: "error", text: typeof data.error === "string" ? data.error : "Kevin couldn't read your deck. Try again." });
+        return;
+      }
+      await load();
+      setReadFailed(typeof data.extraction_error === "string" && data.extraction_error.trim() !== "");
+    } catch {
+      setReadFailed(true);
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  async function removeDeck() {
+    if (!token) return;
+    setNotice(null);
+    const res = await fetch(`${API_BASE}/uploads/pitch-deck`, { method: "DELETE", headers: authHeaders(token) }).catch(() => null);
+    if (!res?.ok) {
+      setNotice({ kind: "error", text: "Couldn't remove your deck. Try again." });
+      return;
+    }
+    setReadFailed(false);
+    await load();
   }
 
   function onDrop(e: DragEvent) {
@@ -332,7 +407,7 @@ export default function StartupProfilePage() {
     </p>
   );
 
-  if (reading) {
+  if (reading && isPro) {
     return (
       <main className="min-w-0">
         <section className="mx-auto flex max-w-5xl flex-col gap-6 p-6 md:p-10">
@@ -381,9 +456,6 @@ export default function StartupProfilePage() {
               <IconUpload size={28} stroke={1.75} />
             </span>
             <h2 className="text-xl font-semibold">Drop your pitch deck here</h2>
-            <p className="max-w-md text-[15px] text-[var(--text-muted)]">
-              Kevin reads it and fills in your company profile and pitch for you. You can edit anything afterwards.
-            </p>
             <button type="button" onClick={() => deckInput.current?.click()} className={`${btnPrimary} min-h-12 px-6 text-[15px]`}>
               Choose PDF
             </button>
@@ -417,53 +489,26 @@ export default function StartupProfilePage() {
 
         {noticeEl}
 
-        {/* 1. Deck — the one action. A new deck re-fills everything below. */}
-        <section
-          aria-label="Pitch deck"
-          onDragOver={(e) => {
-            e.preventDefault();
-            setDragging(true);
-          }}
-          onDragLeave={() => setDragging(false)}
-          onDrop={(e) => onDrop(e)}
-          className={`flex flex-wrap items-center gap-4 rounded-[var(--radius)] border border-dashed p-5 ${
-            dragging ? "border-metatron-accent bg-metatron-accent/10" : "border-metatron-accent/45 bg-[var(--bg-card)]"
-          }`}
-        >
-          <span className="flex h-16 w-[52px] shrink-0 items-center justify-center rounded-lg border border-[var(--overlay-12)] bg-[var(--bg)] font-mono text-[10px] text-[var(--text-muted)]">
-            PDF
-          </span>
-          <div className="flex min-w-0 flex-1 basis-72 flex-col gap-1">
-            {hasDeck ? (
-              <>
-                <a href={profile!.pitch_deck_url!} target="_blank" rel="noreferrer" className="text-[15px] font-semibold text-[var(--text)] hover:underline">
-                  Your pitch deck
-                </a>
-                <span className="inline-flex items-center gap-1.5 text-[13px] text-metatron-accent">
-                  <IconSparkles size={14} stroke={1.75} /> Kevin read this deck and filled in your profile and pitch
-                </span>
-                <span className="truncate font-mono text-xs text-[var(--text-muted)]">
-                  {host(profile!.pitch_deck_url)}
-                  {new URL(profile!.pitch_deck_url!, "https://x").pathname}
-                </span>
-              </>
-            ) : (
-              <>
-                <span className="text-[15px] font-semibold">No deck yet</span>
-                <span className="text-[13px] text-[var(--text-muted)]">Upload a PDF and Kevin fills in everything below.</span>
-              </>
-            )}
-            {!isPro && profile?.deck_expires_at && (
-              <span className="mt-1 w-fit rounded-md bg-metatron-accent/10 px-2 py-0.5 text-[11px] text-[var(--text)]">
-                {deckExpiryLabel(profile.deck_expires_at)}
-              </span>
-            )}
-          </div>
-          <button type="button" onClick={() => deckInput.current?.click()} className={`${hasDeck ? btn : btnPrimary} min-h-11 px-5 text-sm`}>
-            {hasDeck ? "Upload new deck" : "Upload deck"}
-          </button>
-          {deckInputEl}
-        </section>
+        {/* 1. Deck: open it, import it with Kevin (Basic/Pro), replace or remove it. */}
+        <DeckCard
+          url={profile?.pitch_deck_url?.trim() || null}
+          status={deckStatus}
+          paid={isPro}
+          cover={extras?.deck_cover_url ?? null}
+          facts={[
+            ...(extras?.deck_uploaded_at
+              ? [{ label: "Uploaded", value: new Date(extras.deck_uploaded_at).toLocaleDateString(undefined, { day: "numeric", month: "short" }) }]
+              : []),
+            ...(extras?.deck_pages ? [{ label: "Pages", value: String(extras.deck_pages) }] : []),
+            ...(views30 != null ? [{ label: "Views · 30d", value: String(views30) }] : []),
+            ...(extras?.angel_score != null ? [{ label: "Angel Score", value: String(extras.angel_score) }] : []),
+          ]}
+          onUpload={(f) => void uploadDeck(f)}
+          onImport={() => void importDeck()}
+          onRemove={() => void removeDeck()}
+        />
+
+        {extras && <AngelBoostCard token={token} extras={extras} onChange={setExtras} />}
 
         {/* 2. Logo — from the company website, or uploaded */}
         <section className={`${card} flex flex-wrap items-center gap-4 p-5`} aria-label="Logo">
@@ -616,7 +661,8 @@ export default function StartupProfilePage() {
         </section>
 
         <div className="flex flex-wrap items-start gap-7">
-          <nav aria-label="Pitch sections" className="sticky top-24 flex max-w-[230px] flex-1 basis-48 flex-col gap-0.5">
+          {/* Side list on wider screens only: on a phone it would stack above the cards and stick over them. */}
+          <nav aria-label="Pitch sections" className="sticky top-24 hidden max-w-[230px] flex-1 basis-48 flex-col gap-0.5 md:flex">
             {SECTIONS.map((s) => {
               const ok = complete(s);
               return (

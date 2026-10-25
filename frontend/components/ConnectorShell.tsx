@@ -1,6 +1,6 @@
 "use client";
 
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import {
   IconBuilding,
@@ -15,10 +15,11 @@ import {
 import { API_BASE, authJsonHeaders } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import DashboardChrome, { type ChromeNavGroup, type ChromeNavItem } from "@/components/DashboardChrome";
+import { useUpgrade } from "@/components/upgrade/UpgradeProvider";
 
 export default function ConnectorShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  const router = useRouter();
+  const { openUpgrade } = useUpgrade();
   const { token, loading } = useAuth("INTERMEDIARY");
   const [isPaid, setIsPaid] = useState(false);
 
@@ -60,7 +61,7 @@ export default function ConnectorShell({ children }: { children: ReactNode }) {
         label: "Introductions",
         icon: IconUsersPlus,
         kind: "locked",
-        onClick: () => router.push("/connector/settings/subscription"),
+        onClick: openUpgrade,
       };
 
   const groups: ChromeNavGroup[] = [

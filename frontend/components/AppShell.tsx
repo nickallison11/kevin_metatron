@@ -14,12 +14,10 @@ import {
 } from "@/lib/tokenStore";
 import MessagingWidget from "@/components/MessagingWidget";
 import AccountMenu from "@/components/AccountMenu";
+import UpgradeProvider from "@/components/upgrade/UpgradeProvider";
 import type { MeResponse } from "@/lib/me";
 
 const LOGO_URL = "/metatron-logo.png";
-
-const navLinkClass =
-  "text-sm text-[var(--text-muted)] transition-colors hover:text-[var(--text)]";
 
 function decodeRoleFromJwt(token: string): string | null {
   try {
@@ -65,7 +63,6 @@ export default function AppShell({ children }: { children: ReactNode }) {
   }, []);
   const [token, setToken] = useState<string | null>(null);
   const [me, setMe] = useState<MeResponse | null>(null);
-  const [menuOpen, setMenuOpen] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
 
@@ -102,7 +99,6 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     setToken(getAccessToken());
-    setMenuOpen(false);
   }, [pathname]);
 
   useEffect(() => {
@@ -137,7 +133,6 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const role = token ? decodeRoleFromJwt(token) : null;
   const dashboardHref = dashboardPathForRole(role);
   const loggedIn = Boolean(token);
-  const isAdmin = Boolean(me?.is_admin);
 
   function logOut() {
     clearTokens();
@@ -150,7 +145,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
   ) : null;
 
   return (
-    <>
+    <UpgradeProvider>
       <div className="grid-bg" aria-hidden />
       <div className="orb" aria-hidden />
 
@@ -170,10 +165,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
         {/* Desktop nav links — centered, hidden on mobile */}
         <div className="hidden min-w-0 flex-1 items-center justify-center gap-x-6 md:flex">
-          {/* Logged-in navigation lives in the dashboard's left menu. */}
-          {isAdmin && (
-            <Link href="/admin/users" className={navLinkClass}>Admin</Link>
-          )}
+          {/* Logged-in navigation (Admin included) lives in the dashboard's menu. */}
         </div>
 
         {/* Desktop right controls — hidden on mobile */}
@@ -181,78 +173,17 @@ export default function AppShell({ children }: { children: ReactNode }) {
           {accountMenu}
         </div>
 
-        {/* Mobile right — hamburger (theme toggle lives in the account menu once logged in) */}
-        <div className="flex items-center gap-2 md:hidden">
+        {/* Mobile right — no menu button: the dashboard tabs already cover navigation. */}
+        <div className="flex items-center gap-3 md:hidden">
           {accountMenu}
-          <button
-            type="button"
-            onClick={() => setMenuOpen((o) => !o)}
-            aria-label="Toggle menu"
-            className="rounded-lg border border-[var(--border)] p-2 text-[var(--text-muted)]"
-          >
-            {menuOpen ? (
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                aria-hidden
-              >
-                <line x1="18" y1="6" x2="6" y2="18" />
-                <line x1="6" y1="6" x2="18" y2="18" />
-              </svg>
-            ) : (
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                aria-hidden
-              >
-                <line x1="3" y1="6" x2="21" y2="6" />
-                <line x1="3" y1="12" x2="21" y2="12" />
-                <line x1="3" y1="18" x2="21" y2="18" />
-              </svg>
-            )}
-          </button>
         </div>
       </nav>
-
-      {/* Mobile menu drawer */}
-      {menuOpen && (
-        <div className="relative z-[99] flex flex-col gap-4 border-b border-[var(--border)] bg-[var(--bg)] px-6 py-4 md:hidden">
-          {isAdmin && (
-            <Link
-              href="/admin/users"
-              className={navLinkClass}
-              onClick={() => setMenuOpen(false)}
-            >
-              Admin
-            </Link>
-          )}
-          {token && (
-            <div className="border-t border-[var(--border)] pt-4">
-              <Link
-                href={dashboardHref}
-                className={navLinkClass}
-                onClick={() => setMenuOpen(false)}
-              >
-                Dashboard
-              </Link>
-            </div>
-          )}
-        </div>
-      )}
 
       <div className="relative z-[1] min-h-[calc(100vh-72px)]">
         {children}
       </div>
       </div>
       {/* MessagingWidget hidden — Kevin lives on /startup/kevin */}
-    </>
+    </UpgradeProvider>
   );
 }

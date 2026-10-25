@@ -58,31 +58,56 @@ async fn usage(
     .await
     .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string()))?
     .unwrap_or(0);
-    let limit = kevin_daily_limit(user.is_basic, user.is_pro);
+    let limit = kevin_daily_limit(&state, user.id, user.is_basic, user.is_pro).await;
     Ok(Json(UsageResponse {
         messages_today,
         daily_limit: (limit < i32::MAX).then_some(limit),
     }))
 }
 
-fn kevin_daily_limit(is_basic: bool, is_pro: bool) -> i32 {
+/// A Free user who has sent this many Kevin messages in a calendar month (UTC)
+/// drops to `FREE_REDUCED_DAILY_LIMIT` a day for the rest of it.
+const FREE_MONTHLY_MESSAGES: i64 = 300;
+const FREE_DAILY_LIMIT: i32 = 20;
+const FREE_REDUCED_DAILY_LIMIT: i32 = 5;
+
+/// Free users get 20 a day, or 5 once they've sent 300 this month or once
+/// this month's Free AI budget is spent (`cost::free_budget_exceeded`).
+async fn kevin_daily_limit(state: &AppState, user_id: Uuid, is_basic: bool, is_pro: bool) -> i32 {
     if is_pro {
-        i32::MAX
-    } else if is_basic {
-        200
+        return i32::MAX;
+    }
+    if is_basic {
+        return 200;
+    }
+    let this_month: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(message_count), 0)::bigint FROM kevin_daily_usage
+         WHERE user_id = $1 AND usage_date >= date_trunc('month', CURRENT_DATE)::date",
+    )
+    .bind(user_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap_or(0);
+    if this_month >= FREE_MONTHLY_MESSAGES || crate::cost::free_budget_exceeded(&state.db).await {
+        FREE_REDUCED_DAILY_LIMIT
     } else {
-        20
+        FREE_DAILY_LIMIT
     }
 }
 
-/// Shown to Free users at the 20-message limit; only mentions upgrading while paid plans are on.
-fn free_limit_message(state: &AppState) -> String {
-    if state.payments_enabled {
-        email::localize_links("You've used your 20 daily Kevin messages across all channels. Upgrade to Basic at platform.metatron.id/pricing for 200 messages/day.")
+/// Shown to Free users at their daily limit; only mentions upgrading while paid plans are on.
+fn free_limit_message(state: &AppState, limit: i32) -> String {
+    let reduced = if limit < FREE_DAILY_LIMIT {
+        " Free is down to 5 a day for the rest of this month."
     } else {
-        "You've used your 20 daily Kevin messages across all channels. They reset at midnight UTC.
+        ""
+    };
+    if state.payments_enabled {
+        email::localize_links(&format!("You've used your {limit} daily Kevin messages across all channels.{reduced} Upgrade to Basic at platform.metatron.id/pricing for 200 messages/day."))
+    } else {
+        format!("You've used your {limit} daily Kevin messages across all channels.{reduced} They reset at midnight UTC.
 
-Basic (200 messages a day) is coming soon. Reply \"notify me\" and I'll tell you when it launches.".to_string()
+Basic (200 messages a day) is coming soon. Reply \"notify me\" and I'll tell you when it launches.")
     }
 }
 
@@ -275,7 +300,7 @@ async fn inbound_email_process(state: Arc<AppState>, body: InboundEmailRequest) 
         None => None,
     };
 
-    let daily_limit = kevin_daily_limit(user.is_basic, user.is_pro);
+    let daily_limit = kevin_daily_limit(&state, user.id, user.is_basic, user.is_pro).await;
 
     if daily_limit < i32::MAX {
         let count: i32 = match sqlx::query_scalar(
@@ -307,7 +332,7 @@ async fn inbound_email_process(state: Arc<AppState>, body: InboundEmailRequest) 
             .await;
 
             let limit_body = if !user.is_pro && !user.is_basic {
-                free_limit_message(&state)
+                free_limit_message(&state, daily_limit)
             } else {
                 "You've reached your daily Kevin limit. It resets at midnight UTC.".to_string()
             };
@@ -677,7 +702,7 @@ Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. 
         return Err(KevinReplyError::ServiceUnavailable);
     };
 
-    let daily_limit = kevin_daily_limit(user.is_basic, user.is_pro);
+    let daily_limit = kevin_daily_limit(&state, user.id, user.is_basic, user.is_pro).await;
 
     if daily_limit < i32::MAX {
         let count: i32 = match sqlx::query_scalar(
@@ -709,7 +734,7 @@ Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. 
             .await;
 
             let limit_msg = if !user.is_pro && !user.is_basic {
-                free_limit_message(&state)
+                free_limit_message(&state, daily_limit)
             } else {
                 "You've reached your daily Kevin limit. It resets at midnight UTC.".to_string()
             };
@@ -974,7 +999,7 @@ CRITICAL RULES — follow these exactly:
 Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. Plain text only."#
     );
 
-    let daily_limit = kevin_daily_limit(user.is_basic, user.is_pro);
+    let daily_limit = kevin_daily_limit(&state, user.id, user.is_basic, user.is_pro).await;
 
     if daily_limit < i32::MAX {
         let count: i32 = sqlx::query_scalar(
@@ -1000,7 +1025,7 @@ Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. 
             .await;
 
             let msg = if !user.is_pro && !user.is_basic {
-                free_limit_message(&state)
+                free_limit_message(&state, daily_limit)
             } else {
                 "You've reached your daily Kevin limit. It resets at midnight UTC.".to_string()
             };
@@ -2801,6 +2826,7 @@ async fn run_kevin_with_tools_gemini(
         if !response.status().is_success() {
             let status = response.status();
             let text = response.text().await.unwrap_or_default();
+            crate::alerts::check_gemini_error(&text);
             tracing::error!("gemini tool call error {status}: {text}");
             return ("Kevin is temporarily unavailable.".to_string(), new_rows, usage);
         }

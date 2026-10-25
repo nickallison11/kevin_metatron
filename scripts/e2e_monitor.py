@@ -66,6 +66,17 @@ run identically against both environments.
   16a. Call Intelligence gating — free tier must get 403, basic/pro must
       get 200. This is the exact bug fixed in the 2026-07-28 subscription
       audit (a legacy investor bypass let free investors in).
+  17a/17b. Stripe billing: /commerce/config payments switch, and the Stripe
+      webhook rejecting a bad signature (400). Dev must have payments on;
+      production may have them off until its Stripe account is live.
+  18a. Stripe subscriptions match the database — the paid ladder accounts
+      (founderbasic/founderpro/investorbasic/investorpro) are real Stripe
+      test-mode subscriptions since 2026-10-23; each must have exactly one
+      active Stripe subscription on the right plan and a matching active,
+      future-dated plan in /subscriptions/status. Free accounts must have
+      none. Uses STRIPE_SECRET_KEY from the dev env file (test key only).
+  19. Paystack fully switched off — no Paystack webhook requests in the
+      nginx log in the last 24h [shared]. Paystack was removed 2026-10-22.
 
 Not covered here: the proactive high-value-match notification (fires once
 per match the first time it crosses the score threshold, so it isn't a good
@@ -163,6 +174,22 @@ def read_env_file_value(path, key):
 
 DEV_TEST_PASSWORD = read_env_file_value(DEV_ENV_FILE, "TEST_PASSWORD")
 DEV_CRON_SECRET   = read_env_file_value(DEV_ENV_FILE, "CRON_SECRET")
+# Test-mode key only; check 18a refuses anything else.
+DEV_STRIPE_SECRET_KEY = read_env_file_value(DEV_ENV_FILE, "STRIPE_SECRET_KEY")
+
+# Paid ladder accounts are real Stripe test-mode subscriptions since
+# 2026-10-23 (not tiers set by hand in the database), so check 18a can compare
+# Stripe's record with ours. Free accounts must have no active subscription.
+STRIPE_LADDER = {
+    "founder":       None,
+    "founderbasic":  "basic",
+    "founderpro":    "pro",
+    "investor":      None,
+    "investorbasic": "basic",
+    "investorpro":   "pro",
+}
+
+NGINX_ACCESS_LOGS = ["/var/log/nginx/access.log", "/var/log/nginx/access.log.1"]
 
 
 def pinata_url(cid):
@@ -183,7 +210,15 @@ def get_jwt(email, password, base_url=None):
         timeout=10,
     )
     r.raise_for_status()
-    return r.json()["token"]
+    d = r.json()
+    # A test account with 2FA switched on gets a partial token instead of a
+    # session -- say so plainly rather than failing on a bare KeyError('token')
+    # (founderbasic, 2026-10-22).
+    if d.get("requires_2fa"):
+        raise RuntimeError("2FA is enabled on this test account, so password-only login can't finish")
+    if "token" not in d:
+        raise RuntimeError(f"login returned no token (keys: {sorted(d)})")
+    return d["token"]
 
 
 def check_pinata(cid):
@@ -811,6 +846,151 @@ def render_call_intelligence_gating_check(lines, drifts, number, tag, base_url, 
     lines.append("")
 
 
+def render_stripe_endpoint_check(lines, drifts, number, tag, base_url, payments_required):
+    """Check 17a/17b: payments switch + Stripe webhook endpoint. A request with
+    a bad signature must be rejected with 400 -- that proves the route is
+    mounted and STRIPE_WEBHOOK_SECRET is set, without touching any account.
+    503 means the secret isn't set. Production may legitimately have payments
+    off until the Stripe account is live; dev must have them on."""
+    lines.append(f"## Check {number} — Stripe billing: payments switch + webhook endpoint [{tag}]")
+    try:
+        r = requests.get(f"{base_url}/commerce/config", timeout=10)
+        r.raise_for_status()
+        enabled = bool(r.json().get("payments_enabled"))
+        if enabled:
+            lines.append("- payments_enabled: ✓ on")
+        elif payments_required:
+            lines.append("- ⚠ DRIFT — payments_enabled is off")
+            drifts.append(f"payments disabled ({tag})")
+        else:
+            lines.append("- payments_enabled: off (expected until Stripe goes live here)")
+
+        w = requests.post(
+            f"{base_url}/commerce/stripe/webhook",
+            data=b"{}",
+            headers={"Stripe-Signature": "t=0,v1=00", "Content-Type": "application/json"},
+            timeout=10,
+        )
+        if w.status_code == 400:
+            lines.append("- webhook rejects a bad signature (400): ✓")
+        elif w.status_code == 503 and not enabled and not payments_required:
+            lines.append("- webhook: STRIPE_WEBHOOK_SECRET not set (503) — fine while payments are off")
+        else:
+            lines.append(f"- ⚠ DRIFT — webhook returned {w.status_code}, expected 400")
+            drifts.append(f"Stripe webhook ({tag}) returned {w.status_code}")
+    except Exception as e:
+        lines.append(f"- ⚠ DRIFT — Stripe endpoint check failed: {e}")
+        drifts.append(f"Stripe endpoint check ({tag}) failed: {e}")
+    lines.append("")
+
+
+def stripe_active_plans(email):
+    """Plans ('basic'/'pro') of every active Stripe test-mode subscription for
+    customers with this email."""
+    s = requests.Session()
+    s.auth = (DEV_STRIPE_SECRET_KEY, "")
+    customers = s.get("https://api.stripe.com/v1/customers", params={"email": email, "limit": 10}, timeout=20)
+    customers.raise_for_status()
+    plans = []
+    for c in customers.json().get("data", []):
+        subs = s.get(
+            "https://api.stripe.com/v1/subscriptions",
+            params={"customer": c["id"], "status": "active", "limit": 10},
+            timeout=20,
+        )
+        subs.raise_for_status()
+        for sub in subs.json().get("data", []):
+            key = sub["items"]["data"][0]["price"].get("lookup_key") or ""
+            plans.append(key.split("_")[0])
+    return plans
+
+
+def render_stripe_sync_check(lines, drifts, number, tag, base_url, jwts):
+    """Check 18a: Stripe's record of each ladder account matches ours. Paid
+    accounts need exactly one active Stripe subscription on the right plan and
+    an active, future-dated plan in /subscriptions/status (written by the
+    webhook); free accounts need none. Catches missed webhooks and stray test
+    checkouts (founder was silently Pro via Stripe, 2026-10-21)."""
+    lines.append(f"## Check {number} — Stripe subscriptions match the database [{tag}]")
+    if not (DEV_STRIPE_SECRET_KEY or "").startswith("sk_test_"):
+        lines.append("- ⚠ DRIFT — no Stripe test-mode key in the dev env file")
+        drifts.append(f"Stripe sync check ({tag}): no test-mode key")
+        lines.append("")
+        return
+    now = datetime.datetime.now(datetime.timezone.utc)
+    for name, want in STRIPE_LADDER.items():
+        email = DEV_ACCOUNTS[name][0]
+        try:
+            plans = stripe_active_plans(email)
+            problems = []
+            if want is None and plans:
+                problems.append(f"free account has active Stripe plan(s) {plans}")
+            if want is not None and plans != [want]:
+                problems.append(f"Stripe has {plans or 'no active subscription'}, expected ['{want}']")
+            if want is not None:
+                if name not in jwts:
+                    problems.append("no login, can't read /subscriptions/status")
+                else:
+                    st = check_subscription(jwts[name], base_url=base_url)
+                    end = st.get("subscription_period_end")
+                    end_dt = datetime.datetime.fromisoformat(end.replace(" ", "T")) if end else None
+                    if end_dt and end_dt.tzinfo is None:
+                        end_dt = end_dt.replace(tzinfo=datetime.timezone.utc)
+                    if st.get("subscription_tier") != want or st.get("subscription_status") != "active":
+                        problems.append(
+                            f"database says {st.get('subscription_tier')}/{st.get('subscription_status')}"
+                        )
+                    elif not end_dt or end_dt <= now:
+                        problems.append(f"period end {end} is not in the future")
+            if problems:
+                lines.append(f"- ⚠ DRIFT — {name}: {'; '.join(problems)}")
+                drifts.append(f"Stripe sync ({tag}) {name}: {'; '.join(problems)}")
+            else:
+                lines.append(f"- {name}: ✓ {want or 'free, no Stripe subscription'}")
+        except Exception as e:
+            lines.append(f"- ⚠ DRIFT — {name}: Stripe sync check failed: {e}")
+            drifts.append(f"Stripe sync ({tag}) {name} failed: {e}")
+    lines.append("")
+
+
+def render_paystack_gone_check(lines, drifts, number, tag):
+    """Check 19: Paystack was removed 2026-10-22 but kept charging test cards
+    from its side until its subscriptions and webhook URL were cleared
+    (2026-10-23). Any Paystack request in the last 24h means something on
+    Paystack's side is still live."""
+    lines.append(f"## Check {number} — Paystack fully switched off (no webhooks in last 24h) [{tag}]")
+    cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=24)
+    hits = 0
+    last = None
+    try:
+        for path in NGINX_ACCESS_LOGS:
+            if not os.path.exists(path):
+                continue
+            with open(path, errors="replace") as f:
+                for line in f:
+                    if "Paystack/" not in line:
+                        continue
+                    m = re.search(r"\[(\d{2}/\w{3}/\d{4}:\d{2}:\d{2}:\d{2} [+-]\d{4})\]", line)
+                    if not m:
+                        continue
+                    ts = datetime.datetime.strptime(m.group(1), "%d/%b/%Y:%H:%M:%S %z")
+                    if ts >= cutoff:
+                        hits += 1
+                        last = max(last, ts) if last else ts
+        if hits:
+            lines.append(
+                f"- ⚠ DRIFT — {hits} Paystack request(s) in the last 24h, latest "
+                f"{last.strftime('%Y-%m-%d %H:%M')} UTC — check Paystack subscriptions and webhook URL"
+            )
+            drifts.append(f"Paystack still calling ({hits} requests in 24h)")
+        else:
+            lines.append("- no Paystack requests in the last 24h: ✓")
+    except Exception as e:
+        lines.append(f"- ⚠ DRIFT — Paystack log check failed: {e}")
+        drifts.append(f"Paystack log check failed: {e}")
+    lines.append("")
+
+
 def send_report(subject, plain_body, html_body=None):
     if html_body:
         msg = MIMEMultipart("alternative")
@@ -1183,13 +1363,22 @@ def main():
     render_call_intelligence_gating_check(lines, drifts, "16a", "DEV", DEV_BACKEND_URL, DEV_TEST_PASSWORD)
     render_na_check(lines, "16b", "PRODUCTION", "Call Intelligence gating (free=403, basic/pro=200)")
 
+    # ── Checks 17-19: Stripe billing (the only payment provider since 2026-10-22)
+    render_stripe_endpoint_check(lines, drifts, "17a", "DEV", DEV_BACKEND_URL, payments_required=True)
+    render_stripe_endpoint_check(lines, drifts, "17b", "PRODUCTION", BACKEND_URL, payments_required=False)
+
+    render_stripe_sync_check(lines, drifts, "18a", "DEV", DEV_BACKEND_URL, jwts_dev)
+    render_na_check(lines, "18b", "PRODUCTION", "Stripe subscriptions match the database")
+
+    render_paystack_gone_check(lines, drifts, "19", "SHARED — both environments")
+
     # ── Summary ───────────────────────────────────────────────────────────────
     tag = "DRIFT" if drifts else "OK"
     lines.append(f"## Summary: {tag}")
     lines.append(
-        "(13 checks on [DEV]: 1a,2a,3a,4a,5a,9a,10a,11a,12a,13a,14a,15a,16a · "
-        "13 on [PRODUCTION]: 1b,2b,3b,4b,5b,9b,10b,11b,12b,13b,14b,15b,16b · "
-        "3 [SHARED] shown in both: 6,7,8 · 16 checks per environment)"
+        "(15 checks on [DEV]: 1a,2a,3a,4a,5a,9a,10a,11a,12a,13a,14a,15a,16a,17a,18a · "
+        "15 on [PRODUCTION]: 1b,2b,3b,4b,5b,9b,10b,11b,12b,13b,14b,15b,16b,17b,18b · "
+        "4 [SHARED] shown in both: 6,7,8,19 · 19 checks per environment)"
     )
     if drifts:
         for d in drifts:

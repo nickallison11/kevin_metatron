@@ -2,14 +2,11 @@
 
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { API_BASE, authHeaders, authJsonHeaders } from "@/lib/api";
+import { KEVIN_TELEGRAM, KEVIN_WHATSAPP } from "@/lib/kevinChannels";
 import type { MeResponse } from "@/lib/me";
 
 type Channel = "whatsapp" | "telegram";
 const LABEL: Record<Channel, string> = { whatsapp: "WhatsApp", telegram: "Telegram" };
-// Dev and prod run separate WhatsApp numbers; the API base tells them apart.
-const IS_DEV_API = /dev-api|localhost/.test(API_BASE);
-const KEVIN_WHATSAPP = IS_DEV_API ? "https://wa.me/27818621473" : "https://wa.me/15559439544";
-const KEVIN_TELEGRAM = "https://t.me/Kevinmetatron_bot";
 
 const input =
   "w-full min-h-11 rounded-[10px] border border-[var(--overlay-12)] bg-[var(--bg)] px-3.5 py-2.5 text-sm text-[var(--text)] outline-none focus:border-metatron-accent";

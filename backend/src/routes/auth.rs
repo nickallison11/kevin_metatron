@@ -34,6 +34,10 @@ use crate::state::AppState;
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/register", post(signup))
+        .route("/signup/start", post(signup_start))
+        .route("/signup/resend", post(signup_resend))
+        .route("/signup/verify", post(signup_verify))
+        .route("/signup/interest", post(signup_interest))
         .route("/login", post(login))
         .route("/refresh", post(refresh))
         .route("/logout", post(logout))
@@ -54,6 +58,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/2fa/confirm", post(two_fa_confirm))
         .route("/2fa", delete(two_fa_disable))
         .route("/2fa/login", post(two_fa_login))
+        .route("/2fa/backup-codes", post(two_fa_regenerate_backup_codes))
         .route("/account", delete(delete_account))
         .route("/me/export", get(export_data))
         .route("/role", put(set_role))
@@ -135,6 +140,17 @@ pub struct TwoFaSetupResponse {
     pub secret: String,
 }
 
+#[derive(Deserialize)]
+pub struct TwoFaBackupCodesRequest {
+    pub code: String,
+}
+
+/// Returned once, when backup codes are generated; only hashes are kept.
+#[derive(Serialize)]
+pub struct TwoFaBackupCodesResponse {
+    pub backup_codes: Vec<String>,
+}
+
 #[derive(Serialize)]
 pub struct AuthResponse {
     pub token: String,
@@ -191,6 +207,9 @@ async fn signup(
 ) -> Result<Json<AuthResponse>, (axum::http::StatusCode, String)> {
     require_registration_open(&state)?;
     // Signup is open to everyone; invite links still work and are logged below.
+    if !password_meets_rules(&body.password) {
+        return Err((StatusCode::BAD_REQUEST, PASSWORD_RULES_MSG.to_string()));
+    }
     let db_role = auth::signup_role_from_frontend(body.role.as_deref());
     let user_id =
         auth::create_user_with_password(&state.db, &body.email, &body.password, db_role).await
@@ -205,64 +224,15 @@ async fn signup(
             ),
         })?;
 
-    if let Some(ref code) = body.referral_code {
-        if let Ok(Some(connector_id)) = sqlx::query_scalar::<_, Uuid>(
-            "SELECT user_id FROM connector_profiles WHERE referral_code = $1",
-        )
-        .bind(code.trim())
-        .fetch_optional(&state.db)
-        .await
-        {
-            let _ = sqlx::query(
-                "INSERT INTO referrals (referrer_user_id, referred_email, referred_user_id, status) VALUES ($1, $2, $3, 'signed_up')",
-            )
-            .bind(connector_id)
-            .bind(&body.email)
-            .bind(user_id)
-            .execute(&state.db)
-            .await;
-        }
-    }
-
-    let _ = sqlx::query(
-        "INSERT INTO email_preferences (user_id, weekly_matches, instant_alerts, unsubscribed_all) VALUES ($1, $2, FALSE, FALSE) ON CONFLICT (user_id) DO NOTHING",
-    )
-    .bind(user_id)
-    .bind(body.email_opt_in)
-    .execute(&state.db)
-    .await;
-
-    let (token, refresh_token) = auth::issue_token_pair(&state, user_id, db_role)
-        .await
-        .map_err(|_| {
-            (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                "could not issue token".to_string(),
-            )
-        })?;
-
-    email::send_email(
-        &state.http_client,
-        state.resend_api_key.as_deref(),
-        &state.email_from,
+    let (token, refresh_token) = finish_signup(
+        &state,
+        user_id,
         &body.email,
-        "Welcome to metatron",
-        &email::welcome_email_html(db_role),
+        db_role,
+        body.referral_code.as_deref(),
+        body.email_opt_in,
     )
-    .await;
-
-    let email_type = match db_role {
-        "INVESTOR" => "welcome_investor",
-        "INTERMEDIARY" => "welcome_connector",
-        _ => "welcome_founder",
-    };
-    let _ = sqlx::query(
-        "INSERT INTO email_send_log (user_id, email_type) VALUES ($1, $2)",
-    )
-    .bind(user_id)
-    .bind(email_type)
-    .execute(&state.db)
-    .await;
+    .await?;
 
     if let Some(ref code) = body.invite_code {
         let trimmed = code.trim();
@@ -323,6 +293,416 @@ async fn signup(
     }
 
     Ok(Json(AuthResponse { token, refresh_token }))
+}
+
+/// Steps every new email account goes through once its `users` row exists:
+/// referral credit, email preferences, welcome email, then a token pair.
+async fn finish_signup(
+    state: &Arc<AppState>,
+    user_id: Uuid,
+    email_addr: &str,
+    db_role: &str,
+    referral_code: Option<&str>,
+    email_opt_in: bool,
+) -> Result<(String, String), (StatusCode, String)> {
+    if let Some(code) = referral_code {
+        if let Ok(Some(connector_id)) = sqlx::query_scalar::<_, Uuid>(
+            "SELECT user_id FROM connector_profiles WHERE referral_code = $1",
+        )
+        .bind(code.trim())
+        .fetch_optional(&state.db)
+        .await
+        {
+            let _ = sqlx::query(
+                "INSERT INTO referrals (referrer_user_id, referred_email, referred_user_id, status) VALUES ($1, $2, $3, 'signed_up')",
+            )
+            .bind(connector_id)
+            .bind(email_addr)
+            .bind(user_id)
+            .execute(&state.db)
+            .await;
+        }
+    }
+
+    let _ = sqlx::query(
+        "INSERT INTO email_preferences (user_id, weekly_matches, instant_alerts, unsubscribed_all) VALUES ($1, $2, FALSE, FALSE) ON CONFLICT (user_id) DO NOTHING",
+    )
+    .bind(user_id)
+    .bind(email_opt_in)
+    .execute(&state.db)
+    .await;
+
+    let pair = auth::issue_token_pair(state, user_id, db_role)
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "could not issue token".to_string(),
+            )
+        })?;
+
+    email::send_email(
+        &state.http_client,
+        state.resend_api_key.as_deref(),
+        &state.email_from,
+        email_addr,
+        "Welcome to metatron",
+        &email::welcome_email_html(db_role),
+    )
+    .await;
+
+    let email_type = match db_role {
+        "INVESTOR" => "welcome_investor",
+        "INTERMEDIARY" => "welcome_connector",
+        _ => "welcome_founder",
+    };
+    let _ = sqlx::query(
+        "INSERT INTO email_send_log (user_id, email_type) VALUES ($1, $2)",
+    )
+    .bind(user_id)
+    .bind(email_type)
+    .execute(&state.db)
+    .await;
+
+    Ok(pair)
+}
+
+// ── Home-page sign-up ──────────────────────────────────────────────────────
+// start: checks the details and emails a 6-digit code. verify: checks the code,
+// creates the account with the chosen password and logs the user in.
+
+const SIGNUP_CODE_MAX_ATTEMPTS: i32 = 5;
+
+#[derive(Deserialize)]
+pub struct SignupStartRequest {
+    pub email: String,
+    /// Mobile number with country code; anything but digits is ignored.
+    pub phone: String,
+    /// `whatsapp` or `telegram`.
+    pub channel: String,
+    /// `founder` or `investor`.
+    pub role: String,
+    #[serde(default)]
+    pub referral_code: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct SignupResendRequest {
+    pub email: String,
+}
+
+#[derive(Deserialize)]
+pub struct SignupVerifyRequest {
+    pub email: String,
+    pub code: String,
+    pub password: String,
+}
+
+#[derive(Deserialize)]
+pub struct SignupInterestRequest {
+    pub email: String,
+    pub note: String,
+}
+
+fn normalize_signup_email(raw: &str) -> Option<String> {
+    let e = raw.trim().to_lowercase();
+    let (local, domain) = e.split_once('@')?;
+    if local.is_empty() || !domain.contains('.') || domain.starts_with('.') || domain.ends_with('.') || e.contains(char::is_whitespace) {
+        return None;
+    }
+    Some(e)
+}
+
+async fn email_taken(state: &AppState, email_addr: &str) -> Result<bool, (StatusCode, String)> {
+    sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE LOWER(email) = $1)")
+        .bind(email_addr)
+        .fetch_one(&state.db)
+        .await
+        .map_err(|e| {
+            tracing::error!("signup: email lookup: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "database error".to_string())
+        })
+}
+
+async fn whatsapp_taken(state: &AppState, phone: &str) -> Result<bool, (StatusCode, String)> {
+    sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM users WHERE regexp_replace(COALESCE(whatsapp_number, ''), '[^0-9]', '', 'g') = $1)",
+    )
+    .bind(phone)
+    .fetch_one(&state.db)
+    .await
+    .map_err(|e| {
+        tracing::error!("signup: whatsapp lookup: {e}");
+        (StatusCode::INTERNAL_SERVER_ERROR, "database error".to_string())
+    })
+}
+
+async fn send_signup_code(state: &AppState, email_addr: &str, code: &str) {
+    let html = format!(
+        r#"<p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">Here's your code to finish signing up to metatron:</p>
+<p style="margin:0 0 16px 0;font-size:28px;font-weight:700;letter-spacing:6px;color:#e8e8ed;">{code}</p>
+<p style="margin:0;font-size:13px;color:#8888a0;">Enter it on the sign-up page. It expires in 15 minutes. If you didn't ask for it, you can ignore this email.</p>"#
+    );
+    email::send_email(
+        &state.http_client,
+        state.resend_api_key.as_deref(),
+        &state.email_from,
+        email_addr,
+        &format!("Your metatron code: {code}"),
+        &html,
+    )
+    .await;
+}
+
+const PASSWORD_RULES_MSG: &str =
+    "Your password needs 12 or more characters, with an uppercase letter, a lowercase letter, a number and a symbol.";
+
+/// Rules for every new password (sign-up, reset, change); the frontend's
+/// checklist (lib/passwordRules.ts) shows the same ones.
+fn password_meets_rules(p: &str) -> bool {
+    p.chars().count() >= 12
+        && p.chars().any(|c| c.is_ascii_uppercase())
+        && p.chars().any(|c| c.is_ascii_lowercase())
+        && p.chars().any(|c| c.is_ascii_digit())
+        && p.chars().any(|c| !c.is_ascii_alphanumeric() && !c.is_whitespace())
+}
+
+fn new_signup_code() -> String {
+    format!("{:06}", rand::thread_rng().gen_range(0..1_000_000))
+}
+
+async fn signup_start(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<SignupStartRequest>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    require_registration_open(&state)?;
+    let email_addr = normalize_signup_email(&body.email)
+        .ok_or((StatusCode::BAD_REQUEST, "Enter a valid email address.".to_string()))?;
+    let phone: String = body.phone.chars().filter(|c| c.is_ascii_digit()).collect();
+    if !(8..=15).contains(&phone.len()) {
+        return Err((StatusCode::BAD_REQUEST, "Enter a valid mobile number.".to_string()));
+    }
+    let channel = body.channel.trim().to_lowercase();
+    if channel != "whatsapp" && channel != "telegram" {
+        return Err((StatusCode::BAD_REQUEST, "Choose WhatsApp or Telegram.".to_string()));
+    }
+    let role = body.role.trim().to_lowercase();
+    if role != "founder" && role != "investor" {
+        return Err((StatusCode::BAD_REQUEST, "Choose founder or investor.".to_string()));
+    }
+
+    if email_taken(&state, &email_addr).await? {
+        return Err((
+            StatusCode::CONFLICT,
+            "An account with this email already exists. Sign in instead.".to_string(),
+        ));
+    }
+    if channel == "whatsapp" && whatsapp_taken(&state, &phone).await? {
+        return Err((
+            StatusCode::CONFLICT,
+            "This WhatsApp number is already linked to another account.".to_string(),
+        ));
+    }
+
+    let recent: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM signup_pending WHERE email = $1 AND last_sent_at > NOW() - INTERVAL '30 seconds')",
+    )
+    .bind(&email_addr)
+    .fetch_one(&state.db)
+    .await
+    .unwrap_or(false);
+    if recent {
+        return Err((
+            StatusCode::TOO_MANY_REQUESTS,
+            "We just sent you a code. Wait a few seconds before asking for another.".to_string(),
+        ));
+    }
+
+    let code = new_signup_code();
+    sqlx::query(
+        r#"
+        INSERT INTO signup_pending (email, phone, channel, role, referral_code, code, code_expires_at)
+        VALUES ($1, $2, $3, $4, $5, $6, NOW() + INTERVAL '15 minutes')
+        ON CONFLICT (email) DO UPDATE
+        SET phone = EXCLUDED.phone, channel = EXCLUDED.channel, role = EXCLUDED.role,
+            referral_code = EXCLUDED.referral_code, code = EXCLUDED.code,
+            code_expires_at = EXCLUDED.code_expires_at, code_attempts = 0, last_sent_at = NOW()
+        "#,
+    )
+    .bind(&email_addr)
+    .bind(&phone)
+    .bind(&channel)
+    .bind(&role)
+    .bind(body.referral_code.as_deref().map(str::trim).filter(|s| !s.is_empty()))
+    .bind(&code)
+    .execute(&state.db)
+    .await
+    .map_err(|e| {
+        tracing::error!("signup_start: insert: {e}");
+        (StatusCode::INTERNAL_SERVER_ERROR, "database error".to_string())
+    })?;
+
+    send_signup_code(&state, &email_addr, &code).await;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn signup_resend(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<SignupResendRequest>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    require_registration_open(&state)?;
+    let email_addr = normalize_signup_email(&body.email)
+        .ok_or((StatusCode::BAD_REQUEST, "Enter a valid email address.".to_string()))?;
+    let code = new_signup_code();
+    // Only rows last sent over 30 seconds ago get a new code.
+    let updated = sqlx::query(
+        r#"
+        UPDATE signup_pending
+        SET code = $2, code_expires_at = NOW() + INTERVAL '15 minutes', code_attempts = 0, last_sent_at = NOW()
+        WHERE email = $1 AND last_sent_at <= NOW() - INTERVAL '30 seconds'
+        "#,
+    )
+    .bind(&email_addr)
+    .bind(&code)
+    .execute(&state.db)
+    .await
+    .map_err(|e| {
+        tracing::error!("signup_resend: update: {e}");
+        (StatusCode::INTERNAL_SERVER_ERROR, "database error".to_string())
+    })?;
+    if updated.rows_affected() == 0 {
+        let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM signup_pending WHERE email = $1)")
+            .bind(&email_addr)
+            .fetch_one(&state.db)
+            .await
+            .unwrap_or(false);
+        return Err(if exists {
+            (
+                StatusCode::TOO_MANY_REQUESTS,
+                "We just sent you a code. Wait a few seconds before asking for another.".to_string(),
+            )
+        } else {
+            (StatusCode::NOT_FOUND, "Start again to get a new code.".to_string())
+        });
+    }
+    send_signup_code(&state, &email_addr, &code).await;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn signup_verify(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<SignupVerifyRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    require_registration_open(&state)?;
+    let email_addr = normalize_signup_email(&body.email)
+        .ok_or((StatusCode::BAD_REQUEST, "Enter a valid email address.".to_string()))?;
+    if !password_meets_rules(&body.password) {
+        return Err((StatusCode::BAD_REQUEST, PASSWORD_RULES_MSG.to_string()));
+    }
+
+    let row: Option<(String, String, String, Option<String>, String, bool, i32)> = sqlx::query_as(
+        r#"
+        SELECT phone, channel, role, referral_code, code, code_expires_at > NOW(), code_attempts
+        FROM signup_pending WHERE email = $1
+        "#,
+    )
+    .bind(&email_addr)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| {
+        tracing::error!("signup_verify: lookup: {e}");
+        (StatusCode::INTERNAL_SERVER_ERROR, "database error".to_string())
+    })?;
+    let Some((phone, channel, role, referral_code, code, fresh, attempts)) = row else {
+        return Err((StatusCode::NOT_FOUND, "Start again to get a new code.".to_string()));
+    };
+    if attempts >= SIGNUP_CODE_MAX_ATTEMPTS {
+        return Err((
+            StatusCode::TOO_MANY_REQUESTS,
+            "Too many wrong codes. Send yourself a new one.".to_string(),
+        ));
+    }
+    if !fresh {
+        return Err((StatusCode::BAD_REQUEST, "That code has expired. Send yourself a new one.".to_string()));
+    }
+    let entered: String = body.code.chars().filter(|c| c.is_ascii_digit()).collect();
+    if entered != code {
+        let _ = sqlx::query("UPDATE signup_pending SET code_attempts = code_attempts + 1 WHERE email = $1")
+            .bind(&email_addr)
+            .execute(&state.db)
+            .await;
+        return Err((StatusCode::BAD_REQUEST, "That code doesn't match. Check the email and try again.".to_string()));
+    }
+
+    let db_role = auth::signup_role_from_frontend(Some(&role));
+    let user_id = auth::create_user_with_password(&state.db, &email_addr, &body.password, db_role)
+        .await
+        .map_err(|e| match e {
+            auth::AuthError::EmailExists => (
+                StatusCode::CONFLICT,
+                "An account with this email already exists. Sign in instead.".to_string(),
+            ),
+            _ => (StatusCode::INTERNAL_SERVER_ERROR, "could not create user".to_string()),
+        })?;
+
+    if let Err(e) = sqlx::query("UPDATE users SET phone_number = $2, preferred_channel = $3 WHERE id = $1")
+        .bind(user_id)
+        .bind(&phone)
+        .bind(&channel)
+        .execute(&state.db)
+        .await
+    {
+        tracing::error!("signup_verify: save phone: {e}");
+    }
+    // A WhatsApp number on the account is what lets Kevin recognise the
+    // user's first message. Telegram links through a /start code instead.
+    if channel == "whatsapp" {
+        if let Err(e) = sqlx::query("UPDATE users SET whatsapp_number = $2 WHERE id = $1")
+            .bind(user_id)
+            .bind(&phone)
+            .execute(&state.db)
+            .await
+        {
+            tracing::error!("signup_verify: save whatsapp number: {e}");
+        }
+    }
+
+    let _ = sqlx::query("DELETE FROM signup_pending WHERE email = $1")
+        .bind(&email_addr)
+        .execute(&state.db)
+        .await;
+
+    let (token, refresh_token) =
+        finish_signup(&state, user_id, &email_addr, db_role, referral_code.as_deref(), true).await?;
+
+    Ok(Json(serde_json::json!({
+        "token": token,
+        "refresh_token": refresh_token,
+        "role": db_role,
+    })))
+}
+
+async fn signup_interest(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<SignupInterestRequest>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let email_addr = normalize_signup_email(&body.email)
+        .ok_or((StatusCode::BAD_REQUEST, "Enter a valid email address.".to_string()))?;
+    let note = body.note.trim();
+    if note.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "Tell us what you're looking for.".to_string()));
+    }
+    let note: String = note.chars().take(1000).collect();
+    sqlx::query("INSERT INTO signup_interest (email, note) VALUES ($1, $2)")
+        .bind(&email_addr)
+        .bind(&note)
+        .execute(&state.db)
+        .await
+        .map_err(|e| {
+            tracing::error!("signup_interest: insert: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "database error".to_string())
+        })?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 fn sha256_hex_token(token_hex: &str) -> String {
@@ -389,6 +769,10 @@ async fn reset_password(
             StatusCode::BAD_REQUEST,
             "Invalid or expired reset link".to_string(),
         ));
+    }
+
+    if !password_meets_rules(&body.new_password) {
+        return Err((StatusCode::BAD_REQUEST, PASSWORD_RULES_MSG.to_string()));
     }
 
     let token_hash = sha256_hex_token(token_hex);
@@ -651,6 +1035,87 @@ fn totp_from_base32_secret(secret_base32: &str, account_name: String) -> Result<
     .map_err(|e| format!("could not build TOTP: {e}"))
 }
 
+const BACKUP_CODE_COUNT: usize = 10;
+/// No 0/o, 1/l/i: easy to copy by hand. 31 symbols x 10 = ~50 bits per code.
+const BACKUP_CODE_ALPHABET: &[u8] = b"abcdefghjkmnpqrstuvwxyz23456789";
+
+/// Lowercase, keep only letters and digits, so "ABCDE-12345" and "abcde12345" match.
+fn normalize_backup_code(code: &str) -> String {
+    code.chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .map(|c| c.to_ascii_lowercase())
+        .collect()
+}
+
+fn hash_backup_code(normalized: &str) -> String {
+    hex::encode(Sha256::digest(normalized.as_bytes()))
+}
+
+/// Replaces the user's backup codes with a fresh set and returns them (xxxxx-xxxxx).
+/// High-entropy random codes, so a plain SHA-256 is enough and allows a direct lookup.
+async fn replace_backup_codes(state: &AppState, user_id: Uuid) -> Result<Vec<String>, (StatusCode, String)> {
+    let internal = |_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string());
+    let codes: Vec<String> = {
+        let mut rng = rand::thread_rng();
+        (0..BACKUP_CODE_COUNT)
+            .map(|_| {
+                let raw: String = (0..10)
+                    .map(|_| BACKUP_CODE_ALPHABET[rng.gen_range(0..BACKUP_CODE_ALPHABET.len())] as char)
+                    .collect();
+                format!("{}-{}", &raw[..5], &raw[5..])
+            })
+            .collect()
+    };
+
+    let mut tx = state.db.begin().await.map_err(internal)?;
+    sqlx::query("DELETE FROM two_fa_backup_codes WHERE user_id = $1")
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(internal)?;
+    for code in &codes {
+        sqlx::query("INSERT INTO two_fa_backup_codes (user_id, code_hash) VALUES ($1, $2)")
+            .bind(user_id)
+            .bind(hash_backup_code(&normalize_backup_code(code)))
+            .execute(&mut *tx)
+            .await
+            .map_err(internal)?;
+    }
+    tx.commit().await.map_err(internal)?;
+    Ok(codes)
+}
+
+/// Accepts the current authenticator code, or an unused backup code, which is
+/// used up in the same statement so it can never work twice.
+async fn second_factor_ok(
+    state: &AppState,
+    user_id: Uuid,
+    totp: &TOTP,
+    code: &str,
+) -> Result<bool, (StatusCode, String)> {
+    let code = code.trim();
+    if code.len() == 6 && code.chars().all(|c| c.is_ascii_digit()) {
+        return totp
+            .check_current(code)
+            .map_err(|_| (StatusCode::BAD_REQUEST, "invalid code".to_string()));
+    }
+    let normalized = normalize_backup_code(code);
+    if normalized.len() != 10 {
+        return Ok(false);
+    }
+    let used: Option<Uuid> = sqlx::query_scalar(
+        "UPDATE two_fa_backup_codes SET used_at = NOW()
+         WHERE user_id = $1 AND code_hash = $2 AND used_at IS NULL
+         RETURNING id",
+    )
+    .bind(user_id)
+    .bind(hash_backup_code(&normalized))
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string()))?;
+    Ok(used.is_some())
+}
+
 fn decode_partial_token(
     state: &AppState,
     partial_token: &str,
@@ -745,6 +1210,10 @@ async fn change_password(
 ) -> Result<StatusCode, (StatusCode, String)> {
     let authed = require_user(&state, bearer.token()).await?;
 
+    if !password_meets_rules(&body.new_password) {
+        return Err((StatusCode::BAD_REQUEST, PASSWORD_RULES_MSG.to_string()));
+    }
+
     let stored_hash: Option<String> = sqlx::query_scalar(
         "SELECT password_hash FROM users WHERE id = $1",
     )
@@ -827,10 +1296,14 @@ pub struct MeResponse {
     pub is_admin: bool,
     pub is_super_admin: bool,
     pub totp_enabled: bool,
+    pub backup_codes_remaining: i64,
     pub first_name: Option<String>,
     pub last_name: Option<String>,
     pub telegram_id: Option<String>,
     pub whatsapp_number: Option<String>,
+    pub phone_number: Option<String>,
+    pub preferred_channel: Option<String>,
+    pub channel_connected_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 async fn update_profile(
@@ -880,10 +1353,15 @@ async fn get_me(
             is_admin,
             is_super_admin,
             totp_enabled,
+            (SELECT COUNT(*) FROM two_fa_backup_codes b
+              WHERE b.user_id = users.id AND b.used_at IS NULL) AS backup_codes_remaining,
             first_name,
             last_name,
             telegram_id,
-            whatsapp_number
+            whatsapp_number,
+            phone_number,
+            preferred_channel,
+            channel_connected_at
         FROM users
         WHERE id = $1
         "#,
@@ -949,11 +1427,19 @@ async fn two_fa_setup(
 ) -> Result<Json<TwoFaSetupResponse>, (StatusCode, String)> {
     let authed = require_user(&state, bearer.token()).await?;
 
-    let email: String = sqlx::query_scalar("SELECT email FROM users WHERE id = $1")
-        .bind(authed.id)
-        .fetch_one(&state.db)
-        .await
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string()))?;
+    let (email, totp_enabled): (String, bool) =
+        sqlx::query_as("SELECT email, totp_enabled FROM users WHERE id = $1")
+            .bind(authed.id)
+            .fetch_one(&state.db)
+            .await
+            .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string()))?;
+    // Setting up again would replace the secret and switch 2FA off without a code.
+    if totp_enabled {
+        return Err((
+            StatusCode::CONFLICT,
+            "Two-factor authentication is already on. Turn it off first.".to_string(),
+        ));
+    }
 
     let secret = TotpSecret::generate_secret();
     let totp = TOTP::new(
@@ -1006,7 +1492,7 @@ async fn two_fa_confirm(
     State(state): State<Arc<AppState>>,
     TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
     Json(body): Json<TwoFaConfirmRequest>,
-) -> Result<StatusCode, (StatusCode, String)> {
+) -> Result<Json<TwoFaBackupCodesResponse>, (StatusCode, String)> {
     let authed = require_user(&state, bearer.token()).await?;
 
     let (totp_enabled, totp_secret_enc): (bool, Option<String>) = sqlx::query_as(
@@ -1055,7 +1541,8 @@ async fn two_fa_confirm(
     // Use `totp_enabled` only to avoid an unused variable warning.
     let _ = totp_enabled;
 
-    Ok(StatusCode::OK)
+    let backup_codes = replace_backup_codes(&state, authed.id).await?;
+    Ok(Json(TwoFaBackupCodesResponse { backup_codes }))
 }
 
 async fn two_fa_disable(
@@ -1090,16 +1577,18 @@ async fn two_fa_disable(
     let totp = totp_from_base32_secret(&secret_base32, email)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
-    let ok = totp
-        .check_current(&body.code)
-        .map_err(|_| (StatusCode::BAD_REQUEST, "invalid code".to_string()))?;
-
-    if !ok {
+    if !second_factor_ok(&state, authed.id, &totp, &body.code).await? {
         return Err((
             StatusCode::BAD_REQUEST,
             "invalid 2FA code".to_string(),
         ));
     }
+
+    sqlx::query("DELETE FROM two_fa_backup_codes WHERE user_id = $1")
+        .bind(authed.id)
+        .execute(&state.db)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string()))?;
 
     sqlx::query(
         r#"
@@ -1115,6 +1604,40 @@ async fn two_fa_disable(
     .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string()))?;
 
     Ok(StatusCode::OK)
+}
+
+/// New set of backup codes (the old ones stop working). Needs a current
+/// authenticator code or an unused backup code.
+async fn two_fa_regenerate_backup_codes(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+    Json(body): Json<TwoFaBackupCodesRequest>,
+) -> Result<Json<TwoFaBackupCodesResponse>, (StatusCode, String)> {
+    let authed = require_user(&state, bearer.token()).await?;
+
+    let (totp_enabled, totp_secret_enc, email): (bool, Option<String>, String) = sqlx::query_as(
+        "SELECT totp_enabled, totp_secret, email FROM users WHERE id = $1",
+    )
+    .bind(authed.id)
+    .fetch_one(&state.db)
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string()))?;
+
+    let totp_secret_enc = match (totp_enabled, totp_secret_enc) {
+        (true, Some(enc)) => enc,
+        _ => return Err((StatusCode::BAD_REQUEST, "2FA not enabled".to_string())),
+    };
+    let secret_base32 = crypto::decrypt(&state.encryption_key, &totp_secret_enc)
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string()))?;
+    let totp = totp_from_base32_secret(&secret_base32, email)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+    if !second_factor_ok(&state, authed.id, &totp, &body.code).await? {
+        return Err((StatusCode::BAD_REQUEST, "invalid 2FA code".to_string()));
+    }
+
+    let backup_codes = replace_backup_codes(&state, authed.id).await?;
+    Ok(Json(TwoFaBackupCodesResponse { backup_codes }))
 }
 
 async fn two_fa_login(
@@ -1153,11 +1676,7 @@ async fn two_fa_login(
 
     let totp = totp_from_base32_secret(&secret_base32, email)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    let ok = totp
-        .check_current(&body.code)
-        .map_err(|_| (StatusCode::BAD_REQUEST, "invalid code".to_string()))?;
-
-    if !ok {
+    if !second_factor_ok(&state, user_id, &totp, &body.code).await? {
         return Err((StatusCode::BAD_REQUEST, "invalid 2FA code".to_string()));
     }
 
@@ -1371,7 +1890,9 @@ async fn telegram_confirm(
     let update_user = sqlx::query(
         r#"
         -- One messaging channel per account: linking Telegram disconnects WhatsApp.
-        UPDATE users SET telegram_id = $1, whatsapp_number = NULL WHERE id = $2
+        UPDATE users SET telegram_id = $1, whatsapp_number = NULL,
+            channel_connected_at = COALESCE(channel_connected_at, NOW())
+        WHERE id = $2
         "#,
     )
     .bind(&telegram_id_str)

@@ -174,8 +174,8 @@ async fn onboarding_reply(
                 let user_id = Uuid::new_v4();
                 let insert_result = if channel == "whatsapp" {
                     sqlx::query(
-                        "INSERT INTO users (id, email, password_hash, role, whatsapp_number)
-                         VALUES ($1, $2, '', $3::user_role, $4)",
+                        "INSERT INTO users (id, email, password_hash, role, whatsapp_number, channel_connected_at)
+                         VALUES ($1, $2, '', $3::user_role, $4, NOW())",
                     )
                     .bind(user_id)
                     .bind(&email)
@@ -185,8 +185,8 @@ async fn onboarding_reply(
                     .await
                 } else {
                     sqlx::query(
-                        "INSERT INTO users (id, email, password_hash, role, telegram_id)
-                         VALUES ($1, $2, '', $3::user_role, $4)",
+                        "INSERT INTO users (id, email, password_hash, role, telegram_id, channel_connected_at)
+                         VALUES ($1, $2, '', $3::user_role, $4, NOW())",
                     )
                     .bind(user_id)
                     .bind(&email)
@@ -249,6 +249,24 @@ async fn onboarding_reply(
 
             _ => Ok("Something went wrong. Message Kevin again to start over.".to_string()),
         },
+    }
+}
+
+/// Kevin's reply to a user's first message after signing up on the web: says
+/// they're connected and points them back to the dashboard, where the main
+/// work happens.
+pub(crate) fn messaging_welcome(role: &str) -> String {
+    let base = crate::email::frontend_url();
+    match role {
+        "INVESTOR" => format!(
+            "Hi, I'm Kevin from metatron, your AI dealmaker for founders and investors. You're connected.\n\nNext step is on your dashboard: set your investment thesis so I know which founders to bring you. I'll message you here when I find a fit.\n\n{base}/investor"
+        ),
+        "STARTUP" => format!(
+            "Hi, I'm Kevin from metatron, your AI dealmaker for founders and investors. You're connected.\n\nNext step is on your dashboard: add your pitch so I can score it and find investors who fit. I'll message you here when I find them.\n\n{base}/startup"
+        ),
+        _ => format!(
+            "Hi, I'm Kevin from metatron, your AI dealmaker for founders and investors. You're connected, and I'll message you here with updates.\n\n{base}"
+        ),
     }
 }
 

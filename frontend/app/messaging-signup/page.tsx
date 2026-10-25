@@ -4,6 +4,8 @@ import { Suspense, useEffect, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { API_BASE } from "@/lib/api";
 import { setTokenPair } from "@/lib/tokenStore";
+import { passwordMeetsRules } from "@/lib/passwordRules";
+import { PasswordRules } from "@/components/PasswordRules";
 
 function MessagingSignupInner() {
   const params = useSearchParams();
@@ -44,7 +46,7 @@ function MessagingSignupInner() {
 
   async function handleSetPassword(e: React.FormEvent) {
     e.preventDefault();
-    if (password.length < 8) return setError("Password must be at least 8 characters.");
+    if (!passwordMeetsRules(password)) return setError("Your password doesn't meet the rules yet.");
     if (password !== confirm) return setError("Passwords do not match.");
     if (!jwt || !refreshJwt) return;
     setSaving(true);
@@ -108,9 +110,10 @@ function MessagingSignupInner() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="w-full rounded-lg border border-[var(--border)] bg-[var(--overlay-4)] px-3 py-2 text-sm text-[var(--text)] outline-none focus:border-[var(--accent)]"
-                  placeholder="Min. 8 characters"
+                  autoComplete="new-password"
                 />
               </div>
+              <PasswordRules password={password} />
               <div>
                 <label className="block text-xs text-[var(--text-muted)] mb-1">Confirm password</label>
                 <input

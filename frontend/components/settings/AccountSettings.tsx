@@ -1,11 +1,14 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState, type ReactNode } from "react";
+import { FormEvent, useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
+import QRCode from "qrcode";
 import { API_BASE, authHeaders, authJsonHeaders } from "@/lib/api";
 import { clearTokens } from "@/lib/tokenStore";
 import { useAuth } from "@/lib/auth";
 import type { MeResponse } from "@/lib/me";
+import { passwordMeetsRules } from "@/lib/passwordRules";
+import { PasswordRules } from "@/components/PasswordRules";
 
 type Tab = "account" | "security" | "notifications" | "listing" | "delete";
 
@@ -54,6 +57,11 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
       {children}
     </label>
   );
+}
+
+/** A 6-digit authenticator code, or a 10-character backup code (dash optional). */
+function isSecondFactorCode(code: string) {
+  return /^[0-9]{6}$/.test(code) || code.replace(/-/g, "").length === 10;
 }
 
 function Note({ text }: { text: string | null }) {
@@ -110,6 +118,14 @@ export function AccountSettings({ role }: { role: "STARTUP" | "INVESTOR" | "INTE
   const [disableMode, setDisableMode] = useState(false);
   const [disableCode, setDisableCode] = useState("");
   const [disableLoading, setDisableLoading] = useState(false);
+  const [setupSecret, setSetupSecret] = useState<string | null>(null);
+  // Shown once, right after they're generated; the server keeps only hashes.
+  const [backupCodes, setBackupCodes] = useState<string[] | null>(null);
+  const [backupSaved, setBackupSaved] = useState(false);
+  const [backupRemaining, setBackupRemaining] = useState<number | null>(null);
+  const [regenMode, setRegenMode] = useState(false);
+  const [regenCode, setRegenCode] = useState("");
+  const [regenLoading, setRegenLoading] = useState(false);
 
   const [emailPrefsLoaded, setEmailPrefsLoaded] = useState(false);
   const [weeklyMatches, setWeeklyMatches] = useState(true);
@@ -128,9 +144,36 @@ export function AccountSettings({ role }: { role: "STARTUP" | "INVESTOR" | "INTE
 
   const isFounder = role === "STARTUP";
 
-  const qrDataUrl = useMemo(() => {
-    if (!otpauthUri) return null;
-    return `https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(otpauthUri)}&size=200x200`;
+  // Drawn in the browser: the otpauth URI carries the 2FA secret, so it must
+  // never be sent to an outside QR service.
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+  // Backup codes are shown only once: warn before leaving until they're saved.
+  useEffect(() => {
+    if (!backupCodes || backupSaved) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [backupCodes, backupSaved]);
+
+  useEffect(() => {
+    if (!otpauthUri) {
+      setQrDataUrl(null);
+      return;
+    }
+    let cancelled = false;
+    QRCode.toDataURL(otpauthUri, { width: 200, margin: 1 })
+      .then((url) => {
+        if (!cancelled) setQrDataUrl(url);
+      })
+      .catch(() => {
+        if (!cancelled) setTwoFaMsg("Could not draw the QR code. Please try again.");
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [otpauthUri]);
 
   useEffect(() => {
@@ -144,6 +187,7 @@ export function AccountSettings({ role }: { role: "STARTUP" | "INVESTOR" | "INTE
           setFirstName(data.first_name ?? "");
           setLastName(data.last_name ?? "");
           setTwoFactorEnabled(Boolean(data.totp_enabled));
+          setBackupRemaining(data.backup_codes_remaining ?? 0);
         }
       } catch {
         // Keep the page usable even if /auth/me fails.
@@ -225,6 +269,10 @@ export function AccountSettings({ role }: { role: "STARTUP" | "INVESTOR" | "INTE
   async function onChangePassword(e: FormEvent) {
     e.preventDefault();
     if (!token) return;
+    if (!passwordMeetsRules(newPassword)) {
+      setChangePasswordMsg("Your new password doesn't meet the rules yet.");
+      return;
+    }
     if (newPassword !== confirmNewPassword) {
       setChangePasswordMsg("New passwords do not match.");
       return;
@@ -259,9 +307,10 @@ export function AccountSettings({ role }: { role: "STARTUP" | "INVESTOR" | "INTE
     setConfirmCode("");
     try {
       const res = await fetch(`${API_BASE}/auth/2fa/setup`, { method: "POST", headers: authHeaders(token) });
-      const data = (await res.json().catch(() => ({}))) as { error?: string; otpauth_uri?: string };
-      if (!res.ok) throw new Error(data.error ?? "Could not set up 2FA");
+      if (!res.ok) throw new Error((await res.text()).trim() || "Could not set up 2FA");
+      const data = (await res.json().catch(() => ({}))) as { otpauth_uri?: string; secret?: string };
       setOtpauthUri(data.otpauth_uri ?? null);
+      setSetupSecret(data.secret ?? null);
     } catch (err) {
       setTwoFaMsg(err instanceof Error ? err.message : "Could not set up 2FA");
     } finally {
@@ -280,18 +329,84 @@ export function AccountSettings({ role }: { role: "STARTUP" | "INVESTOR" | "INTE
         headers: authJsonHeaders(token),
         body: JSON.stringify({ code: confirmCode }),
       });
-      const txt = await res.text();
-      if (!res.ok) throw new Error(txt.trim() || "Could not confirm 2FA");
+      if (!res.ok) throw new Error((await res.text()).trim() || "Could not confirm 2FA");
+      const data = (await res.json().catch(() => ({}))) as { backup_codes?: string[] };
       setTwoFactorEnabled(true);
       setOtpauthUri(null);
+      setSetupSecret(null);
       setConfirmCode("");
-      setTwoFaMsg("Two-factor authentication is on.");
+      showBackupCodes(data.backup_codes ?? []);
+      setTwoFaMsg("Two-factor authentication is on. Save your backup codes before you leave this page.");
       setDisableMode(false);
       setDisableCode("");
     } catch (err) {
       setTwoFaMsg(err instanceof Error ? err.message : "Could not confirm 2FA");
     } finally {
       setConfirmLoading(false);
+    }
+  }
+
+  function showBackupCodes(codes: string[]) {
+    setBackupCodes(codes);
+    setBackupSaved(false);
+    setBackupRemaining(codes.length);
+  }
+
+  function backupCodesText(codes: string[]) {
+    const lines = [
+      "metatron two-factor backup codes",
+      `Account: ${me?.email ?? ""}`,
+      `Created: ${new Date().toISOString().slice(0, 10)}`,
+      "",
+      "Each code signs you in once if you can't use your authenticator app.",
+      "",
+      ...codes,
+      "",
+    ];
+    return lines.join("\n");
+  }
+
+  async function copyBackupCodes() {
+    if (!backupCodes) return;
+    try {
+      await navigator.clipboard.writeText(backupCodesText(backupCodes));
+      setTwoFaMsg("Backup codes copied.");
+    } catch {
+      setTwoFaMsg("Couldn't copy. Use Download instead, or write the codes down.");
+    }
+  }
+
+  function downloadBackupCodes() {
+    if (!backupCodes) return;
+    const url = URL.createObjectURL(new Blob([backupCodesText(backupCodes)], { type: "text/plain" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "metatron-backup-codes.txt";
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function onRegenerateBackupCodes(e: FormEvent) {
+    e.preventDefault();
+    if (!token) return;
+    setRegenLoading(true);
+    setTwoFaMsg(null);
+    try {
+      const res = await fetch(`${API_BASE}/auth/2fa/backup-codes`, {
+        method: "POST",
+        headers: authJsonHeaders(token),
+        body: JSON.stringify({ code: regenCode }),
+      });
+      if (!res.ok) throw new Error((await res.text()).trim() || "Could not create new backup codes");
+      const data = (await res.json().catch(() => ({}))) as { backup_codes?: string[] };
+      showBackupCodes(data.backup_codes ?? []);
+      setRegenMode(false);
+      setRegenCode("");
+      setTwoFaMsg("New backup codes created. Your old ones no longer work.");
+    } catch (err) {
+      setTwoFaMsg(err instanceof Error ? err.message : "Could not create new backup codes");
+    } finally {
+      setRegenLoading(false);
     }
   }
 
@@ -313,6 +428,8 @@ export function AccountSettings({ role }: { role: "STARTUP" | "INVESTOR" | "INTE
       setConfirmCode("");
       setDisableCode("");
       setDisableMode(false);
+      setBackupCodes(null);
+      setBackupRemaining(0);
       setTwoFaMsg("Two-factor authentication is off.");
     } catch (err) {
       setTwoFaMsg(err instanceof Error ? err.message : "Could not disable 2FA");
@@ -543,6 +660,7 @@ export function AccountSettings({ role }: { role: "STARTUP" | "INVESTOR" | "INTE
                           />
                         </Field>
                       </div>
+                      <PasswordRules password={newPassword} />
                       <div className="flex justify-end gap-2">
                         <button type="button" className={btn} onClick={() => setEditingPassword(false)}>
                           Cancel
@@ -553,20 +671,44 @@ export function AccountSettings({ role }: { role: "STARTUP" | "INVESTOR" | "INTE
                       </div>
                     </form>
                   )}
-                  <Row title="Two-factor authentication" sub={twoFactorEnabled ? "On · a code from your authenticator app is needed to sign in" : "Adds a code from your authenticator app when you sign in"}>
+                  <Row
+                    title="Two-factor authentication"
+                    sub={
+                      twoFactorEnabled
+                        ? `On · a code from your authenticator app is needed to sign in${
+                            backupRemaining !== null ? ` · ${backupRemaining} backup code${backupRemaining === 1 ? "" : "s"} left` : ""
+                          }`
+                        : "Adds a code from your authenticator app when you sign in"
+                    }
+                  >
                     {twoFactorEnabled ? (
-                      !disableMode && (
-                        <button
-                          type="button"
-                          className={btn}
-                          onClick={() => {
-                            setDisableMode(true);
-                            setDisableCode("");
-                            setTwoFaMsg(null);
-                          }}
-                        >
-                          Turn off
-                        </button>
+                      !disableMode &&
+                      !regenMode &&
+                      !backupCodes && (
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            className={btn}
+                            onClick={() => {
+                              setRegenMode(true);
+                              setRegenCode("");
+                              setTwoFaMsg(null);
+                            }}
+                          >
+                            New backup codes
+                          </button>
+                          <button
+                            type="button"
+                            className={btn}
+                            onClick={() => {
+                              setDisableMode(true);
+                              setDisableCode("");
+                              setTwoFaMsg(null);
+                            }}
+                          >
+                            Turn off
+                          </button>
+                        </div>
                       )
                     ) : (
                       !qrDataUrl && (
@@ -582,6 +724,14 @@ export function AccountSettings({ role }: { role: "STARTUP" | "INVESTOR" | "INTE
                       <img src={qrDataUrl} alt="QR code to scan with your authenticator app" className="h-[200px] w-[200px] rounded-[10px] border border-[var(--border)] bg-white p-2" />
                       <form onSubmit={onConfirm2fa} className="flex flex-1 flex-col gap-3">
                         <p className="text-sm text-[var(--text-muted)]">Scan the code with your authenticator app, then enter the 6-digit code it shows.</p>
+                        {setupSecret && (
+                          <div className="flex flex-col gap-1 text-[13px] text-[var(--text-muted)]">
+                            <span>Can&apos;t scan? Enter this key in your app instead:</span>
+                            <code className="select-all break-all rounded-[8px] bg-[var(--overlay-4)] px-2.5 py-1.5 font-mono text-[13px] text-[var(--text)]">
+                              {setupSecret.match(/.{1,4}/g)?.join(" ")}
+                            </code>
+                          </div>
+                        )}
                         <Field label="6-digit code">
                           <input
                             className={input}
@@ -595,7 +745,14 @@ export function AccountSettings({ role }: { role: "STARTUP" | "INVESTOR" | "INTE
                           />
                         </Field>
                         <div className="flex gap-2">
-                          <button type="button" className={btn} onClick={() => setOtpauthUri(null)}>
+                          <button
+                            type="button"
+                            className={btn}
+                            onClick={() => {
+                              setOtpauthUri(null);
+                              setSetupSecret(null);
+                            }}
+                          >
                             Cancel
                           </button>
                           <button type="submit" className={btnPrimary} disabled={confirmLoading || confirmCode.length !== 6}>
@@ -607,15 +764,16 @@ export function AccountSettings({ role }: { role: "STARTUP" | "INVESTOR" | "INTE
                   )}
                   {twoFactorEnabled && disableMode && (
                     <form onSubmit={onDisable2fa} className="flex flex-col gap-3 border-t border-[var(--border)] px-5 py-4">
-                      <Field label="Current 6-digit code">
+                      <Field label="Current 6-digit code, or a backup code">
                         <input
                           className={input}
-                          inputMode="numeric"
-                          pattern="[0-9]*"
-                          maxLength={6}
+                          autoCapitalize="none"
+                          autoCorrect="off"
+                          spellCheck={false}
                           autoComplete="one-time-code"
+                          maxLength={11}
                           value={disableCode}
-                          onChange={(e) => setDisableCode(e.target.value.replace(/[^0-9]/g, ""))}
+                          onChange={(e) => setDisableCode(e.target.value.replace(/[^a-zA-Z0-9-]/g, ""))}
                           required
                         />
                       </Field>
@@ -623,11 +781,79 @@ export function AccountSettings({ role }: { role: "STARTUP" | "INVESTOR" | "INTE
                         <button type="button" className={btn} onClick={() => setDisableMode(false)}>
                           Cancel
                         </button>
-                        <button type="submit" className={btnDanger} disabled={disableLoading || disableCode.length !== 6}>
+                        <button type="submit" className={btnDanger} disabled={disableLoading || !isSecondFactorCode(disableCode)}>
                           {disableLoading ? "Turning off…" : "Turn off 2FA"}
                         </button>
                       </div>
                     </form>
+                  )}
+                  {twoFactorEnabled && regenMode && (
+                    <form onSubmit={onRegenerateBackupCodes} className="flex flex-col gap-3 border-t border-[var(--border)] px-5 py-4">
+                      <p className="text-sm text-[var(--text-muted)]">You&apos;ll get 10 new codes. Your current backup codes will stop working.</p>
+                      <Field label="Current 6-digit code, or a backup code">
+                        <input
+                          className={input}
+                          autoCapitalize="none"
+                          autoCorrect="off"
+                          spellCheck={false}
+                          autoComplete="one-time-code"
+                          maxLength={11}
+                          value={regenCode}
+                          onChange={(e) => setRegenCode(e.target.value.replace(/[^a-zA-Z0-9-]/g, ""))}
+                          required
+                        />
+                      </Field>
+                      <div className="flex justify-end gap-2">
+                        <button type="button" className={btn} onClick={() => setRegenMode(false)}>
+                          Cancel
+                        </button>
+                        <button type="submit" className={btnPrimary} disabled={regenLoading || !isSecondFactorCode(regenCode)}>
+                          {regenLoading ? "Creating…" : "Get new codes"}
+                        </button>
+                      </div>
+                    </form>
+                  )}
+                  {twoFactorEnabled && backupCodes && (
+                    <div className="flex flex-col gap-4 border-t border-[var(--border)] px-5 py-4">
+                      <div className="flex flex-col gap-1">
+                        <strong className="text-sm">Save your backup codes</strong>
+                        <p className="text-[13px] text-[var(--text-muted)]">
+                          If you lose your phone, each code signs you in once. This is the only time they&apos;re shown, so keep them somewhere safe, like a password manager.
+                        </p>
+                      </div>
+                      <ol className="grid grid-cols-2 gap-x-6 gap-y-1.5 rounded-[10px] bg-[var(--overlay-4)] px-4 py-3 font-mono text-[14px] text-[var(--text)] sm:max-w-md">
+                        {backupCodes.map((c) => (
+                          <li key={c} className="select-all">
+                            {c}
+                          </li>
+                        ))}
+                      </ol>
+                      <div className="flex flex-wrap gap-2">
+                        <button type="button" className={btn} onClick={() => void copyBackupCodes()}>
+                          Copy
+                        </button>
+                        <button type="button" className={btn} onClick={downloadBackupCodes}>
+                          Download .txt
+                        </button>
+                      </div>
+                      <label className="flex items-center gap-2 text-[13px]">
+                        <input type="checkbox" checked={backupSaved} onChange={(e) => setBackupSaved(e.target.checked)} />
+                        I&apos;ve saved these codes somewhere safe
+                      </label>
+                      <div className="flex justify-end">
+                        <button
+                          type="button"
+                          className={btnPrimary}
+                          disabled={!backupSaved}
+                          onClick={() => {
+                            setBackupCodes(null);
+                            setTwoFaMsg(null);
+                          }}
+                        >
+                          Done
+                        </button>
+                      </div>
+                    </div>
                   )}
                 </section>
                 <Note text={changePasswordMsg} />

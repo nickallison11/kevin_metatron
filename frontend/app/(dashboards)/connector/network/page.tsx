@@ -1,5 +1,6 @@
 "use client";
 
+import { UpgradeButton } from "@/components/upgrade/UpgradeProvider";
 import {
   type ChangeEvent,
   FormEvent,
@@ -1036,9 +1037,9 @@ function ConnectorNetworkPageInner() {
             <span className={atFreeLimit ? "text-[var(--danger)]" : "text-[var(--text-muted)]"}>{contactCount} of 50 contacts on Free</span>
           )}
           {(isFreeTier || enrichmentCredits <= 0) && (
-            <a href="/connector/settings/subscription" className="font-medium text-[var(--accent-fg)] hover:underline">
+            <UpgradeButton className="font-medium text-[var(--accent-fg)] hover:underline">
               {isFreeTier ? "Upgrade for unlimited contacts and 50 credits" : "Buy credits"}
-            </a>
+            </UpgradeButton>
           )}
           <span className="flex-1" />
           <button type="button" onClick={() => void onExportNetwork()} disabled={contactCount === 0} className={btnSm}>

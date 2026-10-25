@@ -117,6 +117,8 @@ export default function LoginPage() {
   const [twoFaStep, setTwoFaStep] = useState(false);
   const [partialToken, setPartialToken] = useState<string | null>(null);
   const [twoFaCode, setTwoFaCode] = useState("");
+  // Lost-phone path: one of the backup codes shown when 2FA was turned on.
+  const [useBackupCode, setUseBackupCode] = useState(false);
   const [twoFaLoading, setTwoFaLoading] = useState(false);
   const [twoFaError, setTwoFaError] = useState<string | null>(null);
   const [oauthConsentGiven, setOauthConsentGiven] = useState(false);
@@ -353,7 +355,10 @@ export default function LoginPage() {
               </form>
 
               <p className="mt-4 text-center text-xs text-[var(--text-muted)]">
-                New accounts require an invitation link.
+                Don&apos;t have an account?{" "}
+                <Link href="/auth/signup" className="font-semibold text-[var(--text)] hover:text-metatron-accent">
+                  Sign up
+                </Link>
               </p>
             </>
           ) : (
@@ -363,31 +368,66 @@ export default function LoginPage() {
                   Verify 2FA
                 </h1>
                 <p className="text-xs text-[var(--text-muted)] mt-1">
-                  Enter the 6-digit code from your authenticator app.
+                  {useBackupCode
+                    ? "Enter one of your backup codes. Each code works once."
+                    : "Enter the 6-digit code from your authenticator app."}
                 </p>
               </div>
 
               <label className="block text-sm space-y-1 text-[var(--text)]">
                 <span className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
-                  6-digit code
+                  {useBackupCode ? "Backup code" : "6-digit code"}
                 </span>
-                <input
-                  className="input-metatron w-full"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  maxLength={6}
-                  value={twoFaCode}
-                  onChange={(e) =>
-                    setTwoFaCode(e.target.value.replace(/[^0-9]/g, ""))
-                  }
-                  required
-                  disabled={twoFaLoading}
-                />
+                {useBackupCode ? (
+                  <input
+                    className="input-metatron w-full font-mono"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    placeholder="xxxxx-xxxxx"
+                    maxLength={11}
+                    value={twoFaCode}
+                    onChange={(e) => setTwoFaCode(e.target.value)}
+                    required
+                    disabled={twoFaLoading}
+                  />
+                ) : (
+                  <input
+                    className="input-metatron w-full"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    maxLength={6}
+                    autoComplete="one-time-code"
+                    value={twoFaCode}
+                    onChange={(e) =>
+                      setTwoFaCode(e.target.value.replace(/[^0-9]/g, ""))
+                    }
+                    required
+                    disabled={twoFaLoading}
+                  />
+                )}
               </label>
 
               <button
+                type="button"
+                onClick={() => {
+                  setUseBackupCode((v) => !v);
+                  setTwoFaCode("");
+                  setTwoFaError(null);
+                }}
+                className="text-xs text-[var(--text-muted)] underline underline-offset-2 hover:text-[var(--text)]"
+              >
+                {useBackupCode ? "Use your authenticator app instead" : "Lost your phone? Use a backup code"}
+              </button>
+
+              <button
                 type="submit"
-                disabled={twoFaLoading || twoFaCode.length !== 6}
+                disabled={
+                  twoFaLoading ||
+                  (useBackupCode
+                    ? twoFaCode.replace(/[^a-zA-Z0-9]/g, "").length !== 10
+                    : twoFaCode.length !== 6)
+                }
                 className="w-full rounded-lg bg-metatron-accent py-2.5 text-sm font-semibold text-white hover:bg-metatron-accent-hover hover:shadow-[0_4px_20px_rgba(var(--accent-rgb),0.3)] transition-all disabled:opacity-60"
               >
                 {twoFaLoading ? "Verifying…" : "Verify"}
@@ -403,6 +443,7 @@ export default function LoginPage() {
                   setTwoFaStep(false);
                   setPartialToken(null);
                   setTwoFaCode("");
+                  setUseBackupCode(false);
                   setTwoFaError(null);
                 }}
                 className="w-full rounded-lg border border-[var(--border)] py-2.5 text-sm font-semibold text-[var(--text-muted)] hover:text-[var(--text)] disabled:opacity-60"

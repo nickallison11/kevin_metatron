@@ -1532,6 +1532,9 @@ async fn enrich_one_contact(
                 .map_err(|e| e.to_string())?;
             let status = r.status();
             let b = r.json::<serde_json::Value>().await.map_err(|e| e.to_string())?;
+            if !status.is_success() {
+                crate::alerts::check_gemini_error(&b.to_string());
+            }
             Ok::<_, String>((status, b))
         },
     )

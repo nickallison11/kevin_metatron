@@ -1,15 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { decodeJwtSub } from "@/lib/auth";
-import { PUBLIC_URL } from "@/lib/site";
+import { btn, btnSm, card, eyebrow, reviewRequestMailto } from "@/components/startup/dashboardStyles";
 
-export default function ShareProfileCard({ token }: { token: string }) {
+/** Public profile link, plus a pre-written email asking someone for a review. */
+export default function ShareProfileCard({ link, company }: { link: string; company: string | null }) {
   const [copied, setCopied] = useState(false);
-  const userId = decodeJwtSub(token);
-  if (!userId) return null;
-
-  const link = `${PUBLIC_URL}/startups/${userId}`;
 
   function copyLink() {
     void navigator.clipboard.writeText(link);
@@ -18,25 +14,20 @@ export default function ShareProfileCard({ token }: { token: string }) {
   }
 
   return (
-    <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-4">
-      <h2 className="font-sans text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
-        Share your public profile
-      </h2>
-      <p className="mt-1 text-xs text-[var(--text-muted)]">
-        Market your deck directly — anyone can view and rate your startup here.
+    <section className={`${card} p-[22px]`}>
+      <span className={`${eyebrow} text-[var(--text-muted)]`}>Share your startup</span>
+      <p className="text-[13px] leading-relaxed text-[var(--text-muted)]">
+        Anyone can view your deck and rate your startup on your public page.
       </p>
-      <div className="mt-3 flex items-center gap-2">
-        <code className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-xs text-[var(--text)] truncate">
-          {link}
-        </code>
-        <button
-          type="button"
-          onClick={copyLink}
-          className="shrink-0 rounded-lg border border-[var(--border)] px-3 py-2 text-xs font-medium text-[var(--text)] hover:border-metatron-accent/30"
-        >
+      <div className="flex items-center gap-2 rounded-[10px] border border-[var(--overlay-12)] py-2 pl-3 pr-2">
+        <code className="min-w-0 flex-1 truncate font-mono text-xs text-[var(--text)]">{link}</code>
+        <button type="button" onClick={copyLink} className={btnSm}>
           {copied ? "Copied!" : "Copy"}
         </button>
       </div>
-    </div>
+      <a href={reviewRequestMailto(link, company)} className={btn}>
+        Ask for a review
+      </a>
+    </section>
   );
 }

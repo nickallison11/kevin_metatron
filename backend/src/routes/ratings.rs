@@ -22,6 +22,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/startups", get(list_startups))
         .route("/startups/:startup_user_id", get(get_startup).post(submit_rating))
         .route("/mine", get(my_reviews))
+        .route("/mine/summary", get(my_review_summary))
         .route("/verify", put(verify_rating))
 }
 
@@ -643,6 +644,8 @@ struct MyReviewRow {
     created_at: chrono::DateTime<chrono::Utc>,
     reviewer_name: Option<String>,
     reviewer_email: Option<String>,
+    /// Platform reviewer's role (INVESTOR / INTERMEDIARY / STARTUP); None for reviewer and anonymous tiers.
+    reviewer_role: Option<String>,
 }
 
 async fn my_reviews(
@@ -659,7 +662,8 @@ async fn my_reviews(
             r.id, r.tier, r.overall_stars, r.team_score, r.market_score,
             r.traction_score, r.product_score, r.comment, r.is_flagged, r.created_at,
             COALESCE(ip.firm_name, pp.company_name, ra.name, r.anon_name) AS reviewer_name,
-            COALESCE(pu.email, ra.email, r.anon_email) AS reviewer_email
+            COALESCE(pu.email, ra.email, r.anon_email) AS reviewer_email,
+            pu.role::text AS reviewer_role
         FROM startup_ratings r
         LEFT JOIN users pu ON pu.id = r.platform_user_id
         LEFT JOIN investor_profiles ip ON ip.user_id = r.platform_user_id
@@ -676,4 +680,31 @@ async fn my_reviews(
     .map_err(internal)?;
 
     Ok(Json(rows))
+}
+
+/// The founder's own weighted Community Score, whether or not they're publicly listed.
+async fn my_review_summary(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<Json<Option<CommunityScoreSummary>>, (StatusCode, String)> {
+    let token = bearer_token(&headers)
+        .ok_or((StatusCode::UNAUTHORIZED, "missing token".to_string()))?;
+    let user = require_role(&state, token, &["STARTUP"]).await?;
+
+    let summary = sqlx::query_as::<_, CommunityScoreSummary>(
+        r#"
+        SELECT rating_count, community_score::float8 AS community_score,
+               avg_team_score::float8 AS avg_team_score,
+               avg_market_score::float8 AS avg_market_score,
+               avg_traction_score::float8 AS avg_traction_score,
+               avg_product_score::float8 AS avg_product_score
+        FROM startup_community_scores WHERE startup_user_id = $1
+        "#,
+    )
+    .bind(user.id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(internal)?;
+
+    Ok(Json(summary))
 }

@@ -1,7 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { API_BASE, authJsonHeaders } from "@/lib/api";
+import { useUpgrade } from "@/components/upgrade/UpgradeProvider";
+import { ScoreBar, btnSm, card, eyebrow } from "@/components/startup/dashboardStyles";
 
 type AngelScore = {
   score: number;
@@ -13,27 +16,17 @@ type AngelScore = {
   generated_at: string;
 };
 
-function ScoreBar({ label, value, max = 25 }: { label: string; value: number | null; max?: number }) {
-  const pct = value != null ? (value / max) * 100 : 0;
-  return (
-    <div className="flex items-center gap-3">
-      <span className="w-16 shrink-0 font-mono text-[11px] uppercase tracking-wide text-[var(--text-muted)]">
-        {label}
-      </span>
-      <div className="h-1 flex-1 rounded-full bg-[var(--border)]">
-        <div
-          className="h-1 rounded-full bg-metatron-accent transition-all"
-          style={{ width: `${pct}%` }}
-        />
-      </div>
-      <span className="mono-num w-10 text-right text-xs text-[var(--text)]">
-        {value ?? "—"}/{max}
-      </span>
-    </div>
-  );
-}
+const PARTS = [
+  { k: "team_score", label: "Team" },
+  { k: "market_score", label: "Market" },
+  { k: "traction_score", label: "Traction" },
+  { k: "pitch_score", label: "Pitch" },
+] as const;
 
+/** Angel Score, top of the dashboard's right-hand column. Free accounts get the
+ * number only; the backend leaves the breakdown out for them. */
 export default function AngelScoreCard({ token }: { token: string }) {
+  const { openUpgrade } = useUpgrade();
   const [score, setScore] = useState<AngelScore | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -63,48 +56,64 @@ export default function AngelScoreCard({ token }: { token: string }) {
     });
   }, [load, generate]);
 
-  if (loading) {
-    return (
-      <div className="rounded-[12px] border border-[var(--border)] bg-[var(--bg-card)] p-6">
-        <p className="text-sm text-[var(--text-muted)]">Calculating Angel Score…</p>
-      </div>
-    );
-  }
+  const parts = PARTS.map((p) => ({ ...p, value: score ? score[p.k] : null }));
+  const hasBreakdown = parts.some((p) => p.value != null);
+  const scored = parts.filter((p) => p.value != null);
+  const weakest = scored.length ? scored.reduce((a, b) => ((b.value ?? 0) < (a.value ?? 0) ? b : a)) : null;
 
   return (
-    <div className="rounded-[12px] border border-[var(--border)] bg-[var(--bg-card)] p-6">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <p className="font-sans text-[11px] uppercase tracking-[2px] text-[var(--text-muted)]">Angel Score</p>
-          <div className="mt-1 flex items-end gap-1">
-            <span className="mono-num text-5xl font-bold text-[var(--text)]">
-              {score?.score ?? "—"}
-            </span>
-            <span className="mb-1 text-lg text-[var(--text-muted)]">/100</span>
-          </div>
-        </div>
-        <button
-          type="button"
-          onClick={() => void generate()}
-          disabled={refreshing}
-          className="shrink-0 rounded-[8px] border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--text-muted)] hover:border-metatron-accent/30 disabled:opacity-50"
-        >
-          {refreshing ? "Updating…" : "Refresh"}
-        </button>
+    <section className={`${card} p-[22px]`}>
+      <div className="flex items-center justify-between gap-2">
+        <span className={`${eyebrow} text-[var(--text-muted)]`}>Angel Score</span>
+        {score && (
+          <button type="button" onClick={() => void generate()} disabled={refreshing} className={btnSm}>
+            {refreshing ? "Updating…" : "Refresh"}
+          </button>
+        )}
       </div>
 
-      {score && (
-        <div className="mt-4 space-y-2">
-          <ScoreBar label="Team" value={score.team_score} />
-          <ScoreBar label="Market" value={score.market_score} />
-          <ScoreBar label="Traction" value={score.traction_score} />
-          <ScoreBar label="Pitch" value={score.pitch_score} />
-        </div>
-      )}
+      <div className="flex items-baseline gap-1">
+        <span className={`mono-num text-5xl font-semibold ${score ? "text-[var(--text)]" : "text-[var(--text-muted)]"}`}>
+          {loading ? "…" : (score?.score ?? "—")}
+        </span>
+        <span className="text-[var(--text-muted)]">/100</span>
+      </div>
 
-      {score?.reasoning && (
-        <p className="mt-4 text-xs leading-relaxed text-[var(--text-muted)]">{score.reasoning}</p>
-      )}
-    </div>
+      {!loading && !score ? (
+        <p className="text-sm leading-relaxed text-[var(--text-muted)]">
+          Your investor-readiness rating. Kevin scores you once your pitch is in.
+        </p>
+      ) : hasBreakdown ? (
+        <>
+          <div className="flex flex-col gap-2">
+            {parts.map((p) => (
+              <ScoreBar key={p.k} label={p.label} value={p.value} max={25} tone={weakest && p.k === weakest.k ? "warn" : "accent"} />
+            ))}
+          </div>
+          {weakest && (
+            <p className="text-[13px] leading-relaxed text-[var(--text-muted)]">
+              {weakest.label} is holding you back.{" "}
+              <Link href="/startup/profile" className="text-[var(--accent-fg)] hover:underline">
+                Improve it
+              </Link>
+            </p>
+          )}
+          {score?.reasoning && <p className="text-xs leading-relaxed text-[var(--text-muted)]">{score.reasoning}</p>}
+        </>
+      ) : score ? (
+        <p className="flex items-start gap-2 text-[13px] leading-relaxed text-[var(--text-muted)]">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true" className="mt-0.5 shrink-0">
+            <rect x="4" y="11" width="16" height="10" rx="2" />
+            <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+          </svg>
+          <span>
+            Team, Market, Traction and Pitch breakdown on Basic and Pro.{" "}
+            <button type="button" onClick={openUpgrade} className="text-[var(--accent-fg)] hover:underline">
+              Upgrade
+            </button>
+          </span>
+        </p>
+      ) : null}
+    </section>
   );
 }

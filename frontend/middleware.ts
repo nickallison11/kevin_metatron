@@ -1,8 +1,31 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { COUNTRY_COOKIE } from "@/lib/countryCookie";
 
+// Before launch (NEXT_PUBLIC_PRELAUNCH=true, set only on Vercel production) the
+// public pages show /coming-soon. Login, legal pages and the dashboards stay
+// reachable; the backend refuses new accounts separately (REGISTRATION_OPEN).
+const PRELAUNCH = process.env.NEXT_PUBLIC_PRELAUNCH === "true";
+const PRELAUNCH_GATED = [
+  "/auth/signup",
+  "/messaging-signup",
+  "/pricing",
+  "/startups",
+  "/ratings",
+  "/reviewer-login",
+];
+
+function isGated(pathname: string) {
+  return (
+    pathname === "/" ||
+    PRELAUNCH_GATED.some((p) => pathname === p || pathname.startsWith(`${p}/`))
+  );
+}
+
 export function middleware(request: NextRequest) {
-  const res = NextResponse.next();
+  const res =
+    PRELAUNCH && isGated(request.nextUrl.pathname)
+      ? NextResponse.redirect(new URL("/coming-soon", request.url))
+      : NextResponse.next();
   res.headers.set("X-Robots-Tag", "noindex, nofollow, noarchive");
 
   // Remember the visitor's country (from Vercel's geo header) so the pricing

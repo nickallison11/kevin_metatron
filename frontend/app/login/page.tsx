@@ -3,7 +3,7 @@
 import { CardHoverEffect } from "@/components/ui/card-hover-effect";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { API_BASE } from "@/lib/api";
 import { setTokenPair } from "@/lib/tokenStore";
 
@@ -107,6 +107,13 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // OAuth sends new users back here while registration is closed before launch.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("error") === "registration_closed") {
+      setError("No metatron account uses that login yet, and sign-ups open at launch.");
+    }
+  }, []);
   const [twoFaStep, setTwoFaStep] = useState(false);
   const [partialToken, setPartialToken] = useState<string | null>(null);
   const [twoFaCode, setTwoFaCode] = useState("");

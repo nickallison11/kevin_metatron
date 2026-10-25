@@ -14,6 +14,9 @@ pub(crate) async fn handle_messaging_onboarding(
     channel_id: &str, // normalized phone digits or telegram_id string
     text: &str,
 ) -> Result<String, String> {
+    if !state.registration_open {
+        return Ok("Hi, I'm Kevin from metatron. We're not open for sign-ups just yet. Join the waitlist at platform.metatron.id and we'll let you know the moment we launch.".to_string());
+    }
     onboarding_reply(state, channel, channel_id, text)
         .await
         .map(|reply| crate::email::localize_links(&reply))

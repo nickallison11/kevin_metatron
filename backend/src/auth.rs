@@ -32,6 +32,8 @@ pub enum AuthError {
     EmailExists,
     #[error("invalid credentials")]
     InvalidCredentials,
+    #[error("registration closed")]
+    RegistrationClosed,
     #[error("internal error")]
     Internal,
 }
@@ -352,6 +354,7 @@ pub async fn find_or_create_oauth_user(
     provider_uid: &str,
     email: Option<&str>,
     access_token: &str,
+    allow_create: bool,
 ) -> Result<(Uuid, bool), AuthError> {
     // 1) Existing oauth account: update token and return.
     let existing_user_id: Option<Uuid> = sqlx::query_scalar(
@@ -419,6 +422,9 @@ pub async fn find_or_create_oauth_user(
     }
 
     // 3) New platform user (OAuth-only => no password_hash).
+    if !allow_create {
+        return Err(AuthError::RegistrationClosed);
+    }
     let user_id = Uuid::new_v4();
     let email_val = email.unwrap_or("unknown@oauth.metatron.id");
 

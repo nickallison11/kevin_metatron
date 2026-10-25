@@ -431,20 +431,28 @@ async fn callback(
         })?;
 
     let email_ref = email_opt.as_deref();
-    let (user_id, is_new) = auth::find_or_create_oauth_user(
+    let link = auth::find_or_create_oauth_user(
         &state.db,
         &provider_lc,
         &provider_uid,
         email_ref,
         &encrypted_access_token,
+        state.registration_open,
     )
-    .await
-    .map_err(|_| {
-        (
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            "oauth user link failed".to_string(),
-        )
-    })?;
+    .await;
+    let (user_id, is_new) = match link {
+        Ok(v) => v,
+        Err(auth::AuthError::RegistrationClosed) => {
+            let frontend_base = state.frontend_url.trim_end_matches('/');
+            return Ok(Redirect::to(&format!("{frontend_base}/login?error=registration_closed")));
+        }
+        Err(_) => {
+            return Err((
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "oauth user link failed".to_string(),
+            ))
+        }
+    };
 
     // Issue a platform JWT (need the role for frontend redirects).
     let role: String = sqlx::query_scalar("SELECT role::text FROM users WHERE id = $1")

@@ -48,6 +48,9 @@ pub struct Settings {
     pub invite_secret: Option<String>,
     /// Stripe checkout is refused unless PAYMENTS_ENABLED=1.
     pub payments_enabled: bool,
+    /// New accounts can only be created when REGISTRATION_OPEN=true (or 1).
+    /// Missing or anything else means closed, so production can't open by accident.
+    pub registration_open: bool,
     /// Pinata group IDs for tier-based file organisation. Env: PINATA_GROUP_FREE / PINATA_GROUP_BASIC / PINATA_GROUP_PRO.
     pub pinata_group_free: Option<String>,
     pub pinata_group_basic: Option<String>,
@@ -176,6 +179,9 @@ impl Settings {
             .and_then(|s| (!s.trim().is_empty()).then_some(s));
 
         let payments_enabled = env::var("PAYMENTS_ENABLED").map(|v| v.trim() == "1").unwrap_or(false);
+        let registration_open = env::var("REGISTRATION_OPEN")
+            .map(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true"))
+            .unwrap_or(false);
 
         let invite_secret = env::var("INVITE_SECRET")
             .ok()
@@ -272,6 +278,7 @@ impl Settings {
             whatsapp_phone_number_id,
             invite_secret,
             payments_enabled,
+            registration_open,
             pinata_group_free,
             pinata_group_basic,
             pinata_group_pro,

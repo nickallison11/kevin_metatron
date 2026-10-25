@@ -188,10 +188,24 @@ pub struct TelegramAuthRequest {
     pub bot_secret: String,
 }
 
+/// New accounts are refused until launch unless REGISTRATION_OPEN is set.
+fn registration_closed() -> (StatusCode, String) {
+    (StatusCode::FORBIDDEN, "Sign-ups open at launch. Join the waitlist at platform.metatron.id.".to_string())
+}
+
+fn require_registration_open(state: &AppState) -> Result<(), (StatusCode, String)> {
+    if state.registration_open {
+        Ok(())
+    } else {
+        Err(registration_closed())
+    }
+}
+
 async fn signup(
     State(state): State<Arc<AppState>>,
     Json(body): Json<SignupRequest>,
 ) -> Result<Json<AuthResponse>, (axum::http::StatusCode, String)> {
+    require_registration_open(&state)?;
     // Signup is open to everyone; invite links still work and are logged below.
     if !password_meets_rules(&body.password) {
         return Err((StatusCode::BAD_REQUEST, PASSWORD_RULES_MSG.to_string()));
@@ -461,6 +475,7 @@ async fn signup_start(
     State(state): State<Arc<AppState>>,
     Json(body): Json<SignupStartRequest>,
 ) -> Result<StatusCode, (StatusCode, String)> {
+    require_registration_open(&state)?;
     let email_addr = normalize_signup_email(&body.email)
         .ok_or((StatusCode::BAD_REQUEST, "Enter a valid email address.".to_string()))?;
     let phone: String = body.phone.chars().filter(|c| c.is_ascii_digit()).collect();
@@ -535,6 +550,7 @@ async fn signup_resend(
     State(state): State<Arc<AppState>>,
     Json(body): Json<SignupResendRequest>,
 ) -> Result<StatusCode, (StatusCode, String)> {
+    require_registration_open(&state)?;
     let email_addr = normalize_signup_email(&body.email)
         .ok_or((StatusCode::BAD_REQUEST, "Enter a valid email address.".to_string()))?;
     let code = new_signup_code();
@@ -577,6 +593,7 @@ async fn signup_verify(
     State(state): State<Arc<AppState>>,
     Json(body): Json<SignupVerifyRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    require_registration_open(&state)?;
     let email_addr = normalize_signup_email(&body.email)
         .ok_or((StatusCode::BAD_REQUEST, "Enter a valid email address.".to_string()))?;
     if !password_meets_rules(&body.password) {
@@ -1709,6 +1726,8 @@ async fn telegram_auth(
 
     let (user_id, role) = if let Some((id, role)) = existing {
         (id, role)
+    } else if !state.registration_open {
+        return Err(registration_closed());
     } else {
         let generated_email = format!("tg_{}@telegram.local", body.telegram_id);
         let user_id: uuid::Uuid = sqlx::query_scalar(

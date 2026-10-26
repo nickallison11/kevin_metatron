@@ -64,6 +64,16 @@ async fn content_changed_at(
     .map_err(internal)
 }
 
+/// A score is current when nothing it's based on changed since, and it has its
+/// full breakdown (a score saved without one is re-done).
+fn is_current(score: &AngelScore, changed: Option<chrono::DateTime<chrono::Utc>>) -> bool {
+    let complete = score.team_score.is_some()
+        && score.market_score.is_some()
+        && score.traction_score.is_some()
+        && score.pitch_score.is_some();
+    complete && changed.map_or(true, |c| c <= score.generated_at)
+}
+
 /// Whether there's anything to score yet: a pitch, a deck, or a one-liner.
 async fn has_content(state: &AppState, user_id: Uuid) -> Result<bool, (StatusCode, String)> {
     sqlx::query_scalar(
@@ -115,7 +125,7 @@ async fn get_own_score(
     .map_err(internal)?;
     let Some(score) = row else { return Ok(Json(None)) };
     let changed = content_changed_at(&state, user.id).await?;
-    let up_to_date = changed.map_or(true, |c| c <= score.generated_at);
+    let up_to_date = is_current(&score, changed);
     Ok(Json(Some(OwnScore {
         score: redact_breakdown_if_free(score, user.is_basic, user.is_pro),
         up_to_date,
@@ -163,7 +173,7 @@ async fn generate_score(
     .map_err(internal)?;
     let changed = content_changed_at(&state, user.id).await?;
     if let Some(score) = existing {
-        let up_to_date = changed.map_or(true, |c| c <= score.generated_at);
+        let up_to_date = is_current(&score, changed);
         let cooling = score.generated_at > chrono::Utc::now() - chrono::Duration::minutes(RESCORE_COOLDOWN_MINUTES);
         if up_to_date || cooling {
             return Ok(Json(OwnScore {
@@ -303,11 +313,18 @@ Return ONLY valid JSON, no markdown, no code fences:
         .trim_start_matches("```")
         .trim_end_matches("```")
         .trim();
-    let parsed: Value = serde_json::from_str(clean).unwrap_or_else(|_| {
-        serde_json::json!({"score":50,"team":12,"market":12,"traction":13,"pitch":13,"reasoning":"Score generated with limited profile data. Complete your profile for a more accurate score."})
-    });
+    // A failed or unreadable AI reply is an error, never a stand-in score: the
+    // founder keeps their previous score (if any) and the next visit retries.
+    let parsed: Option<Value> = serde_json::from_str::<Value>(clean).ok().filter(|v| v["score"].as_i64().is_some());
+    let Some(parsed) = parsed.filter(|_| ok) else {
+        tracing::warn!("angel_score: no usable score from Gemini for {}", user.id);
+        return Err((
+            StatusCode::BAD_GATEWAY,
+            "Kevin couldn't work out your Angel Score just now. Try again in a few minutes.".to_string(),
+        ));
+    };
 
-    let score = parsed["score"].as_i64().unwrap_or(50).clamp(0, 100) as i32;
+    let score = parsed["score"].as_i64().unwrap_or(0).clamp(0, 100) as i32;
     let team = parsed["team"].as_i64().map(|v| v.clamp(0, 25) as i32);
     let market = parsed["market"].as_i64().map(|v| v.clamp(0, 25) as i32);
     let traction = parsed["traction"].as_i64().map(|v| v.clamp(0, 25) as i32);

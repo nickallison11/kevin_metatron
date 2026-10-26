@@ -35,6 +35,58 @@ pub struct AngelScore {
     pub generated_at: chrono::DateTime<chrono::Utc>,
 }
 
+/// The founder's own score plus whether it still reflects their profile and pitch.
+#[derive(Serialize)]
+pub struct OwnScore {
+    #[serde(flatten)]
+    score: AngelScore,
+    /// False once the profile, pitch or deck changed after the score was generated.
+    up_to_date: bool,
+}
+
+/// After a re-score, wait this long before scoring the same founder again, so a
+/// burst of edits costs one AI call, not one per edit.
+const RESCORE_COOLDOWN_MINUTES: i64 = 10;
+
+/// Latest edit to anything the score is based on: the profile (incl. deck) or a pitch.
+async fn content_changed_at(
+    state: &AppState,
+    user_id: Uuid,
+) -> Result<Option<chrono::DateTime<chrono::Utc>>, (StatusCode, String)> {
+    sqlx::query_scalar(
+        "SELECT GREATEST( \
+           (SELECT updated_at FROM profiles WHERE user_id = $1), \
+           (SELECT MAX(updated_at) FROM pitches WHERE created_by = $1))",
+    )
+    .bind(user_id)
+    .fetch_one(&state.db)
+    .await
+    .map_err(internal)
+}
+
+/// A score is current when nothing it's based on changed since, and it has its
+/// full breakdown (a score saved without one is re-done).
+fn is_current(score: &AngelScore, changed: Option<chrono::DateTime<chrono::Utc>>) -> bool {
+    let complete = score.team_score.is_some()
+        && score.market_score.is_some()
+        && score.traction_score.is_some()
+        && score.pitch_score.is_some();
+    complete && changed.map_or(true, |c| c <= score.generated_at)
+}
+
+/// Whether there's anything to score yet: a pitch, a deck, or a one-liner.
+async fn has_content(state: &AppState, user_id: Uuid) -> Result<bool, (StatusCode, String)> {
+    sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM pitches WHERE created_by = $1) \
+             OR EXISTS(SELECT 1 FROM profiles WHERE user_id = $1 \
+                       AND (NULLIF(TRIM(one_liner), '') IS NOT NULL OR deck_text IS NOT NULL))",
+    )
+    .bind(user_id)
+    .fetch_one(&state.db)
+    .await
+    .map_err(internal)
+}
+
 fn internal(e: impl std::fmt::Display) -> (StatusCode, String) {
     tracing::error!("{e}");
     (
@@ -61,7 +113,7 @@ pub(crate) fn redact_breakdown_if_free(mut score: AngelScore, is_basic: bool, is
 async fn get_own_score(
     State(state): State<Arc<AppState>>,
     TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
-) -> Result<Json<Option<AngelScore>>, (StatusCode, String)> {
+) -> Result<Json<Option<OwnScore>>, (StatusCode, String)> {
     let user = require_user(&state, bearer.token()).await?;
     let row = sqlx::query_as::<_, AngelScore>(
         "SELECT founder_user_id, score, team_score, market_score, traction_score, pitch_score, reasoning, generated_at \
@@ -71,7 +123,13 @@ async fn get_own_score(
     .fetch_optional(&state.db)
     .await
     .map_err(internal)?;
-    Ok(Json(row.map(|s| redact_breakdown_if_free(s, user.is_basic, user.is_pro))))
+    let Some(score) = row else { return Ok(Json(None)) };
+    let changed = content_changed_at(&state, user.id).await?;
+    let up_to_date = is_current(&score, changed);
+    Ok(Json(Some(OwnScore {
+        score: redact_breakdown_if_free(score, user.is_basic, user.is_pro),
+        up_to_date,
+    })))
 }
 
 async fn get_score_by_id(
@@ -94,7 +152,7 @@ async fn get_score_by_id(
 async fn generate_score(
     State(state): State<Arc<AppState>>,
     TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
-) -> Result<Json<AngelScore>, (StatusCode, String)> {
+) -> Result<Json<OwnScore>, (StatusCode, String)> {
     let user = require_user(&state, bearer.token()).await?;
     if user.role != "STARTUP" {
         return Err((
@@ -103,16 +161,31 @@ async fn generate_score(
         ));
     }
 
+    // Only call the AI when the score is missing or the profile/pitch changed
+    // since it was generated (and not again within the cooldown).
     let existing = sqlx::query_as::<_, AngelScore>(
         "SELECT founder_user_id, score, team_score, market_score, traction_score, pitch_score, reasoning, generated_at \
-         FROM angel_scores WHERE founder_user_id = $1 AND generated_at > NOW() - INTERVAL '24 hours'",
+         FROM angel_scores WHERE founder_user_id = $1",
     )
     .bind(user.id)
     .fetch_optional(&state.db)
     .await
     .map_err(internal)?;
+    let changed = content_changed_at(&state, user.id).await?;
     if let Some(score) = existing {
-        return Ok(Json(redact_breakdown_if_free(score, user.is_basic, user.is_pro)));
+        let up_to_date = is_current(&score, changed);
+        let cooling = score.generated_at > chrono::Utc::now() - chrono::Duration::minutes(RESCORE_COOLDOWN_MINUTES);
+        if up_to_date || cooling {
+            return Ok(Json(OwnScore {
+                score: redact_breakdown_if_free(score, user.is_basic, user.is_pro),
+                up_to_date,
+            }));
+        }
+    } else if !has_content(&state, user.id).await? {
+        return Err((
+            StatusCode::CONFLICT,
+            "Add your pitch first; Kevin scores you once it's in.".to_string(),
+        ));
     }
 
     let gemini_key = std::env::var("GEMINI_API_KEY")
@@ -240,11 +313,18 @@ Return ONLY valid JSON, no markdown, no code fences:
         .trim_start_matches("```")
         .trim_end_matches("```")
         .trim();
-    let parsed: Value = serde_json::from_str(clean).unwrap_or_else(|_| {
-        serde_json::json!({"score":50,"team":12,"market":12,"traction":13,"pitch":13,"reasoning":"Score generated with limited profile data. Complete your profile for a more accurate score."})
-    });
+    // A failed or unreadable AI reply is an error, never a stand-in score: the
+    // founder keeps their previous score (if any) and the next visit retries.
+    let parsed: Option<Value> = serde_json::from_str::<Value>(clean).ok().filter(|v| v["score"].as_i64().is_some());
+    let Some(parsed) = parsed.filter(|_| ok) else {
+        tracing::warn!("angel_score: no usable score from Gemini for {}", user.id);
+        return Err((
+            StatusCode::BAD_GATEWAY,
+            "Kevin couldn't work out your Angel Score just now. Try again in a few minutes.".to_string(),
+        ));
+    };
 
-    let score = parsed["score"].as_i64().unwrap_or(50).clamp(0, 100) as i32;
+    let score = parsed["score"].as_i64().unwrap_or(0).clamp(0, 100) as i32;
     let team = parsed["team"].as_i64().map(|v| v.clamp(0, 25) as i32);
     let market = parsed["market"].as_i64().map(|v| v.clamp(0, 25) as i32);
     let traction = parsed["traction"].as_i64().map(|v| v.clamp(0, 25) as i32);
@@ -277,5 +357,8 @@ Return ONLY valid JSON, no markdown, no code fences:
     .await
     .map_err(internal)?;
 
-    Ok(Json(redact_breakdown_if_free(row, user.is_basic, user.is_pro)))
+    Ok(Json(OwnScore {
+        score: redact_breakdown_if_free(row, user.is_basic, user.is_pro),
+        up_to_date: true,
+    }))
 }

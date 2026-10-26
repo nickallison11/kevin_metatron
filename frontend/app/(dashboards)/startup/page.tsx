@@ -4,14 +4,18 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import AngelScoreCard from "@/components/AngelScoreCard";
 import ShareProfileCard from "@/components/ShareProfileCard";
+import CommunityScoreCard from "@/components/startup/CommunityScoreCard";
 import DeckActivityCard from "@/components/startup/DeckActivityCard";
-import StartupReviewsCard from "@/components/startup/StartupReviewsCard";
+import StartupReviewsCard, { type MyReview } from "@/components/startup/StartupReviewsCard";
+import { btn, btnPrimary, card, eyebrow } from "@/components/startup/dashboardStyles";
+import { useUpgrade } from "@/components/upgrade/UpgradeProvider";
 import GetStartedChecklist, { showGetStarted } from "@/components/onboarding/GetStartedChecklist";
 import { API_BASE, authHeaders, authJsonHeaders } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import type { MeResponse } from "@/lib/me";
 import { SECTIONS, pitchProgress, sectionComplete, type Pitch } from "@/lib/pitchSections";
 import { LogoTile } from "@/components/LogoTile";
+import { PUBLIC_URL } from "@/lib/site";
 
 type Match = {
   id: string;
@@ -34,25 +38,9 @@ type Request = {
   intro_passed_at: string | null;
 };
 
-const card = "flex flex-col gap-3 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-5 shadow-[var(--card-shadow)]";
-const eyebrow = "font-mono text-[11px] uppercase tracking-[0.14em]";
-const btn =
-  "inline-flex min-h-11 items-center justify-center rounded-xl border border-[var(--overlay-12)] px-5 text-sm font-medium text-[var(--text)] hover:bg-[var(--overlay-4)] disabled:opacity-50";
-const btnPrimary =
-  "inline-flex min-h-11 items-center justify-center rounded-xl bg-metatron-accent px-5 text-sm font-semibold text-white hover:bg-metatron-accent-hover disabled:opacity-50";
-
 function greeting(): string {
   const h = new Date().getHours();
   return h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
-}
-
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex flex-col gap-1 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-4 shadow-[var(--card-shadow)]">
-      <span className="text-[13px] text-[var(--text-muted)]">{label}</span>
-      <b className="text-2xl font-semibold">{value}</b>
-    </div>
-  );
 }
 
 export default function StartupDashboardPage() {
@@ -63,22 +51,19 @@ export default function StartupDashboardPage() {
   const [pitch, setPitch] = useState<Pitch | null>(null);
   const [matches, setMatches] = useState<Match[] | null>(null);
   const [requests, setRequests] = useState<Request[]>([]);
-  const [deckViews30, setDeckViews30] = useState<number | null>(null);
-  const [angel, setAngel] = useState<number | null>(null);
-  const [rating, setRating] = useState<number | null>(null);
+  const [reviews, setReviews] = useState<MyReview[] | null>(null);
   const [busy, setBusy] = useState(false);
+  const { openUpgrade } = useUpgrade();
 
   const load = useCallback(async () => {
     if (!token) return;
     const get = (path: string) => fetch(`${API_BASE}${path}`, { headers: authHeaders(token) }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
-    const [m, prof, pitches, ms, reqs, views, score, reviews] = await Promise.all([
+    const [m, prof, pitches, ms, reqs, revs] = await Promise.all([
       get("/auth/me"),
       get("/profile"),
       get("/pitches"),
       get("/kevin-matches"),
       get("/kevin-matches/received-intros"),
-      get("/deck-views/mine"),
-      get("/angel-score"),
       get("/ratings/mine"),
     ]);
     setMe(m as MeResponse | null);
@@ -86,11 +71,7 @@ export default function StartupDashboardPage() {
     setDeckUrl((prof as { pitch_deck_url?: string | null } | null)?.pitch_deck_url?.trim() || null);
     setPitch(((pitches as Pitch[] | null) ?? [])[0] ?? null);
     setRequests(((reqs as Request[] | null) ?? []).filter((r) => !r.intro_accepted_at && !r.intro_passed_at));
-    const since = Date.now() - 30 * 86400000;
-    setDeckViews30(((views as { viewed_at: string }[] | null) ?? []).filter((v) => new Date(v.viewed_at).getTime() >= since).length);
-    setAngel((score as { score?: number } | null)?.score ?? null);
-    const rs = (reviews as { overall_stars: number }[] | null) ?? [];
-    setRating(rs.length ? rs.reduce((a, r) => a + r.overall_stars, 0) / rs.length : null);
+    setReviews((revs as MyReview[] | null) ?? []);
 
     let list = (ms as Match[] | null) ?? [];
     setMatches(list);
@@ -132,17 +113,30 @@ export default function StartupDashboardPage() {
   const paid = Boolean(me?.is_basic || me?.is_pro);
   const pitchDone = Boolean(deckUrl) || missing.length === 0;
   const checklist = showGetStarted(me, pitchDone);
+  const publicLink = me?.id ? `${PUBLIC_URL}/startups/${me.id}` : null;
 
   return (
     <main className="min-w-0 flex-1">
-      <section className="mx-auto flex max-w-5xl flex-col gap-5 p-6 md:p-10">
-        <header className="flex flex-col gap-1.5">
-          <span className={`${eyebrow} text-[var(--text-muted)]`}>Dashboard</span>
-          <h1 className="text-[28px] font-semibold tracking-tight">
-            {greeting()}
-            {name ? `, ${name}` : ""}
-          </h1>
+      <section className="mx-auto flex max-w-6xl flex-col gap-5 p-6 md:p-10">
+        <header className="flex flex-wrap items-end justify-between gap-3">
+          <div className="flex flex-col gap-1.5">
+            <span className={`${eyebrow} text-[var(--text-muted)]`}>Dashboard</span>
+            <h1 className="text-[28px] font-semibold tracking-tight">
+              {greeting()}
+              {name ? `, ${name}` : ""}
+            </h1>
+          </div>
+          {me && (
+            <span className="rounded-full border border-[var(--overlay-12)] px-2.5 py-1 font-mono text-[11px] text-[var(--text-muted)]">
+              {me.is_pro ? "Pro plan" : me.is_basic ? "Basic plan" : "Free plan"}
+            </span>
+          )}
         </header>
+
+        {/* Two columns on desktop: what to act on (left), scores (right). On a
+            phone the score column sits between Kevin's next step and the rest. */}
+        <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[minmax(0,1fr)_320px] lg:grid-rows-[auto_1fr]">
+        <div className="flex min-w-0 flex-col gap-4 lg:col-start-1">
 
         {checklist && me && (
           <GetStartedChecklist
@@ -218,20 +212,58 @@ export default function StartupDashboardPage() {
           </section>
         )}
 
-        <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <Stat label="New matches this week" value={matches === null ? "…" : String(newThisWeek)} />
-          <Stat label="Deck views · 30 days" value={deckViews30 === null ? "…" : String(deckViews30)} />
-          <Stat label="Angel Score" value={angel == null ? "—" : String(angel)} />
-          <Stat label="Community rating" value={rating == null ? "—" : `★ ${rating.toFixed(1)}`} />
-        </section>
+        </div>
 
-        <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
+        <aside className="flex min-w-0 flex-col gap-4 lg:col-start-2 lg:row-span-2 lg:row-start-1">
+          <AngelScoreCard token={token} />
+          <CommunityScoreCard token={token} reviews={reviews} />
+          <section className={`${card} p-[22px]`}>
+            <div className="flex items-baseline justify-between gap-2">
+              <span className={`${eyebrow} text-[var(--text-muted)]`}>Your pitch</span>
+              <span className="text-[13px] text-[var(--text-muted)]">
+                {done.length} of {SECTIONS.length}
+              </span>
+            </div>
+            <div className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(${SECTIONS.length}, minmax(0, 1fr))` }} role="img" aria-label={`${done.length} of ${SECTIONS.length} sections complete`}>
+              {SECTIONS.map((s) => (
+                <i key={s.k} className={`h-1.5 rounded ${sectionComplete(pitch, s) ? "bg-metatron-accent" : "bg-[var(--overlay-8)]"}`} />
+              ))}
+            </div>
+            {missing.length > 0 ? (
+              <span className="text-[13px] text-[var(--text-muted)]">
+                Missing: <strong className="text-[var(--warn)]">{missing.map((s) => s.label).join(", ")}</strong>.{" "}
+                <Link href="/startup/profile" className="text-[var(--accent-fg)] hover:underline">
+                  Add it
+                </Link>
+              </span>
+            ) : (
+              <span className="text-[13px] text-[var(--text-muted)]">Every section is complete.</span>
+            )}
+          </section>
+          {publicLink && <ShareProfileCard link={publicLink} company={company} />}
+          {!paid && (
+            <section className={`${card} p-[22px]`}>
+              <span className="text-[15px] font-semibold">Get more from Kevin with Basic</span>
+              <span className="text-[13px] leading-relaxed text-[var(--text-muted)]">
+                10 matches a week, the full Angel Score breakdown, deck upload and Call Intelligence.
+              </span>
+              <button type="button" onClick={openUpgrade} className={btn}>
+                See Basic
+              </button>
+            </section>
+          )}
+        </aside>
+
+        <div className="flex min-w-0 flex-col gap-4 lg:col-start-1">
           <section className={card}>
             <div className="flex items-baseline justify-between gap-2">
               <h2 className="text-base font-semibold">Top investor matches</h2>
-              <Link href="/startup/matches" className="text-sm text-[var(--accent-fg)] hover:underline">
-                See all
-              </Link>
+              <span className="text-[13px] text-[var(--text-muted)]">
+                {paid ? `${newThisWeek} new this week · ` : "1 new match a week on Free · "}
+                <Link href="/startup/matches" className="text-[var(--accent-fg)] hover:underline">
+                  See all
+                </Link>
+              </span>
             </div>
             {matches === null ? (
               <p className="text-sm text-[var(--text-muted)]">Kevin is finding your best matches…</p>
@@ -264,38 +296,9 @@ export default function StartupDashboardPage() {
             )}
           </section>
 
-          <div className="flex flex-col gap-4">
-            <section className={card}>
-              <div className="flex items-baseline justify-between gap-2">
-                <h2 className="text-base font-semibold">Your pitch</h2>
-                <span className="text-sm text-[var(--text-muted)]">
-                  {done.length} of {SECTIONS.length} ready
-                </span>
-              </div>
-              <div className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(${SECTIONS.length}, minmax(0, 1fr))` }} role="img" aria-label={`${done.length} of ${SECTIONS.length} sections complete`}>
-                {SECTIONS.map((s) => (
-                  <i key={s.k} className={`h-1.5 rounded ${sectionComplete(pitch, s) ? "bg-metatron-accent" : "bg-[var(--overlay-8)]"}`} />
-                ))}
-              </div>
-              {missing.length > 0 ? (
-                <span className="text-sm text-[var(--text-muted)]">
-                  Missing: <strong className="text-[var(--warn)]">{missing.map((s) => s.label).join(", ")}</strong>.{" "}
-                  <Link href="/startup/profile" className="text-[var(--accent-fg)] hover:underline">
-                    Add it
-                  </Link>
-                </span>
-              ) : (
-                <span className="text-sm text-[var(--text-muted)]">Every section is complete.</span>
-              )}
-            </section>
-            <DeckActivityCard token={token} />
-            <StartupReviewsCard token={token} />
-          </div>
+          <StartupReviewsCard reviews={reviews} publicLink={publicLink} company={company} />
+          <DeckActivityCard token={token} hasDeck={Boolean(deckUrl)} />
         </div>
-
-        <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
-          <AngelScoreCard token={token} />
-          <ShareProfileCard token={token} />
         </div>
       </section>
     </main>

@@ -200,7 +200,7 @@ pub async fn snapshot_user_context(state: Arc<AppState>, user_id: Uuid) {
 
     if let Err(e) = sqlx::query(
         r#"
-        UPDATE profiles SET context_cid = $1, context_ipfs_url = $2, updated_at = now()
+        UPDATE profiles SET context_cid = $1, context_ipfs_url = $2
         WHERE user_id = $3
         "#,
     )

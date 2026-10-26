@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { API_BASE, authJsonHeaders } from "@/lib/api";
 import { useUpgrade } from "@/components/upgrade/UpgradeProvider";
-import { ScoreBar, btnSm, card, eyebrow } from "@/components/startup/dashboardStyles";
+import { ScoreBar, card, eyebrow } from "@/components/startup/dashboardStyles";
 
 type AngelScore = {
   score: number;
@@ -14,6 +14,8 @@ type AngelScore = {
   pitch_score: number | null;
   reasoning: string | null;
   generated_at: string;
+  /** False once the profile, pitch or deck changed after this score. */
+  up_to_date: boolean;
 };
 
 const PARTS = [
@@ -24,17 +26,20 @@ const PARTS = [
 ] as const;
 
 /** Angel Score, top of the dashboard's right-hand column. Free accounts get the
- * number only; the backend leaves the breakdown out for them. */
+ * number only; the backend leaves the breakdown out for them. Kevin re-scores
+ * (an AI call) only when there's no score yet or the pitch changed since. */
 export default function AngelScoreCard({ token }: { token: string }) {
   const { openUpgrade } = useUpgrade();
   const [score, setScore] = useState<AngelScore | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (): Promise<AngelScore | null> => {
     const res = await fetch(`${API_BASE}/angel-score`, { headers: authJsonHeaders(token) });
-    if (res.ok) setScore((await res.json()) as AngelScore | null);
+    const s = res.ok ? ((await res.json()) as AngelScore | null) : null;
+    setScore(s);
     setLoading(false);
+    return s;
   }, [token]);
 
   const generate = useCallback(async () => {
@@ -51,8 +56,8 @@ export default function AngelScoreCard({ token }: { token: string }) {
   }, [token]);
 
   useEffect(() => {
-    void load().then(() => {
-      void generate();
+    void load().then((s) => {
+      if (!s || !s.up_to_date) void generate();
     });
   }, [load, generate]);
 
@@ -66,9 +71,9 @@ export default function AngelScoreCard({ token }: { token: string }) {
       <div className="flex items-center justify-between gap-2">
         <span className={`${eyebrow} text-[var(--text-muted)]`}>Angel Score</span>
         {score && (
-          <button type="button" onClick={() => void generate()} disabled={refreshing} className={btnSm}>
-            {refreshing ? "Updating…" : "Refresh"}
-          </button>
+          <span className="text-xs text-[var(--text-muted)]">
+            {refreshing ? "Updating…" : `Updated ${new Date(score.generated_at).toLocaleDateString()}`}
+          </span>
         )}
       </div>
 

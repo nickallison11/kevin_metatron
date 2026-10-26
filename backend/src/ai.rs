@@ -244,7 +244,9 @@ async fn complete_chat_anthropic(
         .map_err(|e| format!("anthropic request: {e}"))?;
 
     if !res.status().is_success() {
+        let status = res.status().as_u16();
         let t = res.text().await.unwrap_or_default();
+        crate::alerts::check_provider_error("anthropic", status, &t);
         return Err(format!("anthropic error: {t}"));
     }
 
@@ -360,7 +362,9 @@ async fn complete_chat_openai(
         .map_err(|e| format!("openai request: {e}"))?;
 
     if !res.status().is_success() {
+        let status = res.status().as_u16();
         let t = res.text().await.unwrap_or_default();
+        crate::alerts::check_provider_error("openai", status, &t);
         return Err(format!("openai error: {t}"));
     }
 
@@ -431,7 +435,9 @@ async fn complete_chat_openrouter(
         .map_err(|e| format!("openrouter request: {e}"))?;
 
     if !res.status().is_success() {
+        let status = res.status().as_u16();
         let t = res.text().await.unwrap_or_default();
+        crate::alerts::check_provider_error("openrouter", status, &t);
         return Err(format!("openrouter error: {t}"));
     }
 

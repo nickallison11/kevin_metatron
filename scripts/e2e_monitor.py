@@ -77,6 +77,11 @@ run identically against both environments.
       none. Uses STRIPE_SECRET_KEY from the dev env file (test key only).
   19. Paystack fully switched off — no Paystack webhook requests in the
       nginx log in the last 24h [shared]. Paystack was removed 2026-10-22.
+  20. AI providers [shared] — for each Gemini/Anthropic/OpenRouter/OpenAI
+      key in either env: every model Kevin uses still exists, a one-token
+      request succeeds (catches empty credits), and OpenRouter has at least
+      $5 left. Added 2026-10-26: Kevin's quiet fallbacks kept 9a/10a green
+      while Hermes was gone and OpenRouter credits ran out.
 
 Not covered here: the proactive high-value-match notification (fires once
 per match the first time it crosses the score threshold, so it isn't a good
@@ -991,6 +996,120 @@ def render_paystack_gone_check(lines, drifts, number, tag):
     lines.append("")
 
 
+# Every model the backend calls, per provider. Keep in step with the backend
+# (grep for the model names) when one is added or swapped.
+AI_MODELS = {
+    "gemini":     ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-embedding-001"],
+    "anthropic":  ["claude-haiku-4-5-20251001", "claude-sonnet-4-6", "claude-opus-4-5-20251101"],
+    "openrouter": ["nousresearch/hermes-4-70b", "moonshotai/kimi-k3"],
+    "openai":     ["gpt-4o-mini"],
+}
+OPENROUTER_MIN_USD = 5.0
+
+
+def ai_keys(name):
+    """The key from production's env (sourced by cron) and dev's env file,
+    without duplicates -- each distinct key is checked once."""
+    keys = []
+    for label, value in (("production", os.environ.get(name)), ("dev", read_env_file_value(DEV_ENV_FILE, name))):
+        if value and value not in [k for _, k in keys]:
+            keys.append((label, value))
+    return keys
+
+
+def render_ai_providers_check(lines, drifts, number, tag):
+    """Check 20: AI providers. Kevin falls back quietly when a provider fails
+    (Hermes -> Haiku, Kimi -> Opus), so checks 9a/10a stay green while a
+    model is gone or credits run out -- found 2026-10-26 with Hermes removed
+    from OpenRouter and its credits nearly spent. For each key: every model
+    Kevin uses still exists, a one-token request goes through (catches empty
+    credits), and OpenRouter's balance is above OPENROUTER_MIN_USD."""
+    lines.append(f"## Check {number} — AI providers: credits, keys and models [{tag}]")
+
+    def drift(msg):
+        lines.append(f"- ⚠ DRIFT — {msg}")
+        drifts.append(msg)
+
+    def short(r):
+        return re.sub(r"\s+", " ", r.text)[:160]
+
+    for label, key in ai_keys("GEMINI_API_KEY"):
+        base = "https://generativelanguage.googleapis.com/v1beta/models"
+        try:
+            for model in AI_MODELS["gemini"]:
+                r = requests.get(f"{base}/{model}", params={"key": key}, timeout=20)
+                if r.status_code != 200:
+                    drift(f"Gemini ({label} key): {model} → {r.status_code} {short(r)}")
+            r = requests.post(
+                f"{base}/gemini-2.5-flash-lite:generateContent", params={"key": key}, timeout=30,
+                json={"contents": [{"parts": [{"text": "hi"}]}], "generationConfig": {"maxOutputTokens": 1}},
+            )
+            if r.status_code == 200:
+                lines.append(f"- Gemini ({label} key): request ok, {len(AI_MODELS['gemini'])} models present ✓")
+            else:
+                drift(f"Gemini ({label} key) request failed → {r.status_code} {short(r)}")
+        except Exception as e:
+            drift(f"Gemini ({label} key) check error: {e}")
+
+    for label, key in ai_keys("ANTHROPIC_API_KEY"):
+        headers = {"x-api-key": key, "anthropic-version": "2023-06-01"}
+        try:
+            for model in AI_MODELS["anthropic"]:
+                r = requests.get(f"https://api.anthropic.com/v1/models/{model}", headers=headers, timeout=20)
+                if r.status_code != 200:
+                    drift(f"Anthropic ({label} key): {model} → {r.status_code} {short(r)}")
+            r = requests.post(
+                "https://api.anthropic.com/v1/messages", headers=headers, timeout=30,
+                json={"model": AI_MODELS["anthropic"][0], "max_tokens": 1, "messages": [{"role": "user", "content": "hi"}]},
+            )
+            if r.status_code == 200:
+                lines.append(f"- Anthropic ({label} key): request ok, {len(AI_MODELS['anthropic'])} models present ✓")
+            else:
+                drift(f"Anthropic ({label} key) request failed → {r.status_code} {short(r)}")
+        except Exception as e:
+            drift(f"Anthropic ({label} key) check error: {e}")
+
+    for label, key in ai_keys("OPENROUTER_API_KEY"):
+        headers = {"Authorization": f"Bearer {key}"}
+        try:
+            r = requests.get("https://openrouter.ai/api/v1/credits", headers=headers, timeout=20)
+            if r.status_code == 200:
+                d = r.json().get("data", {})
+                left = float(d.get("total_credits", 0)) - float(d.get("total_usage", 0))
+                if left < OPENROUTER_MIN_USD:
+                    drift(f"OpenRouter ({label} key): only ${left:.2f} credit left — top up at openrouter.ai/settings/credits")
+                else:
+                    lines.append(f"- OpenRouter ({label} key): ${left:.2f} credit left ✓")
+            else:
+                drift(f"OpenRouter ({label} key) credits → {r.status_code} {short(r)}")
+            for model in AI_MODELS["openrouter"]:
+                r = requests.get(f"https://openrouter.ai/api/v1/models/{model}/endpoints", headers=headers, timeout=20)
+                served = r.status_code == 200 and (r.json().get("data") or {}).get("endpoints")
+                if served:
+                    lines.append(f"- OpenRouter: {model} available ✓")
+                else:
+                    drift(f"OpenRouter: {model} no longer served ({r.status_code}) — swap the model in the backend")
+        except Exception as e:
+            drift(f"OpenRouter ({label} key) check error: {e}")
+
+    for label, key in ai_keys("OPENAI_API_KEY"):
+        headers = {"Authorization": f"Bearer {key}"}
+        try:
+            model = AI_MODELS["openai"][0]
+            r = requests.post(
+                "https://api.openai.com/v1/chat/completions", headers=headers, timeout=30,
+                json={"model": model, "max_tokens": 1, "messages": [{"role": "user", "content": "hi"}]},
+            )
+            if r.status_code == 200:
+                lines.append(f"- OpenAI ({label} key): {model} request ok ✓")
+            else:
+                drift(f"OpenAI ({label} key): {model} request failed → {r.status_code} {short(r)}")
+        except Exception as e:
+            drift(f"OpenAI ({label} key) check error: {e}")
+
+    lines.append("")
+
+
 def send_report(subject, plain_body, html_body=None):
     if html_body:
         msg = MIMEMultipart("alternative")
@@ -1372,13 +1491,15 @@ def main():
 
     render_paystack_gone_check(lines, drifts, "19", "SHARED — both environments")
 
+    render_ai_providers_check(lines, drifts, "20", "SHARED — both environments")
+
     # ── Summary ───────────────────────────────────────────────────────────────
     tag = "DRIFT" if drifts else "OK"
     lines.append(f"## Summary: {tag}")
     lines.append(
         "(15 checks on [DEV]: 1a,2a,3a,4a,5a,9a,10a,11a,12a,13a,14a,15a,16a,17a,18a · "
         "15 on [PRODUCTION]: 1b,2b,3b,4b,5b,9b,10b,11b,12b,13b,14b,15b,16b,17b,18b · "
-        "4 [SHARED] shown in both: 6,7,8,19 · 19 checks per environment)"
+        "5 [SHARED] shown in both: 6,7,8,19,20 · 20 checks per environment)"
     )
     if drifts:
         for d in drifts:

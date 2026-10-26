@@ -396,6 +396,7 @@ CRITICAL RULES — follow these exactly:
 4. When reporting tool results, quote the exact names and details returned. Do not paraphrase or invent additional context.
 5. Do not say you cannot search the web — you can, using search_web.
 6. Each message you receive is a fresh request — you do not automatically retain the actual data from tool calls made in earlier messages, only the summary text you wrote. If a user asks for details, names, or specifics about something you previously said you found (e.g. "send me their details," "tell me more about them"), and you do not see the literal tool output for that search earlier in this exact conversation, you must call the tool again before answering. Never answer a follow-up like this from memory of your own prior summary — that is exactly how placeholder text like [Investor Name 1] happens.
+7. NEVER say you have sent, requested, emailed, accepted or declined anything unless a tool call in this conversation returned success for it. To introduce the user to a match, call request_intro (call lookup_match first if you need the match's ID). If the tool fails or you cannot call it, say so plainly and point the user to their Matches page.
 
 Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. Plain text only."#
     );
@@ -684,6 +685,7 @@ CRITICAL RULES — follow these exactly:
 2. Send the user to platform.metatron.id for anything beyond account status and notifications — requesting an intro, browsing beyond their current top matches, changing profile settings, pitch review, fundraising strategy, or deep analysis — not merely to view a match already in your context.
 3. NEVER fabricate investor names, firm names, scores, or any details not present in the context above. If something isn't there, say so honestly rather than inventing it.
 4. NEVER use placeholder text like [Investor Name], [Firm Name], [Details], or any bracket placeholders.
+5. You cannot take actions on this channel. NEVER say you have sent, requested, emailed, accepted or declined anything.
 
 Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. Plain text only."#
     ));
@@ -995,6 +997,7 @@ CRITICAL RULES — follow these exactly:
 4. When reporting tool results, quote the exact names and details returned. Do not paraphrase or invent additional context.
 5. Do not say you cannot search the web — you can, using search_web.
 6. Each message you receive is a fresh request — you do not automatically retain the actual data from tool calls made in earlier messages, only the summary text you wrote. If a user asks for details, names, or specifics about something you previously said you found (e.g. "send me their details," "tell me more about them"), and you do not see the literal tool output for that search earlier in this exact conversation, you must call the tool again before answering. Never answer a follow-up like this from memory of your own prior summary — that is exactly how placeholder text like [Investor Name 1] happens.
+7. NEVER say you have sent, requested, emailed, accepted or declined anything unless a tool call in this conversation returned success for it. To introduce the user to a match, call request_intro (call lookup_match first if you need the match's ID). If the tool fails or you cannot call it, say so plainly and point the user to their Matches page.
 
 Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. Plain text only."#
     );
@@ -2826,7 +2829,7 @@ async fn run_kevin_with_tools_gemini(
         if !response.status().is_success() {
             let status = response.status();
             let text = response.text().await.unwrap_or_default();
-            crate::alerts::check_gemini_error(&text);
+            crate::alerts::check_provider_error("gemini", status.as_u16(), &text);
             tracing::error!("gemini tool call error {status}: {text}");
             return ("Kevin is temporarily unavailable.".to_string(), new_rows, usage);
         }
@@ -2902,9 +2905,30 @@ async fn run_kevin_with_tools_gemini(
 }
 
 
+/// "yes", "sure, go ahead", "ok please do" — a short reply that agrees to
+/// something rather than asking anything new.
+fn is_short_confirmation(msg: &str) -> bool {
+    let cleaned: String = msg
+        .chars()
+        .map(|c| if c.is_alphanumeric() || c == '\'' { c.to_ascii_lowercase() } else { ' ' })
+        .collect();
+    let words: Vec<&str> = cleaned.split_whitespace().collect();
+    if words.is_empty() || words.len() > 6 {
+        return false;
+    }
+    let phrases = [
+        "yes", "yeah", "yep", "yup", "ya", "ja", "sure", "ok", "okay", "please",
+        "absolutely", "definitely", "certainly", "proceed", "confirm", "confirmed",
+        "do it", "go ahead", "send it", "please do", "let's do it", "lets do it",
+        "sounds good", "of course",
+    ];
+    let joined = words.join(" ");
+    phrases.iter().any(|p| joined == *p || joined.starts_with(&format!("{p} ")))
+}
+
 #[derive(Debug, PartialEq)]
 enum QueryComplexity {
-    Simple,      // NadirClaw (free, local)
+    Simple,      // Gemini Flash-Lite + tools
     Moderate,    // GPT-4.1-mini + tools  (Pro) / Haiku (Basic)
     Complex,     // Sonnet + tools         (Pro) / Haiku (Basic)
     DeepComplex, // Opus + tools           (Pro) / Haiku (Basic)
@@ -2967,7 +2991,12 @@ fn classify_query_complexity(message: &str) -> QueryComplexity {
         QueryComplexity::DeepComplex
     } else if needs_sonnet || (needs_tools && len > 120) {
         QueryComplexity::Complex
-    } else if needs_tools || len > 100 {
+    } else if needs_tools || len > 100 || is_short_confirmation(&msg) {
+        // A bare "yes" usually confirms something Kevin just offered to do
+        // ("Would you like me to request an intro?"), so it needs the main
+        // model and its tools, not the cheapest tier. Found live 2026-10-26:
+        // "Yes" went to NadirClaw, which told a founder it had emailed an
+        // intro that was never requested.
         QueryComplexity::Moderate
     } else {
         QueryComplexity::Simple
@@ -3016,7 +3045,10 @@ async fn run_kevin_openai_tool_loop(
         };
 
         if !response.status().is_success() {
+            let status = response.status().as_u16();
             let t = response.text().await.unwrap_or_default();
+            let provider = if base_url.contains("openrouter.ai") { "openrouter" } else { "openai" };
+            crate::alerts::check_provider_error(provider, status, &t);
             return Err(format!("openai-compatible error: {t}"));
         }
 
@@ -3115,6 +3147,7 @@ async fn run_kevin_anthropic_tool_loop(
         if !response.status().is_success() {
             let status = response.status();
             let text = response.text().await.unwrap_or_default();
+            crate::alerts::check_provider_error("anthropic", status.as_u16(), &text);
             return Err(format!("anthropic {status}: {text}"));
         }
 
@@ -3272,41 +3305,27 @@ pub(crate) async fn run_kevin_with_tools(
         .await;
     }
 
-    // Tier 0: NadirClaw (local, free) for simple queries — no tool use needed
+    // Tier 0: Gemini Flash-Lite for simple queries, with the same tools as
+    // every other tier. This used to go through NadirClaw, which forwarded to
+    // the same Flash-Lite model but without tools (so Kevin could only
+    // pretend to act) and without its cost being recorded.
     if complexity == QueryComplexity::Simple {
-        // NadirClaw has no concept of tool calls — skip any "tool" rows a
-        // prior (tool-using) turn in this session may have left behind, and
-        // only pass the plain text of user/assistant turns.
-        let nadirclaw_msgs: Vec<(String, String)> = seed_rows
-            .iter()
-            .filter(|r| r.role != "tool")
-            .filter_map(|r| {
-                let text = r.blocks.iter().find_map(|b| b["text"].as_str())?;
-                if text.is_empty() { return None; }
-                Some((r.role.clone(), text.to_string()))
-            })
-            .collect();
-        match crate::ai::complete_chat(
-            &state.http_client,
-            "nadirclaw",
-            &state.nadirclaw_url,
-            "auto",
-            system,
-            nadirclaw_msgs,
-        )
-        .await
-        {
-            Ok((reply, usage)) if !reply.is_empty() => {
-                let text = strip_markdown(&reply);
-                persist(state, session_id, user_id, &new_user_row, vec![
-                    crate::kevin_context::text_row("assistant", &text),
-                ]).await;
-                log_usage(state, user_id, role, usage_tier, "nadirclaw", "auto", usage).await;
-                return text;
+        if let Some(api_key) = &state.ai_api_key {
+            const SIMPLE_MODEL: &str = "gemini-2.5-flash-lite";
+            let seed = crate::kevin_context::to_gemini(&seed_rows);
+            let (reply, new_rows, usage) = run_kevin_with_tools_gemini(
+                state, user_id, user_email, role, system, &seed, api_key, SIMPLE_MODEL,
+            )
+            .await;
+            log_usage(state, user_id, role, usage_tier, "gemini", SIMPLE_MODEL, usage).await;
+            // The loop only ends on its own text after a successful reply.
+            if new_rows.last().is_some_and(|r| r.role == "assistant")
+                && reply != "Kevin is temporarily unavailable."
+            {
+                persist(state, session_id, user_id, &new_user_row, new_rows).await;
+                return reply;
             }
-            _ => {
-                tracing::warn!("nadirclaw unavailable, falling back to paid tier");
-            }
+            tracing::warn!("flash-lite failed, falling back to the paid tier");
         }
     }
 

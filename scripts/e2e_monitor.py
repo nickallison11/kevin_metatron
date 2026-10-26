@@ -40,8 +40,8 @@ run identically against both environments.
      country (54) + one basic investor per US/UK/major-EU country (6),
      added 2026-08-22 to verify isLocalMonday8amWindow fires correctly
      across timezones, not just a single fixed UTC time. [shared — reflects dev]
-  9a-10a. Kevin chat — Moderate tier (Hermes 4 70B → Haiku) and
-      Complex/DeepComplex tier (Kimi K3 → Sonnet/Opus), against dev.
+  9a-10a. Kevin chat — Moderate tier (Haiku) and
+      Complex/DeepComplex tier (Sonnet/Opus), against dev.
   11a/11b. kevin-learning cron endpoint reachable + secret-enforced
       (doesn't trigger a real run daily — that's a real LLM synthesis job,
       already scheduled weekly via its own crontab entry; this just
@@ -77,11 +77,11 @@ run identically against both environments.
       none. Uses STRIPE_SECRET_KEY from the dev env file (test key only).
   19. Paystack fully switched off — no Paystack webhook requests in the
       nginx log in the last 24h [shared]. Paystack was removed 2026-10-22.
-  20. AI providers [shared] — for each Gemini/Anthropic/OpenRouter/OpenAI
-      key in either env: every model Kevin uses still exists, a one-token
-      request succeeds (catches empty credits), and OpenRouter has at least
-      $5 left. Added 2026-10-26: Kevin's quiet fallbacks kept 9a/10a green
-      while Hermes was gone and OpenRouter credits ran out.
+  20. AI providers [shared] — for each Gemini/Anthropic/OpenAI key in
+      either env: every model Kevin uses still exists and a one-token
+      request succeeds (catches empty credits). Added 2026-10-26: Kevin's
+      quiet fallbacks kept 9a/10a green while Hermes was gone and
+      OpenRouter credits ran out (OpenRouter was then dropped).
 
 Not covered here: the proactive high-value-match notification (fires once
 per match the first time it crosses the score threshold, so it isn't a good
@@ -257,9 +257,9 @@ def check_subscription(jwt, base_url=None):
 def check_kevin_chat(jwt, message, timeout=60, base_url=None):
     """
     Round-trips a message through /kevin/chat and returns the reply text.
-    Doesn't distinguish which model tier actually answered (Hermes/Kimi vs.
-    their Haiku/Sonnet/Opus fallback) — the API doesn't expose that, and
-    checking would mean SSH log access this script doesn't have. What this
+    Doesn't show which model actually answered (a fallback looks the same)
+    — the API doesn't expose that; check 20 tests each provider directly
+    instead. What this
     does confirm: the tier's whole request pipeline (routing, tool-calling
     loop, provider call) is healthy enough to produce a real reply.
     """
@@ -1001,10 +1001,8 @@ def render_paystack_gone_check(lines, drifts, number, tag):
 AI_MODELS = {
     "gemini":     ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-embedding-001"],
     "anthropic":  ["claude-haiku-4-5-20251001", "claude-sonnet-4-6", "claude-opus-4-5-20251101"],
-    "openrouter": ["nousresearch/hermes-4-70b", "moonshotai/kimi-k3"],
     "openai":     ["gpt-4o-mini"],
 }
-OPENROUTER_MIN_USD = 5.0
 
 
 def ai_keys(name):
@@ -1018,12 +1016,11 @@ def ai_keys(name):
 
 
 def render_ai_providers_check(lines, drifts, number, tag):
-    """Check 20: AI providers. Kevin falls back quietly when a provider fails
-    (Hermes -> Haiku, Kimi -> Opus), so checks 9a/10a stay green while a
-    model is gone or credits run out -- found 2026-10-26 with Hermes removed
-    from OpenRouter and its credits nearly spent. For each key: every model
-    Kevin uses still exists, a one-token request goes through (catches empty
-    credits), and OpenRouter's balance is above OPENROUTER_MIN_USD."""
+    """Check 20: AI providers. Kevin's chat checks (9a/10a) only see that some
+    reply came back, so a fallback can hide a dead provider -- found
+    2026-10-26 when OpenRouter (since removed) had run dry and Hermes was gone
+    for days unnoticed. For each key: every model Kevin uses still exists and
+    a one-token request goes through (catches empty credits)."""
     lines.append(f"## Check {number} — AI providers: credits, keys and models [{tag}]")
 
     def drift(msg):
@@ -1068,29 +1065,6 @@ def render_ai_providers_check(lines, drifts, number, tag):
                 drift(f"Anthropic ({label} key) request failed → {r.status_code} {short(r)}")
         except Exception as e:
             drift(f"Anthropic ({label} key) check error: {e}")
-
-    for label, key in ai_keys("OPENROUTER_API_KEY"):
-        headers = {"Authorization": f"Bearer {key}"}
-        try:
-            r = requests.get("https://openrouter.ai/api/v1/credits", headers=headers, timeout=20)
-            if r.status_code == 200:
-                d = r.json().get("data", {})
-                left = float(d.get("total_credits", 0)) - float(d.get("total_usage", 0))
-                if left < OPENROUTER_MIN_USD:
-                    drift(f"OpenRouter ({label} key): only ${left:.2f} credit left — top up at openrouter.ai/settings/credits")
-                else:
-                    lines.append(f"- OpenRouter ({label} key): ${left:.2f} credit left ✓")
-            else:
-                drift(f"OpenRouter ({label} key) credits → {r.status_code} {short(r)}")
-            for model in AI_MODELS["openrouter"]:
-                r = requests.get(f"https://openrouter.ai/api/v1/models/{model}/endpoints", headers=headers, timeout=20)
-                served = r.status_code == 200 and (r.json().get("data") or {}).get("endpoints")
-                if served:
-                    lines.append(f"- OpenRouter: {model} available ✓")
-                else:
-                    drift(f"OpenRouter: {model} no longer served ({r.status_code}) — swap the model in the backend")
-        except Exception as e:
-            drift(f"OpenRouter ({label} key) check error: {e}")
 
     for label, key in ai_keys("OPENAI_API_KEY"):
         headers = {"Authorization": f"Bearer {key}"}
@@ -1454,12 +1428,12 @@ def main():
         "reasons seed-stage fintech deals tend to fall through during diligence?"
     )
     render_kevin_chat_check(lines, drifts, "9a", "DEV", DEV_BACKEND_URL, jwts_dev,
-                             "Kevin chat, Moderate tier (Hermes 4 70B → Haiku fallback)", moderate_msg)
-    render_na_check(lines, "9b", "PRODUCTION", "Kevin chat, Moderate tier (Hermes 4 70B → Haiku fallback)")
+                             "Kevin chat, Moderate tier (Haiku)", moderate_msg)
+    render_na_check(lines, "9b", "PRODUCTION", "Kevin chat, Moderate tier (Haiku)")
 
     render_kevin_chat_check(lines, drifts, "10a", "DEV", DEV_BACKEND_URL, jwts_dev,
-                             "Kevin chat, DeepComplex tier (Kimi K3 → Sonnet/Opus fallback)", deepcomplex_msg, timeout=90)
-    render_na_check(lines, "10b", "PRODUCTION", "Kevin chat, DeepComplex tier (Kimi K3 → Sonnet/Opus fallback)")
+                             "Kevin chat, DeepComplex tier (Opus)", deepcomplex_msg, timeout=90)
+    render_na_check(lines, "10b", "PRODUCTION", "Kevin chat, DeepComplex tier (Opus)")
 
     render_kevin_learning_check(lines, drifts, "11a", "DEV", DEV_BACKEND_URL)
     render_kevin_learning_check(lines, drifts, "11b", "PRODUCTION", BACKEND_URL)

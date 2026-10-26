@@ -1925,21 +1925,6 @@ pub(crate) fn kevin_tools_for_gemini(role: &str) -> serde_json::Value {
 }
 
 
-pub(crate) fn kevin_tools_for_openai(role: &str) -> serde_json::Value {
-    let anthropic_tools = kevin_tools_for_role(role);
-    let tools = anthropic_tools.as_array().map(|arr| {
-        arr.iter().map(|t| serde_json::json!({
-            "type": "function",
-            "function": {
-                "name": t["name"],
-                "description": t["description"],
-                "parameters": t["input_schema"]
-            }
-        })).collect::<Vec<_>>()
-    }).unwrap_or_default();
-    serde_json::json!(tools)
-}
-
 pub(crate) async fn execute_kevin_tool(
     state: &AppState,
     user_id: Uuid,
@@ -2929,7 +2914,7 @@ fn is_short_confirmation(msg: &str) -> bool {
 #[derive(Debug, PartialEq)]
 enum QueryComplexity {
     Simple,      // Gemini Flash-Lite + tools
-    Moderate,    // GPT-4.1-mini + tools  (Pro) / Haiku (Basic)
+    Moderate,    // Haiku + tools          (Pro and Basic)
     Complex,     // Sonnet + tools         (Pro) / Haiku (Basic)
     DeepComplex, // Opus + tools           (Pro) / Haiku (Basic)
 }
@@ -3001,109 +2986,6 @@ fn classify_query_complexity(message: &str) -> QueryComplexity {
     } else {
         QueryComplexity::Simple
     }
-}
-
-
-async fn run_kevin_openai_tool_loop(
-    state: &AppState,
-    base_url: &str,
-    api_key: &str,
-    model: &str,
-    user_id: Uuid,
-    user_email: &str,
-    role: &str,
-    system: &str,
-    messages: Vec<serde_json::Value>,
-) -> Result<(String, Vec<crate::kevin_context::ContextRow>, crate::ai::TokenUsage), String> {
-    let tools = kevin_tools_for_openai(role);
-    let mut msgs: Vec<serde_json::Value> = vec![
-        serde_json::json!({"role": "system", "content": system})
-    ];
-    msgs.extend(messages);
-    let mut new_rows: Vec<crate::kevin_context::ContextRow> = Vec::new();
-    let mut usage = crate::ai::TokenUsage::default();
-
-    for _ in 0..4 {
-        let request_body = serde_json::json!({
-            "model": model,
-            "messages": msgs,
-            "tools": tools,
-            "tool_choice": "auto"
-        });
-
-        let response = match state
-            .http_client
-            .post(base_url)
-            .header("Authorization", format!("Bearer {api_key}"))
-            .header("content-type", "application/json")
-            .json(&request_body)
-            .send()
-            .await
-        {
-            Ok(r) => r,
-            Err(e) => return Err(format!("openai-compatible request: {e}")),
-        };
-
-        if !response.status().is_success() {
-            let status = response.status().as_u16();
-            let t = response.text().await.unwrap_or_default();
-            let provider = if base_url.contains("openrouter.ai") { "openrouter" } else { "openai" };
-            crate::alerts::check_provider_error(provider, status, &t);
-            return Err(format!("openai-compatible error: {t}"));
-        }
-
-        let value: serde_json::Value = match response.json().await {
-            Ok(v) => v,
-            Err(e) => return Err(format!("openai json: {e}")),
-        };
-
-        usage.input_tokens += value["usage"]["prompt_tokens"].as_i64().unwrap_or(0) as i32;
-        usage.output_tokens += value["usage"]["completion_tokens"].as_i64().unwrap_or(0) as i32;
-
-        let choice = match value["choices"].get(0) {
-            Some(c) => c.clone(),
-            None => return Err("no choices in openai response".to_string()),
-        };
-        let finish_reason = choice["finish_reason"].as_str().unwrap_or("stop");
-        let message = choice["message"].clone();
-
-        if finish_reason != "tool_calls" {
-            let text = strip_markdown(message["content"].as_str().unwrap_or(""));
-            new_rows.push(crate::kevin_context::text_row("assistant", &text));
-            return Ok((text, new_rows, usage));
-        }
-
-        let tool_calls = match message["tool_calls"].as_array() {
-            Some(tc) => tc.clone(),
-            None => return Err("tool_calls missing".to_string()),
-        };
-
-        msgs.push(message.clone());
-        new_rows.push(crate::kevin_context::ContextRow {
-            role: "assistant".to_string(),
-            blocks: crate::kevin_context::openai_message_to_blocks(&message),
-        });
-
-        let mut result_triples = Vec::new();
-        for tc in &tool_calls {
-            let tc_id = tc["id"].as_str().unwrap_or("").to_string();
-            let fn_name = tc["function"]["name"].as_str().unwrap_or("");
-            let args: serde_json::Value = serde_json::from_str(
-                tc["function"]["arguments"].as_str().unwrap_or("{}")
-            ).unwrap_or(serde_json::json!({}));
-
-            let result = execute_kevin_tool(state, user_id, user_email, role, fn_name, &args).await;
-            msgs.push(serde_json::json!({
-                "role": "tool",
-                "tool_call_id": tc_id,
-                "content": result
-            }));
-            result_triples.push((tc_id, fn_name.to_string(), result));
-        }
-        new_rows.push(crate::kevin_context::tool_result_row(result_triples));
-    }
-
-    Err("max openai tool turns reached".to_string())
 }
 
 
@@ -3338,50 +3220,10 @@ pub(crate) async fn run_kevin_with_tools(
                 _                            => "claude-haiku-4-5-20251001",
             };
 
-            // Moderate: try Hermes 4 70B first (cheap, native tool-calling), fall back to Haiku
-            if complexity == QueryComplexity::Moderate {
-                if let Some(openrouter_key) = &state.openrouter_api_key {
-                    let seed = crate::kevin_context::to_openai(&seed_rows);
-                    match run_kevin_openai_tool_loop(
-                        state,
-                        "https://openrouter.ai/api/v1/chat/completions",
-                        openrouter_key,
-                        "nousresearch/hermes-4-70b",
-                        user_id, user_email, role, system, seed,
-                    ).await {
-                        Ok((reply, new_rows, usage)) if !reply.is_empty() => {
-                            persist(state, session_id, user_id, &new_user_row, new_rows).await;
-                            log_usage(state, user_id, role, usage_tier, "openrouter", "nousresearch/hermes-4-70b", usage).await;
-                            return reply;
-                        }
-                        Ok(_) => tracing::warn!("hermes empty, falling back to haiku"),
-                        Err(e) => tracing::warn!("hermes failed ({e}), falling back to haiku"),
-                    }
-                }
-            }
-
-            // Complex/DeepComplex: try Kimi K3 first (frontier-tier alternative), fall back to Sonnet/Opus
-            if complexity == QueryComplexity::Complex || complexity == QueryComplexity::DeepComplex {
-                if let Some(openrouter_key) = &state.openrouter_api_key {
-                    let seed = crate::kevin_context::to_openai(&seed_rows);
-                    match run_kevin_openai_tool_loop(
-                        state,
-                        "https://openrouter.ai/api/v1/chat/completions",
-                        openrouter_key,
-                        "moonshotai/kimi-k3",
-                        user_id, user_email, role, system, seed,
-                    ).await {
-                        Ok((reply, new_rows, usage)) if !reply.is_empty() => {
-                            persist(state, session_id, user_id, &new_user_row, new_rows).await;
-                            log_usage(state, user_id, role, usage_tier, "openrouter", "moonshotai/kimi-k3", usage).await;
-                            return reply;
-                        }
-                        Ok(_) => tracing::warn!("kimi k3 empty, falling back to {model}"),
-                        Err(e) => tracing::warn!("kimi k3 failed ({e}), falling back to {model}"),
-                    }
-                }
-            }
-
+            // Claude only. Hermes 4 70B and Kimi K3 (via OpenRouter) were
+            // tried first until 2026-10-26: Hermes was removed from
+            // OpenRouter, Kimi cost the same as Sonnet, and both failed
+            // silently over to Claude whenever the credits ran out.
             let seed = crate::kevin_context::to_anthropic(&seed_rows);
             match run_kevin_anthropic_tool_loop(
                 state, anthropic_key, model, user_id, user_email, role, system, seed,

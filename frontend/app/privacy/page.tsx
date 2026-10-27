@@ -74,7 +74,7 @@ export default function PrivacyPage() {
 
         <Section title="Who is responsible">
           <p>
-            The controller for your personal data is Andrew Nicholas Allison, trading as metatron AI Labs, Obermayrstraße
+            The controller for your personal data is Andrew Nicholas Allison, trading as metatronLabs, Obermayrstraße
             5/4, 4240 Freistadt, Austria (<Mail />). See the{" "}
             <a href="https://metatron.id/impressum" className="text-[var(--accent-fg)] hover:underline">
               Impressum

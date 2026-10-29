@@ -261,7 +261,7 @@ pub(crate) async fn follow_up_section(state: &AppState, user_id: Uuid) -> String
         })
         .collect();
     format!(
-        "\n\n{FOLLOW_UP_HEADING}\nThese intros have no outcome saved yet:\n{}\n\nSaving: this list is the truth; anything about these in your memory notes is NOT saved. Whenever the user says how one of these went, including a short reply to your question like \"yes, it went well\", call record_feedback with its about_user_id before you reply. Only say \"Noted\" after it returns \"Saved.\".\n\nAsking: if the user's message is a greeting or small talk, or they've just got what they came for, end your reply with one short question about the first one you haven't asked about yet in this conversation, naming it (\"How did it go with <name>?\"). Don't interrupt a task to ask. If they'd rather not say, drop it.",
+        "\n\n{FOLLOW_UP_HEADING}\nThese intros have no outcome saved yet:\n{}\n\nSaving: this list is the truth; anything about these in your memory notes is NOT saved. Whenever the user says how one of these went, including a short reply to your question like \"yes, it went well\", call record_feedback with its about_user_id before you reply. Only say \"Noted\" after it returns \"Saved.\".\n\nAsking: if the user's message is a greeting or small talk, or they've just got what they came for, your reply must end with this exact question about the first one you haven't asked about yet in this conversation: \"How did it go with <name>?\" (a general question about fundraising doesn't count). Don't interrupt a task to ask. If they'd rather not say, drop it.",
         lines.join("\n")
     )
 }

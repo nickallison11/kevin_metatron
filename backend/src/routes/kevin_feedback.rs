@@ -261,7 +261,7 @@ pub(crate) async fn follow_up_section(state: &AppState, user_id: Uuid) -> String
         })
         .collect();
     format!(
-        "\n\n{FOLLOW_UP_HEADING}\nIf the user's message is a greeting or small talk, or they've just got what they came for, end your reply by asking about the first one in one short question, naming it (\"How did it go with <name>?\"). Don't interrupt a task to ask. Ask at most once per conversation, and never about one already discussed in this conversation or that you just saved feedback for. If they'd rather not say, drop it. If your previous message asked about one of these, the user's reply is their answer, even a short one like \"yes, it went well\": your FIRST action is a record_feedback call with that about_user_id, before you write anything. Only after it returns \"Saved.\" may you say \"Noted\".\n{}",
+        "\n\n{FOLLOW_UP_HEADING}\nThese intros have no outcome saved yet:\n{}\n\nSaving: when the user says how one of these went, including a short reply to your question like \"yes, it went well\", call record_feedback with its about_user_id before you reply. Only say \"Noted\" after it returns \"Saved.\".\n\nAsking: if the user's message is a greeting or small talk, or they've just got what they came for, end your reply with one short question about the first one you haven't asked about yet in this conversation, naming it (\"How did it go with <name>?\"). Don't interrupt a task to ask. If they'd rather not say, drop it.",
         lines.join("\n")
     )
 }

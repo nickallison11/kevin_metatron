@@ -183,7 +183,7 @@ const REGIONS: &[(&str, &str)] = &[
     ),
     ("(middle east|mena|gcc|gulf)", "AE BH IL IQ IR JO KW LB OM PS QA SA SY TR YE EG MA TN DZ LY"),
     (
-        "(europe|european|\meu\M|emea)",
+        "(europe|european|emea)",
         "AL AD AT BY BE BA BG HR CY CZ DK EE FI FR DE GR HU IS IE IT XK LV LI LT LU MT MD MC ME NL MK NO PL PT RO RU SM RS SK SI ES SE CH UA GB VA",
     ),
     ("(asia|apac)", "AF AM AZ BD BT BN KH CN GE IN ID JP KZ KG LA MY MV MN MM NP KP KR PK PH SG LK TW TJ TH TL TM UZ VN HK"),

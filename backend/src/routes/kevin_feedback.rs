@@ -384,21 +384,23 @@ pub(crate) async fn last_messaging_reply(
 /// The line for the WhatsApp/Telegram prompt about an open intro, if any:
 /// ask about it when a conversation starts with a greeting (at most once
 /// every 3 days), or let Kevin know the user may be answering his question.
+/// Also returns the question when Kevin should ask it, so it can be added if
+/// the model leaves it out.
 pub(crate) async fn messaging_follow_up_line(
     state: &AppState,
     user_id: Uuid,
     previous: Option<&(String, chrono::DateTime<chrono::Utc>)>,
     is_greeting: bool,
-) -> String {
+) -> (String, Option<String>) {
     let (_, Some((ask, question))) = follow_up_section(state, user_id).await else {
-        return String::new();
+        return (String::new(), None);
     };
     if previous.is_some_and(|(text, _)| text.contains(&question)) {
-        return format!("\n\nYour last message asked the user: \"{question}\" If their message answers it, thank them in one short line.");
+        return (format!("\n\nYour last message asked the user: \"{question}\" If their message answers it, thank them in one short line."), None);
     }
     let new_conversation = previous.map_or(true, |(_, at)| *at < chrono::Utc::now() - chrono::Duration::hours(6));
     if !is_greeting || !new_conversation {
-        return String::new();
+        return (String::new(), None);
     }
     let asked_recently: bool = sqlx::query_scalar(
         r#"SELECT EXISTS(SELECT 1 FROM kevin_chat_turns
@@ -412,9 +414,9 @@ pub(crate) async fn messaging_follow_up_line(
     .await
     .unwrap_or(true);
     if asked_recently {
-        return String::new();
+        return (String::new(), None);
     }
-    format!("\n\n{ask}")
+    (format!("\n\n{ask}"), Some(question))
 }
 
 /// The user's matches and intros with their IDs, so the extractor can say
@@ -524,8 +526,37 @@ pub(crate) async fn extract_from_messaging(
             if args["detail"].as_str().is_some_and(|d| d.to_lowercase().contains("want to say")) {
                 args["outcome"] = Value::Null;
             }
+            // An intro outcome has to be about someone Kevin asked about or
+            // the user named; the model otherwise guesses from the list.
+            if args["kind"].as_str() == Some("intro_outcome") && !about_is_clear(state, &args, previous_kevin, user_message).await {
+                tracing::info!("feedback extraction for {user_id}: skipped, unclear who it's about");
+                continue;
+            }
             let result = record_from(state, user_id, &args, "messaging").await;
             tracing::info!("feedback extraction for {user_id}: {result}");
         }
     }
+}
+
+/// Whether the person an extracted intro outcome is about was named, either
+/// in Kevin's follow-up question or in the user's message.
+async fn about_is_clear(state: &AppState, args: &Value, previous_kevin: Option<&str>, user_message: &str) -> bool {
+    let Some(id) = args["about_user_id"].as_str().and_then(|s| s.trim().parse::<Uuid>().ok()) else {
+        return false;
+    };
+    let name: Option<String> = sqlx::query_scalar(&format!(
+        r#"SELECT {NAME_SQL} FROM users u
+             LEFT JOIN profiles p ON p.user_id = u.id
+             LEFT JOIN investor_profiles ip ON ip.user_id = u.id
+            WHERE u.id = $1"#
+    ))
+    .bind(id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+    let Some(name) = name.map(|n| n.to_lowercase()).filter(|n| n != "a contact") else {
+        return false;
+    };
+    previous_kevin.is_some_and(|p| p.to_lowercase().contains(&name)) || user_message.to_lowercase().contains(&name)
 }

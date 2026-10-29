@@ -669,7 +669,7 @@ pub(crate) async fn kevin_reply_for_linked_user(
     let context = build_context(state, user.id, &user.role).await;
     let memory_section = memory_section_from_recalled(recalled);
     let previous = super::kevin_feedback::last_messaging_reply(state, user.id).await;
-    let follow_up = super::kevin_feedback::messaging_follow_up_line(
+    let (follow_up, follow_up_question) = super::kevin_feedback::messaging_follow_up_line(
         state,
         user.id,
         previous.as_ref(),
@@ -784,7 +784,11 @@ Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. 
             return Err(KevinReplyError::BadGateway(e));
         }
     };
-    let reply = strip_markdown(&reply);
+    let mut reply = strip_markdown(&reply);
+    // Models sometimes greet back with a generic question instead.
+    if let Some(question) = follow_up_question.filter(|q| !reply.contains(q.as_str())) {
+        reply = format!("{}\n\n{question}", reply.trim_end());
+    }
 
     if let Some(gemini_key) = state.ai_api_key.clone() {
         let db = state.db.clone();

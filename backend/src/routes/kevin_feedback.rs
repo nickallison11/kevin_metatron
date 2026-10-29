@@ -21,7 +21,7 @@ const FINAL_OUTCOMES: &[&str] = &["no_meeting", "poor_match", "investing", "pass
 /// Marks the follow-ups section in the system prompt (see run_kevin_with_tools).
 pub(crate) const FOLLOW_UP_HEADING: &str = "## Intro follow-ups";
 
-const DESCRIPTION: &str = "Save what the user tells you about how an intro or meeting went, why a match is or isn't right for them, or what they do or don't want (sectors, stages, ticket size, geography, kind of investor or startup). Call it as soon as they say it, without asking permission. If they'd rather not say how an intro went, save that too (detail: \"Didn't want to say\").";
+const DESCRIPTION: &str = "Save what the user tells you about how an intro or meeting went, why a match is or isn't right for them, or what they do or don't want (sectors, stages, ticket size, geography, kind of investor or startup). Call it as soon as they say it, without asking permission. If they'd rather not say how an intro went, save that too, with no outcome (detail: \"Didn't want to say\").";
 
 fn properties() -> Value {
     json!({
@@ -271,7 +271,7 @@ pub(crate) async fn follow_up_section(state: &AppState, user_id: Uuid) -> (Strin
         })
         .collect();
     let section = format!(
-        "\n\n{FOLLOW_UP_HEADING}\nAsking: if the user's message is a greeting or small talk, or they've just got what they came for, your reply must end with this exact question about the first intro below you haven't asked about yet in this conversation: \"How did it go with <name>?\" (a general question about fundraising doesn't count). Don't interrupt a task to ask. If they'd rather not say, drop it.\n\nThese intros have no outcome saved yet:\n{}\n\nSaving: this list is the truth; anything about these in your memory notes is NOT saved. Whenever the user says how one of these went, including a short reply to your question like \"yes, it went well\", call record_feedback with its about_user_id before you reply. Only say \"Noted\" after it returns \"Saved.\".",
+        "\n\n{FOLLOW_UP_HEADING}\nAsking: if the user's message is a greeting or small talk, or they've just got what they came for, your reply must end with this exact question about the first intro below: \"How did it go with <name>?\" Ask about only one intro per conversation, never a second one (a general question about fundraising doesn't count). Don't interrupt a task to ask. If they'd rather not say, drop it.\n\nThese intros have no outcome saved yet:\n{}\n\nSaving: this list is the truth; anything about these in your memory notes is NOT saved. Whenever the user says how one of these went, including a short reply to your question like \"yes, it went well\", call record_feedback with its about_user_id before you reply. Only say \"Noted\" after it returns \"Saved.\".",
         lines.join("\n")
     );
     (section, Some((opening, question)))

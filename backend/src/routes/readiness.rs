@@ -443,7 +443,12 @@ async fn search_web(state: &AppState, user_id: Uuid, stage: &str, sector: Option
             .unwrap_or_default();
         let _ = sqlx::query(
             r#"INSERT INTO programmes (name, url, kind, location, stages, sectors, summary, source, added_by)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, 'search', $8)
+               SELECT $1, $2, $3, $4, $5, $6, $7, 'search', $8
+                WHERE NOT EXISTS (
+                    -- The same programme under a slightly different name.
+                    SELECT 1 FROM programmes
+                     WHERE rtrim(regexp_replace(LOWER(url), '^https?://(www\.)?', ''), '/')
+                         = rtrim(regexp_replace(LOWER($2), '^https?://(www\.)?', ''), '/'))
                ON CONFLICT ((LOWER(name))) DO NOTHING"#,
         )
         .bind(name)

@@ -1051,7 +1051,7 @@ Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. 
     // first; asked nicely, Haiku often said "Noted" without saving.
     let mut force_tool = None;
     let system = match opening_ask {
-        Some((ask, _)) if msgs.len() == 1 && classify_query_complexity(&last_user_message) == QueryComplexity::Simple => {
+        Some((ask, _)) if msgs.len() == 1 && is_greeting(&last_user_message) => {
             format!("{system}\n\n{ask}")
         }
         Some((_, question)) => {

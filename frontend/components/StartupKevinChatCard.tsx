@@ -129,6 +129,20 @@ export function StartupKevinChatCard({
       .catch(() => setSessions([]));
   }, [showHistory, token]);
 
+  // `?ask=` (e.g. from the dashboard's Funding stage card) starts a new chat
+  // with that question typed in, ready to send.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const ask = params.get("ask")?.trim();
+    if (!ask) return;
+    setMessages([]);
+    setSessionId(crypto.randomUUID());
+    setInput(ask);
+    params.delete("ask");
+    const rest = params.toString();
+    window.history.replaceState(null, "", `${window.location.pathname}${rest ? `?${rest}` : ""}`);
+  }, []);
+
   const skipNextScroll = useRef(true);
   useEffect(() => {
     if (skipNextScroll.current) {

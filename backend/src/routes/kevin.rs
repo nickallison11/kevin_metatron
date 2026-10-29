@@ -810,7 +810,9 @@ Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. 
         });
     }
 
-    {
+    // A plain hello carries no feedback, and Kevin's own question in the
+    // reply was once mistaken for the user declining to answer.
+    if !is_greeting(&last_user_message) {
         let state = state.clone();
         let uid = user.id;
         let role = user.role.clone();

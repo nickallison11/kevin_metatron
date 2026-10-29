@@ -470,7 +470,9 @@ pub(crate) async fn extract_from_messaging(
     let saved = saved_section(state, user_id).await;
     let people = counterparts(state, user_id).await;
     let system = format!(
-        "You read one exchange between Kevin (an AI assistant on a platform connecting founders and investors) and a user, and save feedback from it with record_feedback.\n\nOnly the user's latest message counts. Never save anything Kevin says, even when he repeats what the user wants. A question in Kevin's latest reply hasn't been answered yet, so it's never a reason to save.\n\nSave it when the user says how an intro or meeting went, why a match is or isn't right for them, or what they do or don't want in a match (sectors, stages, ticket size, geography, kind of investor or startup). If Kevin (earlier) asked how an intro went with someone and the user answered, that's an intro_outcome for that person, even if the answer is short; if they'd rather not say, save it with no outcome (detail: \"Didn't want to say\"). Otherwise save an intro_outcome only when the user names the person; if it isn't clear who they mean, save nothing. Call record_feedback at most once per person or preference.\n\nDon't save questions, requests, small talk, or anything already saved below. If there's nothing to save, reply \"none\" and call nothing.\n\nThe user's matches and intros (name: about_user_id):\n{}{saved}",
+        "You read one exchange between Kevin (an AI assistant on a platform connecting founders and investors) and a user, and save feedback from it with record_feedback.\n\nOnly the user's latest message counts. Never save anything Kevin says, even when he repeats what the user wants. A question in Kevin's latest reply hasn't been answered yet, so it's never a reason to save.\n\nSave it when the user says how an intro or meeting went, why a match is or isn't right for them, or what they do or don't want in a match (sectors, stages, ticket size, geography, kind of investor or startup). If Kevin (earlier) asked how an intro went with someone and the user answered, that's an intro_outcome for that person, even if the answer is short; if they'd rather not say, save it with no outcome (detail: \"Didn't want to say\"). Otherwise save an intro_outcome only when the user names the person; if it isn't clear who they mean, save nothing. Call record_feedback at most once per person or preference.\n\nWhen the user names a programme (incubator, accelerator, bootcamp) they did, run or recommend, call record_programme.
+
+Don't save questions, requests, small talk, or anything already saved below. If there's nothing to save, reply \"none\" and call nothing.\n\nThe user's matches and intros (name: about_user_id):\n{}{saved}",
         if people.is_empty() { "(none)".to_string() } else { people },
     );
     let exchange = format!(
@@ -479,7 +481,7 @@ pub(crate) async fn extract_from_messaging(
     );
     let body = json!({
         "system_instruction": { "parts": [{ "text": system }] },
-        "tools": [{ "function_declarations": [tool_for_gemini()] }],
+        "tools": [{ "function_declarations": [tool_for_gemini(), super::readiness::record_programme_tool_for_gemini()] }],
         "contents": [{ "role": "user", "parts": [{ "text": exchange }] }],
         "generationConfig": { "temperature": 0, "thinkingConfig": { "thinkingBudget": 0 } }
     });
@@ -534,6 +536,9 @@ pub(crate) async fn extract_from_messaging(
             }
             let result = record_from(state, user_id, &args, "messaging").await;
             tracing::info!("feedback extraction for {user_id}: {result}");
+        } else if call["name"].as_str() == Some("record_programme") {
+            let result = super::readiness::record_programme(state, user_id, role, &call["args"]).await;
+            tracing::info!("programme extraction for {user_id}: {result}");
         }
     }
 }

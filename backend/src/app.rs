@@ -37,6 +37,7 @@ pub fn build_app(_settings: &Settings, state: Arc<AppState>) -> Router {
         .nest("/uploads", routes::uploads::router())
         .route("/files/:name", get(routes::uploads::serve_file))
         .nest("/angel-score", routes::angel_score::router())
+        .nest("/readiness", routes::readiness::router())
         .nest("/kevin", routes::kevin::router())
         .nest("/kevin-matches", routes::kevin_matches::router())
         .nest("/cron", routes::kevin_learning::router())

@@ -583,7 +583,10 @@ async fn generate_matches(
     .fetch_one(&state.db)
     .await
     .unwrap_or(0);
-    if fresh_count > 0 && !super::kevin_feedback::preference_since_last_matches(&state, user.id).await {
+    if fresh_count > 0
+        && !super::kevin_feedback::preference_since_last_matches(&state, user.id).await
+        && !super::readiness::assessed_since_last_matches(&state, user.id).await
+    {
         let rows = fetch_kevin_matches_for_user(&state, user.id, None).await?;
         return Ok(Json(rows));
     }
@@ -864,7 +867,10 @@ async fn generate_matches(
         return Ok(Json(vec![]));
     }
 
-    let feedback = super::kevin_feedback::matching_section(&state, user.id).await;
+    let mut feedback = super::kevin_feedback::matching_section(&state, user.id).await;
+    if role == "STARTUP" {
+        feedback = format!("{}{feedback}", super::readiness::matching_line(&state, user.id).await);
+    }
     let prompt = format!(
         r#"You are Kevin, metatron's AI matchmaking engine. Analyse each candidate investor and explain why this specific founder is a strong fit for them.
 

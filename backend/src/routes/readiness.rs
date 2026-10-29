@@ -62,7 +62,7 @@ async fn is_paid(state: &AppState, user_id: Uuid) -> bool {
 // Kevin's tools
 // ---------------------------------------------------------------------------
 
-const SAVE_DESCRIPTION: &str = "Save where this founder stands on the way to funding, once you've assessed it. Stages: build (idea or prototype, no real users yet: an incubator or bootcamp first), accelerator (working product, first users or customers, team in place: ready for accelerators), angels (early revenue or strong traction: angels and pre-seed funds), seed (repeatable growth in a clear market: seed funds), series_a (product-market fit, repeatable sales, roughly $1-3M a year in recurring revenue in the US or Europe and less in emerging markets: VCs that lead Series A rounds), series_b (strong growth, improving unit economics, a management team: growth VCs, venture debt, strategic investors), growth (scale and a path to profit: growth funds, private equity, secondary sales). Judge against their sector and country, not Silicon Valley norms.";
+const SAVE_DESCRIPTION: &str = "Save where this founder stands on the way to funding, once you've assessed it. Stages: build (idea or prototype, no real users yet: an incubator or bootcamp first), accelerator (working product, first users or customers, team in place: ready for accelerators), angels (first revenue or strong early traction, roughly under $10k a month in the US or Europe: angels and pre-seed funds), seed (repeatable month-on-month growth in a clear market, roughly $10k-80k a month in the US or Europe: seed funds), series_a (product-market fit, repeatable sales, roughly $1-3M a year in recurring revenue in the US or Europe and less in emerging markets: VCs that lead Series A rounds), series_b (strong growth, improving unit economics, a management team: growth VCs, venture debt, strategic investors), growth (scale and a path to profit: growth funds, private equity, secondary sales). Judge against their sector and country, not Silicon Valley norms.";
 
 const FIND_DESCRIPTION: &str = "Find incubators, accelerators, bootcamps or scale-up programmes for this founder's stage, sector and country. Checks metatron's list first and searches the web when it's short. Tell the user which are verified (founders on metatron did them) and which were found online and aren't verified yet.";
 
@@ -341,7 +341,7 @@ async fn find(state: &AppState, user_id: Uuid, input: &Value) -> String {
         })
         .collect();
     format!(
-        "Programmes for the {} stage (don't add any that aren't here):\n{}",
+        "Programmes for the {} stage. Recommend only these, and call one verified only if it's marked verified:\n{}",
         stage_label(&stage),
         lines.join("\n")
     )
@@ -361,7 +361,7 @@ async fn search_web(state: &AppState, user_id: Uuid, stage: &str, sector: Option
         _ => "scale-up programmes for growth-stage companies",
     };
     let prompt = format!(
-        "Find up to 5 real {kind_hint} that a {sector} startup based in {country} at the {} stage could join now. Prefer ones in or open to {country}, then remote or global ones. Only include programmes you found in the search results, with their official website.\n\nReturn ONLY a JSON array, no other text:\n[{{\"name\":\"...\",\"url\":\"https://...\",\"kind\":\"incubator|accelerator|bootcamp|scaleup|other\",\"location\":\"city or country, or Remote\",\"stages\":[\"{}\"],\"sectors\":[\"...\"],\"summary\":\"one sentence\"}}]\nFor stages use only: {}. Leave sectors empty if it takes any sector.",
+        "Find up to 5 real {kind_hint} that a {sector} startup based in {country} at the {} stage could join now. Prefer ones in or open to {country}, then remote or global ones. Only include programmes with cohorts, mentoring or training that you found in the search results, with their official website: no investment funds, grants or competitions.\n\nReturn ONLY a JSON array, no other text:\n[{{\"name\":\"...\",\"url\":\"https://...\",\"kind\":\"incubator|accelerator|bootcamp|scaleup|other\",\"location\":\"city or country, or Remote\",\"stages\":[\"{}\"],\"sectors\":[\"...\"],\"summary\":\"one sentence\"}}]\nFor stages use only: {}. Leave sectors empty if it takes any sector.",
         stage_label(stage),
         stage,
         stage_keys().join(", ")

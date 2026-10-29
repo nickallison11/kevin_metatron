@@ -276,3 +276,67 @@ pub(crate) async fn follow_up_section(state: &AppState, user_id: Uuid) -> (Strin
     );
     (section, Some((opening, question)))
 }
+
+/// What the user has told Kevin, for the match-ranking prompt: their stated
+/// preferences and how past intros went. Empty when nothing is saved.
+pub(crate) async fn matching_section(state: &AppState, user_id: Uuid) -> String {
+    let rows: Vec<(String, Option<String>, Option<String>, Option<String>, String)> = sqlx::query_as(&format!(
+        r#"SELECT f.kind,
+                  CASE WHEN f.about_user_id IS NULL THEN NULL ELSE {NAME_SQL} END,
+                  f.outcome, f.reason, f.detail
+           FROM kevin_feedback f
+           LEFT JOIN profiles p ON p.user_id = f.about_user_id
+           LEFT JOIN investor_profiles ip ON ip.user_id = f.about_user_id
+           WHERE f.user_id = $1
+           ORDER BY f.created_at DESC
+           LIMIT 20"#
+    ))
+    .bind(user_id)
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+
+    let mut prefs = Vec::new();
+    let mut intros = Vec::new();
+    for (kind, about, outcome, reason, detail) in rows {
+        if kind == "preference" {
+            prefs.push(format!("- {detail}"));
+        } else if let Some(name) = about {
+            let tags: Vec<String> = [outcome, reason].into_iter().flatten().collect();
+            let tags = if tags.is_empty() { String::new() } else { format!(" ({})", tags.join(", ")) };
+            intros.push(format!("- {name}{tags}: {detail}"));
+        }
+    }
+
+    let mut out = String::new();
+    if !prefs.is_empty() {
+        out.push_str(&format!(
+            "\n\nWhat this user has told Kevin they want (newest first; this overrides their profile). Score any candidate that clearly clashes with one of these 20 or lower:\n{}",
+            prefs.join("\n")
+        ));
+    }
+    if !intros.is_empty() {
+        out.push_str(&format!(
+            "\n\nHow this user's past intros went (newest first). Score candidates like the ones that went well higher, and like the ones that didn't lower:\n{}",
+            intros.join("\n")
+        ));
+    }
+    out
+}
+
+/// True when the user has saved a preference since their matches were last
+/// generated, so cached matches should be regenerated with it.
+pub(crate) async fn preference_since_last_matches(state: &AppState, user_id: Uuid) -> bool {
+    sqlx::query_scalar(
+        r#"SELECT EXISTS(
+               SELECT 1 FROM kevin_feedback
+                WHERE user_id = $1 AND kind = 'preference'
+                  AND created_at > COALESCE(
+                      (SELECT MAX(generated_at) FROM kevin_matches WHERE for_user_id = $1),
+                      '-infinity'::timestamptz))"#,
+    )
+    .bind(user_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap_or(false)
+}

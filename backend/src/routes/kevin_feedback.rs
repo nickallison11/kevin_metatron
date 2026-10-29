@@ -259,7 +259,7 @@ pub(crate) async fn follow_up_section(state: &AppState, user_id: Uuid) -> String
         })
         .collect();
     format!(
-        "\n\n## Intro follow-ups\nAsk about one of these, in one short question, at a natural moment: at the start, or once the user has what they came for. Never in the middle of a task. Ask at most once per conversation, and if they'd rather not say, drop it. Save the answer with record_feedback.\n{}",
+        "\n\n## Intro follow-ups\nIf the user's message is a greeting or small talk, or they've just got what they came for, end your reply by asking about the first one in one short question, naming it (\"How did it go with <name>?\"). Don't interrupt a task to ask. Ask at most once per conversation; if they'd rather not say, drop it. Save the answer with record_feedback.\n{}",
         lines.join("\n")
     )
 }

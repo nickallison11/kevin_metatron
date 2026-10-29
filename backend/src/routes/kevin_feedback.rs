@@ -135,6 +135,22 @@ async fn record_from(state: &AppState, user_id: Uuid, input: &Value, source: &st
         }
     }
 
+    let duplicate: bool = sqlx::query_scalar(
+        r#"SELECT EXISTS(SELECT 1 FROM kevin_feedback
+                          WHERE user_id = $1 AND kind = $2 AND about_user_id IS NOT DISTINCT FROM $3
+                            AND LOWER(TRIM(detail)) = LOWER($4))"#,
+    )
+    .bind(user_id)
+    .bind(kind)
+    .bind(about)
+    .bind(detail)
+    .fetch_one(&state.db)
+    .await
+    .unwrap_or(false);
+    if duplicate {
+        return "Saved.".to_string();
+    }
+
     let saved = sqlx::query(
         r#"INSERT INTO kevin_feedback (user_id, about_user_id, kind, outcome, reason, detail, source)
            VALUES ($1, $2, $3, $4, $5, $6, $7)"#,
@@ -452,7 +468,7 @@ pub(crate) async fn extract_from_messaging(
     let saved = saved_section(state, user_id).await;
     let people = counterparts(state, user_id).await;
     let system = format!(
-        "You read one exchange between Kevin (an AI assistant on a platform connecting founders and investors) and a user, and save feedback from it with record_feedback.\n\nSave it when the user says how an intro or meeting went, why a match is or isn't right for them, or what they do or don't want in a match (sectors, stages, ticket size, geography, kind of investor or startup). If Kevin asked how an intro went and the user answered, that's an intro_outcome for that person, even if the answer is short; if they'd rather not say, save it with no outcome (detail: \"Didn't want to say\").\n\nDon't save questions, requests, small talk, or anything already saved below. If there's nothing to save, reply \"none\" and call nothing.\n\nThe user's matches and intros (name: about_user_id):\n{}{saved}",
+        "You read one exchange between Kevin (an AI assistant on a platform connecting founders and investors) and a user, and save feedback from it with record_feedback.\n\nOnly the user's latest message counts. Never save anything Kevin says, even when he repeats what the user wants.\n\nSave it when the user says how an intro or meeting went, why a match is or isn't right for them, or what they do or don't want in a match (sectors, stages, ticket size, geography, kind of investor or startup). If Kevin (earlier) asked how an intro went with someone and the user answered, that's an intro_outcome for that person, even if the answer is short; if they'd rather not say, save it with no outcome (detail: \"Didn't want to say\"). Otherwise save an intro_outcome only when the user names the person; if it isn't clear who they mean, save nothing.\n\nDon't save questions, requests, small talk, or anything already saved below. If there's nothing to save, reply \"none\" and call nothing.\n\nThe user's matches and intros (name: about_user_id):\n{}{saved}",
         if people.is_empty() { "(none)".to_string() } else { people },
     );
     let exchange = format!(

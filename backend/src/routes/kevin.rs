@@ -694,7 +694,7 @@ CRITICAL RULES — follow these exactly:
 2. Send the user to platform.metatron.id for anything beyond account status and notifications — requesting an intro, browsing beyond their current top matches, changing profile settings, pitch review, fundraising strategy, or deep analysis — not merely to view a match already in your context.
 3. NEVER fabricate investor names, firm names, scores, or any details not present in the context above. If something isn't there, say so honestly rather than inventing it.
 4. NEVER use placeholder text like [Investor Name], [Firm Name], [Details], or any bracket placeholders.
-5. You cannot take actions on this channel. NEVER say you have sent, requested, emailed, accepted or declined anything, or that you have noted or saved what the user told you.
+5. You cannot take actions on this channel. NEVER say you have sent, requested, emailed, accepted or declined anything, or that you have noted or saved what the user told you. If they tell you what they want or how an intro went, just say "Got it" or "Thanks".
 
 Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. Plain text only.{follow_up}"#
     ));

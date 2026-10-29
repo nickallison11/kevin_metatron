@@ -84,6 +84,11 @@ fn optional_enum(input: &Value, field: &str, allowed: &[&str]) -> Result<Option<
 }
 
 pub(crate) async fn record(state: &AppState, user_id: Uuid, input: &Value) -> String {
+    record_from(state, user_id, input, "chat").await
+}
+
+/// Like record, with where it was picked up (chat, or messaging for WhatsApp/Telegram).
+async fn record_from(state: &AppState, user_id: Uuid, input: &Value, source: &str) -> String {
     let kind = input["kind"].as_str().unwrap_or("");
     if kind != "intro_outcome" && kind != "preference" {
         return "Not saved: kind must be intro_outcome or preference.".to_string();
@@ -131,8 +136,8 @@ pub(crate) async fn record(state: &AppState, user_id: Uuid, input: &Value) -> St
     }
 
     let saved = sqlx::query(
-        r#"INSERT INTO kevin_feedback (user_id, about_user_id, kind, outcome, reason, detail)
-           VALUES ($1, $2, $3, $4, $5, $6)"#,
+        r#"INSERT INTO kevin_feedback (user_id, about_user_id, kind, outcome, reason, detail, source)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)"#,
     )
     .bind(user_id)
     .bind(about)
@@ -140,6 +145,7 @@ pub(crate) async fn record(state: &AppState, user_id: Uuid, input: &Value) -> St
     .bind(&outcome)
     .bind(&reason)
     .bind(detail)
+    .bind(source)
     .execute(&state.db)
     .await;
 
@@ -339,4 +345,166 @@ pub(crate) async fn preference_since_last_matches(state: &AppState, user_id: Uui
     .fetch_one(&state.db)
     .await
     .unwrap_or(false)
+}
+
+/// Kevin's last WhatsApp/Telegram message to the user (those turns have no
+/// session) and when he sent it.
+pub(crate) async fn last_messaging_reply(
+    state: &AppState,
+    user_id: Uuid,
+) -> Option<(String, chrono::DateTime<chrono::Utc>)> {
+    sqlx::query_as(
+        r#"SELECT content, created_at FROM kevin_chat_turns
+            WHERE user_id = $1 AND session_id IS NULL AND role = 'assistant'
+            ORDER BY created_at DESC LIMIT 1"#,
+    )
+    .bind(user_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten()
+}
+
+/// The line for the WhatsApp/Telegram prompt about an open intro, if any:
+/// ask about it when a conversation starts with a greeting (at most once
+/// every 3 days), or let Kevin know the user may be answering his question.
+pub(crate) async fn messaging_follow_up_line(
+    state: &AppState,
+    user_id: Uuid,
+    previous: Option<&(String, chrono::DateTime<chrono::Utc>)>,
+    is_greeting: bool,
+) -> String {
+    let (_, Some((ask, question))) = follow_up_section(state, user_id).await else {
+        return String::new();
+    };
+    if previous.is_some_and(|(text, _)| text.contains(&question)) {
+        return format!("\n\nYour last message asked the user: \"{question}\" If their message answers it, thank them in one short line.");
+    }
+    let new_conversation = previous.map_or(true, |(_, at)| *at < chrono::Utc::now() - chrono::Duration::hours(6));
+    if !is_greeting || !new_conversation {
+        return String::new();
+    }
+    let asked_recently: bool = sqlx::query_scalar(
+        r#"SELECT EXISTS(SELECT 1 FROM kevin_chat_turns
+                          WHERE user_id = $1 AND role = 'assistant'
+                            AND created_at > now() - interval '3 days'
+                            AND strpos(content, $2) > 0)"#,
+    )
+    .bind(user_id)
+    .bind(&question)
+    .fetch_one(&state.db)
+    .await
+    .unwrap_or(true);
+    if asked_recently {
+        return String::new();
+    }
+    format!("\n\n{ask}")
+}
+
+/// The user's matches and intros with their IDs, so the extractor can say
+/// which one the user means.
+async fn counterparts(state: &AppState, user_id: Uuid) -> String {
+    let rows: Vec<(Uuid, String)> = sqlx::query_as(&format!(
+        r#"WITH others AS (
+               SELECT matched_user_id AS other_id, COALESCE(intro_requested_at, generated_at) AS at
+                 FROM kevin_matches WHERE for_user_id = $1 AND matched_user_id IS NOT NULL
+               UNION ALL
+               SELECT for_user_id, intro_requested_at
+                 FROM kevin_matches WHERE matched_user_id = $1 AND intro_requested_at IS NOT NULL
+               UNION ALL
+               SELECT CASE WHEN investor_user_id = $1 THEN startup_user_id ELSE investor_user_id END, created_at
+                 FROM introductions WHERE investor_user_id = $1 OR startup_user_id = $1
+           ),
+           latest AS (
+               SELECT other_id, MAX(at) AS at FROM others GROUP BY other_id
+           )
+           SELECT l.other_id, {NAME_SQL}
+             FROM latest l
+             LEFT JOIN profiles p ON p.user_id = l.other_id
+             LEFT JOIN investor_profiles ip ON ip.user_id = l.other_id
+            ORDER BY l.at DESC NULLS LAST
+            LIMIT 40"#
+    ))
+    .bind(user_id)
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+    rows.into_iter()
+        .map(|(id, name)| format!("- {name}: {id}"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// WhatsApp and Telegram replies have no tools, so after each one a small
+/// model reads the exchange and saves any feedback in it.
+pub(crate) async fn extract_from_messaging(
+    state: &AppState,
+    user_id: Uuid,
+    role: &str,
+    tier: &str,
+    previous_kevin: Option<&str>,
+    user_message: &str,
+    kevin_reply: &str,
+) {
+    let Some(api_key) = state.ai_api_key.as_deref() else { return };
+    let model = "gemini-2.5-flash-lite";
+
+    let saved = saved_section(state, user_id).await;
+    let people = counterparts(state, user_id).await;
+    let system = format!(
+        "You read one exchange between Kevin (an AI assistant on a platform connecting founders and investors) and a user, and save feedback from it with record_feedback.\n\nSave it when the user says how an intro or meeting went, why a match is or isn't right for them, or what they do or don't want in a match (sectors, stages, ticket size, geography, kind of investor or startup). If Kevin asked how an intro went and the user answered, that's an intro_outcome for that person, even if the answer is short; if they'd rather not say, save it with no outcome (detail: \"Didn't want to say\").\n\nDon't save questions, requests, small talk, or anything already saved below. If there's nothing to save, reply \"none\" and call nothing.\n\nThe user's matches and intros (name: about_user_id):\n{}{saved}",
+        if people.is_empty() { "(none)".to_string() } else { people },
+    );
+    let exchange = format!(
+        "{}User: {user_message}\nKevin: {kevin_reply}",
+        previous_kevin.map(|p| format!("Kevin (earlier): {p}\n")).unwrap_or_default()
+    );
+    let body = json!({
+        "system_instruction": { "parts": [{ "text": system }] },
+        "tools": [{ "function_declarations": [tool_for_gemini()] }],
+        "contents": [{ "role": "user", "parts": [{ "text": exchange }] }],
+        "generationConfig": { "temperature": 0 }
+    });
+    let url = format!("https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent");
+    let response = match state.http_client.post(&url).query(&[("key", api_key)]).json(&body).send().await {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::warn!("feedback extraction request failed: {e}");
+            return;
+        }
+    };
+    let status = response.status();
+    let value: Value = match response.json().await {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::warn!("feedback extraction json parse failed: {e}");
+            return;
+        }
+    };
+    if !status.is_success() {
+        crate::alerts::check_provider_error("gemini", status.as_u16(), &value.to_string());
+        tracing::warn!("feedback extraction error {status}: {value}");
+        return;
+    }
+    crate::cost::record_llm_usage(
+        &state.db,
+        Some(user_id),
+        Some(role),
+        Some(tier),
+        "kevin_feedback_extract",
+        "gemini",
+        model,
+        value["usageMetadata"]["promptTokenCount"].as_i64().unwrap_or(0) as i32,
+        value["usageMetadata"]["candidatesTokenCount"].as_i64().unwrap_or(0) as i32,
+    )
+    .await;
+
+    let parts = value["candidates"][0]["content"]["parts"].as_array().cloned().unwrap_or_default();
+    for part in parts {
+        let call = &part["functionCall"];
+        if call["name"].as_str() == Some("record_feedback") {
+            let result = record_from(state, user_id, &call["args"], "messaging").await;
+            tracing::info!("feedback extraction for {user_id}: {result}");
+        }
+    }
 }

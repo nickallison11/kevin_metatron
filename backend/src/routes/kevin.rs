@@ -668,6 +668,14 @@ pub(crate) async fn kevin_reply_for_linked_user(
 
     let context = build_context(state, user.id, &user.role).await;
     let memory_section = memory_section_from_recalled(recalled);
+    let previous = super::kevin_feedback::last_messaging_reply(state, user.id).await;
+    let follow_up = super::kevin_feedback::messaging_follow_up_line(
+        state,
+        user.id,
+        previous.as_ref(),
+        is_greeting(&last_user_message),
+    )
+    .await;
 
     let system = email::localize_links(&format!(
         r#"You are Kevin, Metatron's account assistant on WhatsApp and Telegram.
@@ -688,7 +696,7 @@ CRITICAL RULES — follow these exactly:
 4. NEVER use placeholder text like [Investor Name], [Firm Name], [Details], or any bracket placeholders.
 5. You cannot take actions on this channel. NEVER say you have sent, requested, emailed, accepted or declined anything, or that you have noted or saved what the user told you.
 
-Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. Plain text only."#
+Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. Plain text only.{follow_up}"#
     ));
 
     let (provider, api_key, model) = if user.is_pro || user.is_basic {
@@ -799,6 +807,28 @@ Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. 
             {
                 tracing::warn!("kevin linked user: memory store failed: {e}");
             }
+        });
+    }
+
+    {
+        let state = state.clone();
+        let uid = user.id;
+        let role = user.role.clone();
+        let tier = if user.is_pro { "pro" } else if user.is_basic { "basic" } else { "free" };
+        let previous_kevin = previous.map(|(text, _)| text);
+        let user_msg = last_user_message.clone();
+        let kevin_msg = reply.clone();
+        tokio::spawn(async move {
+            super::kevin_feedback::extract_from_messaging(
+                &state,
+                uid,
+                &role,
+                tier,
+                previous_kevin.as_deref(),
+                &user_msg,
+                &kevin_msg,
+            )
+            .await;
         });
     }
 
@@ -2947,6 +2977,22 @@ fn is_short_confirmation(msg: &str) -> bool {
     ];
     let joined = words.join(" ");
     phrases.iter().any(|p| joined == *p || joined.starts_with(&format!("{p} ")))
+}
+
+/// "hi", "hey kevin", "good morning" — a message that only says hello.
+fn is_greeting(msg: &str) -> bool {
+    let cleaned: String = msg
+        .chars()
+        .map(|c| if c.is_alphanumeric() { c.to_ascii_lowercase() } else { ' ' })
+        .collect();
+    let words: Vec<&str> = cleaned.split_whitespace().filter(|w| *w != "kevin").collect();
+    let joined = words.join(" ");
+    [
+        "hi", "hello", "hey", "hiya", "howzit", "yo", "sup", "morning", "afternoon", "evening",
+        "good morning", "good afternoon", "good evening", "hi there", "hello there", "hey there",
+        "how are you", "how s it going", "hows it going", "what s up", "whats up",
+    ]
+    .contains(&joined.as_str())
 }
 
 #[derive(Debug, PartialEq)]

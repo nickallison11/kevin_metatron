@@ -398,7 +398,7 @@ CRITICAL RULES — follow these exactly:
 6. Each message you receive is a fresh request — you do not automatically retain the actual data from tool calls made in earlier messages, only the summary text you wrote. If a user asks for details, names, or specifics about something you previously said you found (e.g. "send me their details," "tell me more about them"), and you do not see the literal tool output for that search earlier in this exact conversation, you must call the tool again before answering. Never answer a follow-up like this from memory of your own prior summary — that is exactly how placeholder text like [Investor Name 1] happens.
 7. NEVER say you have sent, requested, emailed, accepted or declined anything unless a tool call in this conversation returned success for it. To introduce the user to a match, call request_intro (call lookup_match first if you need the match's ID). If the tool fails or you cannot call it, say so plainly and point the user to their Matches page.
 8. Whenever the user tells you how an intro or meeting went, why a match is or isn't right for them, or what they do or don't want in a match, call record_feedback right away. Only once it returns "Saved." may you say "Noted" or anything like it; saying it without that call is lying to the user. Don't claim it changes their matches.
-9. For founders: when they ask whether they're ready for investors, what to do next, or which programmes or investors suit them, and the readiness in the context is missing or out of date, assess it. Use what the context already tells you, then ask at most two short questions about what's missing (customers or revenue and its growth, whether the team is full-time, what they've built, how much they want to raise). Then call save_readiness and give them the result: their stage and why, what's missing for the next stage, and the next steps. Before Series A, call find_programmes when a programme would help; at any stage use search_network for investors at their stage. Only recommend programmes find_programmes returned (never search_web for them), and only call one verified if it's marked verified. Whenever anyone mentions by name a programme (incubator, accelerator, bootcamp) they did, run or recommend, call record_programme.
+9. For founders: when they ask whether they're ready for investors, what to do next, or which programmes or investors suit them, and the readiness in the context is missing or out of date, assess it. Use what the context already tells you, then ask about what's missing one short question per message, waiting for each answer, two or three questions at most (customers or revenue and its growth, whether the team is full-time, what they've built, how much they want to raise). Then call save_readiness and give them the result: their stage and why, what's missing for the next stage, and the next steps. Before Series A, call find_programmes when a programme would help; at any stage use search_network for investors at their stage. Only recommend programmes find_programmes returned (never search_web for them), and only call one verified if it's marked verified. Whenever anyone mentions by name a programme (incubator, accelerator, bootcamp) they did, run or recommend, call record_programme.
 
 Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. Plain text only."#
     );
@@ -621,7 +621,53 @@ pub(crate) enum KevinReplyError {
     Internal,
 }
 
-/// Shared Kevin single-turn reply for Telegram, WhatsApp, etc.
+/// Added to Kevin's prompt on WhatsApp and Telegram.
+const MESSAGING_NOTE: &str = "\n\nYou're talking to this user on WhatsApp or Telegram, so keep replies short: a few lines, and one question per message.";
+
+/// The user's current WhatsApp/Telegram conversation, and whether it's new:
+/// one starts after 6 hours without a message.
+async fn messaging_session(state: &AppState, user_id: Uuid) -> Option<(Uuid, bool)> {
+    let current: Option<(Uuid, bool)> = sqlx::query_as(
+        r#"SELECT session_id, last_message_at > now() - interval '6 hours'
+             FROM kevin_messaging_sessions WHERE user_id = $1"#,
+    )
+    .bind(user_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()?;
+    let (session_id, is_new) = match current {
+        Some((sid, true)) => (sid, false),
+        _ => (Uuid::new_v4(), true),
+    };
+    sqlx::query(
+        r#"INSERT INTO kevin_messaging_sessions (user_id, session_id, last_message_at)
+           VALUES ($1, $2, now())
+           ON CONFLICT (user_id) DO UPDATE SET session_id = EXCLUDED.session_id, last_message_at = now()"#,
+    )
+    .bind(user_id)
+    .bind(session_id)
+    .execute(&state.db)
+    .await
+    .ok()?;
+    Some((session_id, is_new))
+}
+
+/// Kevin's last message in a conversation.
+async fn last_reply_in_session(state: &AppState, session_id: Uuid) -> Option<String> {
+    sqlx::query_scalar(
+        r#"SELECT content FROM kevin_chat_turns
+            WHERE session_id = $1 AND role = 'assistant'
+            ORDER BY created_at DESC LIMIT 1"#,
+    )
+    .bind(session_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten()
+}
+
+/// Kevin on WhatsApp and Telegram: the same Kevin as web chat (prompt, tools,
+/// history), in a conversation per user that starts afresh after 6 hours.
 pub(crate) async fn kevin_reply_for_linked_user(
     state: &Arc<AppState>,
     user: UserForTelegram,
@@ -632,87 +678,9 @@ pub(crate) async fn kevin_reply_for_linked_user(
     {
         return Ok(reply);
     }
-    let last_user_message = message.clone();
-    let msgs = vec![("user".to_string(), message)];
-
-    let custom_ai_api_key = match user.custom_ai_api_key {
-        Some(ref encrypted) => match crypto::decrypt(&state.encryption_key, encrypted) {
-            Ok(value) => Some(value),
-            Err(e) => {
-                tracing::warn!("kevin linked user: custom_ai_api_key decrypt failed: {e}");
-                None
-            }
-        },
-        None => None,
-    };
-
-    let recalled = if last_user_message.trim().is_empty() {
-        Vec::new()
-    } else {
-        match memory::recall_memories(
-            &state.db,
-            &state.http_client,
-            state.gemini_embedding_key.as_deref(),
-            user.is_pro,
-            user.id,
-            &last_user_message,
-        )
-        .await
-        {
-            Ok(v) => v,
-            Err(e) => {
-                tracing::warn!("kevin linked user: memory recall failed: {e}");
-                Vec::new()
-            }
-        }
-    };
-
-    let context = build_context(state, user.id, &user.role).await;
-    let memory_section = memory_section_from_recalled(recalled);
-    let previous = super::kevin_feedback::last_messaging_reply(state, user.id).await;
-    let (follow_up, follow_up_question) = super::kevin_feedback::messaging_follow_up_line(
-        state,
-        user.id,
-        previous.as_ref(),
-        is_greeting(&last_user_message),
-    )
-    .await;
-
-    let system = email::localize_links(&format!(
-        r#"You are Kevin, Metatron's account assistant on WhatsApp and Telegram.
-
-On this channel, you help with account status and notifications only: a user's current matches, their deck/subscription status, and the status of intro requests they've sent or received. Be concise, practical, and professional.
-
-You do NOT provide fundraising advice, pitch review, diligence analysis, or general strategy on this channel — that deeper work happens on the web platform at platform.metatron.id. If a user asks for that kind of help, tell them plainly to continue there instead of attempting it here.
-
-## Current user context
-{context}{memory_section}
-
-Stay in character as Kevin. You are talking to this user over Telegram or WhatsApp, not the web app.
-
-CRITICAL RULES — follow these exactly:
-1. Your "Current top matches" above (if present) are this user's real, current matches. When the user asks to see a match, asks "why is this a fit," or asks for details on something already listed there, answer directly from that data — name, fit score, one-liner, sector, stage, reasoning, deck link. Do NOT tell the user to log into the platform to see something that is already listed above.
-2. Send the user to platform.metatron.id for anything beyond account status and notifications — requesting an intro, browsing beyond their current top matches, changing profile settings, pitch review, fundraising strategy, or deep analysis — not merely to view a match already in your context.
-3. NEVER fabricate investor names, firm names, scores, or any details not present in the context above. If something isn't there, say so honestly rather than inventing it.
-4. NEVER use placeholder text like [Investor Name], [Firm Name], [Details], or any bracket placeholders.
-5. You cannot take actions on this channel. NEVER say you have sent, requested, emailed, accepted or declined anything, or that you have noted or saved what the user told you. If they tell you what they want or how an intro went, just say "Got it" or "Thanks".
-
-Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. Plain text only.{follow_up}"#
-    ));
-
-    let (provider, api_key, model) = if user.is_pro || user.is_basic {
-        if let Some(key) = state.anthropic_api_key.as_deref() {
-            ("anthropic", key, "claude-haiku-4-5-20251001")
-        } else if let Some(key) = state.ai_api_key.as_deref() {
-            ("gemini", key, "gemini-2.5-flash-lite")
-        } else {
-            return Err(KevinReplyError::ServiceUnavailable);
-        }
-    } else if let Some(key) = state.ai_api_key.as_deref() {
-        ("gemini", key, "gemini-2.5-flash-lite")
-    } else {
+    if state.ai_api_key.is_none() && state.anthropic_api_key.is_none() {
         return Err(KevinReplyError::ServiceUnavailable);
-    };
+    }
 
     let daily_limit = kevin_daily_limit(&state, user.id, user.is_basic, user.is_pro).await;
 
@@ -754,40 +722,88 @@ Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. 
         }
     }
 
-    let reply = match complete_chat(
-        &state.http_client,
-        provider,
-        api_key,
-        model,
-        &system,
-        msgs,
-    )
-    .await
+    let Some((session_id, new_conversation)) = messaging_session(state, user.id).await else {
+        tracing::error!("kevin linked user: messaging session failed");
+        return Err(KevinReplyError::Internal);
+    };
+    let user_email: String = match sqlx::query_scalar("SELECT email FROM users WHERE id = $1")
+        .bind(user.id)
+        .fetch_one(&state.db)
+        .await
     {
-        Ok((r, usage)) => {
-            let tier = if user.is_pro { "pro" } else if user.is_basic { "basic" } else { "free" };
-            crate::cost::record_llm_usage(
-                &state.db,
-                Some(user.id),
-                Some(user.role.as_str()),
-                Some(tier),
-                "kevin_telegram_whatsapp",
-                provider,
-                model,
-                usage.input_tokens,
-                usage.output_tokens,
-            )
-            .await;
-            r
-        }
+        Ok(e) => e,
         Err(e) => {
-            tracing::error!("kevin linked user: complete_chat failed: {e}");
-            return Err(KevinReplyError::BadGateway(e));
+            tracing::error!("kevin linked user: email lookup failed: {e}");
+            return Err(KevinReplyError::Internal);
         }
     };
+
+    let recalled = if message.trim().is_empty() {
+        Vec::new()
+    } else {
+        match memory::recall_memories(
+            &state.db,
+            &state.http_client,
+            state.gemini_embedding_key.as_deref(),
+            user.is_pro,
+            user.id,
+            &message,
+        )
+        .await
+        {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::warn!("kevin linked user: memory recall failed: {e}");
+                Vec::new()
+            }
+        }
+    };
+
+    let (follow_ups, opening_ask) = super::kevin_feedback::follow_up_section(state, user.id).await;
+    let context = format!("{}{follow_ups}", build_context(state, user.id, &user.role).await);
+    let memory_section = memory_section_from_recalled(recalled);
+    let system = email::localize_links(&kevin_system_prompt(&format!("{context}{memory_section}"), MESSAGING_NOTE));
+
+    // The same intro follow-up as web chat: ask on a greeting that opens a
+    // conversation (at most every 3 days here, since people say hi often),
+    // and make the reply to that question save the answer.
+    let mut force_tool = None;
+    let mut asking = None;
+    let system = match opening_ask {
+        Some((ask, question))
+            if new_conversation
+                && is_greeting(&message)
+                && !super::kevin_feedback::asked_recently(state, user.id, &question).await =>
+        {
+            asking = Some(question);
+            format!("{system}\n\n{ask}")
+        }
+        Some((_, question))
+            if !new_conversation
+                && last_reply_in_session(state, session_id).await.is_some_and(|t| t.contains(&question)) =>
+        {
+            force_tool = Some("record_feedback");
+            system
+        }
+        _ => system,
+    };
+
+    let reply = run_kevin_with_tools(
+        state,
+        user.id,
+        &user_email,
+        &user.role,
+        user.is_pro,
+        user.is_basic,
+        &system,
+        vec![serde_json::json!({ "role": "user", "content": message })],
+        Some(session_id),
+        force_tool,
+    )
+    .await;
     let mut reply = strip_markdown(&reply);
     // Models sometimes greet back with a generic question instead.
-    if let Some(question) = follow_up_question.filter(|q| !reply.contains(q.as_str())) {
+    if let Some(question) = asking.filter(|q| !reply.contains(q.as_str())) {
         reply = format!("{}\n\n{question}", reply.trim_end());
     }
 
@@ -797,7 +813,7 @@ Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. 
         let uid = user.id;
         let is_pro = user.is_pro;
         let embedding_key = state.gemini_embedding_key.clone();
-        let conversation = format!("User: {last_user_message}\nKevin: {reply}");
+        let conversation = format!("User: {message}\nKevin: {reply}");
         tokio::spawn(async move {
             if let Err(e) = memory::store_memory(
                 &db,
@@ -815,44 +831,18 @@ Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. 
         });
     }
 
-    // A plain hello carries no feedback, and Kevin's own question in the
-    // reply was once mistaken for the user declining to answer.
-    if !is_greeting(&last_user_message) {
-        let state = state.clone();
-        let uid = user.id;
-        let role = user.role.clone();
-        let tier = if user.is_pro { "pro" } else if user.is_basic { "basic" } else { "free" };
-        // Only Kevin's follow-up question is passed on; anything else he said
-        // got saved again as if the user had just said it.
-        let previous_kevin = previous
-            .map(|(text, _)| text)
-            .filter(|text| text.contains("How did it go with") || text.contains("What was missing?"));
-        let user_msg = last_user_message.clone();
-        let kevin_msg = reply.clone();
-        tokio::spawn(async move {
-            super::kevin_feedback::extract_from_messaging(
-                &state,
-                uid,
-                &role,
-                tier,
-                previous_kevin.as_deref(),
-                &user_msg,
-                &kevin_msg,
-            )
-            .await;
-        });
-    }
-
     let db2 = state.db.clone();
     let uid2 = user.id;
-    let user_msg = last_user_message.clone();
+    let user_msg = message.clone();
     let assistant_msg = reply.clone();
     tokio::spawn(async move {
         let _ = sqlx::query(
-            "INSERT INTO kevin_chat_turns (user_id, role, content) VALUES ($1, 'user', $2), ($1, 'assistant', $3)",
+            r#"INSERT INTO kevin_chat_turns (user_id, role, content, session_id)
+               VALUES ($1, 'user', $2, $3), ($1, 'assistant', $4, $3)"#,
         )
         .bind(uid2)
         .bind(&user_msg)
+        .bind(session_id)
         .bind(&assistant_msg)
         .execute(&db2)
         .await;
@@ -1020,32 +1010,7 @@ async fn chat(
         .map(|s| format!("\n\n## Role-specific guidance\n{s}"))
         .unwrap_or_default();
 
-    let system = format!(
-        r#"You are Kevin, the AI copilot for Metatron (metatron.id).
-
-Metatron is the intelligence layer connecting founders, investors, and ecosystem partners globally. You help users navigate fundraising, diligence, pitch refinement, and relationship context. Be concise, practical, and professional.
-
-## Current user context
-{context}{memory_section}{role_extra}
-
-Stay in character as Kevin. You have tools to:
-- Look up and introduce matched investors/founders on the Metatron network (search_network)
-- Search the open web for investors, funds, and companies NOT yet on the platform (search_web)
-- Email pitch decks to interested investors
-
-CRITICAL RULES — follow these exactly:
-1. NEVER fabricate investor names, firm names, or any details. If a tool returns empty results, say so honestly: "I did not find any investors matching that in the Metatron network."
-2. NEVER use placeholder text like [Investor Name], [Firm Name], [Details], or any bracket placeholders. Only report information that was actually returned by a tool.
-3. When search_network returns no results, immediately use search_web to find investors on the open web instead. Do not stop at an empty network result.
-4. When reporting tool results, quote the exact names and details returned. Do not paraphrase or invent additional context.
-5. Do not say you cannot search the web — you can, using search_web.
-6. Each message you receive is a fresh request — you do not automatically retain the actual data from tool calls made in earlier messages, only the summary text you wrote. If a user asks for details, names, or specifics about something you previously said you found (e.g. "send me their details," "tell me more about them"), and you do not see the literal tool output for that search earlier in this exact conversation, you must call the tool again before answering. Never answer a follow-up like this from memory of your own prior summary — that is exactly how placeholder text like [Investor Name 1] happens.
-7. NEVER say you have sent, requested, emailed, accepted or declined anything unless a tool call in this conversation returned success for it. To introduce the user to a match, call request_intro (call lookup_match first if you need the match's ID). If the tool fails or you cannot call it, say so plainly and point the user to their Matches page.
-8. Whenever the user tells you how an intro or meeting went, why a match is or isn't right for them, or what they do or don't want in a match, call record_feedback right away. Only once it returns "Saved." may you say "Noted" or anything like it; saying it without that call is lying to the user. Don't claim it changes their matches.
-9. For founders: when they ask whether they're ready for investors, what to do next, or which programmes or investors suit them, and the readiness in the context is missing or out of date, assess it. Use what the context already tells you, then ask at most two short questions about what's missing (customers or revenue and its growth, whether the team is full-time, what they've built, how much they want to raise). Then call save_readiness and give them the result: their stage and why, what's missing for the next stage, and the next steps. Before Series A, call find_programmes when a programme would help; at any stage use search_network for investors at their stage. Only recommend programmes find_programmes returned (never search_web for them), and only call one verified if it's marked verified. Whenever anyone mentions by name a programme (incubator, accelerator, bootcamp) they did, run or recommend, call record_programme.
-
-Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. Plain text only."#
-    );
+    let system = kevin_system_prompt(&format!("{context}{memory_section}{role_extra}"), "");
     // A conversation opening with "Hi": ask about the first open intro. When
     // the user is replying to that question, the model must save the answer
     // first; asked nicely, Haiku often said "Noted" without saving.
@@ -1166,6 +1131,38 @@ Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. 
     });
 
     Ok(Json(ChatResponse { reply }))
+}
+
+/// Kevin's system prompt for web chat and WhatsApp/Telegram: the same Kevin,
+/// tools and rules everywhere. `context` is the user context section;
+/// `channel_note` adds anything specific to the channel.
+pub(crate) fn kevin_system_prompt(context: &str, channel_note: &str) -> String {
+    format!(
+        r#"You are Kevin, the AI copilot for Metatron (metatron.id).
+
+Metatron is the intelligence layer connecting founders, investors, and ecosystem partners globally. You help users navigate fundraising, diligence, pitch refinement, and relationship context. Be concise, practical, and professional.
+
+## Current user context
+{context}
+
+Stay in character as Kevin. You have tools to:
+- Look up and introduce matched investors/founders on the Metatron network (search_network)
+- Search the open web for investors, funds, and companies NOT yet on the platform (search_web)
+- Email pitch decks to interested investors
+
+CRITICAL RULES — follow these exactly:
+1. NEVER fabricate investor names, firm names, or any details. If a tool returns empty results, say so honestly: "I did not find any investors matching that in the Metatron network."
+2. NEVER use placeholder text like [Investor Name], [Firm Name], [Details], or any bracket placeholders. Only report information that was actually returned by a tool.
+3. When search_network returns no results, immediately use search_web to find investors on the open web instead. Do not stop at an empty network result.
+4. When reporting tool results, quote the exact names and details returned. Do not paraphrase or invent additional context.
+5. Do not say you cannot search the web — you can, using search_web.
+6. Each message you receive is a fresh request — you do not automatically retain the actual data from tool calls made in earlier messages, only the summary text you wrote. If a user asks for details, names, or specifics about something you previously said you found (e.g. "send me their details," "tell me more about them"), and you do not see the literal tool output for that search earlier in this exact conversation, you must call the tool again before answering. Never answer a follow-up like this from memory of your own prior summary — that is exactly how placeholder text like [Investor Name 1] happens.
+7. NEVER say you have sent, requested, emailed, accepted or declined anything unless a tool call in this conversation returned success for it. To introduce the user to a match, call request_intro (call lookup_match first if you need the match's ID). If the tool fails or you cannot call it, say so plainly and point the user to their Matches page.
+8. Whenever the user tells you how an intro or meeting went, why a match is or isn't right for them, or what they do or don't want in a match, call record_feedback right away. Only once it returns "Saved." may you say "Noted" or anything like it; saying it without that call is lying to the user. Don't claim it changes their matches.
+9. For founders: when they ask whether they're ready for investors, what to do next, or which programmes or investors suit them, and the readiness in the context is missing or out of date, assess it. Use what the context already tells you, then ask about what's missing one short question per message, waiting for each answer, two or three questions at most (customers or revenue and its growth, whether the team is full-time, what they've built, how much they want to raise). Then call save_readiness and give them the result: their stage and why, what's missing for the next stage, and the next steps. Before Series A, call find_programmes when a programme would help; at any stage use search_network for investors at their stage. Only recommend programmes find_programmes returned (never search_web for them), and only call one verified if it's marked verified. Whenever anyone mentions by name a programme (incubator, accelerator, bootcamp) they did, run or recommend, call record_programme.
+
+Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. Plain text only.{channel_note}"#
+    )
 }
 
 #[derive(Deserialize)]

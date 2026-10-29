@@ -144,15 +144,6 @@ pub(crate) fn tools_for_gemini(role: &str) -> Vec<Value> {
         .collect()
 }
 
-/// Just record_programme, for the WhatsApp/Telegram feedback extractor.
-pub(crate) fn record_programme_tool_for_gemini() -> Value {
-    json!({
-        "name": "record_programme",
-        "description": RECORD_DESCRIPTION,
-        "parameters": { "type": "object", "properties": record_properties(), "required": ["name", "detail"] }
-    })
-}
-
 /// Runs one of this module's tools; None when the name isn't one of them.
 pub(crate) async fn execute(state: &AppState, user_id: Uuid, role: &str, tool_name: &str, input: &Value) -> Option<String> {
     Some(match tool_name {

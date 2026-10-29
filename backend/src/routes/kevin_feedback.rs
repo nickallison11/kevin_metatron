@@ -463,12 +463,12 @@ pub(crate) async fn extract_from_messaging(
     kevin_reply: &str,
 ) {
     let Some(api_key) = state.ai_api_key.as_deref() else { return };
-    let model = "gemini-2.5-flash-lite";
+    let model = "gemini-2.5-flash";
 
     let saved = saved_section(state, user_id).await;
     let people = counterparts(state, user_id).await;
     let system = format!(
-        "You read one exchange between Kevin (an AI assistant on a platform connecting founders and investors) and a user, and save feedback from it with record_feedback.\n\nOnly the user's latest message counts. Never save anything Kevin says, even when he repeats what the user wants. A question in Kevin's latest reply hasn't been answered yet, so it's never a reason to save.\n\nSave it when the user says how an intro or meeting went, why a match is or isn't right for them, or what they do or don't want in a match (sectors, stages, ticket size, geography, kind of investor or startup). If Kevin (earlier) asked how an intro went with someone and the user answered, that's an intro_outcome for that person, even if the answer is short; if they'd rather not say, save it with no outcome (detail: \"Didn't want to say\"). Otherwise save an intro_outcome only when the user names the person; if it isn't clear who they mean, save nothing.\n\nDon't save questions, requests, small talk, or anything already saved below. If there's nothing to save, reply \"none\" and call nothing.\n\nThe user's matches and intros (name: about_user_id):\n{}{saved}",
+        "You read one exchange between Kevin (an AI assistant on a platform connecting founders and investors) and a user, and save feedback from it with record_feedback.\n\nOnly the user's latest message counts. Never save anything Kevin says, even when he repeats what the user wants. A question in Kevin's latest reply hasn't been answered yet, so it's never a reason to save.\n\nSave it when the user says how an intro or meeting went, why a match is or isn't right for them, or what they do or don't want in a match (sectors, stages, ticket size, geography, kind of investor or startup). If Kevin (earlier) asked how an intro went with someone and the user answered, that's an intro_outcome for that person, even if the answer is short; if they'd rather not say, save it with no outcome (detail: \"Didn't want to say\"). Otherwise save an intro_outcome only when the user names the person; if it isn't clear who they mean, save nothing. Call record_feedback at most once per person or preference.\n\nDon't save questions, requests, small talk, or anything already saved below. If there's nothing to save, reply \"none\" and call nothing.\n\nThe user's matches and intros (name: about_user_id):\n{}{saved}",
         if people.is_empty() { "(none)".to_string() } else { people },
     );
     let exchange = format!(
@@ -479,7 +479,7 @@ pub(crate) async fn extract_from_messaging(
         "system_instruction": { "parts": [{ "text": system }] },
         "tools": [{ "function_declarations": [tool_for_gemini()] }],
         "contents": [{ "role": "user", "parts": [{ "text": exchange }] }],
-        "generationConfig": { "temperature": 0 }
+        "generationConfig": { "temperature": 0, "thinkingConfig": { "thinkingBudget": 0 } }
     });
     let url = format!("https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent");
     let response = match state.http_client.post(&url).query(&[("key", api_key)]).json(&body).send().await {
@@ -519,7 +519,12 @@ pub(crate) async fn extract_from_messaging(
     for part in parts {
         let call = &part["functionCall"];
         if call["name"].as_str() == Some("record_feedback") {
-            let result = record_from(state, user_id, &call["args"], "messaging").await;
+            let mut args = call["args"].clone();
+            // "Rather not say" is no outcome; the model tends to add one anyway.
+            if args["detail"].as_str().is_some_and(|d| d.to_lowercase().contains("want to say")) {
+                args["outcome"] = Value::Null;
+            }
+            let result = record_from(state, user_id, &args, "messaging").await;
             tracing::info!("feedback extraction for {user_id}: {result}");
         }
     }

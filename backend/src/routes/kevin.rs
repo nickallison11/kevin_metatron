@@ -817,7 +817,11 @@ Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. 
         let uid = user.id;
         let role = user.role.clone();
         let tier = if user.is_pro { "pro" } else if user.is_basic { "basic" } else { "free" };
-        let previous_kevin = previous.map(|(text, _)| text);
+        // Only Kevin's follow-up question is passed on; anything else he said
+        // got saved again as if the user had just said it.
+        let previous_kevin = previous
+            .map(|(text, _)| text)
+            .filter(|text| text.contains("How did it go with") || text.contains("What was missing?"));
         let user_msg = last_user_message.clone();
         let kevin_msg = reply.clone();
         tokio::spawn(async move {

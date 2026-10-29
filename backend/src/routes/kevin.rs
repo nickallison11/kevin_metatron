@@ -3131,7 +3131,12 @@ pub(crate) async fn run_kevin_with_tools(
             }
         })
         .unwrap_or_default();
-    let complexity = classify_query_complexity(&last_msg);
+    let mut complexity = classify_query_complexity(&last_msg);
+    // Flash-Lite ignores the intro follow-up instruction on a plain "Hi";
+    // the paid tier asks reliably. Only while the user has intros to ask about.
+    if complexity == QueryComplexity::Simple && system.contains(crate::routes::kevin_feedback::FOLLOW_UP_HEADING) {
+        complexity = QueryComplexity::Moderate;
+    }
 
     // Prefer real persisted context (with actual tool_call/tool_result blocks)
     // over the frontend's flattened text history, when it exists. A session

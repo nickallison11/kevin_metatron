@@ -18,6 +18,8 @@ const REASONS: &[&str] = &[
 ];
 /// Outcomes that close an intro: Kevin stops asking about it.
 const FINAL_OUTCOMES: &[&str] = &["no_meeting", "poor_match", "investing", "passed", "declined"];
+/// Marks the follow-ups section in the system prompt (see run_kevin_with_tools).
+pub(crate) const FOLLOW_UP_HEADING: &str = "## Intro follow-ups";
 
 const DESCRIPTION: &str = "Save what the user tells you about how an intro or meeting went, why a match is or isn't right for them, or what they do or don't want (sectors, stages, ticket size, geography, kind of investor or startup). Call it as soon as they say it, without asking permission.";
 
@@ -259,7 +261,7 @@ pub(crate) async fn follow_up_section(state: &AppState, user_id: Uuid) -> String
         })
         .collect();
     format!(
-        "\n\n## Intro follow-ups\nIf the user's message is a greeting or small talk, or they've just got what they came for, end your reply by asking about the first one in one short question, naming it (\"How did it go with <name>?\"). Don't interrupt a task to ask. Ask at most once per conversation; if they'd rather not say, drop it. Save the answer with record_feedback.\n{}",
+        "\n\n{FOLLOW_UP_HEADING}\nIf the user's message is a greeting or small talk, or they've just got what they came for, end your reply by asking about the first one in one short question, naming it (\"How did it go with <name>?\"). Don't interrupt a task to ask. Ask at most once per conversation, and never about one already discussed in this conversation or that you just saved feedback for. If they'd rather not say, drop it. Save the answer with record_feedback.\n{}",
         lines.join("\n")
     )
 }

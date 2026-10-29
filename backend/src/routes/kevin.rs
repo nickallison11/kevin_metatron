@@ -1004,12 +1004,22 @@ CRITICAL RULES — follow these exactly:
 
 Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. Plain text only."#
     );
-    // A conversation opening with "Hi": ask about the first open intro.
+    // A conversation opening with "Hi": ask about the first open intro. When
+    // the user is replying to that question, the model must save the answer
+    // first; asked nicely, Haiku often said "Noted" without saving.
+    let mut force_tool = None;
     let system = match opening_ask {
-        Some(ask) if msgs.len() == 1 && classify_query_complexity(&last_user_message) == QueryComplexity::Simple => {
+        Some((ask, _)) if msgs.len() == 1 && classify_query_complexity(&last_user_message) == QueryComplexity::Simple => {
             format!("{system}\n\n{ask}")
         }
-        _ => system,
+        Some((_, question)) => {
+            let asked = msgs.iter().rev().find(|(role, _)| role == "assistant");
+            if asked.is_some_and(|(_, text)| text.contains(&question)) {
+                force_tool = Some("record_feedback");
+            }
+            system
+        }
+        None => system,
     };
 
     let daily_limit = kevin_daily_limit(&state, user.id, user.is_basic, user.is_pro).await;
@@ -1067,6 +1077,7 @@ Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. 
         &system,
         anthropic_msgs,
         body.session_id,
+        force_tool,
     )
     .await;
 
@@ -2794,6 +2805,7 @@ async fn run_kevin_with_tools_gemini(
     initial_messages: &[serde_json::Value],
     api_key: &str,
     model: &str,
+    force_tool: Option<&str>,
 ) -> (String, Vec<crate::kevin_context::ContextRow>, crate::ai::TokenUsage) {
     // `initial_messages` already arrives in Gemini-native {role, parts} shape
     // (built by kevin_context::to_gemini) — used as-is, not re-derived.
@@ -2810,12 +2822,17 @@ async fn run_kevin_with_tools_gemini(
         "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
     );
 
-    for _ in 0..4 {
-        let body = serde_json::json!({
+    for turn in 0..4 {
+        let mut body = serde_json::json!({
             "system_instruction": { "parts": [{ "text": system }] },
             "tools": tools,
             "contents": contents
         });
+        if let (0, Some(name)) = (turn, force_tool) {
+            body["tool_config"] = serde_json::json!({
+                "function_calling_config": { "mode": "ANY", "allowed_function_names": [name] }
+            });
+        }
 
         let response = match state
             .http_client
@@ -3019,20 +3036,24 @@ async fn run_kevin_anthropic_tool_loop(
     role: &str,
     system: &str,
     messages: Vec<serde_json::Value>,
+    force_tool: Option<&str>,
 ) -> Result<(String, Vec<crate::kevin_context::ContextRow>, crate::ai::TokenUsage), String> {
     let tools = kevin_tools_for_role(role);
     let mut msgs = messages;
     let mut new_rows: Vec<crate::kevin_context::ContextRow> = Vec::new();
     let mut usage = crate::ai::TokenUsage::default();
 
-    for _ in 0..4 {
-        let request_body = serde_json::json!({
+    for turn in 0..4 {
+        let mut request_body = serde_json::json!({
             "model": model,
             "max_tokens": 2048,
             "system": system,
             "tools": tools,
             "messages": msgs
         });
+        if let (0, Some(name)) = (turn, force_tool) {
+            request_body["tool_choice"] = serde_json::json!({ "type": "tool", "name": name });
+        }
 
         let response = match state
             .http_client
@@ -3122,6 +3143,7 @@ pub(crate) async fn run_kevin_with_tools(
     system: &str,
     messages: Vec<serde_json::Value>,
     session_id: Option<Uuid>,
+    force_tool: Option<&str>,
 ) -> String {
     // Determine complexity from the last user message
     let last_msg = messages
@@ -3222,7 +3244,7 @@ pub(crate) async fn run_kevin_with_tools(
             const SIMPLE_MODEL: &str = "gemini-2.5-flash-lite";
             let seed = crate::kevin_context::to_gemini(&seed_rows);
             let (reply, new_rows, usage) = run_kevin_with_tools_gemini(
-                state, user_id, user_email, role, system, &seed, api_key, SIMPLE_MODEL,
+                state, user_id, user_email, role, system, &seed, api_key, SIMPLE_MODEL, force_tool,
             )
             .await;
             log_usage(state, user_id, role, usage_tier, "gemini", SIMPLE_MODEL, usage).await;
@@ -3252,7 +3274,7 @@ pub(crate) async fn run_kevin_with_tools(
             // silently over to Claude whenever the credits ran out.
             let seed = crate::kevin_context::to_anthropic(&seed_rows);
             match run_kevin_anthropic_tool_loop(
-                state, anthropic_key, model, user_id, user_email, role, system, seed,
+                state, anthropic_key, model, user_id, user_email, role, system, seed, force_tool,
             ).await {
                 Ok((reply, new_rows, usage)) if !reply.is_empty() => {
                     persist(state, session_id, user_id, &new_user_row, new_rows).await;
@@ -3272,7 +3294,7 @@ pub(crate) async fn run_kevin_with_tools(
             let seed = crate::kevin_context::to_anthropic(&seed_rows);
             match run_kevin_anthropic_tool_loop(
                 state, anthropic_key, "claude-haiku-4-5-20251001",
-                user_id, user_email, role, system, seed,
+                user_id, user_email, role, system, seed, force_tool,
             ).await {
                 Ok((reply, new_rows, usage)) if !reply.is_empty() => {
                     persist(state, session_id, user_id, &new_user_row, new_rows).await;
@@ -3296,6 +3318,7 @@ pub(crate) async fn run_kevin_with_tools(
             &seed,
             api_key,
             state.gemini_model.as_str(),
+            force_tool,
         )
         .await;
         persist(state, session_id, user_id, &new_user_row, new_rows).await;

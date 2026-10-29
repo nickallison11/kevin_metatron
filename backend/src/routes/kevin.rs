@@ -397,6 +397,7 @@ CRITICAL RULES — follow these exactly:
 5. Do not say you cannot search the web — you can, using search_web.
 6. Each message you receive is a fresh request — you do not automatically retain the actual data from tool calls made in earlier messages, only the summary text you wrote. If a user asks for details, names, or specifics about something you previously said you found (e.g. "send me their details," "tell me more about them"), and you do not see the literal tool output for that search earlier in this exact conversation, you must call the tool again before answering. Never answer a follow-up like this from memory of your own prior summary — that is exactly how placeholder text like [Investor Name 1] happens.
 7. NEVER say you have sent, requested, emailed, accepted or declined anything unless a tool call in this conversation returned success for it. To introduce the user to a match, call request_intro (call lookup_match first if you need the match's ID). If the tool fails or you cannot call it, say so plainly and point the user to their Matches page.
+8. Whenever the user tells you how an intro or meeting went, why a match is or isn't right for them, or what they do or don't want in a match, call record_feedback right away. Once it returns "Saved.", acknowledge it in a few words ("Noted."). Don't claim it changes their matches.
 
 Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. Plain text only."#
     );
@@ -685,7 +686,7 @@ CRITICAL RULES — follow these exactly:
 2. Send the user to platform.metatron.id for anything beyond account status and notifications — requesting an intro, browsing beyond their current top matches, changing profile settings, pitch review, fundraising strategy, or deep analysis — not merely to view a match already in your context.
 3. NEVER fabricate investor names, firm names, scores, or any details not present in the context above. If something isn't there, say so honestly rather than inventing it.
 4. NEVER use placeholder text like [Investor Name], [Firm Name], [Details], or any bracket placeholders.
-5. You cannot take actions on this channel. NEVER say you have sent, requested, emailed, accepted or declined anything.
+5. You cannot take actions on this channel. NEVER say you have sent, requested, emailed, accepted or declined anything, or that you have noted or saved what the user told you.
 
 Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. Plain text only."#
     ));
@@ -968,7 +969,11 @@ async fn chat(
         }
     };
 
-    let context = build_context(&state, user.id, &user.role).await;
+    let context = format!(
+        "{}{}",
+        build_context(&state, user.id, &user.role).await,
+        super::kevin_feedback::follow_up_section(&state, user.id).await
+    );
     let memory_section = memory_section_from_recalled(recalled);
 
     let role_extra = body
@@ -998,6 +1003,7 @@ CRITICAL RULES — follow these exactly:
 5. Do not say you cannot search the web — you can, using search_web.
 6. Each message you receive is a fresh request — you do not automatically retain the actual data from tool calls made in earlier messages, only the summary text you wrote. If a user asks for details, names, or specifics about something you previously said you found (e.g. "send me their details," "tell me more about them"), and you do not see the literal tool output for that search earlier in this exact conversation, you must call the tool again before answering. Never answer a follow-up like this from memory of your own prior summary — that is exactly how placeholder text like [Investor Name 1] happens.
 7. NEVER say you have sent, requested, emailed, accepted or declined anything unless a tool call in this conversation returned success for it. To introduce the user to a match, call request_intro (call lookup_match first if you need the match's ID). If the tool fails or you cannot call it, say so plainly and point the user to their Matches page.
+8. Whenever the user tells you how an intro or meeting went, why a match is or isn't right for them, or what they do or don't want in a match, call record_feedback right away. Once it returns "Saved.", acknowledge it in a few words ("Noted."). Don't claim it changes their matches.
 
 Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. Plain text only."#
     );
@@ -1614,6 +1620,11 @@ pub(crate) async fn build_context(state: &AppState, user_id: uuid::Uuid, role: &
         }
     }
 
+    let saved_feedback = super::kevin_feedback::saved_section(state, user_id).await;
+    if !saved_feedback.is_empty() {
+        parts.push(saved_feedback);
+    }
+
     // Gospel knowledge injected by admin
     if let Ok(rows) = sqlx::query_as::<_, (String, String)>(
         r#"SELECT title, body FROM kevin_knowledge
@@ -1772,6 +1783,8 @@ pub(crate) fn kevin_tools_for_role(role: &str) -> serde_json::Value {
         }));
     }
 
+    tools.push(super::kevin_feedback::tool_for_anthropic());
+
     tools.push(serde_json::json!({
         "name": "search_network",
         "description": "Search the metatron network for founders, investors, or connectors by name, sector, stage, or country. Use this to answer questions about who is in the network, what companies are raising, or which investors are active.",
@@ -1886,6 +1899,8 @@ pub(crate) fn kevin_tools_for_gemini(role: &str) -> serde_json::Value {
             }
         }));
     }
+
+    declarations.push(super::kevin_feedback::tool_for_gemini());
 
     declarations.push(serde_json::json!({
         "name": "search_network",
@@ -2759,6 +2774,8 @@ pub(crate) async fn execute_kevin_tool(
                 }
             }
         }
+
+        "record_feedback" => super::kevin_feedback::record(state, user_id, tool_input).await,
 
         _ => format!("Unknown tool: {tool_name}"),
     }

@@ -193,8 +193,10 @@ pub(crate) async fn saved_section(state: &AppState, user_id: Uuid) -> String {
 
 /// Intros worth asking about: accepted a week or more ago, or passed on by
 /// this user recently, with no answer saved yet. Web chat only, because
-/// WhatsApp and Telegram can't save the answer.
-pub(crate) async fn follow_up_section(state: &AppState, user_id: Uuid) -> String {
+/// WhatsApp and Telegram can't save the answer. Also returns a one-line
+/// instruction for the opening "Hi" of a conversation, which the models
+/// follow far more reliably than the general rule in the section.
+pub(crate) async fn follow_up_section(state: &AppState, user_id: Uuid) -> (String, Option<String>) {
     let rows: Vec<(Uuid, String, String, i32)> = sqlx::query_as(&format!(
         r#"WITH events AS (
                SELECT matched_user_id AS other_id, intro_accepted_at AS at, 'accepted' AS what
@@ -248,8 +250,14 @@ pub(crate) async fn follow_up_section(state: &AppState, user_id: Uuid) -> String
     });
 
     if rows.is_empty() {
-        return String::new();
+        return (String::new(), None);
     }
+    let (_, first_name, first_what, _) = &rows[0];
+    let opening = if first_what == "passed" {
+        format!("Right now the user has just opened the chat. Reply in one short line and end with: \"You passed on {first_name}. What was missing?\"")
+    } else {
+        format!("Right now the user has just opened the chat. Reply in one short line and end with: \"How did it go with {first_name}?\"")
+    };
     let lines: Vec<String> = rows
         .into_iter()
         .map(|(id, name, what, days)| {
@@ -260,8 +268,9 @@ pub(crate) async fn follow_up_section(state: &AppState, user_id: Uuid) -> String
             }
         })
         .collect();
-    format!(
+    let section = format!(
         "\n\n{FOLLOW_UP_HEADING}\nAsking: if the user's message is a greeting or small talk, or they've just got what they came for, your reply must end with this exact question about the first intro below you haven't asked about yet in this conversation: \"How did it go with <name>?\" (a general question about fundraising doesn't count). Don't interrupt a task to ask. If they'd rather not say, drop it.\n\nThese intros have no outcome saved yet:\n{}\n\nSaving: this list is the truth; anything about these in your memory notes is NOT saved. Whenever the user says how one of these went, including a short reply to your question like \"yes, it went well\", call record_feedback with its about_user_id before you reply. Only say \"Noted\" after it returns \"Saved.\".",
         lines.join("\n")
-    )
+    );
+    (section, Some(opening))
 }

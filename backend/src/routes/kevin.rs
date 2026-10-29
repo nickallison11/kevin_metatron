@@ -969,11 +969,8 @@ async fn chat(
         }
     };
 
-    let context = format!(
-        "{}{}",
-        build_context(&state, user.id, &user.role).await,
-        super::kevin_feedback::follow_up_section(&state, user.id).await
-    );
+    let (follow_ups, opening_ask) = super::kevin_feedback::follow_up_section(&state, user.id).await;
+    let context = format!("{}{follow_ups}", build_context(&state, user.id, &user.role).await);
     let memory_section = memory_section_from_recalled(recalled);
 
     let role_extra = body
@@ -1007,6 +1004,13 @@ CRITICAL RULES — follow these exactly:
 
 Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. Plain text only."#
     );
+    // A conversation opening with "Hi": ask about the first open intro.
+    let system = match opening_ask {
+        Some(ask) if msgs.len() == 1 && classify_query_complexity(&last_user_message) == QueryComplexity::Simple => {
+            format!("{system}\n\n{ask}")
+        }
+        _ => system,
+    };
 
     let daily_limit = kevin_daily_limit(&state, user.id, user.is_basic, user.is_pro).await;
 

@@ -258,6 +258,11 @@ async fn programmes_for(
     country: Option<&str>,
     limit: i64,
 ) -> Vec<Programme> {
+    // Profiles store a country code; programme locations use names and
+    // region words ("Pan-African"), so match on those.
+    let resolved = country.and_then(crate::countries::resolve);
+    let country_name = resolved.map(|(_, name)| name.to_string()).or(country.map(str::to_string));
+    let region = resolved.and_then(|(code, _)| crate::countries::region_pattern(code));
     sqlx::query_as(
         r#"SELECT p.name, p.url, p.kind, p.location, p.summary,
                   p.status = 'verified' AS verified,
@@ -272,7 +277,8 @@ async fn programmes_for(
                       WHERE LOWER(TRIM(s)) = LOWER(TRIM(f))))
               AND ($3::text IS NULL OR p.location IS NULL
                    OR p.location ILIKE '%' || $3 || '%'
-                   OR p.location ~* '(remote|online|global|worldwide)')
+                   OR p.location ~* '(remote|online|global|worldwide|international)'
+                   OR ($5::text IS NOT NULL AND p.location ~* $5))
             GROUP BY p.id
             ORDER BY (p.status = 'verified') DESC, COUNT(r.id) FILTER (WHERE r.helpful) DESC,
                      (p.location ILIKE '%' || COALESCE($3, '') || '%') DESC, p.created_at DESC
@@ -280,8 +286,9 @@ async fn programmes_for(
     )
     .bind(stage)
     .bind(sector)
-    .bind(country)
+    .bind(country_name)
     .bind(limit)
+    .bind(region)
     .fetch_all(&state.db)
     .await
     .unwrap_or_else(|e| {
@@ -353,7 +360,9 @@ async fn search_web(state: &AppState, user_id: Uuid, stage: &str, sector: Option
     let Some(api_key) = state.ai_api_key.as_deref() else { return };
     let model = "gemini-2.5-flash";
     let sector = sector.unwrap_or("technology");
-    let country = country.unwrap_or("any country");
+    let country = country
+        .map(|c| crate::countries::resolve(c).map(|(_, name)| name).unwrap_or(c))
+        .unwrap_or("any country");
     let kind_hint = match stage {
         "build" => "incubators, pre-incubators and founder bootcamps",
         "accelerator" | "angels" => "accelerators",

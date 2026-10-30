@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { API_BASE } from "@/lib/api";
 import { setTokenPair } from "@/lib/tokenStore";
+import { takeAfterLogin } from "@/lib/afterLogin";
 
 function decodeRoleFromJwt(token: string): string | null {
   try {
@@ -173,7 +174,7 @@ export default function LoginPage() {
 
       setTokenPair(data.token, data.refresh_token);
       const role = decodeRoleFromJwt(data.token);
-      router.push(dashboardPathForRole(role));
+      router.push(takeAfterLogin() ?? dashboardPathForRole(role));
     } catch {
       setError("Login failed");
     } finally {
@@ -208,7 +209,7 @@ export default function LoginPage() {
 
       setTokenPair(data.token, data.refresh_token);
       const role = decodeRoleFromJwt(data.token);
-      router.push(dashboardPathForRole(role));
+      router.push(takeAfterLogin() ?? dashboardPathForRole(role));
     } catch {
       setTwoFaError("Verification failed");
     } finally {

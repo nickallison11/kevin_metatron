@@ -3,6 +3,7 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect } from "react";
 import { setTokenPair } from "@/lib/tokenStore";
+import { takeAfterLogin } from "@/lib/afterLogin";
 
 function decodeRoleFromJwt(token: string): string | null {
   try {
@@ -72,7 +73,7 @@ function OAuthCallbackContent() {
       return;
     }
 
-    router.replace(dashboardPathForRole(role));
+    router.replace(takeAfterLogin() ?? dashboardPathForRole(role));
   }, [router, searchParams]);
 
   return (

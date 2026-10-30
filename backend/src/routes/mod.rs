@@ -22,6 +22,8 @@ pub mod readiness;
 pub mod kevin_learning;
 pub mod kevin_matches;
 pub mod matches;
+pub mod mcp;
+pub mod mcp_auth;
 pub mod messages;
 pub mod notetaker_connections;
 pub mod oauth;

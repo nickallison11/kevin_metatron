@@ -73,7 +73,7 @@ const FREE_REDUCED_DAILY_LIMIT: i32 = 5;
 
 /// Free users get 20 a day, or 5 once they've sent 300 this month or once
 /// this month's Free AI budget is spent (`cost::free_budget_exceeded`).
-async fn kevin_daily_limit(state: &AppState, user_id: Uuid, is_basic: bool, is_pro: bool) -> i32 {
+pub(crate) async fn kevin_daily_limit(state: &AppState, user_id: Uuid, is_basic: bool, is_pro: bool) -> i32 {
     if is_pro {
         return i32::MAX;
     }
@@ -96,7 +96,7 @@ async fn kevin_daily_limit(state: &AppState, user_id: Uuid, is_basic: bool, is_p
 }
 
 /// Shown to Free users at their daily limit; only mentions upgrading while paid plans are on.
-fn free_limit_message(state: &AppState, limit: i32) -> String {
+pub(crate) fn free_limit_message(state: &AppState, limit: i32) -> String {
     let reduced = if limit < FREE_DAILY_LIMIT {
         " Free is down to 5 a day for the rest of this month."
     } else {

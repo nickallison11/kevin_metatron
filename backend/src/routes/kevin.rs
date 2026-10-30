@@ -220,10 +220,29 @@ struct UserForEmail {
     custom_ai_model: Option<String>,
 }
 
+/// Compares a secret in constant time, so timing doesn't leak it.
+fn secrets_match(given: &str, expected: &str) -> bool {
+    given.len() == expected.len() && given.bytes().zip(expected.bytes()).fold(0u8, |acc, (a, b)| acc | (a ^ b)) == 0
+}
+
 async fn inbound_email(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     body: Result<Json<InboundEmailRequest>, JsonRejection>,
 ) -> StatusCode {
+    // The endpoint is public, so an email is only trusted to change things once
+    // the email worker proves it's the sender: with INBOUND_EMAIL_SECRET set,
+    // requests must carry it and Kevin gets every tool; without it, read-only.
+    let verified = match std::env::var("INBOUND_EMAIL_SECRET").ok().filter(|s| !s.is_empty()) {
+        Some(secret) => {
+            let given = headers.get("x-inbound-secret").and_then(|v| v.to_str().ok()).unwrap_or("");
+            if !secrets_match(given, &secret) {
+                return StatusCode::UNAUTHORIZED;
+            }
+            true
+        }
+        None => false,
+    };
     let body = match body {
         Ok(Json(b)) => b,
         Err(e) => {
@@ -234,12 +253,12 @@ async fn inbound_email(
 
     let state = Arc::clone(&state);
     tokio::spawn(async move {
-        inbound_email_process(state, body).await;
+        inbound_email_process(state, body, verified).await;
     });
     StatusCode::OK
 }
 
-async fn inbound_email_process(state: Arc<AppState>, body: InboundEmailRequest) {
+async fn inbound_email_process(state: Arc<AppState>, body: InboundEmailRequest, verified: bool) {
     let _ = &body.to;
     let from_addr = parse_email_address(&body.from);
     let resend_key = state.resend_api_key.as_deref().unwrap_or("");
@@ -364,7 +383,8 @@ async fn inbound_email_process(state: Arc<AppState>, body: InboundEmailRequest) 
 
     let context = build_context(&state, user.id, &user.role).await;
     let memory_section = memory_section_from_recalled(recalled);
-    let system = email::localize_links(&kevin_system_prompt(&format!("{context}{memory_section}"), EMAIL_NOTE));
+    let note = if verified { EMAIL_NOTE.to_string() } else { format!("{EMAIL_NOTE} By email you can look things up but not make changes: for those, point them to WhatsApp, Telegram or an AI app connected to Kevin.") };
+    let system = email::localize_links(&kevin_system_prompt(&format!("{context}{memory_section}"), &note));
 
     // One conversation per email thread, so Kevin keeps its history and tool
     // results: the same user and subject (without "Re:") give the same session.
@@ -373,19 +393,23 @@ async fn inbound_email_process(state: Arc<AppState>, body: InboundEmailRequest) 
     let digest = <sha2::Sha256 as sha2::Digest>::digest(format!("email:{}:{thread}", user.id).as_bytes());
     let session_id = Uuid::from_slice(&digest[..16]).ok();
 
-    let reply = run_kevin_with_tools(
-        &state,
-        user.id,
-        &from_addr,
-        &user.role,
-        user.is_pro,
-        user.is_basic,
-        &system,
-        vec![serde_json::json!({ "role": "user", "content": plain })],
-        session_id,
-        None,
-    )
-    .await;
+    let reply = EMAIL_READ_ONLY
+        .scope(
+            !verified,
+            run_kevin_with_tools(
+                &state,
+                user.id,
+                &from_addr,
+                &user.role,
+                user.is_pro,
+                user.is_basic,
+                &system,
+                vec![serde_json::json!({ "role": "user", "content": plain })],
+                session_id,
+                None,
+            ),
+        )
+        .await;
     let reply = strip_markdown(&reply);
 
     email::send_kevin_email_reply(
@@ -1919,6 +1943,15 @@ pub(crate) fn kevin_tools_for_gemini(role: &str) -> serde_json::Value {
 }
 
 
+tokio::task_local! {
+    /// Set while Kevin answers an email that can't be verified as really
+    /// coming from the user: he can look things up but not change anything.
+    static EMAIL_READ_ONLY: bool;
+}
+
+/// Tools that only read, allowed on unverified email.
+const READ_ONLY_TOOLS: &[&str] = &["lookup_match", "search_network", "search_web", "find_programmes"];
+
 pub(crate) async fn execute_kevin_tool(
     state: &AppState,
     user_id: Uuid,
@@ -1927,6 +1960,9 @@ pub(crate) async fn execute_kevin_tool(
     tool_name: &str,
     tool_input: &serde_json::Value,
 ) -> String {
+    if EMAIL_READ_ONLY.try_with(|v| *v).unwrap_or(false) && !READ_ONLY_TOOLS.contains(&tool_name) {
+        return "Not done: by email Kevin can only look things up. The user can make changes on WhatsApp, Telegram or an AI app connected to Kevin.".to_string();
+    }
     match tool_name {
         "lookup_match" => {
             let name = tool_input["name"].as_str().unwrap_or("").to_lowercase();

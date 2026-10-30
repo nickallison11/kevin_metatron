@@ -28,7 +28,7 @@ type Readiness = {
   assessed_at: string;
 };
 
-const ASK_HREF = `/startup/kevin?ask=${encodeURIComponent("Am I ready to talk to investors?")}`;
+const ASK_HREF = "/startup/kevin";
 
 /** Where the founder stands on the way to funding, as Kevin assessed it in chat. */
 export default function ReadinessCard({ token }: { token: string }) {

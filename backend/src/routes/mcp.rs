@@ -250,6 +250,13 @@ async fn count_against_daily_limit(state: &AppState, user: &McpUser) -> Option<S
 // Network search, by plan
 // ---------------------------------------------------------------------------
 
+/// Text cut to `max` characters, without a trailing full stop (the caller adds one).
+fn clip(text: &str, max: usize) -> String {
+    let t = text.trim();
+    let cut = if t.chars().count() > max { format!("{}…", t.chars().take(max).collect::<String>().trim_end()) } else { t.to_string() };
+    cut.trim_end_matches('.').to_string()
+}
+
 /// Free sees basic details and few results; Basic and Pro see more. Contact
 /// details never come back here, only through an accepted intro.
 async fn search_network(state: &AppState, user: &McpUser, args: &Value) -> String {
@@ -288,7 +295,7 @@ async fn search_network(state: &AppState, user: &McpUser, args: &Value) -> Strin
             let mut line = format!("[Founder] {} ({})", company.unwrap_or_default(), meta.join(", "));
             if level >= 1 {
                 if let Some(v) = one_liner.filter(|v| !v.trim().is_empty()) {
-                    line.push_str(&format!(": {v}"));
+                    line.push_str(&format!(": {}", clip(&v, 200)));
                 }
                 if let Some(s) = score {
                     line.push_str(&format!(". Angel Score {s}/100"));
@@ -332,7 +339,7 @@ async fn search_network(state: &AppState, user: &McpUser, args: &Value) -> Strin
             let mut line = format!("[Investor] {} ({})", firm.unwrap_or_default(), meta.join("; "));
             if level >= 1 {
                 if let Some(t) = thesis.filter(|t| !t.trim().is_empty()) {
-                    line.push_str(&format!(": {}", t.chars().take(200).collect::<String>()));
+                    line.push_str(&format!(": {}", clip(&t, 200)));
                 }
                 match (min, max) {
                     (Some(a), Some(b)) => line.push_str(&format!(". Tickets ${a}-${b}")),
@@ -343,7 +350,7 @@ async fn search_network(state: &AppState, user: &McpUser, args: &Value) -> Strin
             }
             if level >= 2 {
                 if let Some(b) = bio.filter(|b| !b.trim().is_empty()) {
-                    line.push_str(&format!(". {}", b.chars().take(300).collect::<String>()));
+                    line.push_str(&format!(". {}", clip(&b, 300)));
                 }
                 if let Some(w) = website.filter(|w| !w.trim().is_empty()) {
                     line.push_str(&format!(". {w}"));

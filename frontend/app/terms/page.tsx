@@ -13,65 +13,104 @@ export default function TermsPage() {
             ← metatron.id
           </Link>
           <h1 className="mt-4 text-3xl font-semibold">Terms of Service</h1>
-          <p className="mt-2 text-sm text-[var(--text-muted)]">Last updated: June 2026</p>
+          <p className="mt-2 text-sm text-[var(--text-muted)]">Last updated: 30 October 2026</p>
         </div>
 
         <Section title="1. About metatron">
           <p>
             metatron (metatron.id) is an AI-powered network that connects founders, investors, and ecosystem partners globally.
-            By creating an account you agree to these Terms of Service (&ldquo;Terms&rdquo;) and our Privacy Policy.
-            If you do not agree, do not use the platform.
+            By creating an account you agree to these Terms of Service (&ldquo;Terms&rdquo;) and our{" "}
+            <Link href="/privacy" className="text-metatron-accent hover:underline">
+              Privacy Policy
+            </Link>
+            . If you do not agree, do not use the platform.
           </p>
         </Section>
 
         <Section title="2. Eligibility and accounts">
           <p>
-            You must be at least 18 years old to use metatron. Accounts are currently created by invitation only.
-            You are responsible for keeping your login credentials secure and for all activity under your account.
+            You must be at least 18 to use metatron. You can create an account on the website, by messaging Kevin on
+            WhatsApp or Telegram, or through an AI app you connect to Kevin. You&apos;re responsible for keeping your login
+            secure and for everything done with your account, including by AI apps you connect.
           </p>
         </Section>
 
-        <Section title="3. Data you share — pitch decks and company information">
+        <Section title="3. Your data">
           <p>
-            To use metatron you must share your pitch deck and company information with us. By uploading or linking
-            your pitch deck, pitch data, or any other company materials you grant metatron a non-exclusive,
-            worldwide, royalty-free licence to:
+            <strong>You own your data.</strong> When you share it with metatron in any way (on the website, with Kevin on
+            WhatsApp, Telegram or email, or through an AI app you connect), you give metatron a non-exclusive, worldwide,
+            royalty-free licence to:
           </p>
           <ul>
-            <li>Store and process your data to power Kevin AI and the matching engine.</li>
-            <li>Use aggregated, anonymised data to improve our services.</li>
-            <li>Share your pitch information with matched investors and connectors on the platform as part of the intro and deal-flow process.</li>
-            <li>Reference and market your project (company name, sector, stage, one-liner) to promote metatron and its network.</li>
+            <li>Store and process it to run your account, Kevin and matching.</li>
+            <li>
+              Use it, together with what other users share, to improve matching, recommendations and Kevin for everyone on
+              metatron. This includes your profile, pitch and deck, what you tell Kevin, how your intros went, your funding
+              stage and the programmes you&apos;ve taken part in.
+            </li>
+            <li>
+              Show your basic details (your name or company, role, sector, stage and country) to other users in search and
+              matches, and more of your profile to users on paid plans.
+            </li>
+            <li>Share your pitch information with investors and connectors you&apos;re matched or introduced to.</li>
+            <li>
+              Publish insights drawn from many users that don&apos;t identify you, such as which programmes help founders
+              reach their next stage.
+            </li>
+            <li>Mention your company (name, sector, stage and one-liner) to promote metatron.</li>
           </ul>
           <p>
-            <strong>You retain ownership of your data.</strong> metatron will not sell your raw pitch materials to third parties.
-            You may request deletion of your data at any time by contacting us at nick.allison@metatrondao.io.
+            Your contact details are shared with another user only when you accept an intro with them. metatron does not
+            sell your data. You can ask us to delete it at any time at contact@metatron.id.
           </p>
         </Section>
 
-        <Section title="4. Conversations and AI processing">
+        <Section title="4. Kevin and AI processing">
           <p>
-            Your conversations with Kevin (via platform, Telegram, WhatsApp, or email) are processed by AI models
-            including Google Gemini, Anthropic Claude, and OpenAI GPT to generate responses.
-            Conversation data is stored to provide session history and to improve Kevin&apos;s ability to help you.
-            By using Kevin you consent to this processing.
+            Kevin&apos;s replies are generated by AI models from Google, Anthropic and OpenAI. When you use Kevin through an
+            AI app you connect, that app&apos;s own model also processes the conversation. We store your conversations with
+            Kevin to keep their history, to help you and to improve matching as described under &ldquo;Your data&rdquo;.
+            Kevin&apos;s matches, funding-stage assessments and programme suggestions are recommendations, not investment
+            advice.
           </p>
         </Section>
 
-        <Section title="5. Messaging channels">
+        <Section title="5. Connecting your own AI app">
+          <p>
+            You can connect an AI app, such as Claude, ChatGPT, Gemini or Grok, to Kevin. When you connect it, you choose
+            what it may do. It then acts for you: what it sends to metatron is saved to your account under these Terms, and
+            what metatron sends back to it is handled by that app&apos;s provider under its own terms, not ours. You&apos;re
+            responsible for what your AI app does with your account. You can disconnect it at any time on the Connect Kevin
+            page.
+          </p>
+        </Section>
+
+        <Section title="6. Messaging channels">
           <p>
             metatron communicates with users via Telegram, WhatsApp, and email. By connecting a messaging channel
             you agree to receive messages from Kevin including match notifications, intro requests, and platform updates.
-            You can disconnect a channel at any time from your profile settings.
+            You can disconnect a channel at any time on the Connect Kevin page.
           </p>
         </Section>
 
-        <Section title="6. Acceptable use">
+        <Section title="7. Search and plans">
+          <p>
+            Every user can search the metatron network. Free accounts see basic details and a limited number of results;
+            Basic and Pro accounts see more of each profile and more results. Contact details are never shown in search.
+            Daily limits on Kevin apply across all channels, including connected AI apps.
+          </p>
+        </Section>
+
+        <Section title="8. Acceptable use">
           <p>You agree not to:</p>
           <ul>
             <li>Provide false or misleading company or investor information.</li>
             <li>Use the platform to spam, solicit, or harass other users.</li>
             <li>Attempt to reverse-engineer, scrape, or copy any part of the platform or its data.</li>
+            <li>
+              Use an AI app, script or any other automated means to copy, export or rebuild metatron&apos;s network or data
+              beyond normal use of your own account.
+            </li>
             <li>Use Kevin AI to generate fraudulent investment materials.</li>
           </ul>
           <p>
@@ -79,7 +118,7 @@ export default function TermsPage() {
           </p>
         </Section>
 
-        <Section title="7. Introductions and deal flow">
+        <Section title="9. Introductions and deal flow">
           <p>
             metatron facilitates introductions between founders, investors, and connectors. We are not a broker-dealer,
             investment adviser, or financial institution. Any investment decision is solely between the parties involved.
@@ -87,22 +126,22 @@ export default function TermsPage() {
           </p>
         </Section>
 
-        <Section title="8. Subscriptions and payments">
+        <Section title="10. Plans and billing">
           <p>
-            Paid plans (Basic and Pro) are billed monthly or annually. Subscriptions renew automatically.
-            You may cancel at any time; cancellation takes effect at the end of the current billing period.
-            Refunds are not provided for partial periods.
+            Paid plans (Basic and Pro) are billed monthly or yearly through Stripe and renew automatically. You can cancel
+            at any time; cancellation takes effect at the end of the current billing period. We don&apos;t refund partial
+            periods.
           </p>
         </Section>
 
-        <Section title="9. Intellectual property">
+        <Section title="11. Intellectual property">
           <p>
             metatron and its logo, design, and underlying software are owned by metatron and protected by applicable
             intellectual property law. Nothing in these Terms transfers any IP rights to you.
           </p>
         </Section>
 
-        <Section title="10. Limitation of liability">
+        <Section title="12. Limitation of liability">
           <p>
             To the maximum extent permitted by law, metatron is not liable for any indirect, incidental, or consequential
             damages arising from your use of the platform. Our total liability to you shall not exceed the amounts you
@@ -110,18 +149,18 @@ export default function TermsPage() {
           </p>
         </Section>
 
-        <Section title="11. Changes to these terms">
+        <Section title="13. Changes to these terms">
           <p>
             We may update these Terms from time to time. We will notify you by email or in-platform notice.
             Continued use of metatron after an update constitutes acceptance of the revised Terms.
           </p>
         </Section>
 
-        <Section title="12. Contact">
+        <Section title="14. Contact">
           <p>
             For questions about these Terms, contact us at{" "}
-            <a href="mailto:nick.allison@metatrondao.io" className="text-metatron-accent hover:underline">
-              nick.allison@metatrondao.io
+            <a href="mailto:contact@metatron.id" className="text-metatron-accent hover:underline">
+              contact@metatron.id
             </a>
             .
           </p>

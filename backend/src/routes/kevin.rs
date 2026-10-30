@@ -289,17 +289,6 @@ async fn inbound_email_process(state: Arc<AppState>, body: InboundEmailRequest) 
         return;
     };
 
-    let custom_ai_api_key = match user.custom_ai_api_key {
-        Some(ref encrypted) => match crypto::decrypt(&state.encryption_key, encrypted) {
-            Ok(value) => Some(value),
-            Err(e) => {
-                tracing::warn!("inbound-email: custom_ai_api_key decrypt failed: {e}");
-                None
-            }
-        },
-        None => None,
-    };
-
     let daily_limit = kevin_daily_limit(&state, user.id, user.is_basic, user.is_pro).await;
 
     if daily_limit < i32::MAX {
@@ -375,115 +364,29 @@ async fn inbound_email_process(state: Arc<AppState>, body: InboundEmailRequest) 
 
     let context = build_context(&state, user.id, &user.role).await;
     let memory_section = memory_section_from_recalled(recalled);
+    let system = email::localize_links(&kevin_system_prompt(&format!("{context}{memory_section}"), EMAIL_NOTE));
 
-    let system = format!(
-        r#"You are Kevin, the AI copilot for Metatron (metatron.id).
+    // One conversation per email thread, so Kevin keeps its history and tool
+    // results: the same user and subject (without "Re:") give the same session.
+    let thread = reply_subject.trim_start_matches(|c: char| c == ' ').to_lowercase();
+    let thread = thread.trim_start_matches("re:").trim();
+    let digest = <sha2::Sha256 as sha2::Digest>::digest(format!("email:{}:{thread}", user.id).as_bytes());
+    let session_id = Uuid::from_slice(&digest[..16]).ok();
 
-Metatron is the intelligence layer connecting founders, investors, and ecosystem partners globally. You help users navigate fundraising, diligence, pitch refinement, and relationship context. Be concise, practical, and professional.
-
-## Current user context
-{context}{memory_section}
-
-Stay in character as Kevin. You have tools to:
-- Look up and introduce matched investors/founders on the Metatron network (search_network)
-- Search the open web for investors, funds, and companies NOT yet on the platform (search_web)
-- Email pitch decks to interested investors
-
-CRITICAL RULES — follow these exactly:
-1. NEVER fabricate investor names, firm names, or any details. If a tool returns empty results, say so honestly: "I did not find any investors matching that in the Metatron network."
-2. NEVER use placeholder text like [Investor Name], [Firm Name], [Details], or any bracket placeholders. Only report information that was actually returned by a tool.
-3. When search_network returns no results, immediately use search_web to find investors on the open web instead. Do not stop at an empty network result.
-4. When reporting tool results, quote the exact names and details returned. Do not paraphrase or invent additional context.
-5. Do not say you cannot search the web — you can, using search_web.
-6. Each message you receive is a fresh request — you do not automatically retain the actual data from tool calls made in earlier messages, only the summary text you wrote. If a user asks for details, names, or specifics about something you previously said you found (e.g. "send me their details," "tell me more about them"), and you do not see the literal tool output for that search earlier in this exact conversation, you must call the tool again before answering. Never answer a follow-up like this from memory of your own prior summary — that is exactly how placeholder text like [Investor Name 1] happens.
-7. NEVER say you have sent, requested, emailed, accepted or declined anything unless a tool call in this conversation returned success for it. To introduce the user to a match, call request_intro (call lookup_match first if you need the match's ID). If the tool fails or you cannot call it, say so plainly and point the user to their Matches page.
-8. Whenever the user tells you how an intro or meeting went, why a match is or isn't right for them, or what they do or don't want in a match, call record_feedback right away. Only once it returns "Saved." may you say "Noted" or anything like it; saying it without that call is lying to the user. Don't claim it changes their matches.
-9. For founders: when they ask whether they're ready for investors, what to do next, or which programmes or investors suit them, and the readiness in the context is missing or out of date, assess it. Use what the context already tells you, then ask about what's missing one short question per message, waiting for each answer, two or three questions at most (customers or revenue and its growth, whether the team is full-time, what they've built, how much they want to raise). Then call save_readiness and give them the result: their stage and why, what's missing for the next stage, and the next steps. Before Series A, call find_programmes when a programme would help; at any stage use search_network for investors at their stage. Only recommend programmes find_programmes returned (never search_web for them), and only call one verified if it's marked verified. Whenever anyone mentions by name a programme (incubator, accelerator, bootcamp) they did, run or recommend, call record_programme.
-10. When the user tells you new or corrected details about their company, pitch or investment focus, save them with update_startup_profile, update_pitch or update_investor_profile, then say what was saved. When they decide on an intro request waiting for them, call answer_intro_request.
-
-Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. Plain text only."#
-    );
-
-    let ai_route: Option<(&str, &str, &str)> = if user.is_pro {
-        if let Some(ref custom_key) = custom_ai_api_key {
-            let provider = user
-                .custom_ai_provider
-                .as_deref()
-                .unwrap_or("openai");
-            let model = user.custom_ai_model.as_deref().unwrap_or("gpt-4o-mini");
-            Some((provider, custom_key.as_str(), model))
-        } else if let Some(key) = state.anthropic_api_key.as_deref() {
-            Some((
-                "anthropic",
-                key,
-                "claude-haiku-4-5-20251001",
-            ))
-        } else if let Some(key) = state.ai_api_key.as_deref() {
-            Some(("gemini", key, "gemini-2.5-flash-lite"))
-        } else {
-            None
-        }
-    } else if let Some(key) = state.ai_api_key.as_deref() {
-        Some(("gemini", key, "gemini-2.5-flash-lite"))
-    } else {
-        None
-    };
-
-    let Some((provider, api_key, model)) = ai_route else {
-        email::send_kevin_email_reply(
-            &state.http_client,
-            resend_key,
-            "kevin@metatron.id",
-            &from_addr,
-            &reply_subject,
-            "Kevin is temporarily unavailable.",
-        )
-        .await;
-        return;
-    };
-
-    let msgs = vec![("user".to_string(), plain)];
-
-    let reply = match complete_chat(
-        &state.http_client,
-        provider,
-        api_key,
-        model,
+    let reply = run_kevin_with_tools(
+        &state,
+        user.id,
+        &from_addr,
+        &user.role,
+        user.is_pro,
+        user.is_basic,
         &system,
-        msgs,
+        vec![serde_json::json!({ "role": "user", "content": plain })],
+        session_id,
+        None,
     )
-    .await
-    {
-        Ok((r, usage)) => {
-            let tier = if user.is_pro { "pro" } else if user.is_basic { "basic" } else { "free" };
-            crate::cost::record_llm_usage(
-                &state.db,
-                Some(user.id),
-                Some(user.role.as_str()),
-                Some(tier),
-                "kevin_email",
-                provider,
-                model,
-                usage.input_tokens,
-                usage.output_tokens,
-            )
-            .await;
-            strip_markdown(&r)
-        }
-        Err(e) => {
-            tracing::error!("inbound-email complete_chat: {e}");
-            email::send_kevin_email_reply(
-                &state.http_client,
-                resend_key,
-                "kevin@metatron.id",
-                &from_addr,
-                &reply_subject,
-                "Kevin is temporarily unavailable.",
-            )
-            .await;
-            return;
-        }
-    };
+    .await;
+    let reply = strip_markdown(&reply);
 
     email::send_kevin_email_reply(
         &state.http_client,
@@ -525,11 +428,13 @@ Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. 
     let assistant_msg = reply.clone();
     tokio::spawn(async move {
         let _ = sqlx::query(
-            "INSERT INTO kevin_chat_turns (user_id, role, content) VALUES ($1, 'user', $2), ($1, 'assistant', $3)",
+            r#"INSERT INTO kevin_chat_turns (user_id, role, content, session_id)
+               VALUES ($1, 'user', $2, $4), ($1, 'assistant', $3, $4)"#,
         )
         .bind(uid2)
         .bind(&user_msg)
         .bind(&assistant_msg)
+        .bind(session_id)
         .execute(&db2)
         .await;
     });
@@ -621,6 +526,11 @@ pub(crate) enum KevinReplyError {
     BadGateway(String),
     Internal,
 }
+
+/// Added to Kevin's prompt when he replies by email.
+const EMAIL_NOTE: &str = "
+
+You're replying to this user by email: write a complete reply they can read on its own, in plain text. Their message may include earlier emails quoted below it; reply to the newest part.";
 
 /// Added to Kevin's prompt on WhatsApp and Telegram.
 const MESSAGING_NOTE: &str = "\n\nYou're talking to this user on WhatsApp or Telegram, so keep replies short: a few lines, and one question per message.";

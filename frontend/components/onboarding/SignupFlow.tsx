@@ -368,7 +368,7 @@ export default function SignupFlow({
                   <a href="/privacy" target="_blank" className={linkBtn}>
                     Privacy Policy
                   </a>
-                  .
+                  , including that we use what you share to improve matching for everyone.
                 </p>
               </div>
             )}

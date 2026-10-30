@@ -94,8 +94,19 @@ export default function PrivacyPage() {
               investors and make introductions: contract.
             </li>
             <li>
-              Messages with Kevin on the web, WhatsApp, Telegram and email, including your phone number or Telegram ID if
-              you use those channels: contract.
+              Messages with Kevin on WhatsApp, Telegram, email and AI apps you connect, including your phone number or
+              Telegram ID if you use those channels: contract.
+            </li>
+            <li>
+              Your basic details (name or company, role, sector, stage, country), shown to other users in search and
+              matches, with more of your profile shown to paid users: contract. Your contact details go to another user
+              only when you accept an intro.
+            </li>
+            <li>
+              Your profile, pitch, conversations with Kevin, intro outcomes and feedback, funding stage and programme
+              reports, used to improve matches and recommendations for all users and to publish insights that don&apos;t
+              identify you: our legitimate interest in running a matching network that works (Art. 6(1)(f)). You can
+              object at any time by writing to <Mail />; we will then stop unless we have compelling legitimate grounds.
             </li>
             <li>
               Billing data (plan, invoices; card details are handled by Stripe, not stored by us): contract and legal
@@ -118,6 +129,22 @@ export default function PrivacyPage() {
           </p>
         </Section>
 
+        <Section title="Matching and assessments">
+          <p>
+            Kevin uses automated processing to score matches, assess your funding stage and suggest programmes. These are
+            recommendations: they don&apos;t have legal or similarly significant effects on you, and you can ask a person
+            at metatron to review one.
+          </p>
+        </Section>
+
+        <Section title="AI apps you connect">
+          <p>
+            When you connect an AI app to Kevin, we send it the data it asks for, within the permissions you approved. Its
+            provider (for example Anthropic, OpenAI, Google or xAI) is a separate controller and handles that data under
+            its own privacy policy.
+          </p>
+        </Section>
+
         <Section title="How long we keep it">
           <p>
             While your account exists. When you delete your account we delete or anonymise your data, except invoices
@@ -132,6 +159,17 @@ export default function PrivacyPage() {
             protection authority (Datenschutzbehörde,{" "}
             <a href="https://www.dsb.gv.at" className="text-[var(--accent-fg)] hover:underline">
               dsb.gv.at
+            </a>
+            ).
+          </p>
+        </Section>
+
+        <Section title="South Africa">
+          <p>
+            If you&apos;re in South Africa, the Protection of Personal Information Act (POPIA) also applies. You have the
+            same rights described here and can complain to the Information Regulator (
+            <a href="https://inforegulator.org.za" className="text-[var(--accent-fg)] hover:underline">
+              inforegulator.org.za
             </a>
             ).
           </p>

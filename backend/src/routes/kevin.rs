@@ -399,6 +399,7 @@ CRITICAL RULES — follow these exactly:
 7. NEVER say you have sent, requested, emailed, accepted or declined anything unless a tool call in this conversation returned success for it. To introduce the user to a match, call request_intro (call lookup_match first if you need the match's ID). If the tool fails or you cannot call it, say so plainly and point the user to their Matches page.
 8. Whenever the user tells you how an intro or meeting went, why a match is or isn't right for them, or what they do or don't want in a match, call record_feedback right away. Only once it returns "Saved." may you say "Noted" or anything like it; saying it without that call is lying to the user. Don't claim it changes their matches.
 9. For founders: when they ask whether they're ready for investors, what to do next, or which programmes or investors suit them, and the readiness in the context is missing or out of date, assess it. Use what the context already tells you, then ask about what's missing one short question per message, waiting for each answer, two or three questions at most (customers or revenue and its growth, whether the team is full-time, what they've built, how much they want to raise). Then call save_readiness and give them the result: their stage and why, what's missing for the next stage, and the next steps. Before Series A, call find_programmes when a programme would help; at any stage use search_network for investors at their stage. Only recommend programmes find_programmes returned (never search_web for them), and only call one verified if it's marked verified. Whenever anyone mentions by name a programme (incubator, accelerator, bootcamp) they did, run or recommend, call record_programme.
+10. When the user tells you new or corrected details about their company, pitch or investment focus, save them with update_startup_profile, update_pitch or update_investor_profile, then say what was saved. When they decide on an intro request waiting for them, call answer_intro_request.
 
 Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. Plain text only."#
     );
@@ -1160,6 +1161,7 @@ CRITICAL RULES — follow these exactly:
 7. NEVER say you have sent, requested, emailed, accepted or declined anything unless a tool call in this conversation returned success for it. To introduce the user to a match, call request_intro (call lookup_match first if you need the match's ID). If the tool fails or you cannot call it, say so plainly and point the user to their Matches page.
 8. Whenever the user tells you how an intro or meeting went, why a match is or isn't right for them, or what they do or don't want in a match, call record_feedback right away. Only once it returns "Saved." may you say "Noted" or anything like it; saying it without that call is lying to the user. Don't claim it changes their matches.
 9. For founders: when they ask whether they're ready for investors, what to do next, or which programmes or investors suit them, and the readiness in the context is missing or out of date, assess it. Use what the context already tells you, then ask about what's missing one short question per message, waiting for each answer, two or three questions at most (customers or revenue and its growth, whether the team is full-time, what they've built, how much they want to raise). Then call save_readiness and give them the result: their stage and why, what's missing for the next stage, and the next steps. Before Series A, call find_programmes when a programme would help; at any stage use search_network for investors at their stage. Only recommend programmes find_programmes returned (never search_web for them), and only call one verified if it's marked verified. Whenever anyone mentions by name a programme (incubator, accelerator, bootcamp) they did, run or recommend, call record_programme.
+10. When the user tells you new or corrected details about their company, pitch or investment focus, save them with update_startup_profile, update_pitch or update_investor_profile, then say what was saved. When they decide on an intro request waiting for them, call answer_intro_request.
 
 Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. Plain text only.{channel_note}"#
     )
@@ -1674,6 +1676,11 @@ pub(crate) async fn build_context(state: &AppState, user_id: uuid::Uuid, role: &
         }
     }
 
+    let waiting = super::profile_tools::waiting_requests_section(state, user_id).await;
+    if !waiting.is_empty() {
+        parts.push(waiting);
+    }
+
     let saved_feedback = super::kevin_feedback::saved_section(state, user_id).await;
     if !saved_feedback.is_empty() {
         parts.push(saved_feedback);
@@ -1843,6 +1850,7 @@ pub(crate) fn kevin_tools_for_role(role: &str) -> serde_json::Value {
 
     tools.push(super::kevin_feedback::tool_for_anthropic());
     tools.extend(super::readiness::tools_for_anthropic(role));
+    tools.extend(super::profile_tools::tools_for_anthropic(role));
 
     tools.push(serde_json::json!({
         "name": "search_network",
@@ -1961,6 +1969,7 @@ pub(crate) fn kevin_tools_for_gemini(role: &str) -> serde_json::Value {
 
     declarations.push(super::kevin_feedback::tool_for_gemini());
     declarations.extend(super::readiness::tools_for_gemini(role));
+    declarations.extend(super::profile_tools::tools_for_gemini(role));
 
     declarations.push(serde_json::json!({
         "name": "search_network",
@@ -2839,6 +2848,10 @@ pub(crate) async fn execute_kevin_tool(
 
         name @ ("save_readiness" | "find_programmes" | "record_programme") => {
             super::readiness::execute(state, user_id, role, name, tool_input).await.unwrap_or_default()
+        }
+
+        name @ ("update_startup_profile" | "update_pitch" | "update_investor_profile" | "answer_intro_request") => {
+            super::profile_tools::execute(state, user_id, role, name, tool_input).await.unwrap_or_default()
         }
 
         _ => format!("Unknown tool: {tool_name}"),

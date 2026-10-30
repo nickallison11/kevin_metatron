@@ -324,66 +324,7 @@ async fn accept_intro(
     Path(match_id): Path<Uuid>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let user = require_user(&state, bearer.token()).await?;
-    let investor_email: String = sqlx::query_scalar("SELECT email FROM users WHERE id = $1")
-        .bind(user.id)
-        .fetch_one(&state.db)
-        .await
-        .map_err(internal)?;
-
-    let row: Option<(
-        Uuid,
-        Option<Uuid>,
-        Option<chrono::DateTime<chrono::Utc>>,
-        Option<chrono::DateTime<chrono::Utc>>,
-    )> = sqlx::query_as(
-        r#"SELECT km.for_user_id, km.matched_user_id, km.intro_accepted_at, km.intro_passed_at
-             FROM kevin_matches km
-             WHERE km.id = $1
-               AND (km.matched_user_id = $2 OR EXISTS (
-                 SELECT 1 FROM connector_network_contacts cnc
-                 WHERE cnc.id = km.contact_id AND LOWER(cnc.email) = LOWER($3)
-               ))"#,
-    )
-    .bind(match_id)
-    .bind(user.id)
-    .bind(&investor_email)
-    .fetch_optional(&state.db)
-    .await
-    .map_err(internal)?;
-
-    let (founder_id, matched_user_id, intro_accepted_at, intro_passed_at) =
-        row.ok_or((StatusCode::NOT_FOUND, "match not found".to_string()))?;
-    if intro_accepted_at.is_some() {
-        return Err((StatusCode::CONFLICT, "already accepted".to_string()));
-    }
-    if intro_passed_at.is_some() {
-        return Err((StatusCode::CONFLICT, "already passed".to_string()));
-    }
-
-    sqlx::query("UPDATE kevin_matches SET intro_accepted_at = NOW() WHERE id = $1")
-        .bind(match_id)
-        .execute(&state.db)
-        .await
-        .map_err(internal)?;
-
-    if let Some(matched_uid) = matched_user_id {
-        let first = connections::try_first_accept_connect(&state.db, founder_id, matched_uid)
-            .await
-            .map_err(internal)?;
-        let exists: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM connections WHERE from_user_id = $1 AND to_user_id = $2 AND connection_type = 'connect')",
-        )
-        .bind(founder_id)
-        .bind(matched_uid)
-        .fetch_one(&state.db)
-        .await
-        .map_err(internal)?;
-        if first || !exists {
-            connections::send_kevin_warm_email_for_intro_accept(&state, user.id, founder_id).await;
-        }
-    } else {
-        connections::send_kevin_warm_email_for_intro_accept(&state, user.id, founder_id).await;
-    }
+    answer_intro_request(&state, user.id, match_id, true).await?;
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
@@ -393,8 +334,20 @@ async fn pass_intro(
     Path(match_id): Path<Uuid>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let user = require_user(&state, bearer.token()).await?;
-    let investor_email: String = sqlx::query_scalar("SELECT email FROM users WHERE id = $1")
-        .bind(user.id)
+    answer_intro_request(&state, user.id, match_id, false).await?;
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
+/// The user who received an intro request (a founder or an investor) accepts
+/// or passes on it: from the Matches page, or through Kevin.
+pub(crate) async fn answer_intro_request(
+    state: &AppState,
+    user_id: Uuid,
+    match_id: Uuid,
+    accept: bool,
+) -> Result<(), (StatusCode, String)> {
+    let user_email: String = sqlx::query_scalar("SELECT email FROM users WHERE id = $1")
+        .bind(user_id)
         .fetch_one(&state.db)
         .await
         .map_err(internal)?;
@@ -414,13 +367,13 @@ async fn pass_intro(
                ))"#,
     )
     .bind(match_id)
-    .bind(user.id)
-    .bind(&investor_email)
+    .bind(user_id)
+    .bind(&user_email)
     .fetch_optional(&state.db)
     .await
     .map_err(internal)?;
 
-    let (founder_id, matched_user_id, intro_accepted_at, intro_passed_at) =
+    let (requester_id, matched_user_id, intro_accepted_at, intro_passed_at) =
         row.ok_or((StatusCode::NOT_FOUND, "match not found".to_string()))?;
     if intro_accepted_at.is_some() {
         return Err((StatusCode::CONFLICT, "already accepted".to_string()));
@@ -429,15 +382,43 @@ async fn pass_intro(
         return Err((StatusCode::CONFLICT, "already passed".to_string()));
     }
 
+    if accept {
+        sqlx::query("UPDATE kevin_matches SET intro_accepted_at = NOW() WHERE id = $1")
+            .bind(match_id)
+            .execute(&state.db)
+            .await
+            .map_err(internal)?;
+
+        if let Some(matched_uid) = matched_user_id {
+            let first = connections::try_first_accept_connect(&state.db, requester_id, matched_uid)
+                .await
+                .map_err(internal)?;
+            let exists: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM connections WHERE from_user_id = $1 AND to_user_id = $2 AND connection_type = 'connect')",
+            )
+            .bind(requester_id)
+            .bind(matched_uid)
+            .fetch_one(&state.db)
+            .await
+            .map_err(internal)?;
+            if first || !exists {
+                connections::send_kevin_warm_email_for_intro_accept(state, user_id, requester_id).await;
+            }
+        } else {
+            connections::send_kevin_warm_email_for_intro_accept(state, user_id, requester_id).await;
+        }
+        return Ok(());
+    }
+
     let profile: Option<(Option<String>, Option<String>)> = sqlx::query_as(
         "SELECT firm_name, pass_message_template FROM investor_profiles WHERE user_id = $1",
     )
-    .bind(user.id)
+    .bind(user_id)
     .fetch_optional(&state.db)
     .await
     .map_err(internal)?;
     let (firm_name, template_opt) = profile.unwrap_or((None, None));
-    let investor_name = firm_name.unwrap_or_else(|| investor_email.clone());
+    let investor_name = firm_name.unwrap_or_else(|| user_email.clone());
 
     sqlx::query("UPDATE kevin_matches SET intro_passed_at = NOW() WHERE id = $1")
         .bind(match_id)
@@ -446,13 +427,13 @@ async fn pass_intro(
         .map_err(internal)?;
 
     if let Some(matched_uid) = matched_user_id {
-        let _ = connections::mark_connect_declined_for_pair(&state.db, founder_id, matched_uid).await;
+        let _ = connections::mark_connect_declined_for_pair(&state.db, requester_id, matched_uid).await;
     }
 
     let founder: Option<(String, Option<String>, Option<String>, Option<String>)> = sqlx::query_as(
         "SELECT u.email, u.telegram_id, u.whatsapp_number, p.company_name FROM users u LEFT JOIN profiles p ON p.user_id = u.id WHERE u.id = $1",
     )
-    .bind(founder_id)
+    .bind(requester_id)
     .fetch_optional(&state.db)
     .await
     .map_err(internal)?;
@@ -496,7 +477,7 @@ async fn pass_intro(
                 .await;
         }
     }
-    Ok(Json(serde_json::json!({"ok": true})))
+    Ok(())
 }
 
 // Display info tracked per candidate ID

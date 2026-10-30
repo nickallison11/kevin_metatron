@@ -191,8 +191,42 @@ fn tools(role: &str) -> Vec<Value> {
             "annotations": read_only(true)
         }));
     }
+    // Kevin's other tools, the same as in chat: saving feedback, stage,
+    // programmes and profile changes, and intros. Not marked read-only, so
+    // the user's app asks before running them.
+    if let Some(kevin_tools) = super::kevin::kevin_tools_for_role(role).as_array() {
+        for t in kevin_tools {
+            let Some(name) = t["name"].as_str() else { continue };
+            if NOT_FROM_CHAT.contains(&name) {
+                continue;
+            }
+            list.push(json!({
+                "name": name,
+                "description": t["description"],
+                "inputSchema": t["input_schema"],
+                "annotations": {
+                    "readOnlyHint": false,
+                    "destructiveHint": false,
+                    "openWorldHint": REACHES_OTHERS.contains(&name)
+                }
+            }));
+        }
+    }
     list
 }
+
+/// Chat tools the MCP server handles itself (above), or leaves out: the
+/// user's own AI already searches the web.
+const NOT_FROM_CHAT: &[&str] = &["lookup_match", "search_network", "find_programmes", "search_web"];
+
+/// Tools whose result reaches someone other than the user.
+const REACHES_OTHERS: &[&str] = &[
+    "request_intro",
+    "email_pitch_deck",
+    "accept_introduction",
+    "decline_introduction",
+    "answer_intro_request",
+];
 
 /// Runs a tool: (text for the model, whether it's an error).
 async fn call_tool(state: &AppState, user: &McpUser, name: &str, args: &Value) -> (String, bool) {
@@ -203,11 +237,13 @@ async fn call_tool(state: &AppState, user: &McpUser, name: &str, args: &Value) -
         return (limit_message, true);
     }
     let text = match name {
-        "get_my_overview" => super::kevin::build_context(state, user.id, &user.role).await,
-        "lookup_match" => super::kevin::execute_kevin_tool(state, user.id, &user.email, &user.role, name, args).await,
+        "get_my_overview" => {
+            let (follow_ups, _) = super::kevin_feedback::follow_up_section(state, user.id).await;
+            format!("{}{follow_ups}", super::kevin::build_context(state, user.id, &user.role).await)
+        }
         "search_network" => search_network(state, user, args).await,
         "find_programmes" => super::readiness::execute(state, user.id, &user.role, name, args).await.unwrap_or_default(),
-        _ => return (format!("Unknown tool: {name}"), true),
+        _ => super::kevin::execute_kevin_tool(state, user.id, &user.email, &user.role, name, args).await,
     };
     (text, false)
 }

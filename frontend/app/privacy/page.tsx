@@ -94,7 +94,7 @@ export default function PrivacyPage() {
               investors and make introductions: contract.
             </li>
             <li>
-              Messages with Kevin on WhatsApp, Telegram, email and AI apps you connect, including your phone number or
+              Messages with Kevin on WhatsApp, Telegram and AI apps you connect, including your phone number or
               Telegram ID if you use those channels: contract.
             </li>
             <li>

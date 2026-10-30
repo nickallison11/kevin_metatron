@@ -208,41 +208,10 @@ struct InboundEmailRequest {
     raw: String,
 }
 
-#[derive(sqlx::FromRow)]
-struct UserForEmail {
-    id: Uuid,
-    is_pro: bool,
-    is_basic: bool,
-    subscription_tier: String,
-    role: String,
-    custom_ai_provider: Option<String>,
-    custom_ai_api_key: Option<String>,
-    custom_ai_model: Option<String>,
-}
-
-/// Compares a secret in constant time, so timing doesn't leak it.
-fn secrets_match(given: &str, expected: &str) -> bool {
-    given.len() == expected.len() && given.bytes().zip(expected.bytes()).fold(0u8, |acc, (a, b)| acc | (a ^ b)) == 0
-}
-
 async fn inbound_email(
     State(state): State<Arc<AppState>>,
-    headers: HeaderMap,
     body: Result<Json<InboundEmailRequest>, JsonRejection>,
 ) -> StatusCode {
-    // The endpoint is public, so an email is only trusted to change things once
-    // the email worker proves it's the sender: with INBOUND_EMAIL_SECRET set,
-    // requests must carry it and Kevin gets every tool; without it, read-only.
-    let verified = match std::env::var("INBOUND_EMAIL_SECRET").ok().filter(|s| !s.is_empty()) {
-        Some(secret) => {
-            let given = headers.get("x-inbound-secret").and_then(|v| v.to_str().ok()).unwrap_or("");
-            if !secrets_match(given, &secret) {
-                return StatusCode::UNAUTHORIZED;
-            }
-            true
-        }
-        None => false,
-    };
     let body = match body {
         Ok(Json(b)) => b,
         Err(e) => {
@@ -253,32 +222,28 @@ async fn inbound_email(
 
     let state = Arc::clone(&state);
     tokio::spawn(async move {
-        inbound_email_process(state, body, verified).await;
+        inbound_email_process(state, body).await;
     });
     StatusCode::OK
 }
 
-async fn inbound_email_process(state: Arc<AppState>, body: InboundEmailRequest, verified: bool) {
+/// Email from metatron is for notifications (matches, intros, billing), not
+/// for chatting with Kevin: it's too slow for a conversation. Anyone who
+/// writes to kevin@metatron.id gets a fixed reply pointing to the channels
+/// where Kevin talks.
+async fn inbound_email_process(state: Arc<AppState>, body: InboundEmailRequest) {
     let _ = &body.to;
     let from_addr = parse_email_address(&body.from);
     let resend_key = state.resend_api_key.as_deref().unwrap_or("");
 
-    let plain = extract_plain_text_from_raw_email(&body.raw);
-    if plain.trim().is_empty() {
+    if extract_plain_text_from_raw_email(&body.raw).trim().is_empty() {
         return;
     }
 
-    let user_row: Option<UserForEmail> = match sqlx::query_as(
-        r#"
-        SELECT id, is_pro, is_basic, subscription_tier, role::text,
-               custom_ai_provider, custom_ai_api_key, custom_ai_model
-        FROM users
-        WHERE LOWER(email) = LOWER($1)
-        "#,
-    )
-    .bind(&from_addr)
-    .fetch_optional(&state.db)
-    .await
+    let role: Option<String> = match sqlx::query_scalar("SELECT role::text FROM users WHERE LOWER(email) = LOWER($1)")
+        .bind(&from_addr)
+        .fetch_optional(&state.db)
+        .await
     {
         Ok(r) => r,
         Err(e) => {
@@ -295,122 +260,22 @@ async fn inbound_email_process(state: Arc<AppState>, body: InboundEmailRequest, 
         format!("Re: {}", body.subject.trim())
     };
 
-    let Some(user) = user_row else {
-        email::send_kevin_email_reply(
-            &state.http_client,
-            resend_key,
-            "kevin@metatron.id",
-            &from_addr,
-            &reply_subject,
-            "Hi! You need a free metatron account to chat with Kevin. Sign up at platform.metatron.id",
-        )
-        .await;
-        return;
-    };
-
-    let daily_limit = kevin_daily_limit(&state, user.id, user.is_basic, user.is_pro).await;
-
-    if daily_limit < i32::MAX {
-        let count: i32 = match sqlx::query_scalar(
-            r#"
-            INSERT INTO kevin_daily_usage (user_id, usage_date, message_count)
-            VALUES ($1, CURRENT_DATE, 1)
-            ON CONFLICT (user_id, usage_date)
-            DO UPDATE SET message_count = kevin_daily_usage.message_count + 1
-            RETURNING message_count
-            "#,
-        )
-        .bind(user.id)
-        .fetch_one(&state.db)
-        .await
-        {
-            Ok(c) => c,
-            Err(e) => {
-                tracing::error!("inbound-email: usage upsert failed: {e}");
-                return;
-            }
-        };
-
-        if count > daily_limit {
-            let _ = sqlx::query(
-                "UPDATE kevin_daily_usage SET message_count = message_count - 1 WHERE user_id = $1 AND usage_date = CURRENT_DATE",
-            )
-            .bind(user.id)
-            .execute(&state.db)
-            .await;
-
-            let limit_body = if !user.is_pro && !user.is_basic {
-                free_limit_message(&state, daily_limit)
-            } else {
-                "You've reached your daily Kevin limit. It resets at midnight UTC.".to_string()
+    let base = email::frontend_url();
+    let reply = match role.as_deref() {
+        None => format!(
+            "Hi, I'm Kevin from metatron. To talk to me, sign up and connect me on WhatsApp, Telegram or your own AI app: {base}"
+        ),
+        Some(role) => {
+            let page = match role {
+                "INVESTOR" => "investor",
+                "CONNECTOR" => "connector",
+                _ => "startup",
             };
-
-            email::send_kevin_email_reply(
-                &state.http_client,
-                resend_key,
-                "kevin@metatron.id",
-                &from_addr,
-                &reply_subject,
-                &limit_body,
+            format!(
+                "Hi, I don't chat by email. Email from me is for notifications, like new matches, intros and billing.\n\nTo talk to me, message me on WhatsApp or Telegram, or connect your own AI app (Claude, ChatGPT, Gemini or Grok): {base}/{page}/kevin"
             )
-            .await;
-            return;
-        }
-    }
-
-    let last_user_message = plain.clone();
-
-    let recalled = if last_user_message.trim().is_empty() {
-        Vec::new()
-    } else {
-        match memory::recall_memories(
-            &state.db,
-            &state.http_client,
-            state.gemini_embedding_key.as_deref(),
-            user.is_pro,
-            user.id,
-            &last_user_message,
-        )
-        .await
-        {
-            Ok(v) => v,
-            Err(e) => {
-                tracing::warn!("kevin inbound-email memory recall failed: {e}");
-                Vec::new()
-            }
         }
     };
-
-    let context = build_context(&state, user.id, &user.role).await;
-    let memory_section = memory_section_from_recalled(recalled);
-    let note = if verified { EMAIL_NOTE.to_string() } else { format!("{EMAIL_NOTE} By email you can look things up but not make changes: for those, point them to WhatsApp, Telegram or an AI app connected to Kevin.") };
-    let system = email::localize_links(&kevin_system_prompt(&format!("{context}{memory_section}"), &note));
-
-    // One conversation per email thread, so Kevin keeps its history and tool
-    // results: the same user and subject (without "Re:") give the same session.
-    let thread = reply_subject.trim_start_matches(|c: char| c == ' ').to_lowercase();
-    let thread = thread.trim_start_matches("re:").trim();
-    let digest = <sha2::Sha256 as sha2::Digest>::digest(format!("email:{}:{thread}", user.id).as_bytes());
-    let session_id = Uuid::from_slice(&digest[..16]).ok();
-
-    let reply = EMAIL_READ_ONLY
-        .scope(
-            !verified,
-            run_kevin_with_tools(
-                &state,
-                user.id,
-                &from_addr,
-                &user.role,
-                user.is_pro,
-                user.is_basic,
-                &system,
-                vec![serde_json::json!({ "role": "user", "content": plain })],
-                session_id,
-                None,
-            ),
-        )
-        .await;
-    let reply = strip_markdown(&reply);
 
     email::send_kevin_email_reply(
         &state.http_client,
@@ -421,47 +286,6 @@ async fn inbound_email_process(state: Arc<AppState>, body: InboundEmailRequest, 
         &reply,
     )
     .await;
-
-    if let Some(gemini_key) = state.ai_api_key.clone() {
-        let db = state.db.clone();
-        let http = state.http_client.clone();
-        let uid = user.id;
-        let is_pro = user.is_pro;
-        let embedding_key = state.gemini_embedding_key.clone();
-        let conversation = format!("User: {last_user_message}\nKevin: {reply}");
-        tokio::spawn(async move {
-            if let Err(e) = memory::store_memory(
-                &db,
-                &http,
-                &gemini_key,
-                embedding_key.as_deref(),
-                is_pro,
-                uid,
-                &conversation,
-            )
-            .await
-            {
-                tracing::warn!("kevin inbound-email memory store failed: {e}");
-            }
-        });
-    }
-
-    let db2 = state.db.clone();
-    let uid2 = user.id;
-    let user_msg = last_user_message.clone();
-    let assistant_msg = reply.clone();
-    tokio::spawn(async move {
-        let _ = sqlx::query(
-            r#"INSERT INTO kevin_chat_turns (user_id, role, content, session_id)
-               VALUES ($1, 'user', $2, $4), ($1, 'assistant', $3, $4)"#,
-        )
-        .bind(uid2)
-        .bind(&user_msg)
-        .bind(&assistant_msg)
-        .bind(session_id)
-        .execute(&db2)
-        .await;
-    });
 }
 
 #[derive(Deserialize)]
@@ -550,11 +374,6 @@ pub(crate) enum KevinReplyError {
     BadGateway(String),
     Internal,
 }
-
-/// Added to Kevin's prompt when he replies by email.
-const EMAIL_NOTE: &str = "
-
-You're replying to this user by email: write a complete reply they can read on its own, in plain text. Their message may include earlier emails quoted below it; reply to the newest part.";
 
 /// Added to Kevin's prompt on WhatsApp and Telegram.
 const MESSAGING_NOTE: &str = "\n\nYou're talking to this user on WhatsApp or Telegram, so keep replies short: a few lines, and one question per message.";
@@ -1943,15 +1762,6 @@ pub(crate) fn kevin_tools_for_gemini(role: &str) -> serde_json::Value {
 }
 
 
-tokio::task_local! {
-    /// Set while Kevin answers an email that can't be verified as really
-    /// coming from the user: he can look things up but not change anything.
-    static EMAIL_READ_ONLY: bool;
-}
-
-/// Tools that only read, allowed on unverified email.
-const READ_ONLY_TOOLS: &[&str] = &["lookup_match", "search_network", "search_web", "find_programmes"];
-
 pub(crate) async fn execute_kevin_tool(
     state: &AppState,
     user_id: Uuid,
@@ -1960,9 +1770,6 @@ pub(crate) async fn execute_kevin_tool(
     tool_name: &str,
     tool_input: &serde_json::Value,
 ) -> String {
-    if EMAIL_READ_ONLY.try_with(|v| *v).unwrap_or(false) && !READ_ONLY_TOOLS.contains(&tool_name) {
-        return "Not done: by email Kevin can only look things up. The user can make changes on WhatsApp, Telegram or an AI app connected to Kevin.".to_string();
-    }
     match tool_name {
         "lookup_match" => {
             let name = tool_input["name"].as_str().unwrap_or("").to_lowercase();
@@ -3211,11 +3018,7 @@ pub(crate) async fn run_kevin_with_tools(
     let mut complexity = classify_query_complexity(&last_msg);
     // Flash-Lite ignores the intro follow-up instruction on a plain "Hi";
     // the paid tier asks reliably. Only while the user has intros to ask about.
-    // Emails get at least the next model up too: Flash-Lite claimed changes a
-    // tool had just refused.
-    if complexity == QueryComplexity::Simple
-        && (system.contains(crate::routes::kevin_feedback::FOLLOW_UP_HEADING) || system.contains(EMAIL_NOTE))
-    {
+    if complexity == QueryComplexity::Simple && system.contains(crate::routes::kevin_feedback::FOLLOW_UP_HEADING) {
         complexity = QueryComplexity::Moderate;
     }
 

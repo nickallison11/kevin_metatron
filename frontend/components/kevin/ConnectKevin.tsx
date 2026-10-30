@@ -102,7 +102,7 @@ function ConnectSteps({ app, onClose }: { app: App; onClose: () => void }) {
   );
 }
 
-/** Connect Kevin, for every role: the user's own AI app, their phone, and email. */
+/** Connect Kevin, for every role: the user's own AI app or their phone. (Email is for notifications only.) */
 export function ConnectKevin({ profileHref }: { profileHref: string }) {
   const { token, loading } = useAuth();
   const [connections, setConnections] = useState<Connection[]>([]);
@@ -182,17 +182,6 @@ export function ConnectKevin({ profileHref }: { profileHref: string }) {
             </section>
 
             <KevinChannelPicker token={token} />
-
-            <section className="flex flex-col gap-3">
-              <h2 className={eyebrow}>Email</h2>
-              <div className={`${card} border-[var(--border)]`}>
-                <Tile label="@" />
-                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                  <span className="select-all text-base font-semibold">kevin@metatron.id</span>
-                  <span className="text-[13px] text-[var(--text-muted)]">Always on</span>
-                </div>
-              </div>
-            </section>
           </div>
 
           <aside className="flex w-full flex-col gap-4 lg:w-80 lg:shrink-0">

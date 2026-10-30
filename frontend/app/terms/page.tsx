@@ -38,7 +38,7 @@ export default function TermsPage() {
         <Section title="3. Your data">
           <p>
             <strong>You own your data.</strong> When you share it with metatron in any way (on the website, with Kevin on
-            WhatsApp, Telegram or email, or through an AI app you connect), you give metatron a non-exclusive, worldwide,
+            WhatsApp or Telegram, or through an AI app you connect), you give metatron a non-exclusive, worldwide,
             royalty-free licence to:
           </p>
           <ul>

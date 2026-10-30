@@ -3211,7 +3211,11 @@ pub(crate) async fn run_kevin_with_tools(
     let mut complexity = classify_query_complexity(&last_msg);
     // Flash-Lite ignores the intro follow-up instruction on a plain "Hi";
     // the paid tier asks reliably. Only while the user has intros to ask about.
-    if complexity == QueryComplexity::Simple && system.contains(crate::routes::kevin_feedback::FOLLOW_UP_HEADING) {
+    // Emails get at least the next model up too: Flash-Lite claimed changes a
+    // tool had just refused.
+    if complexity == QueryComplexity::Simple
+        && (system.contains(crate::routes::kevin_feedback::FOLLOW_UP_HEADING) || system.contains(EMAIL_NOTE))
+    {
         complexity = QueryComplexity::Moderate;
     }
 

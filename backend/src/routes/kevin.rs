@@ -2826,6 +2826,8 @@ async fn run_kevin_with_tools_gemini(
     let mut usage = crate::ai::TokenUsage::default();
 
     let tools = kevin_tools_for_gemini(role);
+    // Text the model writes alongside a tool call, kept for the final reply.
+    let mut said = String::new();
     let url = format!(
         "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
     );
@@ -2892,13 +2894,18 @@ async fn run_kevin_with_tools_gemini(
                     if !text.is_empty() {
                         let text = strip_markdown(text);
                         new_rows.push(crate::kevin_context::text_row("assistant", &text));
-                        return (text, new_rows, usage);
+                        return (join_said(&said, text), new_rows, usage);
                     }
                 }
             }
             return ("Kevin is temporarily unavailable.".to_string(), new_rows, usage);
         }
 
+        for part in &parts {
+            if let Some(text) = part["text"].as_str().map(str::trim).filter(|t| !t.is_empty()) {
+                said = join_said(&said, strip_markdown(text));
+            }
+        }
         contents.push(serde_json::json!({
             "role": "model",
             "parts": parts
@@ -2935,6 +2942,19 @@ async fn run_kevin_with_tools_gemini(
     ("Kevin reached the tool call limit. Please try again.".to_string(), new_rows, usage)
 }
 
+
+/// Earlier text from tool-calling turns, then the final reply.
+fn join_said(said: &str, text: String) -> String {
+    if said.is_empty() {
+        text
+    } else if text.trim().is_empty() {
+        said.to_string()
+    } else {
+        format!("{said}
+
+{text}")
+    }
+}
 
 /// "yes", "sure, go ahead", "ok please do" — a short reply that agrees to
 /// something rather than asking anything new.
@@ -3065,6 +3085,8 @@ async fn run_kevin_anthropic_tool_loop(
     let tools = kevin_tools_for_role(role);
     let mut msgs = messages;
     let mut new_rows: Vec<crate::kevin_context::ContextRow> = Vec::new();
+    // Text the model writes alongside a tool call, kept for the final reply.
+    let mut said = String::new();
     let mut usage = crate::ai::TokenUsage::default();
 
     for turn in 0..4 {
@@ -3115,7 +3137,7 @@ async fn run_kevin_anthropic_tool_loop(
                     if block["type"].as_str() == Some("text") {
                         let text = strip_markdown(block["text"].as_str().unwrap_or(""));
                         new_rows.push(crate::kevin_context::text_row("assistant", &text));
-                        return Ok((text, new_rows, usage));
+                        return Ok((join_said(&said, text), new_rows, usage));
                     }
                 }
             }
@@ -3127,6 +3149,11 @@ async fn run_kevin_anthropic_tool_loop(
             None => return Err("no content array".to_string()),
         };
 
+        for block in &content {
+            if let Some(text) = block["text"].as_str().map(str::trim).filter(|t| !t.is_empty()) {
+                said = join_said(&said, strip_markdown(text));
+            }
+        }
         msgs.push(serde_json::json!({ "role": "assistant", "content": content }));
         new_rows.push(crate::kevin_context::ContextRow {
             role: "assistant".to_string(),

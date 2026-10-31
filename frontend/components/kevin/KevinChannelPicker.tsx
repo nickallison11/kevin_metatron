@@ -4,7 +4,7 @@ import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { TelegramLogo, WhatsAppLogo } from "@/components/kevin/AppLogos";
 import { ConnectRow, RowPanel, listCard, rowBtn, rowBtnPrimary, sectionTitle } from "@/components/kevin/ConnectRow";
 import { API_BASE, authHeaders } from "@/lib/api";
-import { KEVIN_TELEGRAM, KEVIN_TELEGRAM_BOT, KEVIN_WHATSAPP } from "@/lib/kevinChannels";
+import { KEVIN_TELEGRAM, KEVIN_WHATSAPP } from "@/lib/kevinChannels";
 import type { MeResponse } from "@/lib/me";
 
 type Channel = "whatsapp" | "telegram";
@@ -32,7 +32,6 @@ export function KevinChannelPicker({ token }: { token: string }) {
   const [code, setCode] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
 
   const loadMe = useCallback(async () => {
     const res = await fetch(`${API_BASE}/auth/me`, { headers: authHeaders(token) }).catch(() => null);
@@ -154,26 +153,10 @@ export function KevinChannelPicker({ token }: { token: string }) {
                       <span className="text-[var(--text-muted)]">{busy ? "Getting your link…" : "Preparing your link…"}</span>
                     ) : (
                       <>
-                        <span className="text-[var(--text-muted)]">Open Kevin on Telegram. It links automatically.</span>
+                        <span className="text-[var(--text-muted)]">Open Kevin on Telegram and press Start.</span>
                         <a href={`${KEVIN_TELEGRAM}?start=${code}`} target="_blank" rel="noopener noreferrer" className={`${btnPrimary} w-fit`}>
                           Open Telegram →
                         </a>
-                        <span className="text-xs text-[var(--text-muted)]">Or send this to @{KEVIN_TELEGRAM_BOT}:</span>
-                        <div className="flex items-center gap-2">
-                          <code className="min-w-0 flex-1 select-all truncate rounded-[8px] border border-[var(--border)] bg-[var(--bg)] px-2.5 py-1.5 font-mono text-xs">/start {code}</code>
-                          <button
-                            type="button"
-                            className={btn}
-                            onClick={() =>
-                              void navigator.clipboard.writeText(`/start ${code}`).then(() => {
-                                setCopied(true);
-                                setTimeout(() => setCopied(false), 2000);
-                              })
-                            }
-                          >
-                            {copied ? "Copied" : "Copy"}
-                          </button>
-                        </div>
                         <span className="text-xs text-[var(--text-muted)]">Waiting for you to connect… The code expires in 15 minutes.</span>
                       </>
                     )}

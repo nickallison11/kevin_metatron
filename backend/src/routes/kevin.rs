@@ -1180,6 +1180,8 @@ pub(crate) async fn build_context(state: &AppState, user_id: uuid::Uuid, role: &
     .await
     {
         if !rows.is_empty() {
+            // The latest pitch's team (rows are newest first).
+            let team_json = rows.iter().find_map(|p| p.team_members.clone());
             let lines: Vec<String> = rows
                 .into_iter()
                 .map(|p| {
@@ -1214,30 +1216,31 @@ pub(crate) async fn build_context(state: &AppState, user_id: uuid::Uuid, role: &
                     if let Some(v) = p.team_size {
                         s.push_str(&format!("\n  Team size: {v}"));
                     }
-                    let team: Vec<String> = p
-                        .team_members
-                        .as_ref()
-                        .and_then(|t| t.0.as_array().cloned())
-                        .unwrap_or_default()
-                        .iter()
-                        .filter_map(|m| {
-                            let name = m["name"].as_str()?.trim();
-                            let role = m["role"].as_str().unwrap_or("").trim();
-                            let li = m["linkedin"].as_str().unwrap_or("").trim();
-                            let mut line = if role.is_empty() { name.to_string() } else { format!("{name}, {role}") };
-                            if !li.is_empty() {
-                                line.push_str(&format!(" ({li})"));
-                            }
-                            (!name.is_empty()).then_some(line)
-                        })
-                        .collect();
-                    if !team.is_empty() {
-                        s.push_str(&format!("\n  Team: {}", team.join("; ")));
-                    }
                     s
                 })
                 .collect();
             parts.push(format!("Pitch data:\n{}", lines.join("\n\n")));
+            // The team gets its own heading: as one line inside the pitch,
+            // the smaller models missed it and said they couldn't see it.
+            let team: Vec<String> = team_json
+                .as_ref()
+                .and_then(|t| t.0.as_array().cloned())
+                .unwrap_or_default()
+                .iter()
+                .filter_map(|m| {
+                    let name = m["name"].as_str()?.trim();
+                    let role = m["role"].as_str().unwrap_or("").trim();
+                    let li = m["linkedin"].as_str().unwrap_or("").trim();
+                    let mut line = if role.is_empty() { format!("- {name}") } else { format!("- {name}: {role}") };
+                    if !li.is_empty() {
+                        line.push_str(&format!(" ({li})"));
+                    }
+                    (!name.is_empty()).then_some(line)
+                })
+                .collect();
+            if !team.is_empty() {
+                parts.push(format!("Team members (saved on their pitch):\n{}", team.join("\n")));
+            }
         }
     }
 

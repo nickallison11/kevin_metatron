@@ -49,7 +49,7 @@ fn tool_specs(role: &str) -> Vec<(&'static str, &'static str, Value, Vec<&'stati
             "team_members".into(),
             json!({
                 "type": "array",
-                "description": "The WHOLE team after the change (it replaces the saved list): keep everyone already in the Team list unless they asked to remove them",
+                "description": "The WHOLE team after the change (it replaces the saved list): keep everyone already in Team members unless they asked to remove them",
                 "items": {
                     "type": "object",
                     "properties": {

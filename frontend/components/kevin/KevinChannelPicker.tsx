@@ -4,7 +4,7 @@ import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { TelegramLogo, WhatsAppLogo } from "@/components/kevin/AppLogos";
 import { ConnectRow, RowPanel, listCard, rowBtn, rowBtnPrimary, sectionTitle } from "@/components/kevin/ConnectRow";
 import { API_BASE, authHeaders } from "@/lib/api";
-import { KEVIN_TELEGRAM, KEVIN_WHATSAPP } from "@/lib/kevinChannels";
+import { KEVIN_TELEGRAM, KEVIN_TELEGRAM_BOT, KEVIN_WHATSAPP } from "@/lib/kevinChannels";
 import type { MeResponse } from "@/lib/me";
 
 type Channel = "whatsapp" | "telegram";
@@ -158,7 +158,7 @@ export function KevinChannelPicker({ token }: { token: string }) {
                         <a href={`${KEVIN_TELEGRAM}?start=${code}`} target="_blank" rel="noopener noreferrer" className={`${btnPrimary} w-fit`}>
                           Open Telegram →
                         </a>
-                        <span className="text-xs text-[var(--text-muted)]">Or send this to @Kevinmetatron_bot:</span>
+                        <span className="text-xs text-[var(--text-muted)]">Or send this to @{KEVIN_TELEGRAM_BOT}:</span>
                         <div className="flex items-center gap-2">
                           <code className="min-w-0 flex-1 select-all truncate rounded-[8px] border border-[var(--border)] bg-[var(--bg)] px-2.5 py-1.5 font-mono text-xs">/start {code}</code>
                           <button

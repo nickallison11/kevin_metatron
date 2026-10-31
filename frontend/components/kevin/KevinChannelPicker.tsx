@@ -1,9 +1,9 @@
 "use client";
 
-import { type FormEvent, type ReactNode, useCallback, useEffect, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { TelegramLogo, WhatsAppLogo } from "@/components/kevin/AppLogos";
 import { ConnectRow, RowPanel, listCard, rowBtn, rowBtnPrimary, sectionTitle } from "@/components/kevin/ConnectRow";
-import { API_BASE, authHeaders, authJsonHeaders } from "@/lib/api";
+import { API_BASE, authHeaders } from "@/lib/api";
 import { KEVIN_TELEGRAM, KEVIN_WHATSAPP } from "@/lib/kevinChannels";
 import type { MeResponse } from "@/lib/me";
 
@@ -11,8 +11,9 @@ type Channel = "whatsapp" | "telegram";
 const LABEL: Record<Channel, string> = { whatsapp: "WhatsApp", telegram: "Telegram" };
 const LOGO: Record<Channel, ReactNode> = { whatsapp: <WhatsAppLogo />, telegram: <TelegramLogo /> };
 
-const input =
-  "w-full min-h-11 rounded-[10px] border border-[var(--overlay-12)] bg-[var(--bg)] px-3.5 py-2.5 text-sm text-[var(--text)] outline-none focus:border-metatron-accent";
+/** The message WhatsApp opens with; Kevin links the number that sends it. */
+export const whatsappLinkText = (code: string) => `Link my metatron account: ${code}`;
+
 const btn =
   "inline-flex min-h-9 items-center justify-center rounded-[10px] border border-[var(--overlay-12)] px-3 text-[13px] font-medium text-[var(--text)] hover:bg-[var(--overlay-4)] disabled:opacity-50";
 const btnPrimary =
@@ -20,15 +21,15 @@ const btnPrimary =
 
 /**
  * "Kevin on your messaging app": an account uses WhatsApp OR Telegram, never both.
- * Picking the other app asks first, because linking it disconnects the
- * current one (the backend enforces the switch).
+ * Both link with a one-time code sent from the app itself, so nobody can claim
+ * a number or account they don't hold. Picking the other app asks first,
+ * because linking it disconnects the current one (the backend enforces it).
  */
 export function KevinChannelPicker({ token }: { token: string }) {
   const [me, setMe] = useState<MeResponse | null>(null);
   const [pending, setPending] = useState<Channel | null>(null);
   const [setup, setSetup] = useState<Channel | null>(null);
   const [code, setCode] = useState<string | null>(null);
-  const [number, setNumber] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -42,29 +43,30 @@ export function KevinChannelPicker({ token }: { token: string }) {
     void loadMe();
   }, [loadMe]);
 
-  // While a Telegram code is showing, watch for the link to land.
+  // While a link code is showing, watch for the link to land.
   useEffect(() => {
-    if (!code || me?.telegram_id) return;
+    if (!code || !setup) return;
     const t = setInterval(async () => {
       const res = await fetch(`${API_BASE}/auth/me`, { headers: authHeaders(token) }).catch(() => null);
       if (!res?.ok) return;
       const d = (await res.json()) as MeResponse;
-      if (d.telegram_id) {
+      if (setup === "telegram" ? d.telegram_id : d.whatsapp_number) {
         setMe(d);
         setCode(null);
         setSetup(null);
       }
     }, 3000);
     return () => clearInterval(t);
-  }, [code, me?.telegram_id, token]);
+  }, [code, setup, token]);
 
   const current: Channel | null = me?.whatsapp_number ? "whatsapp" : me?.telegram_id ? "telegram" : null;
 
-  async function startTelegram() {
+  async function startLink(c: Channel) {
     setBusy(true);
     setMsg(null);
     try {
-      const res = await fetch(`${API_BASE}/auth/telegram/link-token`, { method: "POST", headers: authHeaders(token) });
+      const path = c === "telegram" ? "/auth/telegram/link-token" : "/auth/whatsapp/link-code";
+      const res = await fetch(`${API_BASE}${path}`, { method: "POST", headers: authHeaders(token) });
       const txt = await res.text();
       if (!res.ok) throw new Error(txt.trim() || "Could not get a link code");
       setCode((JSON.parse(txt) as { code?: string }).code ?? null);
@@ -78,38 +80,16 @@ export function KevinChannelPicker({ token }: { token: string }) {
   function begin(c: Channel) {
     setPending(null);
     setSetup(c);
+    setCode(null);
     setMsg(null);
-    if (c === "telegram") void startTelegram();
+    void startLink(c);
   }
 
   function choose(c: Channel) {
-    if (c === current) {
-      setSetup(setup === c ? null : c);
-      return;
-    }
     if (current) setPending(c);
     else begin(c);
   }
 
-  async function saveNumber(e: FormEvent) {
-    e.preventDefault();
-    setBusy(true);
-    setMsg(null);
-    try {
-      const res = await fetch(`${API_BASE}/auth/whatsapp-number`, {
-        method: "PUT",
-        headers: authJsonHeaders(token),
-        body: JSON.stringify({ whatsapp_number: number.trim() || null }),
-      });
-      if (!res.ok) throw new Error((await res.text()).trim() || "Could not save your number");
-      await loadMe();
-      setSetup(null);
-    } catch (e) {
-      setMsg(e instanceof Error ? e.message : "Could not save your number");
-    } finally {
-      setBusy(false);
-    }
-  }
 
   return (
     <section className="flex flex-col gap-3">
@@ -136,6 +116,7 @@ export function KevinChannelPicker({ token }: { token: string }) {
                       onClick={() => {
                         setPending(null);
                         setSetup(null);
+                        setCode(null);
                       }}
                     >
                       Close
@@ -202,20 +183,24 @@ export function KevinChannelPicker({ token }: { token: string }) {
 
               {c === "whatsapp" && setup === "whatsapp" && current !== "whatsapp" && (
                 <RowPanel>
-                  <form onSubmit={saveNumber} className="flex flex-col gap-2.5 rounded-[10px] bg-[var(--overlay-4)] p-3 text-sm">
-                    <label className="flex flex-col gap-1.5 font-semibold">
-                      <span>Your WhatsApp number, with country code</span>
-                      <input className={input} type="tel" inputMode="tel" autoComplete="tel" placeholder="e.g. 27821234567" value={number} onChange={(e) => setNumber(e.target.value)} required />
-                    </label>
-                    <div className="flex gap-2">
-                      <button type="button" className={btn} onClick={() => setSetup(null)}>
-                        Cancel
-                      </button>
-                      <button type="submit" className={btnPrimary} disabled={busy}>
-                        {busy ? "Saving…" : "Save number"}
-                      </button>
-                    </div>
-                  </form>
+                  <div className="flex flex-col gap-2.5 rounded-[10px] bg-[var(--overlay-4)] p-3 text-sm">
+                    {!code ? (
+                      <span className="text-[var(--text-muted)]">{busy ? "Getting your code…" : "Preparing your code…"}</span>
+                    ) : (
+                      <>
+                        <span className="text-[var(--text-muted)]">Open WhatsApp on your phone and send the message as it is.</span>
+                        <a
+                          href={`${KEVIN_WHATSAPP}?text=${encodeURIComponent(whatsappLinkText(code))}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className={`${btnPrimary} w-fit`}
+                        >
+                          Open WhatsApp →
+                        </a>
+                        <span className="text-xs text-[var(--text-muted)]">Waiting for your message… The code expires in 15 minutes.</span>
+                      </>
+                    )}
+                  </div>
                 </RowPanel>
               )}
             </div>

@@ -4,6 +4,7 @@ import Link from "next/link";
 import QRCode from "qrcode";
 import { useEffect, useState } from "react";
 import { API_BASE, authHeaders } from "@/lib/api";
+import { whatsappLinkText } from "@/components/kevin/KevinChannelPicker";
 import { KEVIN_TELEGRAM, KEVIN_WHATSAPP } from "@/lib/kevinChannels";
 import type { MeResponse } from "@/lib/me";
 
@@ -45,23 +46,24 @@ export default function GetStartedChecklist({
 }) {
   const app = me.preferred_channel === "telegram" ? "Telegram" : "WhatsApp";
   const connected = isConnected(me);
-  const [tgCode, setTgCode] = useState<string | null>(null);
+  const [linkCode, setLinkCode] = useState<string | null>(null);
   const [waiting, setWaiting] = useState(false);
   const [qr, setQr] = useState<string | null>(null);
 
-  const href =
-    app === "Telegram"
-      ? tgCode
-        ? `${KEVIN_TELEGRAM}?start=${tgCode}`
-        : null
-      : `${KEVIN_WHATSAPP}?text=${encodeURIComponent(HELLO)}`;
+  const href = !linkCode
+    ? null
+    : app === "Telegram"
+      ? `${KEVIN_TELEGRAM}?start=${linkCode}`
+      : `${KEVIN_WHATSAPP}?text=${encodeURIComponent(`${HELLO} ${whatsappLinkText(linkCode)}`)}`;
 
-  // Telegram links the account through a one-time /start code.
+  // Both apps link the account through a one-time code sent from the app, so
+  // the number or account is always the user's own.
   useEffect(() => {
-    if (connected || app !== "Telegram") return;
-    void fetch(`${API_BASE}/auth/telegram/link-token`, { method: "POST", headers: authHeaders(token) })
+    if (connected) return;
+    const path = app === "Telegram" ? "/auth/telegram/link-token" : "/auth/whatsapp/link-code";
+    void fetch(`${API_BASE}${path}`, { method: "POST", headers: authHeaders(token) })
       .then((r) => (r.ok ? r.json() : null))
-      .then((d: { code?: string } | null) => setTgCode(d?.code ?? null))
+      .then((d: { code?: string } | null) => setLinkCode(d?.code ?? null))
       .catch(() => {});
   }, [app, connected, token]);
 

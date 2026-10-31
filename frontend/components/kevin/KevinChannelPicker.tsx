@@ -53,7 +53,6 @@ export function KevinChannelPicker({ token }: { token: string }) {
         setMe(d);
         setCode(null);
         setSetup(null);
-        setMsg("Telegram connected. Kevin will message you there.");
       }
     }, 3000);
     return () => clearInterval(t);
@@ -105,32 +104,8 @@ export function KevinChannelPicker({ token }: { token: string }) {
       if (!res.ok) throw new Error((await res.text()).trim() || "Could not save your number");
       await loadMe();
       setSetup(null);
-      setMsg("Saved. Send Kevin any message on WhatsApp to finish connecting.");
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "Could not save your number");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function disconnect(c: Channel) {
-    setBusy(true);
-    setMsg(null);
-    try {
-      const res =
-        c === "telegram"
-          ? await fetch(`${API_BASE}/auth/telegram/unlink`, { method: "DELETE", headers: authHeaders(token) })
-          : await fetch(`${API_BASE}/auth/whatsapp-number`, {
-              method: "PUT",
-              headers: authJsonHeaders(token),
-              body: JSON.stringify({ whatsapp_number: null }),
-            });
-      if (!res.ok) throw new Error((await res.text()).trim() || `Could not disconnect ${LABEL[c]}`);
-      await loadMe();
-      setSetup(null);
-      setMsg(`${LABEL[c]} disconnected.`);
-    } catch (e) {
-      setMsg(e instanceof Error ? e.message : `Could not disconnect ${LABEL[c]}`);
     } finally {
       setBusy(false);
     }
@@ -248,19 +223,9 @@ export function KevinChannelPicker({ token }: { token: string }) {
         })}
       </div>
 
-      {current && (
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => void disconnect(current)}
-          className="w-fit text-[13px] text-[var(--text-muted)] hover:text-[var(--text)] hover:underline disabled:opacity-50"
-        >
-          Disconnect {LABEL[current]}
-        </button>
-      )}
-
+      {/* Errors only; the rows show what's connected. */}
       {msg && (
-        <p role="status" className="text-[13px] text-[var(--text-muted)]">
+        <p role="alert" className="text-[13px] text-[var(--text-muted)]">
           {msg}
         </p>
       )}

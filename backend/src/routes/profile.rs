@@ -26,6 +26,9 @@ pub fn router() -> Router<Arc<AppState>> {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ProfileDto {
     pub company_name: Option<String>,
+    /// Registered company name, e.g. "Acme (Pty) Ltd".
+    #[serde(default)]
+    pub legal_name: Option<String>,
     pub one_liner: Option<String>,
     pub stage: Option<String>,
     pub sector: Option<String>,
@@ -64,6 +67,7 @@ impl Default for ProfileDto {
     fn default() -> Self {
         ProfileDto {
             company_name: None,
+            legal_name: None,
             one_liner: None,
             stage: None,
             sector: None,
@@ -96,7 +100,7 @@ async fn fetch_profile(
 ) -> Result<Json<ProfileDto>, (axum::http::StatusCode, String)> {
     let row = sqlx::query_as::<_, ProfileRow>(
         r#"
-        SELECT p.company_name, p.one_liner, p.stage, p.sector, p.country::text as country,
+        SELECT p.company_name, p.legal_name, p.one_liner, p.stage, p.sector, p.country::text as country,
                p.website, p.pitch_deck_url, p.ipfs_visibility,
                p.deck_expires_at::text as deck_expires_at,
                COALESCE(p.deck_upload_count, 0)::int as deck_upload_count,
@@ -117,6 +121,7 @@ async fn fetch_profile(
 #[derive(sqlx::FromRow)]
 struct ProfileRow {
     company_name: Option<String>,
+    legal_name: Option<String>,
     one_liner: Option<String>,
     stage: Option<String>,
     sector: Option<String>,
@@ -136,6 +141,7 @@ impl From<ProfileRow> for ProfileDto {
     fn from(r: ProfileRow) -> Self {
         ProfileDto {
             company_name: r.company_name,
+            legal_name: r.legal_name,
             one_liner: r.one_liner,
             stage: r.stage,
             sector: r.sector,
@@ -207,14 +213,22 @@ async fn put_profile(
         }
     });
 
+    let old_name: Option<String> = sqlx::query_scalar("SELECT company_name FROM profiles WHERE user_id = $1")
+        .bind(id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(internal)?
+        .flatten();
+
     sqlx::query(
         r#"
         INSERT INTO profiles (
-            user_id, company_name, one_liner, stage, sector, country, website, pitch_deck_url
+            user_id, company_name, one_liner, stage, sector, country, website, pitch_deck_url, legal_name
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         ON CONFLICT (user_id) DO UPDATE SET
             company_name = EXCLUDED.company_name,
+            legal_name = EXCLUDED.legal_name,
             one_liner = EXCLUDED.one_liner,
             stage = EXCLUDED.stage,
             sector = EXCLUDED.sector,
@@ -232,9 +246,11 @@ async fn put_profile(
     .bind(&country)
     .bind(&body.website)
     .bind(&body.pitch_deck_url)
+    .bind(body.legal_name.as_deref().map(str::trim).filter(|s| !s.is_empty()))
     .execute(&state.db)
     .await
     .map_err(internal)?;
+    sync_pitch_titles(&state.db, id, old_name.as_deref(), body.company_name.as_deref()).await;
 
     let out = fetch_profile(&state, id).await?;
     let snap_state = Arc::clone(&state);
@@ -250,6 +266,27 @@ async fn put_profile(
         });
     }
     Ok(out)
+}
+
+/// Pitches are titled with the startup name when they're made; when the
+/// founder renames the startup, rename the pitches that still carry the old
+/// name so every page (and Kevin) shows the latest one.
+pub(crate) async fn sync_pitch_titles(db: &sqlx::PgPool, user_id: Uuid, old: Option<&str>, new: Option<&str>) {
+    let (Some(old), Some(new)) = (old.map(str::trim), new.map(str::trim)) else {
+        return;
+    };
+    if old.is_empty() || new.is_empty() || old == new {
+        return;
+    }
+    if let Err(e) = sqlx::query("UPDATE pitches SET title = $3, updated_at = now() WHERE created_by = $1 AND TRIM(title) = $2")
+        .bind(user_id)
+        .bind(old)
+        .bind(new)
+        .execute(db)
+        .await
+    {
+        tracing::error!("sync_pitch_titles: {e}");
+    }
 }
 
 #[derive(Debug, Serialize, sqlx::FromRow)]

@@ -1065,7 +1065,7 @@ pub(crate) async fn build_context(state: &AppState, user_id: uuid::Uuid, role: &
 
     if let Ok(row) = sqlx::query_as::<_, ProfileCtx>(
         r#"
-        SELECT company_name, one_liner, stage, sector, country::text, website, pitch_deck_url,
+        SELECT company_name, legal_name, one_liner, stage, sector, country::text, website, pitch_deck_url,
                context_ipfs_url, deck_text
         FROM profiles WHERE user_id = $1
         "#,
@@ -1076,8 +1076,13 @@ pub(crate) async fn build_context(state: &AppState, user_id: uuid::Uuid, role: &
     {
         if let Some(p) = row {
             let mut profile_parts = Vec::new();
+            // The profile holds the latest names; the deck and older pitches
+            // may still use earlier ones.
             if let Some(v) = p.company_name {
-                profile_parts.push(format!("Company: {v}"));
+                profile_parts.push(format!("Startup name (current; use this, not names in the deck): {v}"));
+            }
+            if let Some(v) = p.legal_name {
+                profile_parts.push(format!("Legal name: {v}"));
             }
             if let Some(v) = p.one_liner {
                 profile_parts.push(format!("One-liner: {v}"));
@@ -1187,7 +1192,7 @@ pub(crate) async fn build_context(state: &AppState, user_id: uuid::Uuid, role: &
             let lines: Vec<String> = rows
                 .into_iter()
                 .map(|p| {
-                    let mut s = format!("Pitch: {}", p.title);
+                    let mut s = format!("Pitch titled: {}", p.title);
                     if let Some(v) = p.description {
                         s.push_str(&format!("\n  One-liner: {v}"));
                     }
@@ -1521,6 +1526,7 @@ pub(crate) async fn build_context(state: &AppState, user_id: uuid::Uuid, role: &
 #[derive(sqlx::FromRow)]
 struct ProfileCtx {
     company_name: Option<String>,
+    legal_name: Option<String>,
     one_liner: Option<String>,
     stage: Option<String>,
     sector: Option<String>,

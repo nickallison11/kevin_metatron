@@ -15,6 +15,7 @@ import { SECTIONS, membersFrom, pitchProgress, type Member, type Pitch, type Pit
 
 type ApiProfile = {
   company_name?: string | null;
+  legal_name?: string | null;
   one_liner?: string | null;
   stage?: string | null;
   sector?: string | null;
@@ -91,7 +92,7 @@ export default function StartupProfilePage() {
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [team, setTeam] = useState<Member[]>([]);
-  const [company, setCompany] = useState({ company_name: "", one_liner: "", website: "", stage: "", country: "", sectors: "" });
+  const [company, setCompany] = useState({ company_name: "", legal_name: "", one_liner: "", website: "", stage: "", country: "", sectors: "" });
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
   const [logoBusy, setLogoBusy] = useState(false);
@@ -286,6 +287,7 @@ export default function StartupProfilePage() {
   function startCompanyEdit() {
     setCompany({
       company_name: profile?.company_name ?? "",
+      legal_name: profile?.legal_name ?? "",
       one_liner: profile?.one_liner ?? "",
       website: profile?.website ?? "",
       stage: profile?.stage ?? "",
@@ -311,6 +313,7 @@ export default function StartupProfilePage() {
         headers: authJsonHeaders(token),
         body: JSON.stringify({
           company_name: company.company_name.trim() || null,
+          legal_name: company.legal_name.trim() || null,
           one_liner: company.one_liner.trim() || null,
           stage: company.stage || null,
           sector: sectors || null,
@@ -563,8 +566,12 @@ export default function StartupProfilePage() {
             <span className={`${eyebrow} !text-metatron-accent`}>Company · editing</span>
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="flex flex-col gap-1.5 text-[13px] font-semibold">
-                Company name
+                Startup name
                 <input className={input} value={company.company_name} onChange={(e) => setCompany({ ...company, company_name: e.target.value })} />
+              </label>
+              <label className="flex flex-col gap-1.5 text-[13px] font-semibold">
+                Legal name
+                <input className={input} placeholder="e.g. Acme (Pty) Ltd" value={company.legal_name} onChange={(e) => setCompany({ ...company, legal_name: e.target.value })} />
               </label>
               <label className="flex flex-col gap-1.5 text-[13px] font-semibold">
                 Website
@@ -618,6 +625,7 @@ export default function StartupProfilePage() {
                 Edit
               </button>
             </div>
+            {profile?.legal_name && <span className="text-sm text-[var(--text-muted)]">{profile.legal_name}</span>}
             <div className="flex flex-wrap gap-2">
               {profile?.stage && <span className="rounded-full bg-metatron-accent/15 px-3 py-1 text-[13px] text-[var(--text)]">{stageLabel(profile.stage)}</span>}
               {sectors.map((s) => (

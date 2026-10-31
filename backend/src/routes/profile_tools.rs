@@ -31,7 +31,8 @@ fn tool_specs(role: &str) -> Vec<(&'static str, &'static str, Value, Vec<&'stati
             "update_startup_profile",
             "Save changes to the founder's startup profile on metatron when they tell you new or corrected details. Only pass the fields they gave; the rest stay as they are.",
             json!({
-                "company_name": { "type": "string" },
+                "company_name": { "type": "string", "description": "The startup's name as investors know it (brand), e.g. \"metatron\"" },
+                "legal_name": { "type": "string", "description": "The registered company name, e.g. \"Metatron DAO (Pty) Ltd\". Never put this in company_name." },
                 "one_liner": { "type": "string", "description": "One sentence on what the company does" },
                 "stage": { "type": "string", "enum": STARTUP_STAGES },
                 "sector": { "type": "string", "description": "Comma-separated, e.g. \"FinTech, AI\"" },
@@ -164,10 +165,10 @@ async fn update_startup_profile(state: &AppState, user_id: Uuid, input: &Value) 
             None => return format!("Not saved: '{c}' isn't a country I know. Use its name or 2-letter code."),
         },
     };
-    let fields = ["company_name", "one_liner", "sector", "website"].map(|f| text(input, f));
-    let given: Vec<&str> = ["company_name", "one_liner", "stage", "sector", "country", "website"]
+    let fields = ["company_name", "one_liner", "sector", "website", "legal_name"].map(|f| text(input, f));
+    let given: Vec<&str> = ["company_name", "one_liner", "stage", "sector", "country", "website", "legal_name"]
         .into_iter()
-        .zip([&fields[0], &fields[1], &stage, &fields[2], &country, &fields[3]])
+        .zip([&fields[0], &fields[1], &stage, &fields[2], &country, &fields[3], &fields[4]])
         .filter(|(_, v)| v.is_some())
         .map(|(k, _)| k)
         .collect();
@@ -175,11 +176,19 @@ async fn update_startup_profile(state: &AppState, user_id: Uuid, input: &Value) 
         return saved(&given);
     }
 
+    let old_name: Option<String> = sqlx::query_scalar("SELECT company_name FROM profiles WHERE user_id = $1")
+        .bind(user_id)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten()
+        .flatten();
     let result = sqlx::query(
-        r#"INSERT INTO profiles (user_id, company_name, one_liner, stage, sector, country, website)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)
+        r#"INSERT INTO profiles (user_id, company_name, one_liner, stage, sector, country, website, legal_name)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
            ON CONFLICT (user_id) DO UPDATE SET
                company_name = COALESCE(EXCLUDED.company_name, profiles.company_name),
+               legal_name = COALESCE(EXCLUDED.legal_name, profiles.legal_name),
                one_liner = COALESCE(EXCLUDED.one_liner, profiles.one_liner),
                stage = COALESCE(EXCLUDED.stage, profiles.stage),
                sector = COALESCE(EXCLUDED.sector, profiles.sector),
@@ -194,10 +203,14 @@ async fn update_startup_profile(state: &AppState, user_id: Uuid, input: &Value) 
     .bind(&fields[2])
     .bind(&country)
     .bind(&fields[3])
+    .bind(&fields[4])
     .execute(&state.db)
     .await;
     match result {
-        Ok(_) => saved(&given),
+        Ok(_) => {
+            super::profile::sync_pitch_titles(&state.db, user_id, old_name.as_deref(), fields[0].as_deref()).await;
+            saved(&given)
+        }
         Err(e) => {
             tracing::error!("update_startup_profile failed: {e}");
             "Not saved: database error.".to_string()

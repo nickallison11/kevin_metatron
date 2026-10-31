@@ -45,9 +45,25 @@ fn tool_specs(role: &str) -> Vec<(&'static str, &'static str, Value, Vec<&'stati
             pitch.insert(field.to_string(), json!({ "type": "string", "description": desc }));
         }
         pitch.insert("team_size".into(), json!({ "type": "integer", "description": "People working on it" }));
+        pitch.insert(
+            "team_members".into(),
+            json!({
+                "type": "array",
+                "description": "The WHOLE team after the change (it replaces the saved list): keep everyone already in the Team list unless they asked to remove them",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": { "type": "string" },
+                        "role": { "type": "string" },
+                        "linkedin": { "type": "string" }
+                    },
+                    "required": ["name"]
+                }
+            }),
+        );
         specs.push((
             "update_pitch",
-            "Save the founder's pitch sections on metatron (overview, problem, solution, market, business model, traction, funding ask, use of funds, team size). Write each in their words, as full sentences. Only pass the sections they gave; the rest stay as they are.",
+            "Save the founder's pitch sections on metatron (overview, problem, solution, market, business model, traction, funding ask, use of funds, team size, team members). Write each in their words, as full sentences. Only pass the sections they gave; the rest stay as they are.",
             Value::Object(pitch),
             vec![],
         ));
@@ -195,9 +211,27 @@ async fn update_pitch(state: &AppState, user_id: Uuid, input: &Value) -> String 
         .filter_map(|(f, _)| text(input, f).map(|v| (*f, v)))
         .collect();
     let team_size = input["team_size"].as_i64().filter(|n| (1..=100_000).contains(n)).map(|n| n as i32);
+    // Same shape the deck extraction saves: [{name, role, linkedin}].
+    let team_members: Option<Value> = input["team_members"].as_array().map(|a| {
+        a.iter()
+            .filter_map(|m| {
+                let name = m["name"].as_str()?.trim();
+                (!name.is_empty()).then(|| {
+                    json!({
+                        "name": name,
+                        "role": m["role"].as_str().unwrap_or("").trim(),
+                        "linkedin": m["linkedin"].as_str().unwrap_or("").trim(),
+                    })
+                })
+            })
+            .collect::<Vec<_>>()
+    }).filter(|v| !v.is_empty()).map(Value::from);
     let mut given: Vec<&str> = values.iter().map(|(f, _)| *f).collect();
     if team_size.is_some() {
         given.push("team_size");
+    }
+    if team_members.is_some() {
+        given.push("team_members");
     }
     if given.is_empty() {
         return saved(&given);
@@ -259,6 +293,7 @@ async fn update_pitch(state: &AppState, user_id: Uuid, input: &Value) -> String 
                use_of_funds = COALESCE($9, use_of_funds),
                incorporation_country = COALESCE($10, incorporation_country),
                team_size = COALESCE($11, team_size),
+               team_members = COALESCE($12, team_members),
                updated_at = now()
            WHERE id = $1"#,
     )
@@ -273,6 +308,7 @@ async fn update_pitch(state: &AppState, user_id: Uuid, input: &Value) -> String 
     .bind(get("use_of_funds"))
     .bind(get("incorporation_country"))
     .bind(team_size)
+    .bind(team_members)
     .execute(&state.db)
     .await;
     match result {

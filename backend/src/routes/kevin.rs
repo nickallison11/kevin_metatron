@@ -1171,7 +1171,7 @@ pub(crate) async fn build_context(state: &AppState, user_id: uuid::Uuid, role: &
     if let Ok(rows) = sqlx::query_as::<_, PitchCtx>(
         r#"
         SELECT title, description, problem, solution, market_size, business_model,
-               traction, funding_ask, use_of_funds, incorporation_country
+               traction, funding_ask, use_of_funds, incorporation_country, team_size, team_members
         FROM pitches WHERE created_by = $1 ORDER BY created_at DESC LIMIT 3
         "#,
     )
@@ -1210,6 +1210,29 @@ pub(crate) async fn build_context(state: &AppState, user_id: uuid::Uuid, role: &
                     }
                     if let Some(v) = p.incorporation_country {
                         s.push_str(&format!("\n  Country: {v}"));
+                    }
+                    if let Some(v) = p.team_size {
+                        s.push_str(&format!("\n  Team size: {v}"));
+                    }
+                    let team: Vec<String> = p
+                        .team_members
+                        .as_ref()
+                        .and_then(|t| t.0.as_array().cloned())
+                        .unwrap_or_default()
+                        .iter()
+                        .filter_map(|m| {
+                            let name = m["name"].as_str()?.trim();
+                            let role = m["role"].as_str().unwrap_or("").trim();
+                            let li = m["linkedin"].as_str().unwrap_or("").trim();
+                            let mut line = if role.is_empty() { name.to_string() } else { format!("{name}, {role}") };
+                            if !li.is_empty() {
+                                line.push_str(&format!(" ({li})"));
+                            }
+                            (!name.is_empty()).then_some(line)
+                        })
+                        .collect();
+                    if !team.is_empty() {
+                        s.push_str(&format!("\n  Team: {}", team.join("; ")));
                     }
                     s
                 })
@@ -1515,6 +1538,8 @@ struct PitchCtx {
     funding_ask: Option<String>,
     use_of_funds: Option<String>,
     incorporation_country: Option<String>,
+    team_size: Option<i32>,
+    team_members: Option<sqlx::types::Json<serde_json::Value>>,
 }
 
 #[derive(sqlx::FromRow)]

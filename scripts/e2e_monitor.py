@@ -1084,6 +1084,52 @@ def render_ai_providers_check(lines, drifts, number, tag):
     lines.append("")
 
 
+def render_security_updates_check(lines, drifts, number, tag):
+    """Check 21: KVM2 security updates. Runs locally on KVM2, like Check 13.
+    DRIFTs on any pending package from the -security pocket (a new kernel
+    included) or a pending reboot; other updates are listed for info only.
+    Added 2026-11-01 while waiting on the kernel fix for CVE-2026-98432
+    (6.8.0-149) -- that kernel showing up here is the cue to upgrade + reboot."""
+    lines.append(f"## Check {number} — KVM2 security updates (Ubuntu) [{tag}]")
+
+    def drift(msg):
+        lines.append(f"- ⚠ DRIFT — {msg}")
+        drifts.append(msg)
+
+    try:
+        subprocess.run(["apt-get", "update", "-qq"], capture_output=True, text=True, timeout=180)
+        upgradable = subprocess.run(
+            ["apt", "list", "--upgradable"], capture_output=True, text=True, timeout=60,
+        ).stdout.splitlines()
+        upgradable = [l for l in upgradable if "[upgradable from:" in l]
+        security = [l for l in upgradable if "-security" in l.split(" ")[0]]
+        other = [l for l in upgradable if l not in security]
+        running = subprocess.run(["uname", "-r"], capture_output=True, text=True, timeout=10).stdout.strip()
+        lines.append(f"- running kernel: {running}")
+
+        if security:
+            names = [l.split("/")[0] for l in security]
+            kernel = [n for n in names if n.startswith("linux-")]
+            if kernel:
+                drift(f"kernel security update available ({', '.join(kernel)}) — apt upgrade + reboot")
+            drift(f"{len(security)} security update(s) pending: {', '.join(names)}")
+        else:
+            lines.append("- no pending security updates ✓")
+        if other:
+            lines.append(f"- {len(other)} other update(s) (not security): {', '.join(l.split('/')[0] for l in other)}")
+
+        if os.path.exists("/var/run/reboot-required"):
+            pkgs = ""
+            if os.path.exists("/var/run/reboot-required.pkgs"):
+                with open("/var/run/reboot-required.pkgs") as f:
+                    pkgs = ", ".join(sorted(set(f.read().split())))
+            drift(f"reboot required to finish installed updates{f' ({pkgs})' if pkgs else ''}")
+    except Exception as e:
+        drift(f"security updates check error: {e}")
+
+    lines.append("")
+
+
 def send_report(subject, plain_body, html_body=None):
     if html_body:
         msg = MIMEMultipart("alternative")
@@ -1467,13 +1513,15 @@ def main():
 
     render_ai_providers_check(lines, drifts, "20", "SHARED — both environments")
 
+    render_security_updates_check(lines, drifts, "21", "SHARED — both environments")
+
     # ── Summary ───────────────────────────────────────────────────────────────
     tag = "DRIFT" if drifts else "OK"
     lines.append(f"## Summary: {tag}")
     lines.append(
         "(15 checks on [DEV]: 1a,2a,3a,4a,5a,9a,10a,11a,12a,13a,14a,15a,16a,17a,18a · "
         "15 on [PRODUCTION]: 1b,2b,3b,4b,5b,9b,10b,11b,12b,13b,14b,15b,16b,17b,18b · "
-        "5 [SHARED] shown in both: 6,7,8,19,20 · 20 checks per environment)"
+        "6 [SHARED] shown in both: 6,7,8,19,20,21 · 21 checks per environment)"
     )
     if drifts:
         for d in drifts:

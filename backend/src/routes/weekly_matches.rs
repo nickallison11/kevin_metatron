@@ -13,7 +13,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use uuid::Uuid;
 
-use crate::ai;
 use crate::auth::Claims;
 use crate::routes::unsubscribe::generate_token;
 use crate::state::AppState;
@@ -391,10 +390,10 @@ async fn rescore_matches(
 struct WeeklyMatchItem {
     id: Uuid,
     firm_name: Option<String>,
-    angel_score: Option<i32>,
-    sector_overlap: bool,
-    stage_overlap: bool,
-    why_blurb: Option<String>,
+    /// Kevin's match score (0-100), shown as "% fit".
+    fit_score: i32,
+    /// Kevin's reason, written to the founder.
+    reason: Option<String>,
     deep_link: String,
 }
 
@@ -438,18 +437,12 @@ async fn weekly_matches_for_user(
         state.match_limit_free
     };
 
-    let candidates = sqlx::query_as::<_, (Uuid, Option<String>, i32, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>)>(
+    let candidates = sqlx::query_as::<_, (Uuid, Option<String>, i32, Option<String>)>(
         r#"
         SELECT km.id, COALESCE(km.display_name, ip.firm_name) AS firm_name,
-               km.score AS angel_score,
-               array_to_string(ip.sectors, ',') AS investor_sector,
-               array_to_string(ip.stages, ',') AS investor_stage,
-               p.sector AS founder_sector,
-               p.stage AS founder_stage,
-               km.why_blurb
+               km.score, km.reasoning
         FROM kevin_matches km
         LEFT JOIN investor_profiles ip ON ip.user_id = km.matched_user_id
-        LEFT JOIN profiles p ON p.user_id = km.for_user_id
         WHERE km.for_user_id = $1
           AND km.match_type = 'founder_investor'
           AND km.intro_requested_at IS NULL
@@ -478,42 +471,13 @@ async fn weekly_matches_for_user(
     let mut items = Vec::new();
     let mut sent_ids: Vec<Uuid> = Vec::new();
 
-    for (km_id, firm_name, angel_score, inv_sector, inv_stage, f_sector, f_stage, existing_blurb) in
-        candidates.iter().take(limit as usize)
-    {
-        let sector_overlap = match (inv_sector.as_deref(), f_sector.as_deref()) {
-            (Some(a), Some(b)) if !a.is_empty() && !b.is_empty() => {
-                a.to_lowercase().contains(&b.to_lowercase())
-                    || b.to_lowercase().contains(&a.to_lowercase())
-            }
-            _ => false,
-        };
-        let stage_overlap = match (inv_stage.as_deref(), f_stage.as_deref()) {
-            (Some(a), Some(b)) if !a.is_empty() && !b.is_empty() => {
-                a.to_lowercase().contains(&b.to_lowercase())
-                    || b.to_lowercase().contains(&a.to_lowercase())
-            }
-            _ => false,
-        };
-
-        let blurb = if let Some(ref b) = existing_blurb {
-            if !b.trim().is_empty() {
-                Some(b.clone())
-            } else {
-                generate_why_blurb(&state, *km_id, firm_name.as_deref(), f_sector.as_deref()).await
-            }
-        } else {
-            generate_why_blurb(&state, *km_id, firm_name.as_deref(), f_sector.as_deref()).await
-        };
-
+    for (km_id, firm_name, score, reasoning) in candidates.iter().take(limit as usize) {
         sent_ids.push(*km_id);
         items.push(WeeklyMatchItem {
             id: *km_id,
             firm_name: firm_name.clone(),
-            angel_score: Some(*angel_score),
-            sector_overlap,
-            stage_overlap,
-            why_blurb: blurb,
+            fit_score: *score,
+            reason: reasoning.clone().filter(|r| !r.trim().is_empty()),
             deep_link: format!("/startup/matches?focus={}", km_id),
         });
     }
@@ -566,10 +530,12 @@ struct InvestorWeeklyMatchItem {
     company_name: Option<String>,
     sector: Option<String>,
     stage: Option<String>,
+    /// Kevin's match score (0-100), shown as "% fit".
+    fit_score: i32,
+    /// The founder's Angel Score.
     angel_score: Option<i32>,
-    sector_overlap: bool,
-    stage_overlap: bool,
-    why_blurb: Option<String>,
+    /// Kevin's reason, written to the investor.
+    reason: Option<String>,
     deep_link: String,
 }
 
@@ -588,11 +554,8 @@ async fn weekly_matches_for_investor(
 ) -> Result<Json<InvestorWeeklyMatchesResponse>, (StatusCode, String)> {
     verify_cron(&state, &headers)?;
 
-    let user_row = sqlx::query_as::<_, (bool, bool, Option<Vec<String>>, Option<Vec<String>>)>(
-        r#"SELECT u.is_basic, COALESCE(u.is_pro, false), ip.sectors, ip.stages
-           FROM users u
-           LEFT JOIN investor_profiles ip ON ip.user_id = u.id
-           WHERE u.id = $1 AND u.role = 'INVESTOR'"#,
+    let user_row = sqlx::query_as::<_, (bool, bool)>(
+        "SELECT u.is_basic, COALESCE(u.is_pro, false) FROM users u WHERE u.id = $1 AND u.role = 'INVESTOR'",
     )
     .bind(user_id)
     .fetch_optional(&state.db)
@@ -602,7 +565,7 @@ async fn weekly_matches_for_investor(
         (StatusCode::INTERNAL_SERVER_ERROR, "db error".into())
     })?;
 
-    let (is_basic, is_pro, inv_sectors, inv_stages) = match user_row {
+    let (is_basic, is_pro) = match user_row {
         Some(r) => r,
         None => return Err((StatusCode::NOT_FOUND, "user not found or not an investor".into())),
     };
@@ -616,14 +579,15 @@ async fn weekly_matches_for_investor(
         state.investor_match_limit_free
     };
 
-    let candidates = sqlx::query_as::<_, (Uuid, Option<String>, Option<String>, Option<String>, Option<String>, Option<i32>)>(
+    let candidates = sqlx::query_as::<_, (Uuid, Option<String>, Option<String>, Option<String>, i32, Option<i32>, Option<String>)>(
         r#"
         SELECT km.id,
                COALESCE(km.display_name, p.company_name) AS company_name,
                p.sector AS founder_sector,
                p.stage AS founder_stage,
-               km.why_blurb,
-               a.score AS angel_score
+               km.score,
+               a.score AS angel_score,
+               km.reasoning
         FROM kevin_matches km
         LEFT JOIN profiles p ON p.user_id = km.matched_user_id
         LEFT JOIN angel_scores a ON a.founder_user_id = km.matched_user_id
@@ -631,7 +595,7 @@ async fn weekly_matches_for_investor(
           AND km.match_type = 'investor_founder'
           AND km.intro_requested_at IS NULL
           AND km.weekly_email_sent_at IS NULL
-        ORDER BY a.score DESC NULLS LAST
+        ORDER BY km.score DESC
         LIMIT 20
         "#,
     )
@@ -652,40 +616,21 @@ async fn weekly_matches_for_investor(
         }));
     }
 
-    let inv_sectors_str = inv_sectors.as_ref().map(|s| s.join(",")).unwrap_or_default();
-    let inv_stages_str = inv_stages.as_ref().map(|s| s.join(",")).unwrap_or_default();
-
     let mut items = Vec::new();
     let mut sent_ids: Vec<Uuid> = Vec::new();
 
-    for (km_id, company_name, f_sector, f_stage, why_blurb, angel_score) in
+    for (km_id, company_name, f_sector, f_stage, score, angel_score, reasoning) in
         candidates.iter().take(limit as usize)
     {
-        let sector_overlap = match (f_sector.as_deref(), inv_sectors_str.as_str()) {
-            (Some(a), b) if !a.is_empty() && !b.is_empty() => {
-                b.to_lowercase().contains(&a.to_lowercase())
-                    || a.to_lowercase().contains(&b.to_lowercase())
-            }
-            _ => false,
-        };
-        let stage_overlap = match (f_stage.as_deref(), inv_stages_str.as_str()) {
-            (Some(a), b) if !a.is_empty() && !b.is_empty() => {
-                b.to_lowercase().contains(&a.to_lowercase())
-                    || a.to_lowercase().contains(&b.to_lowercase())
-            }
-            _ => false,
-        };
-
         sent_ids.push(*km_id);
         items.push(InvestorWeeklyMatchItem {
             id: *km_id,
             company_name: company_name.clone(),
             sector: f_sector.clone(),
             stage: f_stage.clone(),
+            fit_score: *score,
             angel_score: *angel_score,
-            sector_overlap,
-            stage_overlap,
-            why_blurb: why_blurb.clone(),
+            reason: reasoning.clone().filter(|r| !r.trim().is_empty()),
             deep_link: format!("/investor/deal-flow?focus={}", km_id),
         });
     }
@@ -1080,61 +1025,6 @@ async fn monthly_summary_for_investor(
         matches: items,
         snapshot_id,
     }))
-}
-
-// ── Shared helpers ──────────────────────────────────────────────────────────
-
-async fn generate_why_blurb(
-    state: &AppState,
-    km_id: Uuid,
-    firm_name: Option<&str>,
-    founder_sector: Option<&str>,
-) -> Option<String> {
-    let api_key = state.ai_api_key.as_deref()?;
-
-    let prompt = format!(
-        "In 1-2 short sentences, explain why {} would be a good investor match for a {} startup. Be specific but concise. No bullet points.",
-        firm_name.unwrap_or("this investor"),
-        founder_sector.unwrap_or("technology"),
-    );
-
-    let result = ai::complete_chat(
-        &state.http_client,
-        "gemini",
-        api_key,
-        &state.gemini_model,
-        "You are a concise startup-investor matchmaker. Respond with only the blurb text.",
-        vec![("user".into(), prompt)],
-    )
-    .await;
-
-    match result {
-        Ok((text, usage)) => {
-            crate::cost::record_llm_usage(
-                &state.db,
-                None,
-                None,
-                None,
-                "match_why_blurb",
-                "gemini",
-                &state.gemini_model,
-                usage.input_tokens,
-                usage.output_tokens,
-            )
-            .await;
-            let trimmed = text.trim().to_string();
-            let _ = sqlx::query("UPDATE kevin_matches SET why_blurb = $1 WHERE id = $2")
-                .bind(&trimmed)
-                .bind(km_id)
-                .execute(&state.db)
-                .await;
-            Some(trimmed)
-        }
-        Err(e) => {
-            tracing::warn!("why_blurb generation failed for {km_id}: {e}");
-            None
-        }
-    }
 }
 
 // ── Email log & webhook ─────────────────────────────────────────────────────

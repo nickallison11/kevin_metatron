@@ -18,19 +18,20 @@ export interface InvestorMatchCard {
   company_name: string | null;
   sector: string | null;
   stage: string | null;
+  fit_score: number;
   angel_score: number | null;
-  sector_overlap: boolean;
-  stage_overlap: boolean;
-  why_blurb: string | null;
+  reason: string | null;
   deep_link: string;
 }
 
 interface InvestorWeeklyMatchesProps {
   weekDate: string;
-  tier: "free" | "basic";
+  tier: "free" | "basic" | "pro";
   matches: InvestorMatchCard[];
   unsubscribeUrl: string;
   platformUrl: string;
+  /** Paid plans can be bought; the upgrade box is hidden until then. */
+  paymentsEnabled?: boolean;
 }
 
 export default function InvestorWeeklyMatches({
@@ -39,8 +40,9 @@ export default function InvestorWeeklyMatches({
   matches = [],
   unsubscribeUrl = "#",
   platformUrl = "https://platform.metatron.id",
+  paymentsEnabled = false,
 }: InvestorWeeklyMatchesProps) {
-  const isFree = tier === "free";
+  const showUpgrade = tier === "free" && paymentsEnabled;
 
   return (
     <Html>
@@ -68,34 +70,27 @@ export default function InvestorWeeklyMatches({
                   {[m.sector, m.stage].filter(Boolean).join(" · ")}
                 </Text>
               )}
-              {m.angel_score != null && m.angel_score > 0 && (
-                <Text style={scoreText}>Angel Score: {m.angel_score}</Text>
-              )}
-              {m.why_blurb && <Text style={blurbText}>{m.why_blurb}</Text>}
-              {!isFree && (m.sector_overlap || m.stage_overlap) && (
-                <Text style={signalsText}>
-                  {m.sector_overlap && "✓ Sector match"}
-                  {m.sector_overlap && m.stage_overlap && "  ·  "}
-                  {m.stage_overlap && "✓ Stage match"}
-                </Text>
-              )}
+              <Text style={scoreText}>
+                {m.fit_score}% fit
+                {m.angel_score != null && m.angel_score > 0 && ` · Angel Score ${m.angel_score}`}
+              </Text>
+              {m.reason && <Text style={blurbText}>{m.reason}</Text>}
               <Link href={`${platformUrl}${m.deep_link}`} style={matchButton}>
                 View pitch
               </Link>
             </Section>
           ))}
 
-          {isFree && (
+          {showUpgrade && (
             <Section style={upgradeSection}>
               <Text style={upgradeText}>
-                Upgrade to see up to 5 founder matches per week with sector and
-                stage overlap signals.
+                Upgrade to Basic for 10 founder matches a week.
               </Text>
               <Link
                 href={`${platformUrl}/investor/settings/subscription`}
                 style={upgradeButton}
               >
-                Upgrade Plan to see all matches
+                Upgrade
               </Link>
             </Section>
           )}
@@ -191,13 +186,6 @@ const blurbText: React.CSSProperties = {
   color: "#c0c0d0",
   fontSize: "14px",
   lineHeight: "1.5",
-  margin: "0 0 14px",
-};
-
-const signalsText: React.CSSProperties = {
-  color: "#6c5ce7",
-  fontSize: "12px",
-  fontFamily: "'JetBrains Mono', monospace",
   margin: "0 0 14px",
 };
 

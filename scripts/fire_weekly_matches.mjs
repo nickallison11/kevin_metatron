@@ -35,6 +35,7 @@ import { isLocalMonday8amWindow } from "../frontend/lib/country-timezone.ts";
 
 const API_BASE = process.env.API_BASE;
 const PLATFORM_URL = process.env.PLATFORM_URL;
+const PAYMENTS_ENABLED = (process.env.PAYMENTS_ENABLED ?? "").trim() === "1";
 const CRON_SECRET = process.env.CRON_SECRET;
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 
@@ -125,6 +126,7 @@ for (const person of eligible) {
           matches: matchData.matches,
           unsubscribeUrl,
           platformUrl: PLATFORM_URL,
+          paymentsEnabled: PAYMENTS_ENABLED,
         }),
       );
     } else {
@@ -135,6 +137,7 @@ for (const person of eligible) {
           matches: matchData.matches,
           unsubscribeUrl,
           platformUrl: PLATFORM_URL,
+          paymentsEnabled: PAYMENTS_ENABLED,
         }),
       );
     }
@@ -158,12 +161,12 @@ for (const person of eligible) {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        from: "Kevin <kevin@metatron.id>",
+        from: "Kevin AI <kevin@metatron.id>",
         to: [person.email],
         subject,
         html,
         headers: {
-          "List-Unsubscribe": `<mailto:unsubscribe@metatron.id>, <${unsubscribeUrl}>`,
+          "List-Unsubscribe": `<${unsubscribeUrl}>`,
           "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
         },
       }),

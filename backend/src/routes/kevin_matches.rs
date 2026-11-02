@@ -910,7 +910,7 @@ async fn generate_matches(
 Score each candidate out of 100 by adding these parts:
 - Sector (0-30): 30 = the founder's sector is a stated focus of the investor; 15 = adjacent; 0 = outside their focus.
 - Stage (0-25): 25 = the investor invests at the founder's stage; 10 = one stage either side; 0 = otherwise.
-- Region (0-25): 25 = the investor explicitly invests in, or has portfolio companies in, the founder's country or region; 10 = global or no stated region; 0 = their focus excludes it. Investors based only in the US who focus on US/European markets get 0-10 for founders in Africa, Southeast Asia, LATAM or other emerging markets unless their thesis explicitly includes those regions.
+- Region (0-25): 25 = the investor explicitly invests in, or has portfolio companies in, the founder's country or region (a global investor counts when they state a focus or portfolio there); 10 = global or no stated region, with nothing said about the founder's region; 0 = their focus excludes it. Investors based only in the US who focus on US/European markets get 0-10 for founders in Africa, Southeast Asia, LATAM or other emerging markets unless their thesis explicitly includes those regions.
 - Ticket size (0-20): 20 = the founder's raise fits the investor's ticket range; 10 = unknown; 0 = clearly outside it.
 Missing information never counts as a strong fit. Most candidates land between 40 and 75; 90 or more is rare and means every part is strong.
 

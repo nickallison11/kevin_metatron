@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     routing::{get, post},
     Json, Router,
 };
@@ -519,8 +519,12 @@ fn repair_double_encoded_utf8(input: &str) -> String {
 async fn generate_matches(
     State(state): State<Arc<AppState>>,
     TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+    headers: HeaderMap,
 ) -> Result<Json<Vec<KevinMatch>>, (StatusCode, String)> {
     let user = require_user(&state, bearer.token()).await?;
+    // The Monday refresh before the weekly digest: the digest covers these
+    // matches, so no strong-match alert from this run.
+    let weekly_run = headers.get(WEEKLY_RUN_HEADER).is_some();
 
     let (is_basic, is_pro_user): (bool, bool) =
         sqlx::query_as::<_, (bool, bool)>(
@@ -852,22 +856,47 @@ async fn generate_matches(
     if role == "STARTUP" {
         feedback = format!("{}{feedback}", super::readiness::matching_line(&state, user.id).await);
     }
+    // `reasoning` is read by the person these matches are for; `intro_reasoning`
+    // goes to the other side when an intro is made.
+    let (subject_label, candidates_label, reasoning_rule, intro_rule) = if match_type == "founder_investor" {
+        (
+            "Founder",
+            "Investor candidates",
+            "written TO THE FOUNDER (\"you\", \"your\") about the investor (\"they\"): why this investor suits the founder's company and round",
+            "written TO THE INVESTOR (\"you\", \"your portfolio\") about the founder: why this founder suits their thesis",
+        )
+    } else {
+        (
+            "Investor",
+            "Founder candidates",
+            "written TO THE INVESTOR (\"you\", \"your portfolio\") about the founder (\"they\"): why this founder suits the investor's thesis",
+            "written TO THE FOUNDER (\"you\", \"your\") about the investor: why this investor suits the founder's company and round",
+        )
+    };
     let prompt = format!(
-        r#"You are Kevin, metatron's AI matchmaking engine. Analyse each candidate investor and explain why this specific founder is a strong fit for them.
+        r#"You are Kevin, metatron's AI matchmaking engine. Score how well each candidate fits.
 
-Founder: {user_context}{feedback}
+{subject_label}: {user_context}{feedback}
 
-Investor candidates (JSON array):
+{candidates_label} (JSON array):
 {candidates_json}
 
-Geography matters significantly. Investors who explicitly invest in or have portfolio companies in the founder's region should score higher. Investors based only in the US who focus on US/European markets should score lower for founders in Africa, Southeast Asia, LATAM, or other emerging markets unless their thesis explicitly includes those regions.
+Score each candidate out of 100 by adding these parts:
+- Sector (0-30): 30 = the founder's sector is a stated focus of the investor; 15 = adjacent; 0 = outside their focus.
+- Stage (0-25): 25 = the investor invests at the founder's stage; 10 = one stage either side; 0 = otherwise.
+- Region (0-25): 25 = the investor explicitly invests in, or has portfolio companies in, the founder's country or region; 10 = global or no stated region; 0 = their focus excludes it. Investors based only in the US who focus on US/European markets get 0-10 for founders in Africa, Southeast Asia, LATAM or other emerging markets unless their thesis explicitly includes those regions.
+- Ticket size (0-20): 20 = the founder's raise fits the investor's ticket range; 10 = unknown; 0 = clearly outside it.
+Missing information never counts as a strong fit. Most candidates land between 40 and 75; 90 or more is rare and means every part is strong.
 
 For each candidate, return:
-- score: 0–100 match score
-- reasoning: 2–3 sentences (max 40 words) written TO the investor explaining why THIS founder is right for THEIR portfolio. Be specific — reference the founder's stage, sector, problem, and how it connects to the investor's known thesis or focus. Always include currency symbols when referencing monetary amounts (e.g. $100K, $1M). Never be generic.
+- score: the total
+- hard_fit: true only if sector, stage and region each get their top score and the ticket size is not clearly outside the investor's range
+- reasoning: max 40 words, {reasoning_rule}
+- intro_reasoning: max 40 words, {intro_rule}
+Both texts: be specific (stage, sector, problem, region, ticket size), name a real mismatch honestly, always include currency symbols for amounts (e.g. $100K, $1M), never be generic.
 
 Return ONLY a valid JSON array, no markdown, no code fences:
-[{{"id":"...","score":0,"reasoning":"..."}}]
+[{{"id":"...","score":0,"hard_fit":false,"reasoning":"...","intro_reasoning":"..."}}]
 
 Return the top {match_limit} matches only, ranked by score descending."#
     );
@@ -927,32 +956,51 @@ Return the top {match_limit} matches only, ranked by score descending."#
     };
     let ranked: Vec<Value> = serde_json::from_str(json_str).unwrap_or_default();
 
+    // The best newly-strong match of this run; at most one alert is sent.
+    let mut strong: Option<StrongMatch> = None;
+
     for item in &ranked {
         let id_str = item["id"].as_str().unwrap_or("");
         let Some(info) = candidate_info.get(id_str) else { continue; };
         let Ok(candidate_uuid) = Uuid::parse_str(id_str) else { continue; };
         let score = item["score"].as_i64().unwrap_or(0).clamp(0, 100) as i32;
         let reasoning = item["reasoning"].as_str().map(str::to_owned);
+        let intro_reasoning = item["intro_reasoning"].as_str().map(str::to_owned);
+        let hard_fit = item["hard_fit"].as_bool().unwrap_or(false);
+
+        let id_column = if info.source == "user" { "matched_user_id" } else { "contact_id" };
+        let prev_score: Option<i32> = sqlx::query_scalar(&format!(
+            "SELECT score FROM kevin_matches WHERE for_user_id = $1 AND {id_column} = $2 AND match_type = $3"
+        ))
+        .bind(user.id)
+        .bind(candidate_uuid)
+        .bind(match_type)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten();
+
+        let newly_strong = hard_fit
+            && score >= STRONG_MATCH_SCORE
+            && prev_score.map(|p| p < STRONG_MATCH_SCORE).unwrap_or(true);
+        if newly_strong && strong.as_ref().map(|s| score > s.score).unwrap_or(true) {
+            strong = Some(StrongMatch {
+                score,
+                name: info.display_name.clone().unwrap_or_else(|| "a strong match".to_string()),
+                reasoning: reasoning.clone(),
+            });
+        }
 
         if info.source == "user" {
-            let prev_score: Option<i32> = sqlx::query_scalar(
-                "SELECT score FROM kevin_matches WHERE for_user_id = $1 AND matched_user_id = $2 AND match_type = $3",
-            )
-            .bind(user.id)
-            .bind(candidate_uuid)
-            .bind(match_type)
-            .fetch_optional(&state.db)
-            .await
-            .ok()
-            .flatten();
-
             let _ = sqlx::query(
                 r#"INSERT INTO kevin_matches
                     (for_user_id, matched_user_id, contact_id, match_type, score, reasoning,
-                     display_name, display_one_liner, display_sector, display_stage, display_country)
-                   VALUES ($1, $2, NULL, $3, $4, $5, $6, $7, $8, $9, $10)
+                     display_name, display_one_liner, display_sector, display_stage, display_country,
+                     intro_reasoning, hard_fit)
+                   VALUES ($1, $2, NULL, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
                    ON CONFLICT (for_user_id, matched_user_id, match_type) WHERE matched_user_id IS NOT NULL
                    DO UPDATE SET score = EXCLUDED.score, reasoning = EXCLUDED.reasoning,
+                     intro_reasoning = EXCLUDED.intro_reasoning, hard_fit = EXCLUDED.hard_fit,
                      generated_at = NOW(), display_name = EXCLUDED.display_name,
                      display_one_liner = EXCLUDED.display_one_liner,
                      weekly_email_sent_at = CASE
@@ -969,27 +1017,20 @@ Return the top {match_limit} matches only, ranked by score descending."#
             .bind(info.display_sector.as_deref())
             .bind(info.display_stage.as_deref())
             .bind(info.display_country.as_deref())
+            .bind(&intro_reasoning)
+            .bind(hard_fit)
             .execute(&state.db)
-            .await;
-
-            notify_if_newly_high_value(
-                &state,
-                user.id,
-                prev_score,
-                score,
-                info.display_name.as_deref().unwrap_or("a strong match"),
-                info.display_one_liner.as_deref(),
-                reasoning.as_deref(),
-            )
             .await;
         } else {
             let _ = sqlx::query(
                 r#"INSERT INTO kevin_matches
                     (for_user_id, matched_user_id, contact_id, match_type, score, reasoning,
-                     display_name, display_one_liner, display_sector, display_stage, display_country)
-                   VALUES ($1, NULL, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                     display_name, display_one_liner, display_sector, display_stage, display_country,
+                     intro_reasoning, hard_fit)
+                   VALUES ($1, NULL, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
                    ON CONFLICT (for_user_id, contact_id, match_type) WHERE contact_id IS NOT NULL
                    DO UPDATE SET score = EXCLUDED.score, reasoning = EXCLUDED.reasoning,
+                     intro_reasoning = EXCLUDED.intro_reasoning, hard_fit = EXCLUDED.hard_fit,
                      generated_at = NOW(), display_name = EXCLUDED.display_name,
                      display_one_liner = EXCLUDED.display_one_liner,
                      weekly_email_sent_at = CASE
@@ -1006,8 +1047,16 @@ Return the top {match_limit} matches only, ranked by score descending."#
             .bind(info.display_sector.as_deref())
             .bind(info.display_stage.as_deref())
             .bind(info.display_country.as_deref())
+            .bind(&intro_reasoning)
+            .bind(hard_fit)
             .execute(&state.db)
             .await;
+        }
+    }
+
+    if let Some(m) = strong {
+        if !weekly_run && (is_basic || is_pro_user) {
+            send_strong_match_alert(&state, user.id, match_type, m).await;
         }
     }
 
@@ -1015,40 +1064,67 @@ Return the top {match_limit} matches only, ranked by score descending."#
     Ok(Json(rows))
 }
 
-/// Score band worth proactively reaching out about — deliberately high so
-/// this is "Kevin flags something genuinely worth your time," not a
-/// notification on every routine match (the existing weekly digest already
-/// covers the full list).
-const NOTIFY_SCORE_THRESHOLD: i32 = 80;
+/// Set on the weekly refresh's call to `generate_matches` (see weekly_matches.rs).
+pub(crate) const WEEKLY_RUN_HEADER: &str = "x-kevin-weekly-run";
 
-/// Notifies the user (Telegram if linked, email otherwise — same preference
-/// order as the existing intro-request notification in kevin.rs) the first
-/// time a match crosses NOTIFY_SCORE_THRESHOLD. Fires once per match: a
-/// match that was already above the threshold on a prior regeneration
-/// doesn't re-notify on every subsequent page load/refresh.
-async fn notify_if_newly_high_value(
-    state: &AppState,
-    user_id: Uuid,
-    prev_score: Option<i32>,
-    new_score: i32,
-    match_label: &str,
-    one_liner: Option<&str>,
-    reasoning: Option<&str>,
-) {
-    let newly_crossed = new_score >= NOTIFY_SCORE_THRESHOLD
-        && prev_score.map(|p| p < NOTIFY_SCORE_THRESHOLD).unwrap_or(true);
-    if !newly_crossed {
+/// A strong-match alert needs this score and `hard_fit` (stage, sector,
+/// region and ticket size all fit). The scoring guide makes 90+ rare.
+const STRONG_MATCH_SCORE: i32 = 90;
+
+struct StrongMatch {
+    score: i32,
+    name: String,
+    reasoning: Option<String>,
+}
+
+/// "Kevin found a strong match": the rare, act-now nudge between weekly
+/// digests. Basic/Pro only (the caller checks), at most one a week, never
+/// within a day of a digest, and only for a match in the person's top 3.
+/// Sent on their own channel (WhatsApp, Telegram or email).
+async fn send_strong_match_alert(state: &AppState, user_id: Uuid, match_type: &str, m: StrongMatch) {
+    let higher: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM kevin_matches WHERE for_user_id = $1 AND match_type = $2 AND score > $3",
+    )
+    .bind(user_id)
+    .bind(match_type)
+    .bind(m.score)
+    .fetch_one(&state.db)
+    .await
+    .unwrap_or(i64::MAX);
+    if higher >= 3 {
+        return;
+    }
+
+    // The last digest went out under a day ago, or the next one is due within a day.
+    let near_digest: bool = sqlx::query_scalar(
+        r#"SELECT COALESCE(
+               MAX(sent_at) > NOW() - INTERVAL '1 day'
+               OR MAX(sent_at) BETWEEN NOW() - INTERVAL '7 days' AND NOW() - INTERVAL '6 days',
+               FALSE)
+             FROM email_send_log
+            WHERE user_id = $1 AND email_type LIKE 'weekly_matches_%'"#,
+    )
+    .bind(user_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap_or(true);
+    if near_digest {
         return;
     }
 
     #[derive(sqlx::FromRow)]
-    struct NotifyRow {
+    struct Recipient {
         email: String,
         telegram_id: Option<String>,
+        whatsapp_number: Option<String>,
         role: String,
     }
-    let Ok(Some(recipient)) = sqlx::query_as::<_, NotifyRow>(
-        "SELECT email, telegram_id, role::text FROM users WHERE id = $1",
+    // Claims this week's alert, so two runs at once can't both send.
+    let Ok(Some(r)) = sqlx::query_as::<_, Recipient>(
+        r#"UPDATE users SET strong_match_alert_at = NOW()
+            WHERE id = $1
+              AND (strong_match_alert_at IS NULL OR strong_match_alert_at < NOW() - INTERVAL '7 days')
+        RETURNING email, telegram_id, whatsapp_number, role::text"#,
     )
     .bind(user_id)
     .fetch_optional(&state.db)
@@ -1060,42 +1136,65 @@ async fn notify_if_newly_high_value(
     let matches_href = format!(
         "{}{}",
         crate::email::frontend_url(),
-        match recipient.role.as_str() {
+        match r.role.as_str() {
             "INVESTOR" => "/investor/matches",
             "INTERMEDIARY" => "/connector/network",
             _ => "/startup/matches",
         }
     );
-    let matches_href = matches_href.as_str();
+    let detail = m
+        .reasoning
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+        .map(|s| format!("\n\n{s}"))
+        .unwrap_or_default();
+    let text = format!(
+        "Kevin found a strong match for you: {} ({}% fit){detail}\n\nSee it on metatron: {matches_href}",
+        m.name, m.score
+    );
 
-    if let (Some(bot_token), Some(chat_id)) = (
-        state.telegram_bot_token.as_deref(),
-        recipient.telegram_id.as_deref().filter(|t| !t.is_empty()),
+    let wa = r.whatsapp_number.as_deref().filter(|s| !s.trim().is_empty());
+    let tg = r.telegram_id.as_deref().filter(|s| !s.trim().is_empty());
+    let sent = if let (Some(to), Some(token), Some(phone_id)) = (
+        wa,
+        state.whatsapp_access_token.as_deref(),
+        state.whatsapp_phone_number_id.as_deref(),
     ) {
-        let detail = one_liner
-            .filter(|s| !s.trim().is_empty())
-            .or_else(|| reasoning.filter(|s| !s.trim().is_empty()))
-            .map(|s| format!(" — {s}"))
-            .unwrap_or_default();
-        let text = format!(
-            "Kevin found a strong match for you: {match_label} ({new_score}% fit){detail}\n\nAsk me for more details any time, or see the full picture: {matches_href}"
-        );
-        let url = format!("https://api.telegram.org/bot{bot_token}/sendMessage");
-        let _ = state
+        state
             .http_client
-            .post(&url)
+            .post(format!("https://graph.facebook.com/v18.0/{phone_id}/messages"))
+            .bearer_auth(token)
+            .json(&serde_json::json!({
+                "messaging_product": "whatsapp", "recipient_type": "individual",
+                "to": to, "type": "text", "text": { "body": text }
+            }))
+            .send()
+            .await
+            .map(|res| res.status().is_success())
+            .unwrap_or(false)
+    } else if let (Some(chat_id), Some(bot_token)) = (tg, state.telegram_bot_token.as_deref()) {
+        state
+            .http_client
+            .post(format!("https://api.telegram.org/bot{bot_token}/sendMessage"))
             .json(&serde_json::json!({ "chat_id": chat_id, "text": text }))
             .send()
-            .await;
+            .await
+            .map(|res| res.status().is_success())
+            .unwrap_or(false)
+    } else {
+        false
+    };
+    if sent {
         return;
     }
 
-    let html = crate::email::high_value_match_html(match_label, new_score, reasoning, matches_href);
+    // No messaging channel, or it failed (e.g. outside WhatsApp's 24-hour window).
+    let html = crate::email::high_value_match_html(&m.name, m.score, m.reasoning.as_deref(), &matches_href);
     crate::email::send_tracked_email(
         &state.http_client,
         state.resend_api_key.as_deref(),
         &state.email_from,
-        &recipient.email,
+        &r.email,
         "Kevin found a strong match for you",
         &html,
         &state.db,
@@ -1225,8 +1324,9 @@ async fn request_intro(
         Option<Uuid>,
         Option<chrono::DateTime<chrono::Utc>>,
         Option<String>,
+        Option<String>,
     )> = sqlx::query_as(
-        r#"SELECT id, contact_id, matched_user_id, intro_requested_at, reasoning
+        r#"SELECT id, contact_id, matched_user_id, intro_requested_at, reasoning, intro_reasoning
            FROM kevin_matches
            WHERE id = $1 AND for_user_id = $2"#,
     )
@@ -1236,14 +1336,19 @@ async fn request_intro(
     .await
     .map_err(internal)?;
 
-    let (_id, contact_id, matched_user_id, intro_requested_at, reasoning_opt) =
+    let (_id, contact_id, matched_user_id, intro_requested_at, founder_reasoning_opt, intro_reasoning_opt) =
         row.ok_or((StatusCode::NOT_FOUND, "match not found".to_string()))?;
 
     if intro_requested_at.is_some() {
         return Err((StatusCode::CONFLICT, "introduction already requested".to_string()));
     }
 
-    let reasoning = reasoning_opt.unwrap_or_default();
+    // `reasoning` is what Kevin tells the investor (and the connector);
+    // `founder_reasoning` is the founder's own "why this investor" text.
+    let founder_reasoning = founder_reasoning_opt.unwrap_or_default();
+    let reasoning = intro_reasoning_opt
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| founder_reasoning.clone());
 
     // Get founder details
     let founder_email: String = sqlx::query_scalar("SELECT email FROM users WHERE id = $1")
@@ -1761,7 +1866,7 @@ async fn request_intro(
 
         let kevin_msg = format!(
             "Your intro request for {} has been submitted via {}.\n\nWhy Kevin matched you:\n{}\n\nI'll let you know when they respond. Keep building!",
-            company_name, investor_channels, reasoning
+            company_name, investor_channels, founder_reasoning
         );
 
         if let Some((telegram_id, whatsapp_number)) = founder_channels {

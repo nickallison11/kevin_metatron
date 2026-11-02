@@ -335,6 +335,7 @@ async fn refresh_matches(
                 .http_client
                 .post(&self_url)
                 .header("Authorization", format!("Bearer {}", token))
+                .header(super::kevin_matches::WEEKLY_RUN_HEADER, "1")
                 .send()
                 .await
             {

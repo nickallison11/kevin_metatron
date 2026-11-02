@@ -78,7 +78,7 @@ async fn request_magic_link(
         };
         let http_client = state.http_client.clone();
         let api_key = state.resend_api_key.clone();
-        let from = state.email_from.clone();
+        let from = state.account_email_from.clone();
         tokio::spawn(async move {
             email::send_reviewer_magic_link_email(
                 &http_client,

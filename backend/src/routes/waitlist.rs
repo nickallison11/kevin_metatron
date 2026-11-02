@@ -12,8 +12,8 @@ use serde_json::json;
 use crate::email::{self, WAITLIST_ADMIN_SUBJECT, WAITLIST_CONFIRMATION_SUBJECT};
 use crate::state::AppState;
 
-const WAITLIST_FROM: &str = "metatron <kevin@metatron.id>";
-const WAITLIST_ADMIN_TO: &str = "contact@metatron.id";
+const WAITLIST_FROM: &str = "metatron <hello@metatron.id>";
+const WAITLIST_ADMIN_TO: &str = "hello@metatron.id";
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new().route("/", post(submit_waitlist))

@@ -61,7 +61,7 @@ export default function TermsPage() {
           </ul>
           <p>
             Your contact details are shared with another user only when you accept an intro with them. metatron does not
-            sell your data. You can ask us to delete it at any time at contact@metatron.id.
+            sell your data. You can ask us to delete it at any time at hello@metatron.id.
           </p>
         </Section>
 
@@ -159,8 +159,8 @@ export default function TermsPage() {
         <Section title="14. Contact">
           <p>
             For questions about these Terms, contact us at{" "}
-            <a href="mailto:contact@metatron.id" className="text-metatron-accent hover:underline">
-              contact@metatron.id
+            <a href="mailto:hello@metatron.id" className="text-metatron-accent hover:underline">
+              hello@metatron.id
             </a>
             .
           </p>

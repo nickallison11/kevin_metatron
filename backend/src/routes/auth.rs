@@ -274,7 +274,7 @@ async fn signup(
             email::send_email(
                 &state.http_client,
                 state.resend_api_key.as_deref(),
-                "deals@metatron.id",
+                &state.account_email_from,
                 "nick.allison@metatrondao.io",
                 &subject,
                 &html,
@@ -283,7 +283,7 @@ async fn signup(
             email::send_email(
                 &state.http_client,
                 state.resend_api_key.as_deref(),
-                "deals@metatron.id",
+                &state.account_email_from,
                 "rianna@metatrondao.io",
                 &subject,
                 &html,
@@ -344,7 +344,7 @@ async fn finish_signup(
     email::send_email(
         &state.http_client,
         state.resend_api_key.as_deref(),
-        &state.email_from,
+        &state.account_email_from,
         email_addr,
         "Welcome to metatron",
         &email::welcome_email_html(db_role),
@@ -446,7 +446,7 @@ async fn send_signup_code(state: &AppState, email_addr: &str, code: &str) {
     email::send_email(
         &state.http_client,
         state.resend_api_key.as_deref(),
-        &state.email_from,
+        &state.account_email_from,
         email_addr,
         &format!("Your metatron code: {code}"),
         &html,
@@ -739,7 +739,7 @@ async fn forgot_password(
             email::send_password_reset_email(
                 &state.http_client,
                 state.resend_api_key.as_deref(),
-                &state.email_from,
+                &state.account_email_from,
                 &user_email,
                 &token_hex,
             )
@@ -1184,7 +1184,7 @@ async fn change_email(
     email::send_email(
         &state.http_client,
         state.resend_api_key.as_deref(),
-        &state.email_from,
+        &state.account_email_from,
         &old_email,
         "Your metatron email has been changed",
         &email::email_changed_notice_html(&body.new_email),

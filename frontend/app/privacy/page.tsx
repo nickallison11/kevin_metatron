@@ -187,8 +187,8 @@ export default function PrivacyPage() {
 
 function Mail() {
   return (
-    <a href="mailto:contact@metatron.id" className="text-[var(--accent-fg)] hover:underline">
-      contact@metatron.id
+    <a href="mailto:hello@metatron.id" className="text-[var(--accent-fg)] hover:underline">
+      hello@metatron.id
     </a>
   );
 }

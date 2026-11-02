@@ -175,7 +175,7 @@ fn tools(role: &str) -> Vec<Value> {
             "annotations": read_only(false)
         }),
     ];
-    if role == "STARTUP" {
+    if role == "STARTUP" && super::readiness::ENABLED {
         list.push(json!({
             "name": "find_programmes",
             "title": "Find programmes",

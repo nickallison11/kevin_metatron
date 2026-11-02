@@ -15,7 +15,7 @@ const CAN = [
   "Read your profile, pitch and matches",
   "Update your profile and pitch",
   "Request and answer intros",
-  "Save what you tell it about intros, matches and programmes",
+  "Save what you tell it about intros and matches",
   "Search people on metatron, as your plan allows",
 ];
 

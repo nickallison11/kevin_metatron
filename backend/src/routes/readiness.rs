@@ -28,6 +28,11 @@ pub(crate) const STAGES: &[(&str, &str)] = &[
     ("series_b", "Series B+"),
     ("growth", "Growth"),
 ];
+/// Parked 2026-11-02: stage advice and programme links weren't reliable
+/// enough to steer a founder (web-search programmes saved with dead or
+/// hijacked links). Off everywhere: Kevin's tools and context, the dashboard
+/// card, MCP, and the stage line in match ranking. Saved data stays.
+pub(crate) const ENABLED: bool = false;
 const KINDS: &[&str] = &["incubator", "accelerator", "bootcamp", "scaleup", "other"];
 /// Founders who must report doing a programme before it counts as verified.
 const VERIFY_REPORTS: i64 = 2;
@@ -102,6 +107,9 @@ fn record_properties() -> Value {
 /// (name, description, properties, required) for the tools this role gets.
 fn tool_specs(role: &str) -> Vec<(&'static str, &'static str, Value, Vec<&'static str>)> {
     let mut specs = Vec::new();
+    if !ENABLED {
+        return specs;
+    }
     if role == "STARTUP" {
         specs.push(("save_readiness", SAVE_DESCRIPTION, save_properties(), vec!["stage", "summary"]));
         specs.push(("find_programmes", FIND_DESCRIPTION, find_properties(), vec![]));
@@ -147,6 +155,7 @@ pub(crate) fn tools_for_gemini(role: &str) -> Vec<Value> {
 /// Runs one of this module's tools; None when the name isn't one of them.
 pub(crate) async fn execute(state: &AppState, user_id: Uuid, role: &str, tool_name: &str, input: &Value) -> Option<String> {
     Some(match tool_name {
+        "save_readiness" | "find_programmes" | "record_programme" if !ENABLED => "That isn't available right now.".to_string(),
         "save_readiness" if role == "STARTUP" => save(state, user_id, input).await,
         "find_programmes" if role == "STARTUP" => find(state, user_id, input).await,
         "record_programme" => record_programme(state, user_id, role, input).await,
@@ -558,6 +567,9 @@ async fn load(state: &AppState, user_id: Uuid) -> Option<Readiness> {
 
 /// The founder's readiness for Kevin's context, on every channel.
 pub(crate) async fn context_section(state: &AppState, user_id: Uuid) -> String {
+    if !ENABLED {
+        return String::new();
+    }
     let Some(r) = load(state, user_id).await else {
         return "\nReadiness: not assessed yet. If they ask whether they're ready for investors, what to do next, or which programmes or investors suit them, assess it.".to_string();
     };
@@ -584,6 +596,9 @@ pub(crate) async fn context_section(state: &AppState, user_id: Uuid) -> String {
 
 /// The founder's stage for the match-ranking prompt; empty if not assessed.
 pub(crate) async fn matching_line(state: &AppState, user_id: Uuid) -> String {
+    if !ENABLED {
+        return String::new();
+    }
     let Some(r) = load(state, user_id).await else { return String::new() };
     let later = stage_index(&r.stage).is_some_and(|i| i >= 4);
     format!(
@@ -595,6 +610,9 @@ pub(crate) async fn matching_line(state: &AppState, user_id: Uuid) -> String {
 
 /// True when the founder was assessed since their matches were last generated.
 pub(crate) async fn assessed_since_last_matches(state: &AppState, user_id: Uuid) -> bool {
+    if !ENABLED {
+        return false;
+    }
     sqlx::query_scalar(
         r#"SELECT EXISTS(
                SELECT 1 FROM founder_readiness
@@ -632,6 +650,9 @@ async fn get_own(
     TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
 ) -> Result<Json<Option<OwnReadiness>>, (StatusCode, String)> {
     let user = require_user(&state, bearer.token()).await?;
+    if !ENABLED {
+        return Ok(Json(None));
+    }
     let Some(r) = load(&state, user.id).await else { return Ok(Json(None)) };
     let i = stage_index(&r.stage).unwrap_or(0);
     let paid = is_paid(&state, user.id).await;

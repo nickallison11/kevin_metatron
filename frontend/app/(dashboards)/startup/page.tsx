@@ -6,7 +6,6 @@ import AngelScoreCard from "@/components/AngelScoreCard";
 import ShareProfileCard from "@/components/ShareProfileCard";
 import CommunityScoreCard from "@/components/startup/CommunityScoreCard";
 import DeckActivityCard from "@/components/startup/DeckActivityCard";
-import ReadinessCard from "@/components/startup/ReadinessCard";
 import StartupReviewsCard, { type MyReview } from "@/components/startup/StartupReviewsCard";
 import { btn, btnPrimary, card, eyebrow } from "@/components/startup/dashboardStyles";
 import { useUpgrade } from "@/components/upgrade/UpgradeProvider";
@@ -212,8 +211,6 @@ export default function StartupDashboardPage() {
             </div>
           </section>
         )}
-
-        <ReadinessCard token={token} />
 
         </div>
 

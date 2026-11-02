@@ -280,15 +280,6 @@ async fn signup(
                 &html,
             )
             .await;
-            email::send_email(
-                &state.http_client,
-                state.resend_api_key.as_deref(),
-                &state.account_email_from,
-                "rianna@metatrondao.io",
-                &subject,
-                &html,
-            )
-            .await;
         }
     }
 

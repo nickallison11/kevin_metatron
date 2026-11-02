@@ -907,22 +907,21 @@ async fn generate_matches(
 {candidates_label} (JSON array):
 {candidates_json}
 
-Score each candidate out of 100 by adding these parts:
+Score each candidate on four parts:
 - Sector (0-30): 30 = the founder's sector is a stated focus of the investor; 15 = adjacent; 0 = outside their focus.
 - Stage (0-25): 25 = the investor invests at the founder's stage; 10 = one stage either side; 0 = otherwise.
-- Region (0-25): 25 = the investor explicitly invests in, or has portfolio companies in, the founder's country or region (a global investor counts when they state a focus or portfolio there); 10 = global or no stated region, with nothing said about the founder's region; 0 = their focus excludes it. Investors based only in the US who focus on US/European markets get 0-10 for founders in Africa, Southeast Asia, LATAM or other emerging markets unless their thesis explicitly includes those regions.
+- Region (0-25): 25 = the investor explicitly invests in, or has portfolio companies in, the founder's country or region (a global investor counts when they state a focus or portfolio there); 10 = global or no stated region, with nothing said about the founder's region; 0 = their focus excludes it. Investors based only in the US who focus on US/European markets get 0 or 10 for founders in Africa, Southeast Asia, LATAM or other emerging markets unless their thesis explicitly includes those regions.
 - Ticket size (0-20): 20 = the founder's raise fits the investor's ticket range; 10 = unknown; 0 = clearly outside it.
-Missing information never counts as a strong fit. Most candidates land between 40 and 75; 90 or more is rare and means every part is strong.
+Missing information never counts as a strong fit. Use only the values listed for each part.
 
 For each candidate, return:
-- score: the total
-- hard_fit: true only if sector, stage and region each get their top score and the ticket size is not clearly outside the investor's range
+- sector, stage, region, ticket: the part scores
 - reasoning: max 40 words, {reasoning_rule}
 - intro_reasoning: max 40 words, {intro_rule}
 Both texts: be specific (stage, sector, problem, region, ticket size), name a real mismatch honestly, always include currency symbols for amounts (e.g. $100K, $1M), never be generic.
 
 Return ONLY a valid JSON array, no markdown, no code fences:
-[{{"id":"...","score":0,"hard_fit":false,"reasoning":"...","intro_reasoning":"..."}}]
+[{{"id":"...","sector":0,"stage":0,"region":0,"ticket":0,"reasoning":"...","intro_reasoning":"..."}}]
 
 {return_rule}"#
     );
@@ -935,7 +934,7 @@ Return ONLY a valid JSON array, no markdown, no code fences:
     } else {
         (
             all_candidates.len().max(1),
-            format!("Return the top {match_limit} matches only, ranked by score descending."),
+            format!("Return the top {match_limit} matches only, ranked by the sum of the four parts, highest first."),
         )
     };
     let mut ranked: Vec<Value> = vec![];
@@ -952,10 +951,11 @@ Return ONLY a valid JSON array, no markdown, no code fences:
         let id_str = item["id"].as_str().unwrap_or("");
         let Some(info) = candidate_info.get(id_str) else { continue; };
         let Ok(candidate_uuid) = Uuid::parse_str(id_str) else { continue; };
-        let score = item["score"].as_i64().unwrap_or(0).clamp(0, 100) as i32;
+        let fit = MatchFit::from_item(item);
+        let score = fit.total();
         let reasoning = item["reasoning"].as_str().map(str::to_owned);
         let intro_reasoning = item["intro_reasoning"].as_str().map(str::to_owned);
-        let hard_fit = item["hard_fit"].as_bool().unwrap_or(false);
+        let hard_fit = fit.hard_fit();
 
         let id_column = if info.source == "user" { "matched_user_id" } else { "contact_id" };
         if rescore {
@@ -1067,6 +1067,45 @@ Return ONLY a valid JSON array, no markdown, no code fences:
 
     let rows = fetch_kevin_matches_for_user(&state, user.id, Some(match_type)).await?;
     Ok(Json(rows))
+}
+
+/// Kevin's part scores for one candidate. The total and the hard-fit check
+/// are worked out here, not by the model, so they always follow the guide.
+struct MatchFit {
+    sector: i32,
+    stage: i32,
+    region: i32,
+    ticket: i32,
+}
+
+impl MatchFit {
+    const SECTOR_MAX: i32 = 30;
+    const STAGE_MAX: i32 = 25;
+    const REGION_MAX: i32 = 25;
+    const TICKET_MAX: i32 = 20;
+
+    fn from_item(item: &Value) -> Self {
+        let part = |key: &str, max: i32| item[key].as_i64().unwrap_or(0).clamp(0, max as i64) as i32;
+        Self {
+            sector: part("sector", Self::SECTOR_MAX),
+            stage: part("stage", Self::STAGE_MAX),
+            region: part("region", Self::REGION_MAX),
+            ticket: part("ticket", Self::TICKET_MAX),
+        }
+    }
+
+    fn total(&self) -> i32 {
+        self.sector + self.stage + self.region + self.ticket
+    }
+
+    /// Sector, stage and region all at their best, and the ticket size not
+    /// clearly outside the investor's range (unknown is fine).
+    fn hard_fit(&self) -> bool {
+        self.sector == Self::SECTOR_MAX
+            && self.stage == Self::STAGE_MAX
+            && self.region == Self::REGION_MAX
+            && self.ticket >= Self::TICKET_MAX / 2
+    }
 }
 
 /// Header that marks a one-off re-score; its value must be the cron secret.
@@ -2162,4 +2201,25 @@ async fn decline_suggestion(
     }
 
     Ok(Json(serde_json::json!({"ok": true})))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::MatchFit;
+
+    #[test]
+    fn fit_totals_and_hard_fit() {
+        let fit = MatchFit::from_item(&serde_json::json!({"sector": 30, "stage": 25, "region": 25, "ticket": 10}));
+        assert_eq!(fit.total(), 90);
+        assert!(fit.hard_fit());
+
+        // Out-of-range parts are capped; a ticket mismatch fails the fit check.
+        let fit = MatchFit::from_item(&serde_json::json!({"sector": 99, "stage": 25, "region": 25, "ticket": 0}));
+        assert_eq!(fit.total(), 80);
+        assert!(!fit.hard_fit());
+
+        let fit = MatchFit::from_item(&serde_json::json!({"score": 95}));
+        assert_eq!(fit.total(), 0);
+        assert!(!fit.hard_fit());
+    }
 }

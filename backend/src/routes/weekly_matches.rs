@@ -679,14 +679,28 @@ async fn weekly_matches_for_investor(
 
 // ── Monthly summary ─────────────────────────────────────────────────────────
 
+/// Last month's activity, shown as four numbers at the top of the report.
+#[derive(Serialize, Default)]
+struct MonthStats {
+    /// Matches Kevin sent in last month's weekly digests.
+    new_matches: i64,
+    /// Intro requests the person sent or received.
+    intros: i64,
+    intros_accepted: i64,
+    /// Founder: views of their deck. Investor: decks they viewed.
+    deck_views: i64,
+}
+
 #[derive(Serialize)]
-struct MonthlySummaryItem {
+struct MonthlyMatchItem {
     id: Uuid,
-    firm_name: Option<String>,
+    name: Option<String>,
+    /// Kevin's match score (0-100), shown as "% fit".
+    fit_score: i32,
+    /// The founder's Angel Score (investor reports only).
     angel_score: Option<i32>,
-    sector_overlap: bool,
-    stage_overlap: bool,
-    why_blurb: Option<String>,
+    /// Kevin's reason, written to the reader.
+    reason: Option<String>,
     deep_link: String,
 }
 
@@ -695,8 +709,9 @@ struct MonthlySummaryResponse {
     tier: String,
     eligible: bool,
     month_name: String,
-    total_this_month: i64,
-    matches: Vec<MonthlySummaryItem>,
+    payments_enabled: bool,
+    stats: MonthStats,
+    matches: Vec<MonthlyMatchItem>,
     snapshot_id: Option<Uuid>,
 }
 
@@ -706,208 +721,39 @@ async fn monthly_summary_for_user(
     Path(user_id): Path<Uuid>,
 ) -> Result<Json<MonthlySummaryResponse>, (StatusCode, String)> {
     verify_cron(&state, &headers)?;
-
-    let user_row = sqlx::query_as::<_, (bool, bool)>(
-        "SELECT is_basic, COALESCE(is_pro, false) FROM users WHERE id = $1 AND role = 'STARTUP'",
-    )
-    .bind(user_id)
-    .fetch_optional(&state.db)
-    .await
-    .map_err(|e| {
-        tracing::error!("monthly_summary user lookup: {e}");
-        (StatusCode::INTERNAL_SERVER_ERROR, "db error".into())
-    })?;
-
-    let (is_basic, is_pro) = match user_row {
-        Some((b, p)) => (b, p),
-        None => return Err((StatusCode::NOT_FOUND, "user not found or not a founder".into())),
-    };
-
-    let tier = if is_pro { "pro" } else if is_basic { "basic" } else { "free" };
-    let limit: i64 = if is_pro {
-        if state.match_limit_pro == 0 { i64::MAX } else { state.match_limit_pro }
-    } else if is_basic {
-        state.match_limit_basic
-    } else {
-        state.match_limit_free
-    };
-
-    let now = chrono::Utc::now();
-    let first_of_last_month = chrono::NaiveDate::from_ymd_opt(
-        if now.month() == 1 { now.year() - 1 } else { now.year() },
-        if now.month() == 1 { 12 } else { now.month() - 1 },
-        1,
-    )
-    .unwrap_or_default();
-    let first_of_this_month =
-        chrono::NaiveDate::from_ymd_opt(now.year(), now.month(), 1).unwrap_or_default();
-
-    let month_name = first_of_last_month.format("%B %Y").to_string();
-
-    let total_this_month: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM kevin_matches WHERE for_user_id = $1 AND match_type = 'founder_investor' AND weekly_email_sent_at >= $2 AND weekly_email_sent_at < $3",
-    )
-    .bind(user_id)
-    .bind(first_of_last_month)
-    .bind(first_of_this_month)
-    .fetch_one(&state.db)
-    .await
-    .unwrap_or(0);
-
-    if total_this_month == 0 {
-        return Ok(Json(MonthlySummaryResponse {
-            tier: tier.into(),
-            eligible: false,
-            month_name,
-            total_this_month: 0,
-            matches: vec![],
-            snapshot_id: None,
-        }));
-    }
-
-    let candidates = sqlx::query_as::<_, (Uuid, Option<String>, i32, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>)>(
-        r#"
-        SELECT km.id, COALESCE(km.display_name, ip.firm_name) AS firm_name,
-               km.score AS angel_score,
-               array_to_string(ip.sectors, ',') AS investor_sector,
-               array_to_string(ip.stages, ',') AS investor_stage,
-               p.sector AS founder_sector,
-               p.stage AS founder_stage,
-               km.why_blurb
-        FROM kevin_matches km
-        LEFT JOIN investor_profiles ip ON ip.user_id = km.matched_user_id
-        LEFT JOIN profiles p ON p.user_id = km.for_user_id
-        WHERE km.for_user_id = $1
-          AND km.match_type = 'founder_investor'
-          AND km.weekly_email_sent_at >= $2
-          AND km.weekly_email_sent_at < $3
-        ORDER BY km.score DESC
-        LIMIT $4
-        "#,
-    )
-    .bind(user_id)
-    .bind(first_of_last_month)
-    .bind(first_of_this_month)
-    .bind(limit)
-    .fetch_all(&state.db)
-    .await
-    .map_err(|e| {
-        tracing::error!("monthly_summary candidates: {e}");
-        (StatusCode::INTERNAL_SERVER_ERROR, "db error".into())
-    })?;
-
-    let mut items = Vec::new();
-    for (km_id, firm_name, angel_score, inv_sector, inv_stage, f_sector, f_stage, existing_blurb) in &candidates {
-        let sector_overlap = match (inv_sector.as_deref(), f_sector.as_deref()) {
-            (Some(a), Some(b)) if !a.is_empty() && !b.is_empty() => {
-                a.to_lowercase().contains(&b.to_lowercase()) || b.to_lowercase().contains(&a.to_lowercase())
-            }
-            _ => false,
-        };
-        let stage_overlap = match (inv_stage.as_deref(), f_stage.as_deref()) {
-            (Some(a), Some(b)) if !a.is_empty() && !b.is_empty() => {
-                a.to_lowercase().contains(&b.to_lowercase()) || b.to_lowercase().contains(&a.to_lowercase())
-            }
-            _ => false,
-        };
-        let blurb = if let Some(ref b) = existing_blurb {
-            if !b.trim().is_empty() { Some(b.clone()) } else { None }
-        } else {
-            None
-        };
-        items.push(MonthlySummaryItem {
-            id: *km_id,
-            firm_name: firm_name.clone(),
-            angel_score: Some(*angel_score),
-            sector_overlap,
-            stage_overlap,
-            why_blurb: blurb,
-            deep_link: format!("/startup/matches?focus={}", km_id),
-        });
-    }
-
-    let snapshot_id = sqlx::query_scalar::<_, Uuid>(
-        r#"
-        INSERT INTO weekly_match_snapshots (user_id, week_of, matches)
-        VALUES ($1, $2, $3)
-        ON CONFLICT (user_id, week_of) DO UPDATE SET matches = $3, created_at = NOW()
-        RETURNING id
-        "#,
-    )
-    .bind(user_id)
-    .bind(first_of_last_month)
-    .bind(serde_json::to_value(&items).unwrap_or(json!([])))
-    .fetch_one(&state.db)
-    .await
-    .ok();
-
-    Ok(Json(MonthlySummaryResponse {
-        tier: tier.into(),
-        eligible: true,
-        month_name,
-        total_this_month,
-        matches: items,
-        snapshot_id,
-    }))
-}
-
-#[derive(Serialize)]
-struct InvestorMonthlySummaryItem {
-    id: Uuid,
-    company_name: Option<String>,
-    sector: Option<String>,
-    stage: Option<String>,
-    angel_score: Option<i32>,
-    sector_overlap: bool,
-    stage_overlap: bool,
-    why_blurb: Option<String>,
-    deep_link: String,
-}
-
-#[derive(Serialize)]
-struct InvestorMonthlySummaryResponse {
-    tier: String,
-    eligible: bool,
-    month_name: String,
-    total_this_month: i64,
-    matches: Vec<InvestorMonthlySummaryItem>,
-    snapshot_id: Option<Uuid>,
+    monthly_report(&state, user_id, "STARTUP").await.map(Json)
 }
 
 async fn monthly_summary_for_investor(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
     Path(user_id): Path<Uuid>,
-) -> Result<Json<InvestorMonthlySummaryResponse>, (StatusCode, String)> {
+) -> Result<Json<MonthlySummaryResponse>, (StatusCode, String)> {
     verify_cron(&state, &headers)?;
+    monthly_report(&state, user_id, "INVESTOR").await.map(Json)
+}
 
-    let user_row = sqlx::query_as::<_, (bool, bool, Option<Vec<String>>, Option<Vec<String>>)>(
-        r#"SELECT u.is_basic, COALESCE(u.is_pro, false), ip.sectors, ip.stages
-           FROM users u
-           LEFT JOIN investor_profiles ip ON ip.user_id = u.id
-           WHERE u.id = $1 AND u.role = 'INVESTOR'"#,
+/// Last month's report for a founder (`STARTUP`) or an investor: the four
+/// activity numbers and the top 3 matches by fit.
+async fn monthly_report(
+    state: &AppState,
+    user_id: Uuid,
+    role: &str,
+) -> Result<MonthlySummaryResponse, (StatusCode, String)> {
+    let investor = role == "INVESTOR";
+    let (is_basic, is_pro) = sqlx::query_as::<_, (bool, bool)>(
+        "SELECT is_basic, COALESCE(is_pro, false) FROM users WHERE id = $1 AND role::text = $2",
     )
     .bind(user_id)
+    .bind(role)
     .fetch_optional(&state.db)
     .await
     .map_err(|e| {
-        tracing::error!("monthly_summary_investor user lookup: {e}");
+        tracing::error!("monthly_report user lookup: {e}");
         (StatusCode::INTERNAL_SERVER_ERROR, "db error".into())
-    })?;
-
-    let (is_basic, is_pro, inv_sectors, inv_stages) = match user_row {
-        Some(r) => r,
-        None => return Err((StatusCode::NOT_FOUND, "user not found or not an investor".into())),
-    };
-
+    })?
+    .ok_or((StatusCode::NOT_FOUND, "user not found".into()))?;
     let tier = if is_pro { "pro" } else if is_basic { "basic" } else { "free" };
-    let limit: i64 = if is_pro {
-        if state.investor_match_limit_pro == 0 { i64::MAX } else { state.investor_match_limit_pro }
-    } else if is_basic {
-        state.investor_match_limit_basic
-    } else {
-        state.investor_match_limit_free
-    };
 
     let now = chrono::Utc::now();
     let first_of_last_month = chrono::NaiveDate::from_ymd_opt(
@@ -918,87 +764,97 @@ async fn monthly_summary_for_investor(
     .unwrap_or_default();
     let first_of_this_month =
         chrono::NaiveDate::from_ymd_opt(now.year(), now.month(), 1).unwrap_or_default();
-
     let month_name = first_of_last_month.format("%B %Y").to_string();
+    let match_type = if investor { "investor_founder" } else { "founder_investor" };
+    let deck_column = if investor { "viewer_user_id" } else { "startup_user_id" };
 
-    let total_this_month: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM kevin_matches WHERE for_user_id = $1 AND match_type = 'investor_founder' AND weekly_email_sent_at >= $2 AND weekly_email_sent_at < $3",
-    )
+    let stats = sqlx::query_as::<_, (i64, i64, i64, i64)>(&format!(
+        r#"
+        SELECT
+          (SELECT COUNT(*) FROM kevin_matches
+            WHERE for_user_id = $1 AND match_type = $2
+              AND weekly_email_sent_at >= $3 AND weekly_email_sent_at < $4),
+          (SELECT COUNT(*) FROM connections
+            WHERE (from_user_id = $1 OR to_user_id = $1)
+              AND COALESCE(requested_at, created_at) >= $3 AND COALESCE(requested_at, created_at) < $4),
+          (SELECT COUNT(*) FROM connections
+            WHERE (from_user_id = $1 OR to_user_id = $1)
+              AND accepted_at >= $3 AND accepted_at < $4),
+          (SELECT COUNT(*) FROM deck_views
+            WHERE {deck_column} = $1 AND viewed_at >= $3 AND viewed_at < $4)
+        "#
+    ))
     .bind(user_id)
+    .bind(match_type)
     .bind(first_of_last_month)
     .bind(first_of_this_month)
     .fetch_one(&state.db)
     .await
-    .unwrap_or(0);
+    .map(|(new_matches, intros, intros_accepted, deck_views)| MonthStats {
+        new_matches,
+        intros,
+        intros_accepted,
+        deck_views,
+    })
+    .unwrap_or_default();
 
-    if total_this_month == 0 {
-        return Ok(Json(InvestorMonthlySummaryResponse {
-            tier: tier.into(),
-            eligible: false,
-            month_name,
-            total_this_month: 0,
-            matches: vec![],
-            snapshot_id: None,
-        }));
-    }
-
-    let inv_sectors_str = inv_sectors.as_ref().map(|s| s.join(",")).unwrap_or_default();
-    let inv_stages_str = inv_stages.as_ref().map(|s| s.join(",")).unwrap_or_default();
-
-    let candidates = sqlx::query_as::<_, (Uuid, Option<String>, Option<String>, Option<String>, Option<String>, Option<i32>)>(
+    let rows = sqlx::query_as::<_, (Uuid, Option<String>, i32, Option<i32>, Option<String>)>(
         r#"
         SELECT km.id,
-               COALESCE(km.display_name, p.company_name) AS company_name,
-               p.sector AS founder_sector,
-               p.stage AS founder_stage,
-               km.why_blurb,
-               a.score AS angel_score
+               COALESCE(km.display_name, ip.firm_name, p.company_name),
+               km.score,
+               a.score,
+               km.reasoning
         FROM kevin_matches km
+        LEFT JOIN investor_profiles ip ON ip.user_id = km.matched_user_id
         LEFT JOIN profiles p ON p.user_id = km.matched_user_id
-        LEFT JOIN angel_scores a ON a.founder_user_id = km.matched_user_id
+        LEFT JOIN angel_scores a ON a.founder_user_id = km.matched_user_id AND $5
         WHERE km.for_user_id = $1
-          AND km.match_type = 'investor_founder'
-          AND km.weekly_email_sent_at >= $2
-          AND km.weekly_email_sent_at < $3
-        ORDER BY a.score DESC NULLS LAST
-        LIMIT $4
+          AND km.match_type = $2
+          AND km.weekly_email_sent_at >= $3
+          AND km.weekly_email_sent_at < $4
+        ORDER BY km.score DESC
+        LIMIT 3
         "#,
     )
     .bind(user_id)
+    .bind(match_type)
     .bind(first_of_last_month)
     .bind(first_of_this_month)
-    .bind(limit)
+    .bind(investor)
     .fetch_all(&state.db)
     .await
     .map_err(|e| {
-        tracing::error!("monthly_summary_investor candidates: {e}");
+        tracing::error!("monthly_report matches: {e}");
         (StatusCode::INTERNAL_SERVER_ERROR, "db error".into())
     })?;
 
-    let mut items = Vec::new();
-    for (km_id, company_name, f_sector, f_stage, why_blurb, angel_score) in &candidates {
-        let sector_overlap = match (f_sector.as_deref(), inv_sectors_str.as_str()) {
-            (Some(a), b) if !a.is_empty() && !b.is_empty() => {
-                b.to_lowercase().contains(&a.to_lowercase()) || a.to_lowercase().contains(&b.to_lowercase())
-            }
-            _ => false,
-        };
-        let stage_overlap = match (f_stage.as_deref(), inv_stages_str.as_str()) {
-            (Some(a), b) if !a.is_empty() && !b.is_empty() => {
-                b.to_lowercase().contains(&a.to_lowercase()) || a.to_lowercase().contains(&b.to_lowercase())
-            }
-            _ => false,
-        };
-        items.push(InvestorMonthlySummaryItem {
-            id: *km_id,
-            company_name: company_name.clone(),
-            sector: f_sector.clone(),
-            stage: f_stage.clone(),
-            angel_score: *angel_score,
-            sector_overlap,
-            stage_overlap,
-            why_blurb: why_blurb.clone(),
-            deep_link: format!("/investor/deal-flow?focus={}", km_id),
+    let matches: Vec<MonthlyMatchItem> = rows
+        .into_iter()
+        .map(|(id, name, fit_score, angel_score, reasoning)| MonthlyMatchItem {
+            id,
+            name,
+            fit_score,
+            angel_score,
+            reason: reasoning.filter(|r| !r.trim().is_empty()),
+            deep_link: if investor {
+                format!("/investor/deal-flow?focus={id}")
+            } else {
+                format!("/startup/matches?focus={id}")
+            },
+        })
+        .collect();
+
+    let active = stats.new_matches + stats.intros + stats.intros_accepted + stats.deck_views > 0;
+    if !active {
+        return Ok(MonthlySummaryResponse {
+            tier: tier.into(),
+            eligible: false,
+            month_name,
+            payments_enabled: state.payments_enabled,
+            stats,
+            matches: vec![],
+            snapshot_id: None,
         });
     }
 
@@ -1012,19 +868,20 @@ async fn monthly_summary_for_investor(
     )
     .bind(user_id)
     .bind(first_of_last_month)
-    .bind(serde_json::to_value(&items).unwrap_or(json!([])))
+    .bind(serde_json::to_value(&matches).unwrap_or(json!([])))
     .fetch_one(&state.db)
     .await
     .ok();
 
-    Ok(Json(InvestorMonthlySummaryResponse {
+    Ok(MonthlySummaryResponse {
         tier: tier.into(),
         eligible: true,
         month_name,
-        total_this_month,
-        matches: items,
+        payments_enabled: state.payments_enabled,
+        stats,
+        matches,
         snapshot_id,
-    }))
+    })
 }
 
 // ── Email log & webhook ─────────────────────────────────────────────────────

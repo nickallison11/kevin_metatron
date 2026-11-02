@@ -525,6 +525,15 @@ async fn generate_matches(
     // The Monday refresh before the weekly digest: the digest covers these
     // matches, so no strong-match alert from this run.
     let weekly_run = headers.get(WEEKLY_RUN_HEADER).is_some();
+    // One-off re-score of the matches the person already has (cron secret only):
+    // new scores and reasons, nothing else about the matches changes.
+    let rescore = match (
+        headers.get(RESCORE_HEADER).and_then(|v| v.to_str().ok()),
+        state.cron_secret.as_deref(),
+    ) {
+        (Some(got), Some(want)) => !want.is_empty() && got == want,
+        _ => false,
+    };
 
     let (is_basic, is_pro_user): (bool, bool) =
         sqlx::query_as::<_, (bool, bool)>(
@@ -568,7 +577,8 @@ async fn generate_matches(
     .fetch_one(&state.db)
     .await
     .unwrap_or(0);
-    if fresh_count > 0
+    if !rescore
+        && fresh_count > 0
         && !super::kevin_feedback::preference_since_last_matches(&state, user.id).await
         && !super::readiness::assessed_since_last_matches(&state, user.id).await
     {
@@ -678,7 +688,10 @@ async fn generate_matches(
                       ip.ticket_size_min, ip.ticket_size_max, ip.country
                  FROM investor_profiles ip
                  JOIN users u ON u.id = ip.user_id
-                 WHERE (ip.sectors IS NULL OR ip.sectors = '{}'::text[] OR $1::text IS NULL OR EXISTS (
+                 WHERE CASE WHEN $4 THEN ip.user_id IN (
+                     SELECT matched_user_id FROM kevin_matches
+                     WHERE for_user_id = $3 AND matched_user_id IS NOT NULL
+                   ) ELSE (ip.sectors IS NULL OR ip.sectors = '{}'::text[] OR $1::text IS NULL OR EXISTS (
                          SELECT 1 FROM unnest(string_to_array($1, ',')) AS fsec
                          CROSS JOIN unnest(ip.sectors) AS isec
                          WHERE TRIM(LOWER(fsec)) = TRIM(LOWER(isec))
@@ -687,12 +700,14 @@ async fn generate_matches(
                    AND ip.user_id NOT IN (
                      SELECT matched_user_id FROM kevin_matches
                      WHERE for_user_id = $3 AND matched_user_id IS NOT NULL
-                   )
-                 ORDER BY RANDOM() LIMIT 30"#,
+                   ) END
+                 ORDER BY RANDOM() LIMIT $5"#,
         )
         .bind(&sector)
         .bind(&stage)
         .bind(user.id)
+        .bind(rescore)
+        .bind(if rescore { 1000_i64 } else { 30 })
         .fetch_all(&state.db)
         .await
         .map_err(internal)?;
@@ -712,13 +727,18 @@ async fn generate_matches(
             r#"SELECT id, name, firm_or_company, one_liner, sector_focus, stage_focus, geography
                  FROM connector_network_contacts
                  WHERE role = 'investor' AND is_archived = false
-                   AND id NOT IN (
+                   AND CASE WHEN $2 THEN id IN (
                      SELECT contact_id FROM kevin_matches
                      WHERE for_user_id = $1 AND contact_id IS NOT NULL
-                   )
-                 ORDER BY RANDOM() LIMIT 40"#,
+                   ) ELSE id NOT IN (
+                     SELECT contact_id FROM kevin_matches
+                     WHERE for_user_id = $1 AND contact_id IS NOT NULL
+                   ) END
+                 ORDER BY RANDOM() LIMIT $3"#,
         )
         .bind(user.id)
+        .bind(rescore)
+        .bind(if rescore { 1000_i64 } else { 40 })
         .fetch_all(&state.db)
         .await
         .map_err(internal)?;
@@ -750,7 +770,7 @@ async fn generate_matches(
             }));
         }
 
-        for c in contacts.iter().take(20) {
+        for c in contacts.iter().take(if rescore { usize::MAX } else { 20 }) {
             let id = c.id.to_string();
             let display_name = repair_double_encoded_utf8(
                 c.firm_or_company
@@ -816,17 +836,23 @@ async fn generate_matches(
                  FROM profiles p
                  JOIN users u ON u.id = p.user_id
                  LEFT JOIN angel_scores a ON a.founder_user_id = p.user_id
-                 WHERE ($1::text[] IS NULL OR COALESCE(array_length($1, 1), 0) = 0 OR p.sector IS NULL OR EXISTS (
+                 WHERE CASE WHEN $3 THEN p.user_id IN (
+                     SELECT matched_user_id FROM kevin_matches
+                     WHERE for_user_id = $4 AND matched_user_id IS NOT NULL
+                   ) ELSE ($1::text[] IS NULL OR COALESCE(array_length($1, 1), 0) = 0 OR p.sector IS NULL OR EXISTS (
                          SELECT 1 FROM unnest(string_to_array(p.sector, ',')) AS fsec
                          CROSS JOIN unnest($1) AS isec
                          WHERE TRIM(LOWER(fsec)) = TRIM(LOWER(isec))
                        ))
-                   AND ($2::text[] IS NULL OR COALESCE(array_length($2, 1), 0) = 0 OR p.stage IS NULL OR LOWER(p.stage) = ANY(SELECT LOWER(s) FROM unnest($2) AS s))
+                   AND ($2::text[] IS NULL OR COALESCE(array_length($2, 1), 0) = 0 OR p.stage IS NULL OR LOWER(p.stage) = ANY(SELECT LOWER(s) FROM unnest($2) AS s)) END
                  ORDER BY COALESCE(a.score, 0) DESC
-                 LIMIT 20"#,
+                 LIMIT $5"#,
         )
         .bind(&sectors)
         .bind(&stages)
+        .bind(rescore)
+        .bind(user.id)
+        .bind(if rescore { 1000_i64 } else { 20 })
         .fetch_all(&state.db)
         .await
         .map_err(internal)?;
@@ -873,7 +899,7 @@ async fn generate_matches(
             "written TO THE FOUNDER (\"you\", \"your\") about the investor: why this investor suits the founder's company and round",
         )
     };
-    let prompt = format!(
+    let build_prompt = |candidates_json: &str, return_rule: &str| format!(
         r#"You are Kevin, metatron's AI matchmaking engine. Score how well each candidate fits.
 
 {subject_label}: {user_context}{feedback}
@@ -898,63 +924,26 @@ Both texts: be specific (stage, sector, problem, region, ticket size), name a re
 Return ONLY a valid JSON array, no markdown, no code fences:
 [{{"id":"...","score":0,"hard_fit":false,"reasoning":"...","intro_reasoning":"..."}}]
 
-Return the top {match_limit} matches only, ranked by score descending."#
+{return_rule}"#
     );
-
-    let url = format!(
-        "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={}",
-        gemini_key
-    );
-    let payload = serde_json::json!({
-        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-        "generationConfig": {"maxOutputTokens": 8192, "temperature": 0.2, "thinkingConfig": {"thinkingBudget": 0}}
-    });
-
-    let client = reqwest::Client::new();
-    let res = tokio::time::timeout(
-        std::time::Duration::from_secs(30),
-        client.post(&url).header("content-type", "application/json").json(&payload).send(),
-    )
-    .await
-    .map_err(|_| (StatusCode::GATEWAY_TIMEOUT, "Gemini timeout".to_string()))?
-    .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
-
-    let ok = res.status().is_success();
-    let body: Value = res.json().await.map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
-    if !ok {
-        crate::alerts::check_gemini_error(&body.to_string());
-    }
 
     let tier = if user.is_pro { "pro" } else if user.is_basic { "basic" } else { "free" };
-    crate::cost::record_llm_usage(
-        &state.db,
-        Some(user.id),
-        Some(user.role.as_str()),
-        Some(tier),
-        "match_ranking",
-        "gemini",
-        "gemini-2.5-flash",
-        body["usageMetadata"]["promptTokenCount"].as_i64().unwrap_or(0) as i32,
-        body["usageMetadata"]["candidatesTokenCount"].as_i64().unwrap_or(0) as i32,
-    )
-    .await;
-
-    let text = body["candidates"][0]["content"]["parts"][0]["text"]
-        .as_str()
-        .unwrap_or("[]");
-    let clean = text
-        .trim()
-        .trim_start_matches("```json")
-        .trim_start_matches("```")
-        .trim_end_matches("```")
-        .trim();
-    // Extract just the [...] block in case Gemini adds preamble/postamble text
-    let json_str = if let (Some(start), Some(end)) = (clean.find('['), clean.rfind(']')) {
-        &clean[start..=end]
+    let all_candidates: Vec<Value> = serde_json::from_str(&candidates_json).unwrap_or_default();
+    // A re-score covers every existing match, in batches that fit one reply.
+    let (batch_size, return_rule) = if rescore {
+        (15, "Return every candidate.".to_string())
     } else {
-        clean
+        (
+            all_candidates.len().max(1),
+            format!("Return the top {match_limit} matches only, ranked by score descending."),
+        )
     };
-    let ranked: Vec<Value> = serde_json::from_str(json_str).unwrap_or_default();
+    let mut ranked: Vec<Value> = vec![];
+    for batch in all_candidates.chunks(batch_size) {
+        let batch_json = serde_json::to_string(batch).unwrap_or_default();
+        let prompt = build_prompt(&batch_json, &return_rule);
+        ranked.extend(rank_with_gemini(&state, &gemini_key, &prompt, user.id, role, tier).await?);
+    }
 
     // The best newly-strong match of this run; at most one alert is sent.
     let mut strong: Option<StrongMatch> = None;
@@ -969,6 +958,22 @@ Return the top {match_limit} matches only, ranked by score descending."#
         let hard_fit = item["hard_fit"].as_bool().unwrap_or(false);
 
         let id_column = if info.source == "user" { "matched_user_id" } else { "contact_id" };
+        if rescore {
+            let _ = sqlx::query(&format!(
+                "UPDATE kevin_matches SET score = $1, reasoning = $2, intro_reasoning = $3, hard_fit = $4
+                  WHERE for_user_id = $5 AND {id_column} = $6 AND match_type = $7"
+            ))
+            .bind(score)
+            .bind(&reasoning)
+            .bind(&intro_reasoning)
+            .bind(hard_fit)
+            .bind(user.id)
+            .bind(candidate_uuid)
+            .bind(match_type)
+            .execute(&state.db)
+            .await;
+            continue;
+        }
         let prev_score: Option<i32> = sqlx::query_scalar(&format!(
             "SELECT score FROM kevin_matches WHERE for_user_id = $1 AND {id_column} = $2 AND match_type = $3"
         ))
@@ -1062,6 +1067,73 @@ Return the top {match_limit} matches only, ranked by score descending."#
 
     let rows = fetch_kevin_matches_for_user(&state, user.id, Some(match_type)).await?;
     Ok(Json(rows))
+}
+
+/// Header that marks a one-off re-score; its value must be the cron secret.
+pub(crate) const RESCORE_HEADER: &str = "x-kevin-rescore";
+
+/// Sends one ranking prompt to Gemini and returns the parsed JSON array.
+async fn rank_with_gemini(
+    state: &AppState,
+    gemini_key: &str,
+    prompt: &str,
+    user_id: Uuid,
+    role: &str,
+    tier: &str,
+) -> Result<Vec<Value>, (StatusCode, String)> {
+    let url = format!(
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={}",
+        gemini_key
+    );
+    let payload = serde_json::json!({
+        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+        "generationConfig": {"maxOutputTokens": 8192, "temperature": 0.2, "thinkingConfig": {"thinkingBudget": 0}}
+    });
+
+    let client = reqwest::Client::new();
+    let res = tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        client.post(&url).header("content-type", "application/json").json(&payload).send(),
+    )
+    .await
+    .map_err(|_| (StatusCode::GATEWAY_TIMEOUT, "Gemini timeout".to_string()))?
+    .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
+
+    let ok = res.status().is_success();
+    let body: Value = res.json().await.map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
+    if !ok {
+        crate::alerts::check_gemini_error(&body.to_string());
+    }
+
+    crate::cost::record_llm_usage(
+        &state.db,
+        Some(user_id),
+        Some(role),
+        Some(tier),
+        "match_ranking",
+        "gemini",
+        "gemini-2.5-flash",
+        body["usageMetadata"]["promptTokenCount"].as_i64().unwrap_or(0) as i32,
+        body["usageMetadata"]["candidatesTokenCount"].as_i64().unwrap_or(0) as i32,
+    )
+    .await;
+
+    let text = body["candidates"][0]["content"]["parts"][0]["text"]
+        .as_str()
+        .unwrap_or("[]");
+    let clean = text
+        .trim()
+        .trim_start_matches("```json")
+        .trim_start_matches("```")
+        .trim_end_matches("```")
+        .trim();
+    // Extract just the [...] block in case Gemini adds preamble/postamble text
+    let json_str = if let (Some(start), Some(end)) = (clean.find('['), clean.rfind(']')) {
+        &clean[start..=end]
+    } else {
+        clean
+    };
+    Ok(serde_json::from_str(json_str).unwrap_or_default())
 }
 
 /// Set on the weekly refresh's call to `generate_matches` (see weekly_matches.rs).

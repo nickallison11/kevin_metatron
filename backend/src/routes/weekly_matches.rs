@@ -27,6 +27,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/:user_id/weekly-matches", get(weekly_matches_for_user))
         .route("/:user_id/weekly-matches-investor", get(weekly_matches_for_investor))
         .route("/:user_id/refresh-matches", post(refresh_matches))
+        .route("/:user_id/rescore-matches", post(rescore_matches))
         .route("/:user_id/monthly-summary", get(monthly_summary_for_user))
         .route("/:user_id/monthly-summary-investor", get(monthly_summary_for_investor))
         .route("/email-log", post(insert_email_log))
@@ -350,6 +351,38 @@ async fn refresh_matches(
     };
 
     Ok(Json(RefreshResult { recycled, generate_triggered }))
+}
+
+/// One-off: Kevin re-scores the matches this person already has with the
+/// current scoring guide (scores and reasons only; dates, sent flags and
+/// intro history stay). Returns the re-scored matches.
+async fn rescore_matches(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(user_id): Path<Uuid>,
+) -> Result<(StatusCode, String), (StatusCode, String)> {
+    verify_cron(&state, &headers)?;
+    let secret = state.cron_secret.clone().unwrap_or_default();
+    let role: String = sqlx::query_scalar("SELECT role::text FROM users WHERE id = $1")
+        .bind(user_id)
+        .fetch_one(&state.db)
+        .await
+        .map_err(|_| (StatusCode::NOT_FOUND, "user not found".into()))?;
+
+    let exp = (chrono::Utc::now() + chrono::Duration::seconds(600)).timestamp() as usize;
+    let claims = Claims { sub: user_id.to_string(), role, exp };
+    let token = encode(&JwtHeader::default(), &claims, &state.jwt_encoding)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let res = state
+        .http_client
+        .post(format!("http://127.0.0.1:{}/kevin-matches", state.port))
+        .header("Authorization", format!("Bearer {token}"))
+        .header(super::kevin_matches::RESCORE_HEADER, secret)
+        .send()
+        .await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
+    let status = StatusCode::from_u16(res.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
+    Ok((status, res.text().await.unwrap_or_default()))
 }
 
 // ── Weekly matches ──────────────────────────────────────────────────────────

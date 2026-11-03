@@ -15,7 +15,7 @@ pub struct Settings {
     pub upload_dir: PathBuf,
     pub public_base_url: String,
     pub ai_api_key: Option<String>,
-    /// Gemini model id for API paths (e.g. `gemini-2.5-flash`). Env: `GEMINI_MODEL`.
+    /// Gemini model id for API paths (e.g. `gemini-3.5-flash-lite`). Env: `GEMINI_MODEL`.
     pub gemini_model: String,
     /// Optional separate key for Gemini embeddings (semantic memory for paid tiers). If unset, only text memory is used.
     pub gemini_embedding_key: Option<String>,
@@ -109,7 +109,7 @@ impl Settings {
             .ok()
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| "gemini-2.5-flash".to_string());
+            .unwrap_or_else(|| "gemini-3.5-flash-lite".to_string());
         // A Gemini API key covers both generateContent and embedContent under
         // the same project, so GEMINI_EMBEDDING_KEY only needs setting if
         // someone wants embeddings on a separate key/quota later — otherwise

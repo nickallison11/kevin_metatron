@@ -29,37 +29,6 @@ struct GeminiSummaryRequest {
     contents: Vec<GeminiSummaryContent>,
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct GeminiSummaryResponse {
-    candidates: Option<Vec<GeminiSummaryCandidate>>,
-    usage_metadata: Option<GeminiSummaryUsageMetadata>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct GeminiSummaryUsageMetadata {
-    prompt_token_count: Option<i32>,
-    candidates_token_count: Option<i32>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct GeminiSummaryCandidate {
-    content: Option<GeminiSummaryOutContent>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct GeminiSummaryOutContent {
-    parts: Option<Vec<GeminiSummaryOutPart>>,
-}
-
-#[derive(Deserialize)]
-struct GeminiSummaryOutPart {
-    text: Option<String>,
-}
-
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct EmbedContentRequest {
@@ -171,12 +140,13 @@ pub async fn store_memory(
     db: &PgPool,
     http: &reqwest::Client,
     gemini_api_key: &str,
+    gemini_model: &str,
     embedding_key: Option<&str>,
     is_pro_subscriber: bool,
     user_id: Uuid,
     conversation: &str,
 ) -> Result<(), String> {
-    let summary = match summarize_conversation(db, http, gemini_api_key, user_id, conversation).await {
+    let summary = match summarize_conversation(db, http, gemini_api_key, gemini_model, user_id, conversation).await {
         Ok(s) => s,
         Err(e) => {
             tracing::warn!("memory summarize failed: {e}");
@@ -273,6 +243,7 @@ async fn summarize_conversation(
     db: &PgPool,
     http: &reqwest::Client,
     ai_api_key: &str,
+    gemini_model: &str,
     user_id: Uuid,
     conversation: &str,
 ) -> Result<String, String> {
@@ -290,10 +261,11 @@ async fn summarize_conversation(
         }],
     };
 
-    let url =
-        "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
+    let url = format!(
+        "https://generativelanguage.googleapis.com/v1beta/models/{gemini_model}:generateContent"
+    );
     let res = http
-        .post(url)
+        .post(&url)
         .query(&[("key", ai_api_key)])
         .json(&req)
         .send()
@@ -306,12 +278,13 @@ async fn summarize_conversation(
         return Err(format!("memory summarize error: {body}"));
     }
 
-    let parsed: GeminiSummaryResponse = res
+    let parsed: serde_json::Value = res
         .json()
         .await
         .map_err(|e| format!("memory summarize json: {e}"))?;
 
-    if let Some(ref u) = parsed.usage_metadata {
+    if parsed.get("usageMetadata").is_some() {
+        let usage = crate::ai::gemini_usage(&parsed);
         crate::cost::record_llm_usage(
             db,
             Some(user_id),
@@ -319,25 +292,14 @@ async fn summarize_conversation(
             None,
             "memory_summarize",
             "gemini",
-            "gemini-2.5-flash",
-            u.prompt_token_count.unwrap_or(0),
-            u.candidates_token_count.unwrap_or(0),
+            gemini_model,
+            usage.input_tokens,
+            usage.output_tokens,
         )
         .await;
     }
 
-    let text = parsed
-        .candidates
-        .as_ref()
-        .and_then(|c| c.first())
-        .and_then(|c| c.content.as_ref())
-        .and_then(|c| c.parts.as_ref())
-        .and_then(|p| p.first())
-        .and_then(|p| p.text.as_ref())
-        .cloned()
-        .unwrap_or_default();
-
-    Ok(text.trim().to_string())
+    Ok(crate::ai::gemini_text(&parsed).trim().to_string())
 }
 
 /// `gemini-embedding-001` replaces `text-embedding-004`, which Google shut

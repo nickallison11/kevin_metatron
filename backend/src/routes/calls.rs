@@ -247,7 +247,7 @@ pub(crate) async fn analyze_transcript(state: &AppState, transcript: &str) -> Js
         &state.http_client,
         "gemini",
         key,
-        "gemini-2.5-flash",
+        &state.gemini_model,
         system,
         &prompt,
     )
@@ -261,7 +261,7 @@ pub(crate) async fn analyze_transcript(state: &AppState, transcript: &str) -> Js
                 None,
                 "call_analysis",
                 "gemini",
-                "gemini-2.5-flash",
+                &state.gemini_model,
                 usage.input_tokens,
                 usage.output_tokens,
             )

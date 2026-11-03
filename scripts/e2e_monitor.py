@@ -999,7 +999,7 @@ def render_paystack_gone_check(lines, drifts, number, tag):
 # Every model the backend calls, per provider. Keep in step with the backend
 # (grep for the model names) when one is added or swapped.
 AI_MODELS = {
-    "gemini":     ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-embedding-001"],
+    "gemini":     ["gemini-3.5-flash-lite", "gemini-2.5-flash-lite", "gemini-embedding-001"],
     "anthropic":  ["claude-haiku-4-5-20251001", "claude-sonnet-4-6", "claude-opus-4-5-20251101"],
     "openai":     ["gpt-4o-mini"],
 }

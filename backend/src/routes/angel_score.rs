@@ -260,12 +260,14 @@ Return ONLY valid JSON, no markdown, no code fences:
     );
 
     let url = format!(
-        "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={}",
-        gemini_key
+        "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
+        state.gemini_model, gemini_key
     );
+    // Gemini 3 models expect the default temperature, and take a thinking
+    // level instead of a token budget.
     let payload = serde_json::json!({
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-        "generationConfig": {"maxOutputTokens": 4096, "temperature": 0.2, "thinkingConfig": {"thinkingBudget": 0}}
+        "generationConfig": {"maxOutputTokens": 4096, "thinkingConfig": {"thinkingLevel": "minimal"}}
     });
 
     let client = reqwest::Client::new();
@@ -291,6 +293,7 @@ Return ONLY valid JSON, no markdown, no code fences:
     }
 
     let tier = if user.is_pro { "pro" } else if user.is_basic { "basic" } else { "free" };
+    let usage = crate::ai::gemini_usage(&body);
     crate::cost::record_llm_usage(
         &state.db,
         Some(user.id),
@@ -298,15 +301,14 @@ Return ONLY valid JSON, no markdown, no code fences:
         Some(tier),
         "angel_score",
         "gemini",
-        "gemini-2.5-flash",
-        body["usageMetadata"]["promptTokenCount"].as_i64().unwrap_or(0) as i32,
-        body["usageMetadata"]["candidatesTokenCount"].as_i64().unwrap_or(0) as i32,
+        &state.gemini_model,
+        usage.input_tokens,
+        usage.output_tokens,
     )
     .await;
 
-    let text = body["candidates"][0]["content"]["parts"][0]["text"]
-        .as_str()
-        .unwrap_or("{}");
+    let text = crate::ai::gemini_text(&body);
+    let text = if text.trim().is_empty() { "{}" } else { text.as_str() };
     let clean = text
         .trim()
         .trim_start_matches("```json")

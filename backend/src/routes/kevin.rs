@@ -567,12 +567,14 @@ pub(crate) async fn kevin_reply_for_linked_user(
         let uid = user.id;
         let is_pro = user.is_pro;
         let embedding_key = state.gemini_embedding_key.clone();
+        let gemini_model = state.gemini_model.clone();
         let conversation = format!("User: {message}\nKevin: {reply}");
         tokio::spawn(async move {
             if let Err(e) = memory::store_memory(
                 &db,
                 &http,
                 &gemini_key,
+                &gemini_model,
                 embedding_key.as_deref(),
                 is_pro,
                 uid,
@@ -848,12 +850,14 @@ async fn chat(
         let uid = user.id;
         let is_pro = user.is_pro;
         let embedding_key = state.gemini_embedding_key.clone();
+        let gemini_model = state.gemini_model.clone();
         let conversation = format!("User: {last_user_message}\nKevin: {reply}");
         tokio::spawn(async move {
             if let Err(e) = memory::store_memory(
                 &db,
                 &http,
                 &gemini_key,
+                &gemini_model,
                 embedding_key.as_deref(),
                 is_pro,
                 uid,
@@ -2723,8 +2727,9 @@ async fn run_kevin_with_tools_gemini(
             }
         };
 
-        usage.input_tokens += value["usageMetadata"]["promptTokenCount"].as_i64().unwrap_or(0) as i32;
-        usage.output_tokens += value["usageMetadata"]["candidatesTokenCount"].as_i64().unwrap_or(0) as i32;
+        let call_usage = crate::ai::gemini_usage(&value);
+        usage.input_tokens += call_usage.input_tokens;
+        usage.output_tokens += call_usage.output_tokens;
 
         let parts = value["candidates"][0]["content"]["parts"]
             .as_array()
@@ -2736,48 +2741,55 @@ async fn run_kevin_with_tools_gemini(
             .filter(|p| p.get("functionCall").is_some())
             .collect();
 
+        // Gemini 3 can split one reply over several text parts.
+        let text = crate::ai::gemini_text(&value);
         if function_calls.is_empty() {
-            for part in &parts {
-                if let Some(text) = part["text"].as_str() {
-                    if !text.is_empty() {
-                        let text = strip_markdown(text);
-                        new_rows.push(crate::kevin_context::text_row("assistant", &text));
-                        return (join_said(&said, text), new_rows, usage);
-                    }
-                }
+            if !text.is_empty() {
+                let text = strip_markdown(&text);
+                new_rows.push(crate::kevin_context::text_row("assistant", &text));
+                return (join_said(&said, text), new_rows, usage);
             }
             return ("Kevin is temporarily unavailable.".to_string(), new_rows, usage);
         }
 
-        for part in &parts {
-            if let Some(text) = part["text"].as_str().map(str::trim).filter(|t| !t.is_empty()) {
-                said = join_said(&said, strip_markdown(text));
-            }
+        if !text.trim().is_empty() {
+            said = join_said(&said, strip_markdown(text.trim()));
         }
+        // The model's parts go back unchanged: Gemini 3 needs their thought
+        // signatures on the next call of this turn.
         contents.push(serde_json::json!({
             "role": "model",
             "parts": parts
         }));
+        let blocks = crate::kevin_context::gemini_parts_to_blocks(&parts);
+        let call_ids: Vec<String> = blocks
+            .iter()
+            .filter(|b| b["type"] == "tool_call")
+            .map(|b| b["id"].as_str().unwrap_or_default().to_string())
+            .collect();
         new_rows.push(crate::kevin_context::ContextRow {
             role: "assistant".to_string(),
-            blocks: crate::kevin_context::gemini_parts_to_blocks(&parts),
+            blocks,
         });
 
         let mut response_parts = Vec::new();
         let mut result_triples = Vec::new();
-        for fc_part in function_calls {
+        for (fc_part, call_id) in function_calls.into_iter().zip(call_ids) {
             let fc = &fc_part["functionCall"];
             let tool_name = fc["name"].as_str().unwrap_or("");
             let tool_input = &fc["args"];
             let result =
                 execute_kevin_tool(state, user_id, user_email, role, tool_name, tool_input).await;
-            response_parts.push(serde_json::json!({
-                "functionResponse": {
-                    "name": tool_name,
-                    "response": { "result": result }
-                }
-            }));
-            result_triples.push((format!("call_{}", Uuid::new_v4()), tool_name.to_string(), result));
+            let mut response = serde_json::json!({
+                "name": tool_name,
+                "response": { "result": result }
+            });
+            // Gemini 3 matches each result to its call by id.
+            if let Some(id) = fc["id"].as_str() {
+                response["id"] = serde_json::json!(id);
+            }
+            response_parts.push(serde_json::json!({ "functionResponse": response }));
+            result_triples.push((call_id, tool_name.to_string(), result));
         }
 
         contents.push(serde_json::json!({

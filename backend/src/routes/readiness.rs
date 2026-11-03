@@ -358,7 +358,7 @@ async fn find(state: &AppState, user_id: Uuid, input: &Value) -> String {
 /// to the list as unverified.
 async fn search_web(state: &AppState, user_id: Uuid, stage: &str, sector: Option<&str>, country: Option<&str>) {
     let Some(api_key) = state.ai_api_key.as_deref() else { return };
-    let model = "gemini-2.5-flash";
+    let model = state.gemini_model.as_str();
     let sector = sector.unwrap_or("technology");
     let country = country
         .map(|c| crate::countries::resolve(c).map(|(_, name)| name).unwrap_or(c))
@@ -377,8 +377,7 @@ async fn search_web(state: &AppState, user_id: Uuid, stage: &str, sector: Option
     );
     let body = json!({
         "contents": [{ "role": "user", "parts": [{ "text": prompt }] }],
-        "tools": [{ "google_search": {} }],
-        "generationConfig": { "temperature": 0.2 }
+        "tools": [{ "google_search": {} }]
     });
     let url = format!("https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent");
     let response = match state.http_client.post(&url).query(&[("key", api_key)]).json(&body).send().await {
@@ -409,8 +408,8 @@ async fn search_web(state: &AppState, user_id: Uuid, stage: &str, sector: Option
         "programme_search",
         "gemini",
         model,
-        value["usageMetadata"]["promptTokenCount"].as_i64().unwrap_or(0) as i32,
-        value["usageMetadata"]["candidatesTokenCount"].as_i64().unwrap_or(0) as i32,
+        crate::ai::gemini_usage(&value).input_tokens,
+        crate::ai::gemini_usage(&value).output_tokens,
     )
     .await;
 

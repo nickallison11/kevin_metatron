@@ -41,45 +41,32 @@ struct GeminiGenerateRequest {
     contents: Vec<GeminiContent>,
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct GeminiResponse {
-    candidates: Option<Vec<GeminiCandidate>>,
-    usage_metadata: Option<GeminiUsageMetadata>,
+/// The reply text of a Gemini generateContent response: every text part of
+/// the first candidate joined, skipping thought summaries. Gemini 3 models
+/// can split a reply over several parts (one may carry only a thought
+/// signature), so reading just the first part can miss the answer.
+pub fn gemini_text(body: &serde_json::Value) -> String {
+    body["candidates"][0]["content"]["parts"]
+        .as_array()
+        .map(|parts| {
+            parts
+                .iter()
+                .filter(|p| p["thought"] != true)
+                .filter_map(|p| p["text"].as_str())
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
-#[derive(Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-struct GeminiUsageMetadata {
-    prompt_token_count: Option<i32>,
-    candidates_token_count: Option<i32>,
-}
-
-impl GeminiResponse {
-    fn token_usage(&self) -> TokenUsage {
-        let u = self.usage_metadata.as_ref();
-        TokenUsage {
-            input_tokens: u.and_then(|u| u.prompt_token_count).unwrap_or(0),
-            output_tokens: u.and_then(|u| u.candidates_token_count).unwrap_or(0),
-        }
+/// Tokens billed for a Gemini response. Thinking tokens are billed as
+/// output but are not included in `candidatesTokenCount`.
+pub fn gemini_usage(body: &serde_json::Value) -> TokenUsage {
+    let u = &body["usageMetadata"];
+    let count = |field: &str| u[field].as_i64().unwrap_or(0) as i32;
+    TokenUsage {
+        input_tokens: count("promptTokenCount"),
+        output_tokens: count("candidatesTokenCount") + count("thoughtsTokenCount"),
     }
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct GeminiCandidate {
-    content: Option<GeminiContentOut>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct GeminiContentOut {
-    parts: Option<Vec<GeminiPartOut>>,
-}
-
-#[derive(Deserialize)]
-struct GeminiPartOut {
-    text: Option<String>,
 }
 
 fn map_role_for_gemini(role: &str) -> String {
@@ -137,24 +124,12 @@ async fn complete_chat_gemini(
         return Err(format!("gemini error: {t}"));
     }
 
-    let parsed: GeminiResponse = res
+    let parsed: serde_json::Value = res
         .json()
         .await
         .map_err(|e| format!("gemini json: {e}"))?;
 
-    let usage = parsed.token_usage();
-    let text = parsed
-        .candidates
-        .as_ref()
-        .and_then(|c| c.first())
-        .and_then(|c| c.content.as_ref())
-        .and_then(|c| c.parts.as_ref())
-        .and_then(|p| p.first())
-        .and_then(|p| p.text.as_ref())
-        .cloned()
-        .unwrap_or_default();
-
-    Ok((text.trim().to_string(), usage))
+    Ok((gemini_text(&parsed).trim().to_string(), gemini_usage(&parsed)))
 }
 
 // ----------------------------
@@ -605,22 +580,13 @@ pub async fn extract_pitch_from_deck_pdf(
         return Err(format!("gemini pdf error: {t}"));
     }
 
-    let parsed: GeminiResponse = res
+    let parsed: serde_json::Value = res
         .json()
         .await
         .map_err(|e| format!("gemini pdf json: {e}"))?;
 
-    let usage = parsed.token_usage();
-    let text = parsed
-        .candidates
-        .as_ref()
-        .and_then(|c| c.first())
-        .and_then(|c| c.content.as_ref())
-        .and_then(|c| c.parts.as_ref())
-        .and_then(|p| p.first())
-        .and_then(|p| p.text.as_ref())
-        .cloned()
-        .unwrap_or_default();
+    let usage = gemini_usage(&parsed);
+    let text = gemini_text(&parsed);
 
     let cleaned = text
         .trim()

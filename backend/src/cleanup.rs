@@ -320,7 +320,7 @@ async fn generate_proactive_suggestions(state: &AppState) {
             &state.http_client,
             "gemini",
             &gemini_key,
-            "gemini-2.5-flash",
+            &state.gemini_model,
             "You are Kevin, metatron's AI matchmaker. Be concise and professional.",
             &prompt,
         )
@@ -335,7 +335,7 @@ async fn generate_proactive_suggestions(state: &AppState) {
                     None,
                     "kevin_intro_suggestion",
                     "gemini",
-                    "gemini-2.5-flash",
+                    &state.gemini_model,
                     usage.input_tokens,
                     usage.output_tokens,
                 )

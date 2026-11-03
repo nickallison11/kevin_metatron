@@ -941,7 +941,12 @@ Return ONLY a valid JSON array, no markdown, no code fences:
     for batch in all_candidates.chunks(batch_size) {
         let batch_json = serde_json::to_string(batch).unwrap_or_default();
         let prompt = build_prompt(&batch_json, &return_rule);
-        ranked.extend(rank_with_gemini(&state, &gemini_key, &prompt, user.id, role, tier).await?);
+        match rank_with_gemini(&state, &gemini_key, &prompt, user.id, role, tier).await {
+            Ok(items) => ranked.extend(items),
+            // A re-score keeps going: the other batches still get their new scores.
+            Err((_, e)) if rescore => tracing::warn!("rescore batch failed for {}: {e}", user.id),
+            Err(e) => return Err(e),
+        }
     }
 
     // The best newly-strong match of this run; at most one alert is sent.

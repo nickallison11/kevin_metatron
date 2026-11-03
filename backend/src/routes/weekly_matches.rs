@@ -395,6 +395,8 @@ struct WeeklyMatchItem {
     /// Kevin's reason, written to the founder.
     reason: Option<String>,
     deep_link: String,
+    /// Shown in an earlier digest ("Still worth a look").
+    repeat: bool,
 }
 
 #[derive(Serialize)]
@@ -437,17 +439,17 @@ async fn weekly_matches_for_user(
         state.match_limit_free
     };
 
-    let candidates = sqlx::query_as::<_, (Uuid, Option<String>, i32, Option<String>)>(
+    let candidates = sqlx::query_as::<_, (Uuid, Option<String>, i32, Option<String>, bool)>(
         r#"
         SELECT km.id, COALESCE(km.display_name, ip.firm_name) AS firm_name,
-               km.score, km.reasoning
+               km.score, km.reasoning, km.first_sent_at IS NOT NULL
         FROM kevin_matches km
         LEFT JOIN investor_profiles ip ON ip.user_id = km.matched_user_id
         WHERE km.for_user_id = $1
           AND km.match_type = 'founder_investor'
           AND km.intro_requested_at IS NULL
           AND km.weekly_email_sent_at IS NULL
-        ORDER BY km.score DESC
+        ORDER BY (km.first_sent_at IS NOT NULL), km.score DESC
         LIMIT 20
         "#,
     )
@@ -471,20 +473,21 @@ async fn weekly_matches_for_user(
     let mut items = Vec::new();
     let mut sent_ids: Vec<Uuid> = Vec::new();
 
-    for (km_id, firm_name, score, reasoning) in candidates.iter().take(limit as usize) {
+    for (km_id, firm_name, score, reasoning, repeat) in candidates.iter().take(limit as usize) {
         sent_ids.push(*km_id);
         items.push(WeeklyMatchItem {
             id: *km_id,
             firm_name: firm_name.clone(),
             fit_score: *score,
             reason: reasoning.clone().filter(|r| !r.trim().is_empty()),
+            repeat: *repeat,
             deep_link: format!("/startup/matches?focus={}", km_id),
         });
     }
 
     // Mark these matches as sent so they won't repeat next week
     let _ = sqlx::query(
-        "UPDATE kevin_matches SET weekly_email_sent_at = NOW() WHERE id = ANY($1)",
+        "UPDATE kevin_matches SET weekly_email_sent_at = NOW(), first_sent_at = COALESCE(first_sent_at, NOW()) WHERE id = ANY($1)",
     )
     .bind(&sent_ids)
     .execute(&state.db)
@@ -537,6 +540,8 @@ struct InvestorWeeklyMatchItem {
     /// Kevin's reason, written to the investor.
     reason: Option<String>,
     deep_link: String,
+    /// Shown in an earlier digest ("Still worth a look").
+    repeat: bool,
 }
 
 #[derive(Serialize)]
@@ -579,7 +584,7 @@ async fn weekly_matches_for_investor(
         state.investor_match_limit_free
     };
 
-    let candidates = sqlx::query_as::<_, (Uuid, Option<String>, Option<String>, Option<String>, i32, Option<i32>, Option<String>)>(
+    let candidates = sqlx::query_as::<_, (Uuid, Option<String>, Option<String>, Option<String>, i32, Option<i32>, Option<String>, bool)>(
         r#"
         SELECT km.id,
                COALESCE(km.display_name, p.company_name) AS company_name,
@@ -587,7 +592,8 @@ async fn weekly_matches_for_investor(
                p.stage AS founder_stage,
                km.score,
                a.score AS angel_score,
-               km.reasoning
+               km.reasoning,
+               km.first_sent_at IS NOT NULL
         FROM kevin_matches km
         LEFT JOIN profiles p ON p.user_id = km.matched_user_id
         LEFT JOIN angel_scores a ON a.founder_user_id = km.matched_user_id
@@ -595,7 +601,7 @@ async fn weekly_matches_for_investor(
           AND km.match_type = 'investor_founder'
           AND km.intro_requested_at IS NULL
           AND km.weekly_email_sent_at IS NULL
-        ORDER BY km.score DESC
+        ORDER BY (km.first_sent_at IS NOT NULL), km.score DESC
         LIMIT 20
         "#,
     )
@@ -619,7 +625,7 @@ async fn weekly_matches_for_investor(
     let mut items = Vec::new();
     let mut sent_ids: Vec<Uuid> = Vec::new();
 
-    for (km_id, company_name, f_sector, f_stage, score, angel_score, reasoning) in
+    for (km_id, company_name, f_sector, f_stage, score, angel_score, reasoning, repeat) in
         candidates.iter().take(limit as usize)
     {
         sent_ids.push(*km_id);
@@ -631,13 +637,14 @@ async fn weekly_matches_for_investor(
             fit_score: *score,
             angel_score: *angel_score,
             reason: reasoning.clone().filter(|r| !r.trim().is_empty()),
+            repeat: *repeat,
             deep_link: format!("/investor/deal-flow?focus={}", km_id),
         });
     }
 
     // Mark these matches as sent
     let _ = sqlx::query(
-        "UPDATE kevin_matches SET weekly_email_sent_at = NOW() WHERE id = ANY($1)",
+        "UPDATE kevin_matches SET weekly_email_sent_at = NOW(), first_sent_at = COALESCE(first_sent_at, NOW()) WHERE id = ANY($1)",
     )
     .bind(&sent_ids)
     .execute(&state.db)
@@ -682,7 +689,7 @@ async fn weekly_matches_for_investor(
 /// Last month's activity, shown as four numbers at the top of the report.
 #[derive(Serialize, Default)]
 struct MonthStats {
-    /// Matches Kevin sent in last month's weekly digests.
+    /// Matches Kevin made for the person last month (first time, not repeats).
     new_matches: i64,
     /// Intro requests the person sent or received.
     intros: i64,
@@ -773,7 +780,7 @@ async fn monthly_report(
         SELECT
           (SELECT COUNT(*) FROM kevin_matches
             WHERE for_user_id = $1 AND match_type = $2
-              AND weekly_email_sent_at >= $3 AND weekly_email_sent_at < $4),
+              AND first_matched_at >= $3 AND first_matched_at < $4),
           (SELECT COUNT(*) FROM connections
             WHERE (from_user_id = $1 OR to_user_id = $1)
               AND COALESCE(requested_at, created_at) >= $3 AND COALESCE(requested_at, created_at) < $4),

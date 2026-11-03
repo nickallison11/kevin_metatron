@@ -45,6 +45,7 @@ export async function POST(req: NextRequest) {
                   reason:
                     "They are a Seed-stage FinTech in your focus region, raising $500K within your ticket range.",
                   deep_link: "/investor/deal-flow?focus=mock-1",
+                  repeat: false,
                 },
               ],
         unsubscribeUrl: "#",
@@ -89,6 +90,7 @@ export async function POST(req: NextRequest) {
                   reason:
                     "They invest in FinTech at your stage and in your region, and your $1M round fits their ticket range.",
                   deep_link: "/startup/matches?focus=mock-1",
+                  repeat: false,
                 },
               ],
         unsubscribeUrl: "#",

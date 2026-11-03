@@ -22,6 +22,8 @@ export interface InvestorMatchCard {
   angel_score: number | null;
   reason: string | null;
   deep_link: string;
+  /** Shown in an earlier digest. */
+  repeat: boolean;
 }
 
 interface InvestorWeeklyMatchesProps {
@@ -43,6 +45,22 @@ export default function InvestorWeeklyMatches({
   paymentsEnabled = false,
 }: InvestorWeeklyMatchesProps) {
   const showUpgrade = tier === "free" && paymentsEnabled;
+  const matchCard = (m: InvestorMatchCard) => (
+    <Section key={m.id} style={card}>
+      <Text style={companyName}>{m.company_name || "Founder"}</Text>
+      {(m.sector || m.stage) && (
+        <Text style={metaText}>{[m.sector, m.stage].filter(Boolean).join(" · ")}</Text>
+      )}
+      <Text style={scoreText}>
+        {m.fit_score}% fit
+        {m.angel_score != null && m.angel_score > 0 && ` · Angel Score ${m.angel_score}`}
+      </Text>
+      {m.reason && <Text style={blurbText}>{m.reason}</Text>}
+      <Link href={`${platformUrl}${m.deep_link}`} style={matchButton}>
+        View pitch
+      </Link>
+    </Section>
+  );
 
   return (
     <Html>
@@ -62,24 +80,12 @@ export default function InvestorWeeklyMatches({
           <Heading style={heading}>Your weekly founder matches</Heading>
           <Text style={subheading}>Week of {weekDate}</Text>
 
-          {matches.map((m) => (
-            <Section key={m.id} style={card}>
-              <Text style={companyName}>{m.company_name || "Founder"}</Text>
-              {(m.sector || m.stage) && (
-                <Text style={metaText}>
-                  {[m.sector, m.stage].filter(Boolean).join(" · ")}
-                </Text>
-              )}
-              <Text style={scoreText}>
-                {m.fit_score}% fit
-                {m.angel_score != null && m.angel_score > 0 && ` · Angel Score ${m.angel_score}`}
-              </Text>
-              {m.reason && <Text style={blurbText}>{m.reason}</Text>}
-              <Link href={`${platformUrl}${m.deep_link}`} style={matchButton}>
-                View pitch
-              </Link>
-            </Section>
-          ))}
+          {matches.filter((m) => !m.repeat).map(matchCard)}
+
+          {matches.some((m) => m.repeat) && (
+            <Text style={sectionTitle}>Still worth a look</Text>
+          )}
+          {matches.filter((m) => m.repeat).map(matchCard)}
 
           {showUpgrade && (
             <Section style={upgradeSection}>
@@ -248,4 +254,13 @@ const footer: React.CSSProperties = {
 const unsubLink: React.CSSProperties = {
   color: "#6c5ce7",
   textDecoration: "underline",
+};
+
+const sectionTitle: React.CSSProperties = {
+  color: "#8888a0",
+  fontSize: "12px",
+  fontFamily: "'JetBrains Mono', monospace",
+  textTransform: "uppercase" as const,
+  letterSpacing: "0.1em",
+  margin: "24px 0 12px",
 };

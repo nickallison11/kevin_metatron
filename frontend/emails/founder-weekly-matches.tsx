@@ -19,6 +19,8 @@ export interface MatchCard {
   fit_score: number;
   reason: string | null;
   deep_link: string;
+  /** Shown in an earlier digest. */
+  repeat: boolean;
 }
 
 interface FounderWeeklyMatchesProps {
@@ -40,6 +42,16 @@ export default function FounderWeeklyMatches({
   paymentsEnabled = false,
 }: FounderWeeklyMatchesProps) {
   const showUpgrade = tier === "free" && paymentsEnabled;
+  const matchCard = (m: MatchCard) => (
+    <Section key={m.id} style={card}>
+      <Text style={firmName}>{m.firm_name || "Investor"}</Text>
+      <Text style={scoreText}>{m.fit_score}% fit</Text>
+      {m.reason && <Text style={blurbText}>{m.reason}</Text>}
+      <Link href={`${platformUrl}${m.deep_link}`} style={matchButton}>
+        View match
+      </Link>
+    </Section>
+  );
 
   return (
     <Html>
@@ -59,21 +71,12 @@ export default function FounderWeeklyMatches({
           <Heading style={heading}>Your weekly matches</Heading>
           <Text style={subheading}>Week of {weekDate}</Text>
 
-          {matches.map((m) => (
-              <Section key={m.id} style={card}>
-                <Text style={firmName}>
-                  {m.firm_name || "Investor"}
-                </Text>
-                <Text style={scoreText}>{m.fit_score}% fit</Text>
-                {m.reason && <Text style={blurbText}>{m.reason}</Text>}
-                <Link
-                  href={`${platformUrl}${m.deep_link}`}
-                  style={matchButton}
-                >
-                  View match
-                </Link>
-              </Section>
-            ))}
+          {matches.filter((m) => !m.repeat).map(matchCard)}
+
+          {matches.some((m) => m.repeat) && (
+            <Text style={sectionTitle}>Still worth a look</Text>
+          )}
+          {matches.filter((m) => m.repeat).map(matchCard)}
 
           {showUpgrade && (
             <Section style={upgradeSection}>
@@ -238,4 +241,13 @@ const footer: React.CSSProperties = {
 const unsubLink: React.CSSProperties = {
   color: "#6c5ce7",
   textDecoration: "underline",
+};
+
+const sectionTitle: React.CSSProperties = {
+  color: "#8888a0",
+  fontSize: "12px",
+  fontFamily: "'JetBrains Mono', monospace",
+  textTransform: "uppercase" as const,
+  letterSpacing: "0.1em",
+  margin: "24px 0 12px",
 };

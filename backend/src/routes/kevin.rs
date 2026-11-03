@@ -73,7 +73,7 @@ const FREE_REDUCED_DAILY_LIMIT: i32 = 5;
 
 /// Free users get 20 a day, or 5 once they've sent 300 this month or once
 /// this month's Free AI budget is spent (`cost::free_budget_exceeded`).
-async fn kevin_daily_limit(state: &AppState, user_id: Uuid, is_basic: bool, is_pro: bool) -> i32 {
+pub(crate) async fn kevin_daily_limit(state: &AppState, user_id: Uuid, is_basic: bool, is_pro: bool) -> i32 {
     if is_pro {
         return i32::MAX;
     }
@@ -96,7 +96,7 @@ async fn kevin_daily_limit(state: &AppState, user_id: Uuid, is_basic: bool, is_p
 }
 
 /// Shown to Free users at their daily limit; only mentions upgrading while paid plans are on.
-fn free_limit_message(state: &AppState, limit: i32) -> String {
+pub(crate) fn free_limit_message(state: &AppState, limit: i32) -> String {
     let reduced = if limit < FREE_DAILY_LIMIT {
         " Free is down to 5 a day for the rest of this month."
     } else {
@@ -208,18 +208,6 @@ struct InboundEmailRequest {
     raw: String,
 }
 
-#[derive(sqlx::FromRow)]
-struct UserForEmail {
-    id: Uuid,
-    is_pro: bool,
-    is_basic: bool,
-    subscription_tier: String,
-    role: String,
-    custom_ai_provider: Option<String>,
-    custom_ai_api_key: Option<String>,
-    custom_ai_model: Option<String>,
-}
-
 async fn inbound_email(
     State(state): State<Arc<AppState>>,
     body: Result<Json<InboundEmailRequest>, JsonRejection>,
@@ -239,27 +227,23 @@ async fn inbound_email(
     StatusCode::OK
 }
 
+/// Email from metatron is for notifications (matches, intros, billing), not
+/// for chatting with Kevin: it's too slow for a conversation. Anyone who
+/// writes to kevin@metatron.id gets a fixed reply pointing to the channels
+/// where Kevin talks.
 async fn inbound_email_process(state: Arc<AppState>, body: InboundEmailRequest) {
     let _ = &body.to;
     let from_addr = parse_email_address(&body.from);
     let resend_key = state.resend_api_key.as_deref().unwrap_or("");
 
-    let plain = extract_plain_text_from_raw_email(&body.raw);
-    if plain.trim().is_empty() {
+    if extract_plain_text_from_raw_email(&body.raw).trim().is_empty() {
         return;
     }
 
-    let user_row: Option<UserForEmail> = match sqlx::query_as(
-        r#"
-        SELECT id, is_pro, is_basic, subscription_tier, role::text,
-               custom_ai_provider, custom_ai_api_key, custom_ai_model
-        FROM users
-        WHERE LOWER(email) = LOWER($1)
-        "#,
-    )
-    .bind(&from_addr)
-    .fetch_optional(&state.db)
-    .await
+    let role: Option<String> = match sqlx::query_scalar("SELECT role::text FROM users WHERE LOWER(email) = LOWER($1)")
+        .bind(&from_addr)
+        .fetch_optional(&state.db)
+        .await
     {
         Ok(r) => r,
         Err(e) => {
@@ -276,208 +260,20 @@ async fn inbound_email_process(state: Arc<AppState>, body: InboundEmailRequest) 
         format!("Re: {}", body.subject.trim())
     };
 
-    let Some(user) = user_row else {
-        email::send_kevin_email_reply(
-            &state.http_client,
-            resend_key,
-            "kevin@metatron.id",
-            &from_addr,
-            &reply_subject,
-            "Hi! You need a free metatron account to chat with Kevin. Sign up at platform.metatron.id",
-        )
-        .await;
-        return;
-    };
-
-    let custom_ai_api_key = match user.custom_ai_api_key {
-        Some(ref encrypted) => match crypto::decrypt(&state.encryption_key, encrypted) {
-            Ok(value) => Some(value),
-            Err(e) => {
-                tracing::warn!("inbound-email: custom_ai_api_key decrypt failed: {e}");
-                None
-            }
-        },
-        None => None,
-    };
-
-    let daily_limit = kevin_daily_limit(&state, user.id, user.is_basic, user.is_pro).await;
-
-    if daily_limit < i32::MAX {
-        let count: i32 = match sqlx::query_scalar(
-            r#"
-            INSERT INTO kevin_daily_usage (user_id, usage_date, message_count)
-            VALUES ($1, CURRENT_DATE, 1)
-            ON CONFLICT (user_id, usage_date)
-            DO UPDATE SET message_count = kevin_daily_usage.message_count + 1
-            RETURNING message_count
-            "#,
-        )
-        .bind(user.id)
-        .fetch_one(&state.db)
-        .await
-        {
-            Ok(c) => c,
-            Err(e) => {
-                tracing::error!("inbound-email: usage upsert failed: {e}");
-                return;
-            }
-        };
-
-        if count > daily_limit {
-            let _ = sqlx::query(
-                "UPDATE kevin_daily_usage SET message_count = message_count - 1 WHERE user_id = $1 AND usage_date = CURRENT_DATE",
-            )
-            .bind(user.id)
-            .execute(&state.db)
-            .await;
-
-            let limit_body = if !user.is_pro && !user.is_basic {
-                free_limit_message(&state, daily_limit)
-            } else {
-                "You've reached your daily Kevin limit. It resets at midnight UTC.".to_string()
+    let base = email::frontend_url();
+    let reply = match role.as_deref() {
+        None => format!(
+            "Hi, I'm Kevin from metatron. To talk to me, sign up and connect me on WhatsApp, Telegram or your own AI app: {base}"
+        ),
+        Some(role) => {
+            let page = match role {
+                "INVESTOR" => "investor",
+                "CONNECTOR" => "connector",
+                _ => "startup",
             };
-
-            email::send_kevin_email_reply(
-                &state.http_client,
-                resend_key,
-                "kevin@metatron.id",
-                &from_addr,
-                &reply_subject,
-                &limit_body,
+            format!(
+                "Hi, I don't chat by email. Email from me is for notifications, like new matches, intros and billing.\n\nTo talk to me, message me on WhatsApp or Telegram, or connect your own AI app (Claude, ChatGPT, Gemini or Grok): {base}/{page}/kevin"
             )
-            .await;
-            return;
-        }
-    }
-
-    let last_user_message = plain.clone();
-
-    let recalled = if last_user_message.trim().is_empty() {
-        Vec::new()
-    } else {
-        match memory::recall_memories(
-            &state.db,
-            &state.http_client,
-            state.gemini_embedding_key.as_deref(),
-            user.is_pro,
-            user.id,
-            &last_user_message,
-        )
-        .await
-        {
-            Ok(v) => v,
-            Err(e) => {
-                tracing::warn!("kevin inbound-email memory recall failed: {e}");
-                Vec::new()
-            }
-        }
-    };
-
-    let context = build_context(&state, user.id, &user.role).await;
-    let memory_section = memory_section_from_recalled(recalled);
-
-    let system = format!(
-        r#"You are Kevin, the AI copilot for Metatron (metatron.id).
-
-Metatron is the intelligence layer connecting founders, investors, and ecosystem partners globally. You help users navigate fundraising, diligence, pitch refinement, and relationship context. Be concise, practical, and professional.
-
-## Current user context
-{context}{memory_section}
-
-Stay in character as Kevin. You have tools to:
-- Look up and introduce matched investors/founders on the Metatron network (search_network)
-- Search the open web for investors, funds, and companies NOT yet on the platform (search_web)
-- Email pitch decks to interested investors
-
-CRITICAL RULES — follow these exactly:
-1. NEVER fabricate investor names, firm names, or any details. If a tool returns empty results, say so honestly: "I did not find any investors matching that in the Metatron network."
-2. NEVER use placeholder text like [Investor Name], [Firm Name], [Details], or any bracket placeholders. Only report information that was actually returned by a tool.
-3. When search_network returns no results, immediately use search_web to find investors on the open web instead. Do not stop at an empty network result.
-4. When reporting tool results, quote the exact names and details returned. Do not paraphrase or invent additional context.
-5. Do not say you cannot search the web — you can, using search_web.
-6. Each message you receive is a fresh request — you do not automatically retain the actual data from tool calls made in earlier messages, only the summary text you wrote. If a user asks for details, names, or specifics about something you previously said you found (e.g. "send me their details," "tell me more about them"), and you do not see the literal tool output for that search earlier in this exact conversation, you must call the tool again before answering. Never answer a follow-up like this from memory of your own prior summary — that is exactly how placeholder text like [Investor Name 1] happens.
-
-Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. Plain text only."#
-    );
-
-    let ai_route: Option<(&str, &str, &str)> = if user.is_pro {
-        if let Some(ref custom_key) = custom_ai_api_key {
-            let provider = user
-                .custom_ai_provider
-                .as_deref()
-                .unwrap_or("openai");
-            let model = user.custom_ai_model.as_deref().unwrap_or("gpt-4o-mini");
-            Some((provider, custom_key.as_str(), model))
-        } else if let Some(key) = state.anthropic_api_key.as_deref() {
-            Some((
-                "anthropic",
-                key,
-                "claude-haiku-4-5-20251001",
-            ))
-        } else if let Some(key) = state.ai_api_key.as_deref() {
-            Some(("gemini", key, "gemini-2.5-flash-lite"))
-        } else {
-            None
-        }
-    } else if let Some(key) = state.ai_api_key.as_deref() {
-        Some(("gemini", key, "gemini-2.5-flash-lite"))
-    } else {
-        None
-    };
-
-    let Some((provider, api_key, model)) = ai_route else {
-        email::send_kevin_email_reply(
-            &state.http_client,
-            resend_key,
-            "kevin@metatron.id",
-            &from_addr,
-            &reply_subject,
-            "Kevin is temporarily unavailable.",
-        )
-        .await;
-        return;
-    };
-
-    let msgs = vec![("user".to_string(), plain)];
-
-    let reply = match complete_chat(
-        &state.http_client,
-        provider,
-        api_key,
-        model,
-        &system,
-        msgs,
-    )
-    .await
-    {
-        Ok((r, usage)) => {
-            let tier = if user.is_pro { "pro" } else if user.is_basic { "basic" } else { "free" };
-            crate::cost::record_llm_usage(
-                &state.db,
-                Some(user.id),
-                Some(user.role.as_str()),
-                Some(tier),
-                "kevin_email",
-                provider,
-                model,
-                usage.input_tokens,
-                usage.output_tokens,
-            )
-            .await;
-            strip_markdown(&r)
-        }
-        Err(e) => {
-            tracing::error!("inbound-email complete_chat: {e}");
-            email::send_kevin_email_reply(
-                &state.http_client,
-                resend_key,
-                "kevin@metatron.id",
-                &from_addr,
-                &reply_subject,
-                "Kevin is temporarily unavailable.",
-            )
-            .await;
-            return;
         }
     };
 
@@ -490,45 +286,6 @@ Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. 
         &reply,
     )
     .await;
-
-    if let Some(gemini_key) = state.ai_api_key.clone() {
-        let db = state.db.clone();
-        let http = state.http_client.clone();
-        let uid = user.id;
-        let is_pro = user.is_pro;
-        let embedding_key = state.gemini_embedding_key.clone();
-        let conversation = format!("User: {last_user_message}\nKevin: {reply}");
-        tokio::spawn(async move {
-            if let Err(e) = memory::store_memory(
-                &db,
-                &http,
-                &gemini_key,
-                embedding_key.as_deref(),
-                is_pro,
-                uid,
-                &conversation,
-            )
-            .await
-            {
-                tracing::warn!("kevin inbound-email memory store failed: {e}");
-            }
-        });
-    }
-
-    let db2 = state.db.clone();
-    let uid2 = user.id;
-    let user_msg = last_user_message.clone();
-    let assistant_msg = reply.clone();
-    tokio::spawn(async move {
-        let _ = sqlx::query(
-            "INSERT INTO kevin_chat_turns (user_id, role, content) VALUES ($1, 'user', $2), ($1, 'assistant', $3)",
-        )
-        .bind(uid2)
-        .bind(&user_msg)
-        .bind(&assistant_msg)
-        .execute(&db2)
-        .await;
-    });
 }
 
 #[derive(Deserialize)]
@@ -618,7 +375,53 @@ pub(crate) enum KevinReplyError {
     Internal,
 }
 
-/// Shared Kevin single-turn reply for Telegram, WhatsApp, etc.
+/// Added to Kevin's prompt on WhatsApp and Telegram.
+const MESSAGING_NOTE: &str = "\n\nYou're talking to this user on WhatsApp or Telegram, so keep replies short: a few lines, and one question per message.";
+
+/// The user's current WhatsApp/Telegram conversation, and whether it's new:
+/// one starts after 6 hours without a message.
+async fn messaging_session(state: &AppState, user_id: Uuid) -> Option<(Uuid, bool)> {
+    let current: Option<(Uuid, bool)> = sqlx::query_as(
+        r#"SELECT session_id, last_message_at > now() - interval '6 hours'
+             FROM kevin_messaging_sessions WHERE user_id = $1"#,
+    )
+    .bind(user_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()?;
+    let (session_id, is_new) = match current {
+        Some((sid, true)) => (sid, false),
+        _ => (Uuid::new_v4(), true),
+    };
+    sqlx::query(
+        r#"INSERT INTO kevin_messaging_sessions (user_id, session_id, last_message_at)
+           VALUES ($1, $2, now())
+           ON CONFLICT (user_id) DO UPDATE SET session_id = EXCLUDED.session_id, last_message_at = now()"#,
+    )
+    .bind(user_id)
+    .bind(session_id)
+    .execute(&state.db)
+    .await
+    .ok()?;
+    Some((session_id, is_new))
+}
+
+/// Kevin's last message in a conversation.
+async fn last_reply_in_session(state: &AppState, session_id: Uuid) -> Option<String> {
+    sqlx::query_scalar(
+        r#"SELECT content FROM kevin_chat_turns
+            WHERE session_id = $1 AND role = 'assistant'
+            ORDER BY created_at DESC LIMIT 1"#,
+    )
+    .bind(session_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten()
+}
+
+/// Kevin on WhatsApp and Telegram: the same Kevin as web chat (prompt, tools,
+/// history), in a conversation per user that starts afresh after 6 hours.
 pub(crate) async fn kevin_reply_for_linked_user(
     state: &Arc<AppState>,
     user: UserForTelegram,
@@ -629,78 +432,9 @@ pub(crate) async fn kevin_reply_for_linked_user(
     {
         return Ok(reply);
     }
-    let last_user_message = message.clone();
-    let msgs = vec![("user".to_string(), message)];
-
-    let custom_ai_api_key = match user.custom_ai_api_key {
-        Some(ref encrypted) => match crypto::decrypt(&state.encryption_key, encrypted) {
-            Ok(value) => Some(value),
-            Err(e) => {
-                tracing::warn!("kevin linked user: custom_ai_api_key decrypt failed: {e}");
-                None
-            }
-        },
-        None => None,
-    };
-
-    let recalled = if last_user_message.trim().is_empty() {
-        Vec::new()
-    } else {
-        match memory::recall_memories(
-            &state.db,
-            &state.http_client,
-            state.gemini_embedding_key.as_deref(),
-            user.is_pro,
-            user.id,
-            &last_user_message,
-        )
-        .await
-        {
-            Ok(v) => v,
-            Err(e) => {
-                tracing::warn!("kevin linked user: memory recall failed: {e}");
-                Vec::new()
-            }
-        }
-    };
-
-    let context = build_context(state, user.id, &user.role).await;
-    let memory_section = memory_section_from_recalled(recalled);
-
-    let system = email::localize_links(&format!(
-        r#"You are Kevin, Metatron's account assistant on WhatsApp and Telegram.
-
-On this channel, you help with account status and notifications only: a user's current matches, their deck/subscription status, and the status of intro requests they've sent or received. Be concise, practical, and professional.
-
-You do NOT provide fundraising advice, pitch review, diligence analysis, or general strategy on this channel — that deeper work happens on the web platform at platform.metatron.id. If a user asks for that kind of help, tell them plainly to continue there instead of attempting it here.
-
-## Current user context
-{context}{memory_section}
-
-Stay in character as Kevin. You are talking to this user over Telegram or WhatsApp, not the web app.
-
-CRITICAL RULES — follow these exactly:
-1. Your "Current top matches" above (if present) are this user's real, current matches. When the user asks to see a match, asks "why is this a fit," or asks for details on something already listed there, answer directly from that data — name, fit score, one-liner, sector, stage, reasoning, deck link. Do NOT tell the user to log into the platform to see something that is already listed above.
-2. Send the user to platform.metatron.id for anything beyond account status and notifications — requesting an intro, browsing beyond their current top matches, changing profile settings, pitch review, fundraising strategy, or deep analysis — not merely to view a match already in your context.
-3. NEVER fabricate investor names, firm names, scores, or any details not present in the context above. If something isn't there, say so honestly rather than inventing it.
-4. NEVER use placeholder text like [Investor Name], [Firm Name], [Details], or any bracket placeholders.
-
-Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. Plain text only."#
-    ));
-
-    let (provider, api_key, model) = if user.is_pro || user.is_basic {
-        if let Some(key) = state.anthropic_api_key.as_deref() {
-            ("anthropic", key, "claude-haiku-4-5-20251001")
-        } else if let Some(key) = state.ai_api_key.as_deref() {
-            ("gemini", key, "gemini-2.5-flash-lite")
-        } else {
-            return Err(KevinReplyError::ServiceUnavailable);
-        }
-    } else if let Some(key) = state.ai_api_key.as_deref() {
-        ("gemini", key, "gemini-2.5-flash-lite")
-    } else {
+    if state.ai_api_key.is_none() && state.anthropic_api_key.is_none() {
         return Err(KevinReplyError::ServiceUnavailable);
-    };
+    }
 
     let daily_limit = kevin_daily_limit(&state, user.id, user.is_basic, user.is_pro).await;
 
@@ -742,38 +476,90 @@ Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. 
         }
     }
 
-    let reply = match complete_chat(
-        &state.http_client,
-        provider,
-        api_key,
-        model,
-        &system,
-        msgs,
-    )
-    .await
+    let Some((session_id, new_conversation)) = messaging_session(state, user.id).await else {
+        tracing::error!("kevin linked user: messaging session failed");
+        return Err(KevinReplyError::Internal);
+    };
+    let user_email: String = match sqlx::query_scalar("SELECT email FROM users WHERE id = $1")
+        .bind(user.id)
+        .fetch_one(&state.db)
+        .await
     {
-        Ok((r, usage)) => {
-            let tier = if user.is_pro { "pro" } else if user.is_basic { "basic" } else { "free" };
-            crate::cost::record_llm_usage(
-                &state.db,
-                Some(user.id),
-                Some(user.role.as_str()),
-                Some(tier),
-                "kevin_telegram_whatsapp",
-                provider,
-                model,
-                usage.input_tokens,
-                usage.output_tokens,
-            )
-            .await;
-            r
-        }
+        Ok(e) => e,
         Err(e) => {
-            tracing::error!("kevin linked user: complete_chat failed: {e}");
-            return Err(KevinReplyError::BadGateway(e));
+            tracing::error!("kevin linked user: email lookup failed: {e}");
+            return Err(KevinReplyError::Internal);
         }
     };
-    let reply = strip_markdown(&reply);
+
+    let recalled = if message.trim().is_empty() {
+        Vec::new()
+    } else {
+        match memory::recall_memories(
+            &state.db,
+            &state.http_client,
+            state.gemini_embedding_key.as_deref(),
+            user.is_pro,
+            user.id,
+            &message,
+        )
+        .await
+        {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::warn!("kevin linked user: memory recall failed: {e}");
+                Vec::new()
+            }
+        }
+    };
+
+    let (follow_ups, opening_ask) = super::kevin_feedback::follow_up_section(state, user.id).await;
+    let context = format!("{}{follow_ups}", build_context(state, user.id, &user.role).await);
+    let memory_section = memory_section_from_recalled(recalled);
+    let system = email::localize_links(&kevin_system_prompt(&format!("{context}{memory_section}"), MESSAGING_NOTE));
+
+    // The same intro follow-up as web chat: ask on a greeting that opens a
+    // conversation (at most every 3 days here, since people say hi often),
+    // and make the reply to that question save the answer.
+    let mut force_tool = None;
+    let mut asking = None;
+    let system = match opening_ask {
+        Some((ask, question))
+            if new_conversation
+                && is_greeting(&message)
+                && !super::kevin_feedback::asked_recently(state, user.id, &question).await =>
+        {
+            asking = Some(question);
+            format!("{system}\n\n{ask}")
+        }
+        Some((_, question))
+            if !new_conversation
+                && last_reply_in_session(state, session_id).await.is_some_and(|t| t.contains(&question)) =>
+        {
+            force_tool = Some("record_feedback");
+            system
+        }
+        _ => system,
+    };
+
+    let reply = run_kevin_with_tools(
+        state,
+        user.id,
+        &user_email,
+        &user.role,
+        user.is_pro,
+        user.is_basic,
+        &system,
+        vec![serde_json::json!({ "role": "user", "content": message })],
+        Some(session_id),
+        force_tool,
+    )
+    .await;
+    let mut reply = strip_markdown(&reply);
+    // Models sometimes greet back with a generic question instead.
+    if let Some(question) = asking.filter(|q| !reply.contains(q.as_str())) {
+        reply = format!("{}\n\n{question}", reply.trim_end());
+    }
 
     if let Some(gemini_key) = state.ai_api_key.clone() {
         let db = state.db.clone();
@@ -781,12 +567,14 @@ Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. 
         let uid = user.id;
         let is_pro = user.is_pro;
         let embedding_key = state.gemini_embedding_key.clone();
-        let conversation = format!("User: {last_user_message}\nKevin: {reply}");
+        let gemini_model = state.gemini_model.clone();
+        let conversation = format!("User: {message}\nKevin: {reply}");
         tokio::spawn(async move {
             if let Err(e) = memory::store_memory(
                 &db,
                 &http,
                 &gemini_key,
+                &gemini_model,
                 embedding_key.as_deref(),
                 is_pro,
                 uid,
@@ -801,14 +589,16 @@ Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. 
 
     let db2 = state.db.clone();
     let uid2 = user.id;
-    let user_msg = last_user_message.clone();
+    let user_msg = message.clone();
     let assistant_msg = reply.clone();
     tokio::spawn(async move {
         let _ = sqlx::query(
-            "INSERT INTO kevin_chat_turns (user_id, role, content) VALUES ($1, 'user', $2), ($1, 'assistant', $3)",
+            r#"INSERT INTO kevin_chat_turns (user_id, role, content, session_id)
+               VALUES ($1, 'user', $2, $3), ($1, 'assistant', $4, $3)"#,
         )
         .bind(uid2)
         .bind(&user_msg)
+        .bind(session_id)
         .bind(&assistant_msg)
         .execute(&db2)
         .await;
@@ -966,7 +756,8 @@ async fn chat(
         }
     };
 
-    let context = build_context(&state, user.id, &user.role).await;
+    let (follow_ups, opening_ask) = super::kevin_feedback::follow_up_section(&state, user.id).await;
+    let context = format!("{}{follow_ups}", build_context(&state, user.id, &user.role).await);
     let memory_section = memory_section_from_recalled(recalled);
 
     let role_extra = body
@@ -975,29 +766,24 @@ async fn chat(
         .map(|s| format!("\n\n## Role-specific guidance\n{s}"))
         .unwrap_or_default();
 
-    let system = format!(
-        r#"You are Kevin, the AI copilot for Metatron (metatron.id).
-
-Metatron is the intelligence layer connecting founders, investors, and ecosystem partners globally. You help users navigate fundraising, diligence, pitch refinement, and relationship context. Be concise, practical, and professional.
-
-## Current user context
-{context}{memory_section}{role_extra}
-
-Stay in character as Kevin. You have tools to:
-- Look up and introduce matched investors/founders on the Metatron network (search_network)
-- Search the open web for investors, funds, and companies NOT yet on the platform (search_web)
-- Email pitch decks to interested investors
-
-CRITICAL RULES — follow these exactly:
-1. NEVER fabricate investor names, firm names, or any details. If a tool returns empty results, say so honestly: "I did not find any investors matching that in the Metatron network."
-2. NEVER use placeholder text like [Investor Name], [Firm Name], [Details], or any bracket placeholders. Only report information that was actually returned by a tool.
-3. When search_network returns no results, immediately use search_web to find investors on the open web instead. Do not stop at an empty network result.
-4. When reporting tool results, quote the exact names and details returned. Do not paraphrase or invent additional context.
-5. Do not say you cannot search the web — you can, using search_web.
-6. Each message you receive is a fresh request — you do not automatically retain the actual data from tool calls made in earlier messages, only the summary text you wrote. If a user asks for details, names, or specifics about something you previously said you found (e.g. "send me their details," "tell me more about them"), and you do not see the literal tool output for that search earlier in this exact conversation, you must call the tool again before answering. Never answer a follow-up like this from memory of your own prior summary — that is exactly how placeholder text like [Investor Name 1] happens.
-
-Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. Plain text only."#
-    );
+    let system = kevin_system_prompt(&format!("{context}{memory_section}{role_extra}"), "");
+    // A conversation opening with "Hi": ask about the first open intro. When
+    // the user is replying to that question, the model must save the answer
+    // first; asked nicely, Haiku often said "Noted" without saving.
+    let mut force_tool = None;
+    let system = match opening_ask {
+        Some((ask, _)) if msgs.len() == 1 && is_greeting(&last_user_message) => {
+            format!("{system}\n\n{ask}")
+        }
+        Some((_, question)) => {
+            let asked = msgs.iter().rev().find(|(role, _)| role == "assistant");
+            if asked.is_some_and(|(_, text)| text.contains(&question)) {
+                force_tool = Some("record_feedback");
+            }
+            system
+        }
+        None => system,
+    };
 
     let daily_limit = kevin_daily_limit(&state, user.id, user.is_basic, user.is_pro).await;
 
@@ -1054,6 +840,7 @@ Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. 
         &system,
         anthropic_msgs,
         body.session_id,
+        force_tool,
     )
     .await;
 
@@ -1063,12 +850,14 @@ Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. 
         let uid = user.id;
         let is_pro = user.is_pro;
         let embedding_key = state.gemini_embedding_key.clone();
+        let gemini_model = state.gemini_model.clone();
         let conversation = format!("User: {last_user_message}\nKevin: {reply}");
         tokio::spawn(async move {
             if let Err(e) = memory::store_memory(
                 &db,
                 &http,
                 &gemini_key,
+                &gemini_model,
                 embedding_key.as_deref(),
                 is_pro,
                 uid,
@@ -1100,6 +889,46 @@ Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. 
     });
 
     Ok(Json(ChatResponse { reply }))
+}
+
+/// Kevin's system prompt for web chat and WhatsApp/Telegram: the same Kevin,
+/// tools and rules everywhere. `context` is the user context section;
+/// `channel_note` adds anything specific to the channel.
+pub(crate) fn kevin_system_prompt(context: &str, channel_note: &str) -> String {
+    let readiness_rule = if super::readiness::ENABLED {
+        "9. For founders: when they ask whether they're ready for investors, what to do next, or which programmes or investors suit them, and the readiness in the context is missing or out of date, assess it. Use what the context already tells you, then ask about what's missing one short question per message, waiting for each answer, two or three questions at most (customers or revenue and its growth, whether the team is full-time, what they've built, how much they want to raise). Then call save_readiness and give them the result: their stage and why, what's missing for the next stage, and the next steps. Before Series A, call find_programmes when a programme would help; at any stage use search_network for investors at their stage. Only recommend programmes find_programmes returned (never search_web for them), and only call one verified if it's marked verified. Whenever anyone mentions by name a programme (incubator, accelerator, bootcamp) they did, run or recommend, call record_programme."
+    } else {
+        "9. Don't assess which funding stage a founder is at, and don't recommend incubators, accelerators, bootcamps or other programmes (never search_web for them). If asked, say that isn't available yet; you can still find investors for them with search_network."
+    };
+    format!(
+        r#"You are Kevin, the AI copilot for Metatron (metatron.id).
+
+Metatron is the intelligence layer connecting founders, investors, and ecosystem partners globally. You help users navigate fundraising, diligence, pitch refinement, and relationship context. Be concise, practical, and professional.
+
+## Current user context
+{context}
+
+The context above is the user's own saved metatron data (account, profile, pitch, team, matches). Answer their questions about themselves from it directly; never say you can't access something that is in it. It is loaded fresh for every message, so when it differs from something said earlier in this conversation, the context is right.
+
+Stay in character as Kevin. You have tools to:
+- Look up and introduce matched investors/founders on the Metatron network (search_network)
+- Search the open web for investors, funds, and companies NOT yet on the platform (search_web)
+- Email pitch decks to interested investors
+
+CRITICAL RULES — follow these exactly:
+1. NEVER fabricate investor names, firm names, or any details. If a tool returns empty results, say so honestly: "I did not find any investors matching that in the Metatron network."
+2. NEVER use placeholder text like [Investor Name], [Firm Name], [Details], or any bracket placeholders. Only report other people, investors and firms that a tool returned or the context above lists.
+3. When search_network returns no results, immediately use search_web to find investors on the open web instead. Do not stop at an empty network result.
+4. When reporting tool results, quote the exact names and details returned. Do not paraphrase or invent additional context.
+5. Do not say you cannot search the web — you can, using search_web.
+6. Each message you receive is a fresh request — you do not automatically retain the actual data from tool calls made in earlier messages, only the summary text you wrote. If a user asks for details, names, or specifics about something you previously said you found (e.g. "send me their details," "tell me more about them"), and you do not see the literal tool output for that search earlier in this exact conversation, you must call the tool again before answering. Never answer a follow-up like this from memory of your own prior summary — that is exactly how placeholder text like [Investor Name 1] happens.
+7. NEVER say you have sent, requested, emailed, accepted or declined anything unless a tool call in this conversation returned success for it. To introduce the user to a match, call request_intro (call lookup_match first if you need the match's ID). If the tool fails or you cannot call it, say so plainly and point the user to their Matches page.
+8. Whenever the user tells you how an intro or meeting went, why a match is or isn't right for them, or what they do or don't want in a match, call record_feedback right away. Only once it returns "Saved." may you say "Noted" or anything like it; saying it without that call is lying to the user. Don't claim it changes their matches.
+{readiness_rule}
+10. When the user tells you new or corrected details about their company, pitch or investment focus, save them with update_startup_profile, update_pitch or update_investor_profile, then say what was saved. When they decide on an intro request waiting for them, call answer_intro_request.
+
+Do not use markdown formatting. No bold, no asterisks, no bullet point symbols. Plain text only.{channel_note}"#
+    )
 }
 
 #[derive(Deserialize)]
@@ -1245,7 +1074,7 @@ pub(crate) async fn build_context(state: &AppState, user_id: uuid::Uuid, role: &
 
     if let Ok(row) = sqlx::query_as::<_, ProfileCtx>(
         r#"
-        SELECT company_name, one_liner, stage, sector, country::text, website, pitch_deck_url,
+        SELECT company_name, legal_name, one_liner, stage, sector, country::text, website, pitch_deck_url,
                context_ipfs_url, deck_text
         FROM profiles WHERE user_id = $1
         "#,
@@ -1256,8 +1085,13 @@ pub(crate) async fn build_context(state: &AppState, user_id: uuid::Uuid, role: &
     {
         if let Some(p) = row {
             let mut profile_parts = Vec::new();
+            // The profile holds the latest names; the deck and older pitches
+            // may still use earlier ones.
             if let Some(v) = p.company_name {
-                profile_parts.push(format!("Company: {v}"));
+                profile_parts.push(format!("Startup name (current; use this, not names in the deck): {v}"));
+            }
+            if let Some(v) = p.legal_name {
+                profile_parts.push(format!("Legal name: {v}"));
             }
             if let Some(v) = p.one_liner {
                 profile_parts.push(format!("One-liner: {v}"));
@@ -1353,7 +1187,7 @@ pub(crate) async fn build_context(state: &AppState, user_id: uuid::Uuid, role: &
     if let Ok(rows) = sqlx::query_as::<_, PitchCtx>(
         r#"
         SELECT title, description, problem, solution, market_size, business_model,
-               traction, funding_ask, use_of_funds, incorporation_country
+               traction, funding_ask, use_of_funds, incorporation_country, team_size, team_members
         FROM pitches WHERE created_by = $1 ORDER BY created_at DESC LIMIT 3
         "#,
     )
@@ -1362,10 +1196,12 @@ pub(crate) async fn build_context(state: &AppState, user_id: uuid::Uuid, role: &
     .await
     {
         if !rows.is_empty() {
+            // The latest pitch's team (rows are newest first).
+            let team_json = rows.iter().find_map(|p| p.team_members.clone());
             let lines: Vec<String> = rows
                 .into_iter()
                 .map(|p| {
-                    let mut s = format!("Pitch: {}", p.title);
+                    let mut s = format!("Pitch titled: {}", p.title);
                     if let Some(v) = p.description {
                         s.push_str(&format!("\n  One-liner: {v}"));
                     }
@@ -1393,10 +1229,34 @@ pub(crate) async fn build_context(state: &AppState, user_id: uuid::Uuid, role: &
                     if let Some(v) = p.incorporation_country {
                         s.push_str(&format!("\n  Country: {v}"));
                     }
+                    if let Some(v) = p.team_size {
+                        s.push_str(&format!("\n  Team size: {v}"));
+                    }
                     s
                 })
                 .collect();
             parts.push(format!("Pitch data:\n{}", lines.join("\n\n")));
+            // The team gets its own heading: as one line inside the pitch,
+            // the smaller models missed it and said they couldn't see it.
+            let team: Vec<String> = team_json
+                .as_ref()
+                .and_then(|t| t.0.as_array().cloned())
+                .unwrap_or_default()
+                .iter()
+                .filter_map(|m| {
+                    let name = m["name"].as_str()?.trim();
+                    let role = m["role"].as_str().unwrap_or("").trim();
+                    let li = m["linkedin"].as_str().unwrap_or("").trim();
+                    let mut line = if role.is_empty() { format!("- {name}") } else { format!("- {name}: {role}") };
+                    if !li.is_empty() {
+                        line.push_str(&format!(" ({li})"));
+                    }
+                    (!name.is_empty()).then_some(line)
+                })
+                .collect();
+            if !team.is_empty() {
+                parts.push(format!("Team members (saved on their pitch):\n{}", team.join("\n")));
+            }
         }
     }
 
@@ -1611,6 +1471,20 @@ pub(crate) async fn build_context(state: &AppState, user_id: uuid::Uuid, role: &
         }
     }
 
+    let waiting = super::profile_tools::waiting_requests_section(state, user_id).await;
+    if !waiting.is_empty() {
+        parts.push(waiting);
+    }
+
+    let saved_feedback = super::kevin_feedback::saved_section(state, user_id).await;
+    if !saved_feedback.is_empty() {
+        parts.push(saved_feedback);
+    }
+
+    if role == "STARTUP" {
+        parts.push(super::readiness::context_section(state, user_id).await);
+    }
+
     // Gospel knowledge injected by admin
     if let Ok(rows) = sqlx::query_as::<_, (String, String)>(
         r#"SELECT title, body FROM kevin_knowledge
@@ -1661,6 +1535,7 @@ pub(crate) async fn build_context(state: &AppState, user_id: uuid::Uuid, role: &
 #[derive(sqlx::FromRow)]
 struct ProfileCtx {
     company_name: Option<String>,
+    legal_name: Option<String>,
     one_liner: Option<String>,
     stage: Option<String>,
     sector: Option<String>,
@@ -1683,6 +1558,8 @@ struct PitchCtx {
     funding_ask: Option<String>,
     use_of_funds: Option<String>,
     incorporation_country: Option<String>,
+    team_size: Option<i32>,
+    team_members: Option<sqlx::types::Json<serde_json::Value>>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -1768,6 +1645,10 @@ pub(crate) fn kevin_tools_for_role(role: &str) -> serde_json::Value {
             }
         }));
     }
+
+    tools.push(super::kevin_feedback::tool_for_anthropic());
+    tools.extend(super::readiness::tools_for_anthropic(role));
+    tools.extend(super::profile_tools::tools_for_anthropic(role));
 
     tools.push(serde_json::json!({
         "name": "search_network",
@@ -1884,6 +1765,10 @@ pub(crate) fn kevin_tools_for_gemini(role: &str) -> serde_json::Value {
         }));
     }
 
+    declarations.push(super::kevin_feedback::tool_for_gemini());
+    declarations.extend(super::readiness::tools_for_gemini(role));
+    declarations.extend(super::profile_tools::tools_for_gemini(role));
+
     declarations.push(serde_json::json!({
         "name": "search_network",
         "description": "Search the metatron network for founders, investors, or connectors by name, sector, stage, or country.",
@@ -1921,21 +1806,6 @@ pub(crate) fn kevin_tools_for_gemini(role: &str) -> serde_json::Value {
     serde_json::json!([{ "function_declarations": declarations }])
 }
 
-
-pub(crate) fn kevin_tools_for_openai(role: &str) -> serde_json::Value {
-    let anthropic_tools = kevin_tools_for_role(role);
-    let tools = anthropic_tools.as_array().map(|arr| {
-        arr.iter().map(|t| serde_json::json!({
-            "type": "function",
-            "function": {
-                "name": t["name"],
-                "description": t["description"],
-                "parameters": t["input_schema"]
-            }
-        })).collect::<Vec<_>>()
-    }).unwrap_or_default();
-    serde_json::json!(tools)
-}
 
 pub(crate) async fn execute_kevin_tool(
     state: &AppState,
@@ -2772,6 +2642,16 @@ pub(crate) async fn execute_kevin_tool(
             }
         }
 
+        "record_feedback" => super::kevin_feedback::record(state, user_id, tool_input).await,
+
+        name @ ("save_readiness" | "find_programmes" | "record_programme") => {
+            super::readiness::execute(state, user_id, role, name, tool_input).await.unwrap_or_default()
+        }
+
+        name @ ("update_startup_profile" | "update_pitch" | "update_investor_profile" | "answer_intro_request") => {
+            super::profile_tools::execute(state, user_id, role, name, tool_input).await.unwrap_or_default()
+        }
+
         _ => format!("Unknown tool: {tool_name}"),
     }
 }
@@ -2785,6 +2665,7 @@ async fn run_kevin_with_tools_gemini(
     initial_messages: &[serde_json::Value],
     api_key: &str,
     model: &str,
+    force_tool: Option<&str>,
 ) -> (String, Vec<crate::kevin_context::ContextRow>, crate::ai::TokenUsage) {
     // `initial_messages` already arrives in Gemini-native {role, parts} shape
     // (built by kevin_context::to_gemini) — used as-is, not re-derived.
@@ -2797,16 +2678,23 @@ async fn run_kevin_with_tools_gemini(
     let mut usage = crate::ai::TokenUsage::default();
 
     let tools = kevin_tools_for_gemini(role);
+    // Text the model writes alongside a tool call, kept for the final reply.
+    let mut said = String::new();
     let url = format!(
         "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
     );
 
-    for _ in 0..4 {
-        let body = serde_json::json!({
+    for turn in 0..4 {
+        let mut body = serde_json::json!({
             "system_instruction": { "parts": [{ "text": system }] },
             "tools": tools,
             "contents": contents
         });
+        if let (0, Some(name)) = (turn, force_tool) {
+            body["tool_config"] = serde_json::json!({
+                "function_calling_config": { "mode": "ANY", "allowed_function_names": [name] }
+            });
+        }
 
         let response = match state
             .http_client
@@ -2826,7 +2714,7 @@ async fn run_kevin_with_tools_gemini(
         if !response.status().is_success() {
             let status = response.status();
             let text = response.text().await.unwrap_or_default();
-            crate::alerts::check_gemini_error(&text);
+            crate::alerts::check_provider_error("gemini", status.as_u16(), &text);
             tracing::error!("gemini tool call error {status}: {text}");
             return ("Kevin is temporarily unavailable.".to_string(), new_rows, usage);
         }
@@ -2839,8 +2727,9 @@ async fn run_kevin_with_tools_gemini(
             }
         };
 
-        usage.input_tokens += value["usageMetadata"]["promptTokenCount"].as_i64().unwrap_or(0) as i32;
-        usage.output_tokens += value["usageMetadata"]["candidatesTokenCount"].as_i64().unwrap_or(0) as i32;
+        let call_usage = crate::ai::gemini_usage(&value);
+        usage.input_tokens += call_usage.input_tokens;
+        usage.output_tokens += call_usage.output_tokens;
 
         let parts = value["candidates"][0]["content"]["parts"]
             .as_array()
@@ -2852,43 +2741,55 @@ async fn run_kevin_with_tools_gemini(
             .filter(|p| p.get("functionCall").is_some())
             .collect();
 
+        // Gemini 3 can split one reply over several text parts.
+        let text = crate::ai::gemini_text(&value);
         if function_calls.is_empty() {
-            for part in &parts {
-                if let Some(text) = part["text"].as_str() {
-                    if !text.is_empty() {
-                        let text = strip_markdown(text);
-                        new_rows.push(crate::kevin_context::text_row("assistant", &text));
-                        return (text, new_rows, usage);
-                    }
-                }
+            if !text.is_empty() {
+                let text = strip_markdown(&text);
+                new_rows.push(crate::kevin_context::text_row("assistant", &text));
+                return (join_said(&said, text), new_rows, usage);
             }
             return ("Kevin is temporarily unavailable.".to_string(), new_rows, usage);
         }
 
+        if !text.trim().is_empty() {
+            said = join_said(&said, strip_markdown(text.trim()));
+        }
+        // The model's parts go back unchanged: Gemini 3 needs their thought
+        // signatures on the next call of this turn.
         contents.push(serde_json::json!({
             "role": "model",
             "parts": parts
         }));
+        let blocks = crate::kevin_context::gemini_parts_to_blocks(&parts);
+        let call_ids: Vec<String> = blocks
+            .iter()
+            .filter(|b| b["type"] == "tool_call")
+            .map(|b| b["id"].as_str().unwrap_or_default().to_string())
+            .collect();
         new_rows.push(crate::kevin_context::ContextRow {
             role: "assistant".to_string(),
-            blocks: crate::kevin_context::gemini_parts_to_blocks(&parts),
+            blocks,
         });
 
         let mut response_parts = Vec::new();
         let mut result_triples = Vec::new();
-        for fc_part in function_calls {
+        for (fc_part, call_id) in function_calls.into_iter().zip(call_ids) {
             let fc = &fc_part["functionCall"];
             let tool_name = fc["name"].as_str().unwrap_or("");
             let tool_input = &fc["args"];
             let result =
                 execute_kevin_tool(state, user_id, user_email, role, tool_name, tool_input).await;
-            response_parts.push(serde_json::json!({
-                "functionResponse": {
-                    "name": tool_name,
-                    "response": { "result": result }
-                }
-            }));
-            result_triples.push((format!("call_{}", Uuid::new_v4()), tool_name.to_string(), result));
+            let mut response = serde_json::json!({
+                "name": tool_name,
+                "response": { "result": result }
+            });
+            // Gemini 3 matches each result to its call by id.
+            if let Some(id) = fc["id"].as_str() {
+                response["id"] = serde_json::json!(id);
+            }
+            response_parts.push(serde_json::json!({ "functionResponse": response }));
+            result_triples.push((call_id, tool_name.to_string(), result));
         }
 
         contents.push(serde_json::json!({
@@ -2902,10 +2803,60 @@ async fn run_kevin_with_tools_gemini(
 }
 
 
+/// Earlier text from tool-calling turns, then the final reply.
+fn join_said(said: &str, text: String) -> String {
+    if said.is_empty() {
+        text
+    } else if text.trim().is_empty() {
+        said.to_string()
+    } else {
+        format!("{said}
+
+{text}")
+    }
+}
+
+/// "yes", "sure, go ahead", "ok please do" — a short reply that agrees to
+/// something rather than asking anything new.
+fn is_short_confirmation(msg: &str) -> bool {
+    let cleaned: String = msg
+        .chars()
+        .map(|c| if c.is_alphanumeric() || c == '\'' { c.to_ascii_lowercase() } else { ' ' })
+        .collect();
+    let words: Vec<&str> = cleaned.split_whitespace().collect();
+    if words.is_empty() || words.len() > 6 {
+        return false;
+    }
+    let phrases = [
+        "yes", "yeah", "yep", "yup", "ya", "ja", "sure", "ok", "okay", "please",
+        "absolutely", "definitely", "certainly", "proceed", "confirm", "confirmed",
+        "do it", "go ahead", "send it", "please do", "let's do it", "lets do it",
+        "sounds good", "of course",
+    ];
+    let joined = words.join(" ");
+    phrases.iter().any(|p| joined == *p || joined.starts_with(&format!("{p} ")))
+}
+
+/// "hi", "hey kevin", "good morning" — a message that only says hello.
+fn is_greeting(msg: &str) -> bool {
+    let cleaned: String = msg
+        .chars()
+        .map(|c| if c.is_alphanumeric() { c.to_ascii_lowercase() } else { ' ' })
+        .collect();
+    let words: Vec<&str> = cleaned.split_whitespace().filter(|w| *w != "kevin").collect();
+    let joined = words.join(" ");
+    [
+        "hi", "hello", "hey", "hiya", "howzit", "yo", "sup", "morning", "afternoon", "evening",
+        "good morning", "good afternoon", "good evening", "hi there", "hello there", "hey there",
+        "how are you", "how s it going", "hows it going", "what s up", "whats up",
+    ]
+    .contains(&joined.as_str())
+}
+
 #[derive(Debug, PartialEq)]
 enum QueryComplexity {
-    Simple,      // NadirClaw (free, local)
-    Moderate,    // GPT-4.1-mini + tools  (Pro) / Haiku (Basic)
+    Simple,      // Gemini Flash-Lite + tools
+    Moderate,    // Haiku + tools          (Pro and Basic)
     Complex,     // Sonnet + tools         (Pro) / Haiku (Basic)
     DeepComplex, // Opus + tools           (Pro) / Haiku (Basic)
 }
@@ -2967,111 +2918,16 @@ fn classify_query_complexity(message: &str) -> QueryComplexity {
         QueryComplexity::DeepComplex
     } else if needs_sonnet || (needs_tools && len > 120) {
         QueryComplexity::Complex
-    } else if needs_tools || len > 100 {
+    } else if needs_tools || len > 100 || is_short_confirmation(&msg) {
+        // A bare "yes" usually confirms something Kevin just offered to do
+        // ("Would you like me to request an intro?"), so it needs the main
+        // model and its tools, not the cheapest tier. Found live 2026-10-26:
+        // "Yes" went to NadirClaw, which told a founder it had emailed an
+        // intro that was never requested.
         QueryComplexity::Moderate
     } else {
         QueryComplexity::Simple
     }
-}
-
-
-async fn run_kevin_openai_tool_loop(
-    state: &AppState,
-    base_url: &str,
-    api_key: &str,
-    model: &str,
-    user_id: Uuid,
-    user_email: &str,
-    role: &str,
-    system: &str,
-    messages: Vec<serde_json::Value>,
-) -> Result<(String, Vec<crate::kevin_context::ContextRow>, crate::ai::TokenUsage), String> {
-    let tools = kevin_tools_for_openai(role);
-    let mut msgs: Vec<serde_json::Value> = vec![
-        serde_json::json!({"role": "system", "content": system})
-    ];
-    msgs.extend(messages);
-    let mut new_rows: Vec<crate::kevin_context::ContextRow> = Vec::new();
-    let mut usage = crate::ai::TokenUsage::default();
-
-    for _ in 0..4 {
-        let request_body = serde_json::json!({
-            "model": model,
-            "messages": msgs,
-            "tools": tools,
-            "tool_choice": "auto"
-        });
-
-        let response = match state
-            .http_client
-            .post(base_url)
-            .header("Authorization", format!("Bearer {api_key}"))
-            .header("content-type", "application/json")
-            .json(&request_body)
-            .send()
-            .await
-        {
-            Ok(r) => r,
-            Err(e) => return Err(format!("openai-compatible request: {e}")),
-        };
-
-        if !response.status().is_success() {
-            let t = response.text().await.unwrap_or_default();
-            return Err(format!("openai-compatible error: {t}"));
-        }
-
-        let value: serde_json::Value = match response.json().await {
-            Ok(v) => v,
-            Err(e) => return Err(format!("openai json: {e}")),
-        };
-
-        usage.input_tokens += value["usage"]["prompt_tokens"].as_i64().unwrap_or(0) as i32;
-        usage.output_tokens += value["usage"]["completion_tokens"].as_i64().unwrap_or(0) as i32;
-
-        let choice = match value["choices"].get(0) {
-            Some(c) => c.clone(),
-            None => return Err("no choices in openai response".to_string()),
-        };
-        let finish_reason = choice["finish_reason"].as_str().unwrap_or("stop");
-        let message = choice["message"].clone();
-
-        if finish_reason != "tool_calls" {
-            let text = strip_markdown(message["content"].as_str().unwrap_or(""));
-            new_rows.push(crate::kevin_context::text_row("assistant", &text));
-            return Ok((text, new_rows, usage));
-        }
-
-        let tool_calls = match message["tool_calls"].as_array() {
-            Some(tc) => tc.clone(),
-            None => return Err("tool_calls missing".to_string()),
-        };
-
-        msgs.push(message.clone());
-        new_rows.push(crate::kevin_context::ContextRow {
-            role: "assistant".to_string(),
-            blocks: crate::kevin_context::openai_message_to_blocks(&message),
-        });
-
-        let mut result_triples = Vec::new();
-        for tc in &tool_calls {
-            let tc_id = tc["id"].as_str().unwrap_or("").to_string();
-            let fn_name = tc["function"]["name"].as_str().unwrap_or("");
-            let args: serde_json::Value = serde_json::from_str(
-                tc["function"]["arguments"].as_str().unwrap_or("{}")
-            ).unwrap_or(serde_json::json!({}));
-
-            let result = execute_kevin_tool(state, user_id, user_email, role, fn_name, &args).await;
-            msgs.push(serde_json::json!({
-                "role": "tool",
-                "tool_call_id": tc_id,
-                "content": result
-            }));
-            result_triples.push((tc_id, fn_name.to_string(), result));
-        }
-        new_rows.push(crate::kevin_context::tool_result_row(result_triples));
-    }
-
-    Err("max openai tool turns reached".to_string())
 }
 
 
@@ -3084,20 +2940,26 @@ async fn run_kevin_anthropic_tool_loop(
     role: &str,
     system: &str,
     messages: Vec<serde_json::Value>,
+    force_tool: Option<&str>,
 ) -> Result<(String, Vec<crate::kevin_context::ContextRow>, crate::ai::TokenUsage), String> {
     let tools = kevin_tools_for_role(role);
     let mut msgs = messages;
     let mut new_rows: Vec<crate::kevin_context::ContextRow> = Vec::new();
+    // Text the model writes alongside a tool call, kept for the final reply.
+    let mut said = String::new();
     let mut usage = crate::ai::TokenUsage::default();
 
-    for _ in 0..4 {
-        let request_body = serde_json::json!({
+    for turn in 0..4 {
+        let mut request_body = serde_json::json!({
             "model": model,
             "max_tokens": 2048,
             "system": system,
             "tools": tools,
             "messages": msgs
         });
+        if let (0, Some(name)) = (turn, force_tool) {
+            request_body["tool_choice"] = serde_json::json!({ "type": "tool", "name": name });
+        }
 
         let response = match state
             .http_client
@@ -3115,6 +2977,7 @@ async fn run_kevin_anthropic_tool_loop(
         if !response.status().is_success() {
             let status = response.status();
             let text = response.text().await.unwrap_or_default();
+            crate::alerts::check_provider_error("anthropic", status.as_u16(), &text);
             return Err(format!("anthropic {status}: {text}"));
         }
 
@@ -3134,7 +2997,7 @@ async fn run_kevin_anthropic_tool_loop(
                     if block["type"].as_str() == Some("text") {
                         let text = strip_markdown(block["text"].as_str().unwrap_or(""));
                         new_rows.push(crate::kevin_context::text_row("assistant", &text));
-                        return Ok((text, new_rows, usage));
+                        return Ok((join_said(&said, text), new_rows, usage));
                     }
                 }
             }
@@ -3146,6 +3009,11 @@ async fn run_kevin_anthropic_tool_loop(
             None => return Err("no content array".to_string()),
         };
 
+        for block in &content {
+            if let Some(text) = block["text"].as_str().map(str::trim).filter(|t| !t.is_empty()) {
+                said = join_said(&said, strip_markdown(text));
+            }
+        }
         msgs.push(serde_json::json!({ "role": "assistant", "content": content }));
         new_rows.push(crate::kevin_context::ContextRow {
             role: "assistant".to_string(),
@@ -3186,6 +3054,7 @@ pub(crate) async fn run_kevin_with_tools(
     system: &str,
     messages: Vec<serde_json::Value>,
     session_id: Option<Uuid>,
+    force_tool: Option<&str>,
 ) -> String {
     // Determine complexity from the last user message
     let last_msg = messages
@@ -3199,7 +3068,12 @@ pub(crate) async fn run_kevin_with_tools(
             }
         })
         .unwrap_or_default();
-    let complexity = classify_query_complexity(&last_msg);
+    let mut complexity = classify_query_complexity(&last_msg);
+    // Flash-Lite ignores the intro follow-up instruction on a plain "Hi";
+    // the paid tier asks reliably. Only while the user has intros to ask about.
+    if complexity == QueryComplexity::Simple && system.contains(crate::routes::kevin_feedback::FOLLOW_UP_HEADING) {
+        complexity = QueryComplexity::Moderate;
+    }
 
     // Prefer real persisted context (with actual tool_call/tool_result blocks)
     // over the frontend's flattened text history, when it exists. A session
@@ -3272,41 +3146,27 @@ pub(crate) async fn run_kevin_with_tools(
         .await;
     }
 
-    // Tier 0: NadirClaw (local, free) for simple queries — no tool use needed
+    // Tier 0: Gemini Flash-Lite for simple queries, with the same tools as
+    // every other tier. This used to go through NadirClaw, which forwarded to
+    // the same Flash-Lite model but without tools (so Kevin could only
+    // pretend to act) and without its cost being recorded.
     if complexity == QueryComplexity::Simple {
-        // NadirClaw has no concept of tool calls — skip any "tool" rows a
-        // prior (tool-using) turn in this session may have left behind, and
-        // only pass the plain text of user/assistant turns.
-        let nadirclaw_msgs: Vec<(String, String)> = seed_rows
-            .iter()
-            .filter(|r| r.role != "tool")
-            .filter_map(|r| {
-                let text = r.blocks.iter().find_map(|b| b["text"].as_str())?;
-                if text.is_empty() { return None; }
-                Some((r.role.clone(), text.to_string()))
-            })
-            .collect();
-        match crate::ai::complete_chat(
-            &state.http_client,
-            "nadirclaw",
-            &state.nadirclaw_url,
-            "auto",
-            system,
-            nadirclaw_msgs,
-        )
-        .await
-        {
-            Ok((reply, usage)) if !reply.is_empty() => {
-                let text = strip_markdown(&reply);
-                persist(state, session_id, user_id, &new_user_row, vec![
-                    crate::kevin_context::text_row("assistant", &text),
-                ]).await;
-                log_usage(state, user_id, role, usage_tier, "nadirclaw", "auto", usage).await;
-                return text;
+        if let Some(api_key) = &state.ai_api_key {
+            const SIMPLE_MODEL: &str = "gemini-2.5-flash-lite";
+            let seed = crate::kevin_context::to_gemini(&seed_rows);
+            let (reply, new_rows, usage) = run_kevin_with_tools_gemini(
+                state, user_id, user_email, role, system, &seed, api_key, SIMPLE_MODEL, force_tool,
+            )
+            .await;
+            log_usage(state, user_id, role, usage_tier, "gemini", SIMPLE_MODEL, usage).await;
+            // The loop only ends on its own text after a successful reply.
+            if new_rows.last().is_some_and(|r| r.role == "assistant")
+                && reply != "Kevin is temporarily unavailable."
+            {
+                persist(state, session_id, user_id, &new_user_row, new_rows).await;
+                return reply;
             }
-            _ => {
-                tracing::warn!("nadirclaw unavailable, falling back to paid tier");
-            }
+            tracing::warn!("flash-lite failed, falling back to the paid tier");
         }
     }
 
@@ -3319,53 +3179,13 @@ pub(crate) async fn run_kevin_with_tools(
                 _                            => "claude-haiku-4-5-20251001",
             };
 
-            // Moderate: try Hermes 4 70B first (cheap, native tool-calling), fall back to Haiku
-            if complexity == QueryComplexity::Moderate {
-                if let Some(openrouter_key) = &state.openrouter_api_key {
-                    let seed = crate::kevin_context::to_openai(&seed_rows);
-                    match run_kevin_openai_tool_loop(
-                        state,
-                        "https://openrouter.ai/api/v1/chat/completions",
-                        openrouter_key,
-                        "nousresearch/hermes-4-70b",
-                        user_id, user_email, role, system, seed,
-                    ).await {
-                        Ok((reply, new_rows, usage)) if !reply.is_empty() => {
-                            persist(state, session_id, user_id, &new_user_row, new_rows).await;
-                            log_usage(state, user_id, role, usage_tier, "openrouter", "nousresearch/hermes-4-70b", usage).await;
-                            return reply;
-                        }
-                        Ok(_) => tracing::warn!("hermes empty, falling back to haiku"),
-                        Err(e) => tracing::warn!("hermes failed ({e}), falling back to haiku"),
-                    }
-                }
-            }
-
-            // Complex/DeepComplex: try Kimi K3 first (frontier-tier alternative), fall back to Sonnet/Opus
-            if complexity == QueryComplexity::Complex || complexity == QueryComplexity::DeepComplex {
-                if let Some(openrouter_key) = &state.openrouter_api_key {
-                    let seed = crate::kevin_context::to_openai(&seed_rows);
-                    match run_kevin_openai_tool_loop(
-                        state,
-                        "https://openrouter.ai/api/v1/chat/completions",
-                        openrouter_key,
-                        "moonshotai/kimi-k3",
-                        user_id, user_email, role, system, seed,
-                    ).await {
-                        Ok((reply, new_rows, usage)) if !reply.is_empty() => {
-                            persist(state, session_id, user_id, &new_user_row, new_rows).await;
-                            log_usage(state, user_id, role, usage_tier, "openrouter", "moonshotai/kimi-k3", usage).await;
-                            return reply;
-                        }
-                        Ok(_) => tracing::warn!("kimi k3 empty, falling back to {model}"),
-                        Err(e) => tracing::warn!("kimi k3 failed ({e}), falling back to {model}"),
-                    }
-                }
-            }
-
+            // Claude only. Hermes 4 70B and Kimi K3 (via OpenRouter) were
+            // tried first until 2026-10-26: Hermes was removed from
+            // OpenRouter, Kimi cost the same as Sonnet, and both failed
+            // silently over to Claude whenever the credits ran out.
             let seed = crate::kevin_context::to_anthropic(&seed_rows);
             match run_kevin_anthropic_tool_loop(
-                state, anthropic_key, model, user_id, user_email, role, system, seed,
+                state, anthropic_key, model, user_id, user_email, role, system, seed, force_tool,
             ).await {
                 Ok((reply, new_rows, usage)) if !reply.is_empty() => {
                     persist(state, session_id, user_id, &new_user_row, new_rows).await;
@@ -3385,7 +3205,7 @@ pub(crate) async fn run_kevin_with_tools(
             let seed = crate::kevin_context::to_anthropic(&seed_rows);
             match run_kevin_anthropic_tool_loop(
                 state, anthropic_key, "claude-haiku-4-5-20251001",
-                user_id, user_email, role, system, seed,
+                user_id, user_email, role, system, seed, force_tool,
             ).await {
                 Ok((reply, new_rows, usage)) if !reply.is_empty() => {
                     persist(state, session_id, user_id, &new_user_row, new_rows).await;
@@ -3409,6 +3229,7 @@ pub(crate) async fn run_kevin_with_tools(
             &seed,
             api_key,
             state.gemini_model.as_str(),
+            force_tool,
         )
         .await;
         persist(state, session_id, user_id, &new_user_row, new_rows).await;

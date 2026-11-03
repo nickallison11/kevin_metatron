@@ -41,7 +41,7 @@ export default function StartupShell({ children }: { children: ReactNode }) {
       title: "Home",
       items: [
         { key: "/startup", href: "/startup", label: "Dashboard", icon: IconLayoutDashboard, kind: "link" },
-        { key: "/startup/kevin", href: "/startup/kevin", label: "Chat with Kevin", icon: IconRobot, kind: "link" },
+        { key: "/startup/kevin", href: "/startup/kevin", label: "Connect Kevin", icon: IconRobot, kind: "link" },
         { key: "/startup/profile", href: "/startup/profile", label: "Startup Profile", icon: IconUserCircle, kind: "link" },
       ],
     },

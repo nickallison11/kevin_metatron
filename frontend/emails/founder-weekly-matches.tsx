@@ -16,19 +16,21 @@ import * as React from "react";
 export interface MatchCard {
   id: string;
   firm_name: string | null;
-  angel_score: number | null;
-  sector_overlap: boolean;
-  stage_overlap: boolean;
-  why_blurb: string | null;
+  fit_score: number;
+  reason: string | null;
   deep_link: string;
+  /** Shown in an earlier digest. */
+  repeat: boolean;
 }
 
 interface FounderWeeklyMatchesProps {
   weekDate: string;
-  tier: "free" | "basic";
+  tier: "free" | "basic" | "pro";
   matches: MatchCard[];
   unsubscribeUrl: string;
   platformUrl: string;
+  /** Paid plans can be bought; the upgrade box is hidden until then. */
+  paymentsEnabled?: boolean;
 }
 
 export default function FounderWeeklyMatches({
@@ -37,8 +39,19 @@ export default function FounderWeeklyMatches({
   matches = [],
   unsubscribeUrl = "#",
   platformUrl = "https://platform.metatron.id",
+  paymentsEnabled = false,
 }: FounderWeeklyMatchesProps) {
-  const isFree = tier === "free";
+  const showUpgrade = tier === "free" && paymentsEnabled;
+  const matchCard = (m: MatchCard) => (
+    <Section key={m.id} style={card}>
+      <Text style={firmName}>{m.firm_name || "Investor"}</Text>
+      <Text style={scoreText}>{m.fit_score}% fit</Text>
+      {m.reason && <Text style={blurbText}>{m.reason}</Text>}
+      <Link href={`${platformUrl}${m.deep_link}`} style={matchButton}>
+        View match
+      </Link>
+    </Section>
+  );
 
   return (
     <Html>
@@ -58,47 +71,23 @@ export default function FounderWeeklyMatches({
           <Heading style={heading}>Your weekly matches</Heading>
           <Text style={subheading}>Week of {weekDate}</Text>
 
-          {matches.map((m) => (
-              <Section key={m.id} style={card}>
-                <Text style={firmName}>
-                  {m.firm_name || "Investor"}
-                </Text>
-                <Text style={scoreText}>
-                  Angel Score:{" "}
-                  {m.angel_score ?? "N/A"}
-                </Text>
-                {m.why_blurb && (
-                  <Text style={blurbText}>
-                    {m.why_blurb}
-                  </Text>
-                )}
-                {!isFree && (m.sector_overlap || m.stage_overlap) && (
-                  <Text style={signalsText}>
-                    {m.sector_overlap && "✓ Sector match"}
-                    {m.sector_overlap && m.stage_overlap && "  ·  "}
-                    {m.stage_overlap && "✓ Stage match"}
-                  </Text>
-                )}
-                <Link
-                  href={`${platformUrl}${m.deep_link}`}
-                  style={matchButton}
-                >
-                  View match
-                </Link>
-              </Section>
-            ))}
+          {matches.filter((m) => !m.repeat).map(matchCard)}
 
-          {isFree && (
+          {matches.some((m) => m.repeat) && (
+            <Text style={sectionTitle}>Still worth a look</Text>
+          )}
+          {matches.filter((m) => m.repeat).map(matchCard)}
+
+          {showUpgrade && (
             <Section style={upgradeSection}>
               <Text style={upgradeText}>
-                Upgrade to get up to 5 matches per week with sector and stage
-                overlap signals.
+                Upgrade to Basic for 10 investor matches a week.
               </Text>
               <Link
                 href={`${platformUrl}/startup/settings/subscription`}
                 style={upgradeButton}
               >
-                Upgrade Plan to see all matches
+                Upgrade
               </Link>
             </Section>
           )}
@@ -193,13 +182,6 @@ const blurbText: React.CSSProperties = {
   margin: "0 0 14px",
 };
 
-const signalsText: React.CSSProperties = {
-  color: "#6c5ce7",
-  fontSize: "12px",
-  fontFamily: "'JetBrains Mono', monospace",
-  margin: "0 0 14px",
-};
-
 const matchButton: React.CSSProperties = {
   display: "inline-block",
   backgroundColor: "#6c5ce7",
@@ -259,4 +241,13 @@ const footer: React.CSSProperties = {
 const unsubLink: React.CSSProperties = {
   color: "#6c5ce7",
   textDecoration: "underline",
+};
+
+const sectionTitle: React.CSSProperties = {
+  color: "#8888a0",
+  fontSize: "12px",
+  fontFamily: "'JetBrains Mono', monospace",
+  textTransform: "uppercase" as const,
+  letterSpacing: "0.1em",
+  margin: "24px 0 12px",
 };

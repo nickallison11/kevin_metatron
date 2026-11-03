@@ -1,10 +1,9 @@
 //! Provider-agnostic conversation memory for Kevin's web chat widget.
 //!
-//! Kevin routes between Anthropic, OpenAI, and Gemini per tier/complexity —
+//! Kevin routes between Anthropic and Gemini per tier/complexity —
 //! sometimes within the same conversation. Each provider has its own wire
 //! format for tool calls and tool results (Anthropic: content-block arrays;
-//! OpenAI: `tool_calls` + separate `role:"tool"` messages; Gemini:
-//! `functionCall`/`functionResponse` parts with no call ID at all, matched
+//! Gemini: `functionCall`/`functionResponse` parts with no call ID at all, matched
 //! by name instead). This module stores one normalized representation and
 //! converts to/from each provider's native format, so a follow-up turn
 //! always has the real prior tool output available regardless of which
@@ -15,7 +14,7 @@
 //!   {"type": "tool_call", "id": "...", "name": "...", "input": {...}}
 //!   {"type": "tool_result", "tool_call_id": "...", "name": "...", "content": "..."}
 //!
-//! `name` is carried on tool_result too (redundant for Anthropic/OpenAI,
+//! `name` is carried on tool_result too (redundant for Anthropic,
 //! which match by id) because Gemini's functionResponse has no id concept
 //! and matches by name alone.
 
@@ -206,79 +205,6 @@ pub fn anthropic_content_to_blocks(content: &[Value]) -> Vec<Value> {
 }
 
 // ---------------------------------------------------------------------------
-// OpenAI
-// ---------------------------------------------------------------------------
-
-pub fn to_openai(rows: &[ContextRow]) -> Vec<Value> {
-    let mut out = Vec::new();
-    for r in rows {
-        match r.role.as_str() {
-            "tool" => {
-                for b in r.blocks.iter().filter(|b| b["type"] == "tool_result") {
-                    out.push(json!({
-                        "role": "tool",
-                        "tool_call_id": b["tool_call_id"],
-                        "content": b["content"]
-                    }));
-                }
-            }
-            "assistant" => {
-                let text = row_text(r);
-                let tool_calls: Vec<Value> = r
-                    .blocks
-                    .iter()
-                    .filter(|b| b["type"] == "tool_call")
-                    .map(|b| {
-                        json!({
-                            "id": b["id"],
-                            "type": "function",
-                            "function": {
-                                "name": b["name"],
-                                "arguments": serde_json::to_string(&b["input"]).unwrap_or_default()
-                            }
-                        })
-                    })
-                    .collect();
-                let mut msg = json!({
-                    "role": "assistant",
-                    "content": if text.is_empty() { Value::Null } else { json!(text) }
-                });
-                if !tool_calls.is_empty() {
-                    msg["tool_calls"] = json!(tool_calls);
-                }
-                out.push(msg);
-            }
-            _ => out.push(json!({"role": "user", "content": row_text(r)})),
-        }
-    }
-    out
-}
-
-/// Converts an OpenAI assistant `message` object (from an API response,
-/// content + optional tool_calls) into normalized blocks.
-pub fn openai_message_to_blocks(message: &Value) -> Vec<Value> {
-    let mut blocks = Vec::new();
-    if let Some(text) = message["content"].as_str() {
-        if !text.is_empty() {
-            blocks.push(json!({"type": "text", "text": text}));
-        }
-    }
-    if let Some(tcs) = message["tool_calls"].as_array() {
-        for tc in tcs {
-            let args: Value = serde_json::from_str(tc["function"]["arguments"].as_str().unwrap_or("{}"))
-                .unwrap_or_else(|_| json!({}));
-            blocks.push(json!({
-                "type": "tool_call",
-                "id": tc["id"],
-                "name": tc["function"]["name"],
-                "input": args
-            }));
-        }
-    }
-    blocks
-}
-
-// ---------------------------------------------------------------------------
 // Gemini
 // ---------------------------------------------------------------------------
 
@@ -305,11 +231,19 @@ pub fn to_gemini(rows: &[ContextRow]) -> Vec<Value> {
                 let parts: Vec<Value> = r
                     .blocks
                     .iter()
-                    .map(|b| match b["type"].as_str() {
-                        Some("tool_call") => json!({
-                            "functionCall": {"name": b["name"], "args": b["input"]}
-                        }),
-                        _ => json!({"text": b["text"].as_str().unwrap_or("")}),
+                    .map(|b| {
+                        let mut part = match b["type"].as_str() {
+                            Some("tool_call") => json!({
+                                "functionCall": {"name": b["name"], "args": b["input"]}
+                            }),
+                            _ => json!({"text": b["text"].as_str().unwrap_or("")}),
+                        };
+                        // Gemini 3 uses the signature to carry its reasoning
+                        // across turns. Only Gemini replies have one.
+                        if let Some(sig) = b["thought_signature"].as_str() {
+                            part["thoughtSignature"] = json!(sig);
+                        }
+                        part
                     })
                     .collect();
                 json!({"role": "model", "parts": parts})
@@ -319,23 +253,38 @@ pub fn to_gemini(rows: &[ContextRow]) -> Vec<Value> {
         .collect()
 }
 
-/// Converts Gemini response `parts` into normalized blocks. Gemini has no
-/// call-id concept, so we synthesize one purely for internal bookkeeping —
-/// it round-trips fine since to_gemini() never reads tool_call_id, only name.
+/// Converts Gemini response `parts` into normalized blocks. Gemini 3 gives
+/// each function call an id; older models don't, so one is made up. The
+/// tool_result row must reuse the same id, since Anthropic matches results
+/// to calls by id. to_gemini() leaves ids out and matches by name, because
+/// rows saved before 2026-11-03 have mismatched ids. Thought summaries and
+/// empty text parts are dropped (Anthropic rejects empty text blocks).
 pub fn gemini_parts_to_blocks(parts: &[Value]) -> Vec<Value> {
     parts
         .iter()
-        .map(|p| {
-            if let Some(fc) = p.get("functionCall") {
+        .filter_map(|p| {
+            let mut block = if let Some(fc) = p.get("functionCall") {
+                let id = fc["id"]
+                    .as_str()
+                    .map(str::to_string)
+                    .unwrap_or_else(|| format!("call_{}", Uuid::new_v4()));
                 json!({
                     "type": "tool_call",
-                    "id": format!("call_{}", Uuid::new_v4()),
+                    "id": id,
                     "name": fc["name"],
                     "input": fc["args"]
                 })
             } else {
-                json!({"type": "text", "text": p["text"].as_str().unwrap_or("")})
+                let text = p["text"].as_str().unwrap_or("");
+                if p["thought"] == true || text.is_empty() {
+                    return None;
+                }
+                json!({"type": "text", "text": text})
+            };
+            if let Some(sig) = p["thoughtSignature"].as_str() {
+                block["thought_signature"] = json!(sig);
             }
+            Some(block)
         })
         .collect()
 }

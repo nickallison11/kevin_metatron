@@ -452,7 +452,7 @@ fn shell_html(title: &str, body: &str) -> String {
   <div style="max-width:620px;margin:0 auto;padding:28px 20px;">
     <div style="background:#16161f;border:1px solid rgba(255,255,255,0.06);border-radius:12px;padding:24px;">
       <div style="margin-bottom:18px;">
-        <img src="https://metatron.id/metatron-logo.png" alt="metatron" style="max-width:160px;width:100%;height:auto;display:block;" />
+        <img src="https://metatron.id/metatron-logo.png" alt="metatron" height="42" style="display:block;height:42px;width:auto;" />
       </div>
       <h1 style="margin:0 0 12px 0;font-size:22px;line-height:1.2;color:#e8e8ed;">{title}</h1>
       {body}
@@ -724,35 +724,7 @@ pub fn subscription_activated_email_html(
 {benefits}<p style="margin:0 0 14px 0;font-size:13px;color:#e8e8ed;">Renews: {period_end} · Amount paid: {amount_paid}</p>
 <p style="margin:0 0 0 0;font-size:14px;">
   <a href="https://platform.metatron.id" style="color:#6c5ce7;text-decoration:none;">Open platform</a> ·
-  <a href="mailto:support@metatron.id" style="color:#6c5ce7;text-decoration:none;">Support</a>
-</p>
-"#
-        ),
-    )
-}
-
-pub fn subscription_invoice_email_html(
-    plan_name: &str,
-    plan_key: &str,
-    period_start: &str,
-    period_end: &str,
-    amount_paid: &str,
-    reference: Option<&str>,
-) -> String {
-    let reference_row = match reference {
-        Some(r) if !r.trim().is_empty() => format!(" · Reference: {r}"),
-        _ => String::new(),
-    };
-    let benefits = plan_benefits_html(plan_key);
-    shell_html(
-        &format!("Your {plan_name} subscription has renewed"),
-        &format!(
-            r#"
-<p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">Your <strong>{plan_name}</strong> subscription has renewed — here's what you still get:</p>
-{benefits}<p style="margin:0 0 14px 0;font-size:13px;color:#e8e8ed;">Billing period: {period_start} – {period_end} · Amount paid: {amount_paid}{reference_row}</p>
-<p style="margin:0 0 0 0;font-size:14px;">
-  <a href="https://platform.metatron.id" style="color:#6c5ce7;text-decoration:none;">Open platform</a> ·
-  <a href="mailto:support@metatron.id" style="color:#6c5ce7;text-decoration:none;">Support</a>
+  <a href="mailto:hello@metatron.id" style="color:#6c5ce7;text-decoration:none;">Support</a>
 </p>
 "#
         ),
@@ -769,70 +741,10 @@ pub fn subscription_cancelled_email_html(period_end: &str) -> String {
 <p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">After that date your account will revert to the free tier.</p>
 <p style="margin:0 0 0 0;font-size:14px;">
   <a href="https://platform.metatron.id/pricing" style="color:#6c5ce7;text-decoration:none;">Resubscribe</a> ·
-  <a href="mailto:support@metatron.id" style="color:#6c5ce7;text-decoration:none;">Support</a>
+  <a href="mailto:hello@metatron.id" style="color:#6c5ce7;text-decoration:none;">Support</a>
 </p>
 "#,
             period_end = period_end
-        ),
-    )
-}
-
-pub fn subscription_downgrade_scheduled_email_html(period_end: &str) -> String {
-    shell_html(
-        "Your downgrade to Basic is scheduled",
-        &format!(
-            r#"
-<p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">Your subscription has been set to move to <strong>Basic</strong> at the end of your current billing period.</p>
-<p style="margin:0 0 12px 0;font-size:13px;color:#e8e8ed;">You'll keep full Pro access until: <strong>{period_end}</strong></p>
-<p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">After that date your plan switches to Basic and you'll be billed at the Basic rate going forward — you won't lose access, just the Pro-only features.</p>
-<p style="margin:0 0 0 0;font-size:14px;">
-  <a href="https://platform.metatron.id/pricing" style="color:#6c5ce7;text-decoration:none;">Stay on Pro instead</a> ·
-  <a href="mailto:support@metatron.id" style="color:#6c5ce7;text-decoration:none;">Support</a>
-</p>
-"#,
-            period_end = period_end
-        ),
-    )
-}
-
-pub fn renewal_reminder_email_html(expiry_date: &str, role: &str) -> String {
-    let (heading, bullets) = match role.to_ascii_uppercase().as_str() {
-        "INVESTOR" => (
-            "Keep your deal flow running with Kevin:",
-            r#"<li>Weekly founder matches curated to your thesis and ticket size</li>
-  <li>Kevin introductions handled end-to-end</li>
-  <li>Access to call intelligence and pitch analysis</li>
-  <li>Full contact details shared on every introduction</li>"#,
-        ),
-        "CONNECTOR" => (
-            "Keep your network active with Kevin:",
-            r#"<li>Weekly matches connecting your founders with the right investors</li>
-  <li>Kevin introductions managed across your network</li>
-  <li>Full contact sharing on every intro</li>
-  <li>Enriched network contact management</li>"#,
-        ),
-        _ => (
-            "Keep your momentum with Kevin:",
-            r#"<li>Weekly investor matches tailored to your stage and sector</li>
-  <li>Kevin introductions sent on your behalf</li>
-  <li>Your pitch deck stays live and discoverable</li>
-  <li>Full profile visibility to matched investors</li>"#,
-        ),
-    };
-    shell_html(
-        "Your subscription is expiring soon",
-        &format!(
-            r#"
-<p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">Your subscription renews in 3 days.</p>
-<p style="margin:0 0 12px 0;font-size:13px;color:#e8e8ed;">Expiry date: {expiry_date}</p>
-<p style="margin:0 0 12px 0;font-size:14px;">
-  <a href="https://platform.metatron.id/pricing" style="color:#6c5ce7;text-decoration:none;">Renew your subscription</a>
-</p>
-<p style="margin:0 0 8px 0;font-size:14px;color:#e8e8ed;">{heading}</p>
-<ul style="margin:0 0 0 18px;padding:0;color:#e8e8ed;font-size:14px;line-height:1.6;">
-  {bullets}
-</ul>
-"#
         ),
     )
 }
@@ -886,7 +798,7 @@ pub fn email_changed_notice_html(new_email: &str) -> String {
             r#"
 <p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">This is a confirmation that your metatron account email was changed to:</p>
 <p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;"><strong>{new_email}</strong></p>
-<p style="margin:0 0 0 0;font-size:14px;color:#e8e8ed;">If you did not make this change, contact support immediately at <a href="mailto:support@metatron.id" style="color:#6c5ce7;text-decoration:none;">support@metatron.id</a>.</p>
+<p style="margin:0 0 0 0;font-size:14px;color:#e8e8ed;">If you did not make this change, contact us immediately at <a href="mailto:hello@metatron.id" style="color:#6c5ce7;text-decoration:none;">hello@metatron.id</a>.</p>
 "#
         ),
     )

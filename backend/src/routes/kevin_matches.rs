@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     routing::{get, post},
     Json, Router,
 };
@@ -324,66 +324,7 @@ async fn accept_intro(
     Path(match_id): Path<Uuid>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let user = require_user(&state, bearer.token()).await?;
-    let investor_email: String = sqlx::query_scalar("SELECT email FROM users WHERE id = $1")
-        .bind(user.id)
-        .fetch_one(&state.db)
-        .await
-        .map_err(internal)?;
-
-    let row: Option<(
-        Uuid,
-        Option<Uuid>,
-        Option<chrono::DateTime<chrono::Utc>>,
-        Option<chrono::DateTime<chrono::Utc>>,
-    )> = sqlx::query_as(
-        r#"SELECT km.for_user_id, km.matched_user_id, km.intro_accepted_at, km.intro_passed_at
-             FROM kevin_matches km
-             WHERE km.id = $1
-               AND (km.matched_user_id = $2 OR EXISTS (
-                 SELECT 1 FROM connector_network_contacts cnc
-                 WHERE cnc.id = km.contact_id AND LOWER(cnc.email) = LOWER($3)
-               ))"#,
-    )
-    .bind(match_id)
-    .bind(user.id)
-    .bind(&investor_email)
-    .fetch_optional(&state.db)
-    .await
-    .map_err(internal)?;
-
-    let (founder_id, matched_user_id, intro_accepted_at, intro_passed_at) =
-        row.ok_or((StatusCode::NOT_FOUND, "match not found".to_string()))?;
-    if intro_accepted_at.is_some() {
-        return Err((StatusCode::CONFLICT, "already accepted".to_string()));
-    }
-    if intro_passed_at.is_some() {
-        return Err((StatusCode::CONFLICT, "already passed".to_string()));
-    }
-
-    sqlx::query("UPDATE kevin_matches SET intro_accepted_at = NOW() WHERE id = $1")
-        .bind(match_id)
-        .execute(&state.db)
-        .await
-        .map_err(internal)?;
-
-    if let Some(matched_uid) = matched_user_id {
-        let first = connections::try_first_accept_connect(&state.db, founder_id, matched_uid)
-            .await
-            .map_err(internal)?;
-        let exists: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM connections WHERE from_user_id = $1 AND to_user_id = $2 AND connection_type = 'connect')",
-        )
-        .bind(founder_id)
-        .bind(matched_uid)
-        .fetch_one(&state.db)
-        .await
-        .map_err(internal)?;
-        if first || !exists {
-            connections::send_kevin_warm_email_for_intro_accept(&state, user.id, founder_id).await;
-        }
-    } else {
-        connections::send_kevin_warm_email_for_intro_accept(&state, user.id, founder_id).await;
-    }
+    answer_intro_request(&state, user.id, match_id, true).await?;
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
@@ -393,8 +334,20 @@ async fn pass_intro(
     Path(match_id): Path<Uuid>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let user = require_user(&state, bearer.token()).await?;
-    let investor_email: String = sqlx::query_scalar("SELECT email FROM users WHERE id = $1")
-        .bind(user.id)
+    answer_intro_request(&state, user.id, match_id, false).await?;
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
+/// The user who received an intro request (a founder or an investor) accepts
+/// or passes on it: from the Matches page, or through Kevin.
+pub(crate) async fn answer_intro_request(
+    state: &AppState,
+    user_id: Uuid,
+    match_id: Uuid,
+    accept: bool,
+) -> Result<(), (StatusCode, String)> {
+    let user_email: String = sqlx::query_scalar("SELECT email FROM users WHERE id = $1")
+        .bind(user_id)
         .fetch_one(&state.db)
         .await
         .map_err(internal)?;
@@ -414,13 +367,13 @@ async fn pass_intro(
                ))"#,
     )
     .bind(match_id)
-    .bind(user.id)
-    .bind(&investor_email)
+    .bind(user_id)
+    .bind(&user_email)
     .fetch_optional(&state.db)
     .await
     .map_err(internal)?;
 
-    let (founder_id, matched_user_id, intro_accepted_at, intro_passed_at) =
+    let (requester_id, matched_user_id, intro_accepted_at, intro_passed_at) =
         row.ok_or((StatusCode::NOT_FOUND, "match not found".to_string()))?;
     if intro_accepted_at.is_some() {
         return Err((StatusCode::CONFLICT, "already accepted".to_string()));
@@ -429,15 +382,43 @@ async fn pass_intro(
         return Err((StatusCode::CONFLICT, "already passed".to_string()));
     }
 
+    if accept {
+        sqlx::query("UPDATE kevin_matches SET intro_accepted_at = NOW() WHERE id = $1")
+            .bind(match_id)
+            .execute(&state.db)
+            .await
+            .map_err(internal)?;
+
+        if let Some(matched_uid) = matched_user_id {
+            let first = connections::try_first_accept_connect(&state.db, requester_id, matched_uid)
+                .await
+                .map_err(internal)?;
+            let exists: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM connections WHERE from_user_id = $1 AND to_user_id = $2 AND connection_type = 'connect')",
+            )
+            .bind(requester_id)
+            .bind(matched_uid)
+            .fetch_one(&state.db)
+            .await
+            .map_err(internal)?;
+            if first || !exists {
+                connections::send_kevin_warm_email_for_intro_accept(state, user_id, requester_id).await;
+            }
+        } else {
+            connections::send_kevin_warm_email_for_intro_accept(state, user_id, requester_id).await;
+        }
+        return Ok(());
+    }
+
     let profile: Option<(Option<String>, Option<String>)> = sqlx::query_as(
         "SELECT firm_name, pass_message_template FROM investor_profiles WHERE user_id = $1",
     )
-    .bind(user.id)
+    .bind(user_id)
     .fetch_optional(&state.db)
     .await
     .map_err(internal)?;
     let (firm_name, template_opt) = profile.unwrap_or((None, None));
-    let investor_name = firm_name.unwrap_or_else(|| investor_email.clone());
+    let investor_name = firm_name.unwrap_or_else(|| user_email.clone());
 
     sqlx::query("UPDATE kevin_matches SET intro_passed_at = NOW() WHERE id = $1")
         .bind(match_id)
@@ -446,13 +427,13 @@ async fn pass_intro(
         .map_err(internal)?;
 
     if let Some(matched_uid) = matched_user_id {
-        let _ = connections::mark_connect_declined_for_pair(&state.db, founder_id, matched_uid).await;
+        let _ = connections::mark_connect_declined_for_pair(&state.db, requester_id, matched_uid).await;
     }
 
     let founder: Option<(String, Option<String>, Option<String>, Option<String>)> = sqlx::query_as(
         "SELECT u.email, u.telegram_id, u.whatsapp_number, p.company_name FROM users u LEFT JOIN profiles p ON p.user_id = u.id WHERE u.id = $1",
     )
-    .bind(founder_id)
+    .bind(requester_id)
     .fetch_optional(&state.db)
     .await
     .map_err(internal)?;
@@ -496,7 +477,7 @@ async fn pass_intro(
                 .await;
         }
     }
-    Ok(Json(serde_json::json!({"ok": true})))
+    Ok(())
 }
 
 // Display info tracked per candidate ID
@@ -538,8 +519,21 @@ fn repair_double_encoded_utf8(input: &str) -> String {
 async fn generate_matches(
     State(state): State<Arc<AppState>>,
     TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+    headers: HeaderMap,
 ) -> Result<Json<Vec<KevinMatch>>, (StatusCode, String)> {
     let user = require_user(&state, bearer.token()).await?;
+    // The Monday refresh before the weekly digest: the digest covers these
+    // matches, so no strong-match alert from this run.
+    let weekly_run = headers.get(WEEKLY_RUN_HEADER).is_some();
+    // One-off re-score of the matches the person already has (cron secret only):
+    // new scores and reasons, nothing else about the matches changes.
+    let rescore = match (
+        headers.get(RESCORE_HEADER).and_then(|v| v.to_str().ok()),
+        state.cron_secret.as_deref(),
+    ) {
+        (Some(got), Some(want)) => !want.is_empty() && got == want,
+        _ => false,
+    };
 
     let (is_basic, is_pro_user): (bool, bool) =
         sqlx::query_as::<_, (bool, bool)>(
@@ -583,7 +577,11 @@ async fn generate_matches(
     .fetch_one(&state.db)
     .await
     .unwrap_or(0);
-    if fresh_count > 0 {
+    if !rescore
+        && fresh_count > 0
+        && !super::kevin_feedback::preference_since_last_matches(&state, user.id).await
+        && !super::readiness::assessed_since_last_matches(&state, user.id).await
+    {
         let rows = fetch_kevin_matches_for_user(&state, user.id, None).await?;
         return Ok(Json(rows));
     }
@@ -690,7 +688,10 @@ async fn generate_matches(
                       ip.ticket_size_min, ip.ticket_size_max, ip.country
                  FROM investor_profiles ip
                  JOIN users u ON u.id = ip.user_id
-                 WHERE (ip.sectors IS NULL OR ip.sectors = '{}'::text[] OR $1::text IS NULL OR EXISTS (
+                 WHERE CASE WHEN $4 THEN ip.user_id IN (
+                     SELECT matched_user_id FROM kevin_matches
+                     WHERE for_user_id = $3 AND matched_user_id IS NOT NULL
+                   ) ELSE (ip.sectors IS NULL OR ip.sectors = '{}'::text[] OR $1::text IS NULL OR EXISTS (
                          SELECT 1 FROM unnest(string_to_array($1, ',')) AS fsec
                          CROSS JOIN unnest(ip.sectors) AS isec
                          WHERE TRIM(LOWER(fsec)) = TRIM(LOWER(isec))
@@ -699,12 +700,14 @@ async fn generate_matches(
                    AND ip.user_id NOT IN (
                      SELECT matched_user_id FROM kevin_matches
                      WHERE for_user_id = $3 AND matched_user_id IS NOT NULL
-                   )
-                 ORDER BY RANDOM() LIMIT 30"#,
+                   ) END
+                 ORDER BY RANDOM() LIMIT $5"#,
         )
         .bind(&sector)
         .bind(&stage)
         .bind(user.id)
+        .bind(rescore)
+        .bind(if rescore { 1000_i64 } else { 30 })
         .fetch_all(&state.db)
         .await
         .map_err(internal)?;
@@ -724,13 +727,18 @@ async fn generate_matches(
             r#"SELECT id, name, firm_or_company, one_liner, sector_focus, stage_focus, geography
                  FROM connector_network_contacts
                  WHERE role = 'investor' AND is_archived = false
-                   AND id NOT IN (
+                   AND CASE WHEN $2 THEN id IN (
                      SELECT contact_id FROM kevin_matches
                      WHERE for_user_id = $1 AND contact_id IS NOT NULL
-                   )
-                 ORDER BY RANDOM() LIMIT 40"#,
+                   ) ELSE id NOT IN (
+                     SELECT contact_id FROM kevin_matches
+                     WHERE for_user_id = $1 AND contact_id IS NOT NULL
+                   ) END
+                 ORDER BY RANDOM() LIMIT $3"#,
         )
         .bind(user.id)
+        .bind(rescore)
+        .bind(if rescore { 1000_i64 } else { 40 })
         .fetch_all(&state.db)
         .await
         .map_err(internal)?;
@@ -762,7 +770,7 @@ async fn generate_matches(
             }));
         }
 
-        for c in contacts.iter().take(20) {
+        for c in contacts.iter().take(if rescore { usize::MAX } else { 20 }) {
             let id = c.id.to_string();
             let display_name = repair_double_encoded_utf8(
                 c.firm_or_company
@@ -828,17 +836,23 @@ async fn generate_matches(
                  FROM profiles p
                  JOIN users u ON u.id = p.user_id
                  LEFT JOIN angel_scores a ON a.founder_user_id = p.user_id
-                 WHERE ($1::text[] IS NULL OR COALESCE(array_length($1, 1), 0) = 0 OR p.sector IS NULL OR EXISTS (
+                 WHERE CASE WHEN $3 THEN p.user_id IN (
+                     SELECT matched_user_id FROM kevin_matches
+                     WHERE for_user_id = $4 AND matched_user_id IS NOT NULL
+                   ) ELSE ($1::text[] IS NULL OR COALESCE(array_length($1, 1), 0) = 0 OR p.sector IS NULL OR EXISTS (
                          SELECT 1 FROM unnest(string_to_array(p.sector, ',')) AS fsec
                          CROSS JOIN unnest($1) AS isec
                          WHERE TRIM(LOWER(fsec)) = TRIM(LOWER(isec))
                        ))
-                   AND ($2::text[] IS NULL OR COALESCE(array_length($2, 1), 0) = 0 OR p.stage IS NULL OR LOWER(p.stage) = ANY(SELECT LOWER(s) FROM unnest($2) AS s))
+                   AND ($2::text[] IS NULL OR COALESCE(array_length($2, 1), 0) = 0 OR p.stage IS NULL OR LOWER(p.stage) = ANY(SELECT LOWER(s) FROM unnest($2) AS s)) END
                  ORDER BY COALESCE(a.score, 0) DESC
-                 LIMIT 20"#,
+                 LIMIT $5"#,
         )
         .bind(&sectors)
         .bind(&stages)
+        .bind(rescore)
+        .bind(user.id)
+        .bind(if rescore { 1000_i64 } else { 20 })
         .fetch_all(&state.db)
         .await
         .map_err(internal)?;
@@ -864,33 +878,262 @@ async fn generate_matches(
         return Ok(Json(vec![]));
     }
 
-    let prompt = format!(
-        r#"You are Kevin, metatron's AI matchmaking engine. Analyse each candidate investor and explain why this specific founder is a strong fit for them.
+    let mut feedback = super::kevin_feedback::matching_section(&state, user.id).await;
+    if role == "STARTUP" {
+        feedback = format!("{}{feedback}", super::readiness::matching_line(&state, user.id).await);
+    }
+    // `reasoning` is read by the person these matches are for; `intro_reasoning`
+    // goes to the other side when an intro is made.
+    let (subject_label, candidates_label, reasoning_rule, intro_rule) = if match_type == "founder_investor" {
+        (
+            "Founder",
+            "Investor candidates",
+            "written TO THE FOUNDER (\"you\", \"your\") about the investor (\"they\"): why this investor suits the founder's company and round",
+            "written TO THE INVESTOR (\"you\", \"your portfolio\") about the founder: why this founder suits their thesis",
+        )
+    } else {
+        (
+            "Investor",
+            "Founder candidates",
+            "written TO THE INVESTOR (\"you\", \"your portfolio\") about the founder (\"they\"): why this founder suits the investor's thesis",
+            "written TO THE FOUNDER (\"you\", \"your\") about the investor: why this investor suits the founder's company and round",
+        )
+    };
+    let build_prompt = |candidates_json: &str, return_rule: &str| format!(
+        r#"You are Kevin, metatron's AI matchmaking engine. Score how well each candidate fits.
 
-Founder: {user_context}
+{subject_label}: {user_context}{feedback}
 
-Investor candidates (JSON array):
+{candidates_label} (JSON array):
 {candidates_json}
 
-Geography matters significantly. Investors who explicitly invest in or have portfolio companies in the founder's region should score higher. Investors based only in the US who focus on US/European markets should score lower for founders in Africa, Southeast Asia, LATAM, or other emerging markets unless their thesis explicitly includes those regions.
+Score each candidate on four parts:
+- Sector (0-30): 30 = the founder's sector is a stated focus of the investor; 15 = adjacent; 0 = outside their focus.
+- Stage (0-25): 25 = the investor invests at the founder's stage; 10 = one stage either side; 0 = otherwise.
+- Region (0-25): 25 = the investor explicitly invests in, or has portfolio companies in, the founder's country or region (a global investor counts when they state a focus or portfolio there); 10 = global or no stated region, with nothing said about the founder's region; 0 = their focus excludes it. Investors based only in the US who focus on US/European markets get 0 or 10 for founders in Africa, Southeast Asia, LATAM or other emerging markets unless their thesis explicitly includes those regions.
+- Ticket size (0-20): 20 = the founder's raise fits the investor's ticket range; 10 = unknown; 0 = clearly outside it.
+Missing information never counts as a strong fit. Use only the values listed for each part.
 
 For each candidate, return:
-- score: 0–100 match score
-- reasoning: 2–3 sentences (max 40 words) written TO the investor explaining why THIS founder is right for THEIR portfolio. Be specific — reference the founder's stage, sector, problem, and how it connects to the investor's known thesis or focus. Always include currency symbols when referencing monetary amounts (e.g. $100K, $1M). Never be generic.
+- sector, stage, region, ticket: the part scores
+- reasoning: max 40 words, {reasoning_rule}
+- intro_reasoning: max 40 words, {intro_rule}
+Both texts: be specific (stage, sector, problem, region, ticket size), name a real mismatch honestly, always include currency symbols for amounts (e.g. $100K, $1M), never be generic.
 
 Return ONLY a valid JSON array, no markdown, no code fences:
-[{{"id":"...","score":0,"reasoning":"..."}}]
+[{{"id":"...","sector":0,"stage":0,"region":0,"ticket":0,"reasoning":"...","intro_reasoning":"..."}}]
 
-Return the top {match_limit} matches only, ranked by score descending."#
+{return_rule}"#
     );
 
+    let tier = if user.is_pro { "pro" } else if user.is_basic { "basic" } else { "free" };
+    let all_candidates: Vec<Value> = serde_json::from_str(&candidates_json).unwrap_or_default();
+    // A re-score covers every existing match, in batches that fit one reply.
+    let (batch_size, return_rule) = if rescore {
+        (15, "Return every candidate.".to_string())
+    } else {
+        (
+            all_candidates.len().max(1),
+            format!("Return the top {match_limit} matches only, ranked by the sum of the four parts, highest first."),
+        )
+    };
+    let mut ranked: Vec<Value> = vec![];
+    for batch in all_candidates.chunks(batch_size) {
+        let batch_json = serde_json::to_string(batch).unwrap_or_default();
+        let prompt = build_prompt(&batch_json, &return_rule);
+        match rank_with_gemini(&state, &gemini_key, &prompt, user.id, role, tier).await {
+            Ok(items) => ranked.extend(items),
+            // A re-score keeps going: the other batches still get their new scores.
+            Err((_, e)) if rescore => tracing::warn!("rescore batch failed for {}: {e}", user.id),
+            Err(e) => return Err(e),
+        }
+    }
+
+    // The best newly-strong match of this run; at most one alert is sent.
+    let mut strong: Option<StrongMatch> = None;
+
+    for item in &ranked {
+        let id_str = item["id"].as_str().unwrap_or("");
+        let Some(info) = candidate_info.get(id_str) else { continue; };
+        let Ok(candidate_uuid) = Uuid::parse_str(id_str) else { continue; };
+        let fit = MatchFit::from_item(item);
+        let score = fit.total();
+        let reasoning = item["reasoning"].as_str().map(str::to_owned);
+        let intro_reasoning = item["intro_reasoning"].as_str().map(str::to_owned);
+        let hard_fit = fit.hard_fit();
+
+        let id_column = if info.source == "user" { "matched_user_id" } else { "contact_id" };
+        if rescore {
+            let _ = sqlx::query(&format!(
+                "UPDATE kevin_matches SET score = $1, reasoning = $2, intro_reasoning = $3, hard_fit = $4
+                  WHERE for_user_id = $5 AND {id_column} = $6 AND match_type = $7"
+            ))
+            .bind(score)
+            .bind(&reasoning)
+            .bind(&intro_reasoning)
+            .bind(hard_fit)
+            .bind(user.id)
+            .bind(candidate_uuid)
+            .bind(match_type)
+            .execute(&state.db)
+            .await;
+            continue;
+        }
+        let prev_score: Option<i32> = sqlx::query_scalar(&format!(
+            "SELECT score FROM kevin_matches WHERE for_user_id = $1 AND {id_column} = $2 AND match_type = $3"
+        ))
+        .bind(user.id)
+        .bind(candidate_uuid)
+        .bind(match_type)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten();
+
+        let newly_strong = hard_fit
+            && score >= STRONG_MATCH_SCORE
+            && prev_score.map(|p| p < STRONG_MATCH_SCORE).unwrap_or(true);
+        if newly_strong && strong.as_ref().map(|s| score > s.score).unwrap_or(true) {
+            strong = Some(StrongMatch {
+                score,
+                name: info.display_name.clone().unwrap_or_else(|| "a strong match".to_string()),
+                reasoning: reasoning.clone(),
+            });
+        }
+
+        if info.source == "user" {
+            let _ = sqlx::query(
+                r#"INSERT INTO kevin_matches
+                    (for_user_id, matched_user_id, contact_id, match_type, score, reasoning,
+                     display_name, display_one_liner, display_sector, display_stage, display_country,
+                     intro_reasoning, hard_fit)
+                   VALUES ($1, $2, NULL, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                   ON CONFLICT (for_user_id, matched_user_id, match_type) WHERE matched_user_id IS NOT NULL
+                   DO UPDATE SET score = EXCLUDED.score, reasoning = EXCLUDED.reasoning,
+                     intro_reasoning = EXCLUDED.intro_reasoning, hard_fit = EXCLUDED.hard_fit,
+                     generated_at = NOW(), display_name = EXCLUDED.display_name,
+                     display_one_liner = EXCLUDED.display_one_liner,
+                     weekly_email_sent_at = CASE
+                       WHEN kevin_matches.weekly_email_sent_at < NOW() - INTERVAL '7 days'
+                       THEN NULL ELSE kevin_matches.weekly_email_sent_at END"#,
+            )
+            .bind(user.id)
+            .bind(candidate_uuid)
+            .bind(match_type)
+            .bind(score)
+            .bind(&reasoning)
+            .bind(info.display_name.as_deref())
+            .bind(info.display_one_liner.as_deref())
+            .bind(info.display_sector.as_deref())
+            .bind(info.display_stage.as_deref())
+            .bind(info.display_country.as_deref())
+            .bind(&intro_reasoning)
+            .bind(hard_fit)
+            .execute(&state.db)
+            .await;
+        } else {
+            let _ = sqlx::query(
+                r#"INSERT INTO kevin_matches
+                    (for_user_id, matched_user_id, contact_id, match_type, score, reasoning,
+                     display_name, display_one_liner, display_sector, display_stage, display_country,
+                     intro_reasoning, hard_fit)
+                   VALUES ($1, NULL, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                   ON CONFLICT (for_user_id, contact_id, match_type) WHERE contact_id IS NOT NULL
+                   DO UPDATE SET score = EXCLUDED.score, reasoning = EXCLUDED.reasoning,
+                     intro_reasoning = EXCLUDED.intro_reasoning, hard_fit = EXCLUDED.hard_fit,
+                     generated_at = NOW(), display_name = EXCLUDED.display_name,
+                     display_one_liner = EXCLUDED.display_one_liner,
+                     weekly_email_sent_at = CASE
+                       WHEN kevin_matches.weekly_email_sent_at < NOW() - INTERVAL '7 days'
+                       THEN NULL ELSE kevin_matches.weekly_email_sent_at END"#,
+            )
+            .bind(user.id)
+            .bind(candidate_uuid)
+            .bind(match_type)
+            .bind(score)
+            .bind(&reasoning)
+            .bind(info.display_name.as_deref())
+            .bind(info.display_one_liner.as_deref())
+            .bind(info.display_sector.as_deref())
+            .bind(info.display_stage.as_deref())
+            .bind(info.display_country.as_deref())
+            .bind(&intro_reasoning)
+            .bind(hard_fit)
+            .execute(&state.db)
+            .await;
+        }
+    }
+
+    if let Some(m) = strong {
+        if !weekly_run && (is_basic || is_pro_user) {
+            send_strong_match_alert(&state, user.id, match_type, m).await;
+        }
+    }
+
+    let rows = fetch_kevin_matches_for_user(&state, user.id, Some(match_type)).await?;
+    Ok(Json(rows))
+}
+
+/// Kevin's part scores for one candidate. The total and the hard-fit check
+/// are worked out here, not by the model, so they always follow the guide.
+struct MatchFit {
+    sector: i32,
+    stage: i32,
+    region: i32,
+    ticket: i32,
+}
+
+impl MatchFit {
+    const SECTOR_MAX: i32 = 30;
+    const STAGE_MAX: i32 = 25;
+    const REGION_MAX: i32 = 25;
+    const TICKET_MAX: i32 = 20;
+
+    fn from_item(item: &Value) -> Self {
+        let part = |key: &str, max: i32| item[key].as_i64().unwrap_or(0).clamp(0, max as i64) as i32;
+        Self {
+            sector: part("sector", Self::SECTOR_MAX),
+            stage: part("stage", Self::STAGE_MAX),
+            region: part("region", Self::REGION_MAX),
+            ticket: part("ticket", Self::TICKET_MAX),
+        }
+    }
+
+    fn total(&self) -> i32 {
+        self.sector + self.stage + self.region + self.ticket
+    }
+
+    /// Sector, stage and region all at their best, and the ticket size not
+    /// clearly outside the investor's range (unknown is fine).
+    fn hard_fit(&self) -> bool {
+        self.sector == Self::SECTOR_MAX
+            && self.stage == Self::STAGE_MAX
+            && self.region == Self::REGION_MAX
+            && self.ticket >= Self::TICKET_MAX / 2
+    }
+}
+
+/// Header that marks a one-off re-score; its value must be the cron secret.
+pub(crate) const RESCORE_HEADER: &str = "x-kevin-rescore";
+
+/// Sends one ranking prompt to Gemini and returns the parsed JSON array.
+async fn rank_with_gemini(
+    state: &AppState,
+    gemini_key: &str,
+    prompt: &str,
+    user_id: Uuid,
+    role: &str,
+    tier: &str,
+) -> Result<Vec<Value>, (StatusCode, String)> {
     let url = format!(
-        "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={}",
-        gemini_key
+        "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
+        state.gemini_model, gemini_key
     );
+    // Gemini 3 models expect the default temperature, and take a thinking
+    // level instead of a token budget.
     let payload = serde_json::json!({
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-        "generationConfig": {"maxOutputTokens": 8192, "temperature": 0.2, "thinkingConfig": {"thinkingBudget": 0}}
+        "generationConfig": {"maxOutputTokens": 8192, "thinkingConfig": {"thinkingLevel": "minimal"}}
     });
 
     let client = reqwest::Client::new();
@@ -908,23 +1151,22 @@ Return the top {match_limit} matches only, ranked by score descending."#
         crate::alerts::check_gemini_error(&body.to_string());
     }
 
-    let tier = if user.is_pro { "pro" } else if user.is_basic { "basic" } else { "free" };
+    let usage = crate::ai::gemini_usage(&body);
     crate::cost::record_llm_usage(
         &state.db,
-        Some(user.id),
-        Some(user.role.as_str()),
+        Some(user_id),
+        Some(role),
         Some(tier),
         "match_ranking",
         "gemini",
-        "gemini-2.5-flash",
-        body["usageMetadata"]["promptTokenCount"].as_i64().unwrap_or(0) as i32,
-        body["usageMetadata"]["candidatesTokenCount"].as_i64().unwrap_or(0) as i32,
+        &state.gemini_model,
+        usage.input_tokens,
+        usage.output_tokens,
     )
     .await;
 
-    let text = body["candidates"][0]["content"]["parts"][0]["text"]
-        .as_str()
-        .unwrap_or("[]");
+    let text = crate::ai::gemini_text(&body);
+    let text = if text.trim().is_empty() { "[]" } else { text.as_str() };
     let clean = text
         .trim()
         .trim_start_matches("```json")
@@ -937,130 +1179,70 @@ Return the top {match_limit} matches only, ranked by score descending."#
     } else {
         clean
     };
-    let ranked: Vec<Value> = serde_json::from_str(json_str).unwrap_or_default();
-
-    for item in &ranked {
-        let id_str = item["id"].as_str().unwrap_or("");
-        let Some(info) = candidate_info.get(id_str) else { continue; };
-        let Ok(candidate_uuid) = Uuid::parse_str(id_str) else { continue; };
-        let score = item["score"].as_i64().unwrap_or(0).clamp(0, 100) as i32;
-        let reasoning = item["reasoning"].as_str().map(str::to_owned);
-
-        if info.source == "user" {
-            let prev_score: Option<i32> = sqlx::query_scalar(
-                "SELECT score FROM kevin_matches WHERE for_user_id = $1 AND matched_user_id = $2 AND match_type = $3",
-            )
-            .bind(user.id)
-            .bind(candidate_uuid)
-            .bind(match_type)
-            .fetch_optional(&state.db)
-            .await
-            .ok()
-            .flatten();
-
-            let _ = sqlx::query(
-                r#"INSERT INTO kevin_matches
-                    (for_user_id, matched_user_id, contact_id, match_type, score, reasoning,
-                     display_name, display_one_liner, display_sector, display_stage, display_country)
-                   VALUES ($1, $2, NULL, $3, $4, $5, $6, $7, $8, $9, $10)
-                   ON CONFLICT (for_user_id, matched_user_id, match_type) WHERE matched_user_id IS NOT NULL
-                   DO UPDATE SET score = EXCLUDED.score, reasoning = EXCLUDED.reasoning,
-                     generated_at = NOW(), display_name = EXCLUDED.display_name,
-                     display_one_liner = EXCLUDED.display_one_liner,
-                     weekly_email_sent_at = CASE
-                       WHEN kevin_matches.weekly_email_sent_at < NOW() - INTERVAL '7 days'
-                       THEN NULL ELSE kevin_matches.weekly_email_sent_at END"#,
-            )
-            .bind(user.id)
-            .bind(candidate_uuid)
-            .bind(match_type)
-            .bind(score)
-            .bind(&reasoning)
-            .bind(info.display_name.as_deref())
-            .bind(info.display_one_liner.as_deref())
-            .bind(info.display_sector.as_deref())
-            .bind(info.display_stage.as_deref())
-            .bind(info.display_country.as_deref())
-            .execute(&state.db)
-            .await;
-
-            notify_if_newly_high_value(
-                &state,
-                user.id,
-                prev_score,
-                score,
-                info.display_name.as_deref().unwrap_or("a strong match"),
-                info.display_one_liner.as_deref(),
-                reasoning.as_deref(),
-            )
-            .await;
-        } else {
-            let _ = sqlx::query(
-                r#"INSERT INTO kevin_matches
-                    (for_user_id, matched_user_id, contact_id, match_type, score, reasoning,
-                     display_name, display_one_liner, display_sector, display_stage, display_country)
-                   VALUES ($1, NULL, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-                   ON CONFLICT (for_user_id, contact_id, match_type) WHERE contact_id IS NOT NULL
-                   DO UPDATE SET score = EXCLUDED.score, reasoning = EXCLUDED.reasoning,
-                     generated_at = NOW(), display_name = EXCLUDED.display_name,
-                     display_one_liner = EXCLUDED.display_one_liner,
-                     weekly_email_sent_at = CASE
-                       WHEN kevin_matches.weekly_email_sent_at < NOW() - INTERVAL '7 days'
-                       THEN NULL ELSE kevin_matches.weekly_email_sent_at END"#,
-            )
-            .bind(user.id)
-            .bind(candidate_uuid)
-            .bind(match_type)
-            .bind(score)
-            .bind(&reasoning)
-            .bind(info.display_name.as_deref())
-            .bind(info.display_one_liner.as_deref())
-            .bind(info.display_sector.as_deref())
-            .bind(info.display_stage.as_deref())
-            .bind(info.display_country.as_deref())
-            .execute(&state.db)
-            .await;
-        }
-    }
-
-    let rows = fetch_kevin_matches_for_user(&state, user.id, Some(match_type)).await?;
-    Ok(Json(rows))
+    Ok(serde_json::from_str(json_str).unwrap_or_default())
 }
 
-/// Score band worth proactively reaching out about — deliberately high so
-/// this is "Kevin flags something genuinely worth your time," not a
-/// notification on every routine match (the existing weekly digest already
-/// covers the full list).
-const NOTIFY_SCORE_THRESHOLD: i32 = 80;
+/// Set on the weekly refresh's call to `generate_matches` (see weekly_matches.rs).
+pub(crate) const WEEKLY_RUN_HEADER: &str = "x-kevin-weekly-run";
 
-/// Notifies the user (Telegram if linked, email otherwise — same preference
-/// order as the existing intro-request notification in kevin.rs) the first
-/// time a match crosses NOTIFY_SCORE_THRESHOLD. Fires once per match: a
-/// match that was already above the threshold on a prior regeneration
-/// doesn't re-notify on every subsequent page load/refresh.
-async fn notify_if_newly_high_value(
-    state: &AppState,
-    user_id: Uuid,
-    prev_score: Option<i32>,
-    new_score: i32,
-    match_label: &str,
-    one_liner: Option<&str>,
-    reasoning: Option<&str>,
-) {
-    let newly_crossed = new_score >= NOTIFY_SCORE_THRESHOLD
-        && prev_score.map(|p| p < NOTIFY_SCORE_THRESHOLD).unwrap_or(true);
-    if !newly_crossed {
+/// A strong-match alert needs this score and `hard_fit` (stage, sector,
+/// region and ticket size all fit). The scoring guide makes 90+ rare.
+const STRONG_MATCH_SCORE: i32 = 90;
+
+struct StrongMatch {
+    score: i32,
+    name: String,
+    reasoning: Option<String>,
+}
+
+/// "Kevin found a strong match": the rare, act-now nudge between weekly
+/// digests. Basic/Pro only (the caller checks), at most one a week, never
+/// within a day of a digest, and only for a match in the person's top 3.
+/// Sent on their own channel (WhatsApp, Telegram or email).
+async fn send_strong_match_alert(state: &AppState, user_id: Uuid, match_type: &str, m: StrongMatch) {
+    let higher: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM kevin_matches WHERE for_user_id = $1 AND match_type = $2 AND score > $3",
+    )
+    .bind(user_id)
+    .bind(match_type)
+    .bind(m.score)
+    .fetch_one(&state.db)
+    .await
+    .unwrap_or(i64::MAX);
+    if higher >= 3 {
+        return;
+    }
+
+    // The last digest went out under a day ago, or the next one is due within a day.
+    let near_digest: bool = sqlx::query_scalar(
+        r#"SELECT COALESCE(
+               MAX(sent_at) > NOW() - INTERVAL '1 day'
+               OR MAX(sent_at) BETWEEN NOW() - INTERVAL '7 days' AND NOW() - INTERVAL '6 days',
+               FALSE)
+             FROM email_send_log
+            WHERE user_id = $1 AND email_type LIKE 'weekly_matches_%'"#,
+    )
+    .bind(user_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap_or(true);
+    if near_digest {
         return;
     }
 
     #[derive(sqlx::FromRow)]
-    struct NotifyRow {
+    struct Recipient {
         email: String,
         telegram_id: Option<String>,
+        whatsapp_number: Option<String>,
         role: String,
     }
-    let Ok(Some(recipient)) = sqlx::query_as::<_, NotifyRow>(
-        "SELECT email, telegram_id, role::text FROM users WHERE id = $1",
+    // Claims this week's alert, so two runs at once can't both send.
+    let Ok(Some(r)) = sqlx::query_as::<_, Recipient>(
+        r#"UPDATE users SET strong_match_alert_at = NOW()
+            WHERE id = $1
+              AND (strong_match_alert_at IS NULL OR strong_match_alert_at < NOW() - INTERVAL '7 days')
+        RETURNING email, telegram_id, whatsapp_number, role::text"#,
     )
     .bind(user_id)
     .fetch_optional(&state.db)
@@ -1072,42 +1254,65 @@ async fn notify_if_newly_high_value(
     let matches_href = format!(
         "{}{}",
         crate::email::frontend_url(),
-        match recipient.role.as_str() {
+        match r.role.as_str() {
             "INVESTOR" => "/investor/matches",
             "INTERMEDIARY" => "/connector/network",
             _ => "/startup/matches",
         }
     );
-    let matches_href = matches_href.as_str();
+    let detail = m
+        .reasoning
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+        .map(|s| format!("\n\n{s}"))
+        .unwrap_or_default();
+    let text = format!(
+        "Kevin found a strong match for you: {} ({}% fit){detail}\n\nSee it on metatron: {matches_href}",
+        m.name, m.score
+    );
 
-    if let (Some(bot_token), Some(chat_id)) = (
-        state.telegram_bot_token.as_deref(),
-        recipient.telegram_id.as_deref().filter(|t| !t.is_empty()),
+    let wa = r.whatsapp_number.as_deref().filter(|s| !s.trim().is_empty());
+    let tg = r.telegram_id.as_deref().filter(|s| !s.trim().is_empty());
+    let sent = if let (Some(to), Some(token), Some(phone_id)) = (
+        wa,
+        state.whatsapp_access_token.as_deref(),
+        state.whatsapp_phone_number_id.as_deref(),
     ) {
-        let detail = one_liner
-            .filter(|s| !s.trim().is_empty())
-            .or_else(|| reasoning.filter(|s| !s.trim().is_empty()))
-            .map(|s| format!(" — {s}"))
-            .unwrap_or_default();
-        let text = format!(
-            "Kevin found a strong match for you: {match_label} ({new_score}% fit){detail}\n\nAsk me for more details any time, or see the full picture: {matches_href}"
-        );
-        let url = format!("https://api.telegram.org/bot{bot_token}/sendMessage");
-        let _ = state
+        state
             .http_client
-            .post(&url)
+            .post(format!("https://graph.facebook.com/v18.0/{phone_id}/messages"))
+            .bearer_auth(token)
+            .json(&serde_json::json!({
+                "messaging_product": "whatsapp", "recipient_type": "individual",
+                "to": to, "type": "text", "text": { "body": text }
+            }))
+            .send()
+            .await
+            .map(|res| res.status().is_success())
+            .unwrap_or(false)
+    } else if let (Some(chat_id), Some(bot_token)) = (tg, state.telegram_bot_token.as_deref()) {
+        state
+            .http_client
+            .post(format!("https://api.telegram.org/bot{bot_token}/sendMessage"))
             .json(&serde_json::json!({ "chat_id": chat_id, "text": text }))
             .send()
-            .await;
+            .await
+            .map(|res| res.status().is_success())
+            .unwrap_or(false)
+    } else {
+        false
+    };
+    if sent {
         return;
     }
 
-    let html = crate::email::high_value_match_html(match_label, new_score, reasoning, matches_href);
+    // No messaging channel, or it failed (e.g. outside WhatsApp's 24-hour window).
+    let html = crate::email::high_value_match_html(&m.name, m.score, m.reasoning.as_deref(), &matches_href);
     crate::email::send_tracked_email(
         &state.http_client,
         state.resend_api_key.as_deref(),
         &state.email_from,
-        &recipient.email,
+        &r.email,
         "Kevin found a strong match for you",
         &html,
         &state.db,
@@ -1237,8 +1442,9 @@ async fn request_intro(
         Option<Uuid>,
         Option<chrono::DateTime<chrono::Utc>>,
         Option<String>,
+        Option<String>,
     )> = sqlx::query_as(
-        r#"SELECT id, contact_id, matched_user_id, intro_requested_at, reasoning
+        r#"SELECT id, contact_id, matched_user_id, intro_requested_at, reasoning, intro_reasoning
            FROM kevin_matches
            WHERE id = $1 AND for_user_id = $2"#,
     )
@@ -1248,14 +1454,19 @@ async fn request_intro(
     .await
     .map_err(internal)?;
 
-    let (_id, contact_id, matched_user_id, intro_requested_at, reasoning_opt) =
+    let (_id, contact_id, matched_user_id, intro_requested_at, founder_reasoning_opt, intro_reasoning_opt) =
         row.ok_or((StatusCode::NOT_FOUND, "match not found".to_string()))?;
 
     if intro_requested_at.is_some() {
         return Err((StatusCode::CONFLICT, "introduction already requested".to_string()));
     }
 
-    let reasoning = reasoning_opt.unwrap_or_default();
+    // `reasoning` is what Kevin tells the investor (and the connector);
+    // `founder_reasoning` is the founder's own "why this investor" text.
+    let founder_reasoning = founder_reasoning_opt.unwrap_or_default();
+    let reasoning = intro_reasoning_opt
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| founder_reasoning.clone());
 
     // Get founder details
     let founder_email: String = sqlx::query_scalar("SELECT email FROM users WHERE id = $1")
@@ -1773,7 +1984,7 @@ async fn request_intro(
 
         let kevin_msg = format!(
             "Your intro request for {} has been submitted via {}.\n\nWhy Kevin matched you:\n{}\n\nI'll let you know when they respond. Keep building!",
-            company_name, investor_channels, reasoning
+            company_name, investor_channels, founder_reasoning
         );
 
         if let Some((telegram_id, whatsapp_number)) = founder_channels {
@@ -1997,4 +2208,25 @@ async fn decline_suggestion(
     }
 
     Ok(Json(serde_json::json!({"ok": true})))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::MatchFit;
+
+    #[test]
+    fn fit_totals_and_hard_fit() {
+        let fit = MatchFit::from_item(&serde_json::json!({"sector": 30, "stage": 25, "region": 25, "ticket": 10}));
+        assert_eq!(fit.total(), 90);
+        assert!(fit.hard_fit());
+
+        // Out-of-range parts are capped; a ticket mismatch fails the fit check.
+        let fit = MatchFit::from_item(&serde_json::json!({"sector": 99, "stage": 25, "region": 25, "ticket": 0}));
+        assert_eq!(fit.total(), 80);
+        assert!(!fit.hard_fit());
+
+        let fit = MatchFit::from_item(&serde_json::json!({"score": 95}));
+        assert_eq!(fit.total(), 0);
+        assert!(!fit.hard_fit());
+    }
 }

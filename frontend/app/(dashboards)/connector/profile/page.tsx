@@ -254,7 +254,7 @@ export default function ConnectorProfilePage() {
         <p className="text-sm text-[var(--text-muted)]">
           Looking for WhatsApp or Telegram? They&apos;re on{" "}
           <Link href="/connector/kevin" className="text-[var(--accent-fg)] hover:underline">
-            Chat with Kevin
+            Connect Kevin
           </Link>
           .
         </p>

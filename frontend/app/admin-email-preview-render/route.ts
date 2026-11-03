@@ -40,12 +40,12 @@ export async function POST(req: NextRequest) {
                   company_name: "Sample Startup",
                   sector: "FinTech",
                   stage: "Seed",
-                  angel_score: 82,
-                  sector_overlap: true,
-                  stage_overlap: true,
-                  why_blurb:
-                    "Strong sector alignment and early traction make this a compelling Seed opportunity.",
+                  fit_score: 82,
+                  angel_score: 74,
+                  reason:
+                    "They are a Seed-stage FinTech in your focus region, raising $500K within your ticket range.",
                   deep_link: "/investor/deal-flow?focus=mock-1",
+                  repeat: false,
                 },
               ],
         unsubscribeUrl: "#",
@@ -86,12 +86,11 @@ export async function POST(req: NextRequest) {
                 {
                   id: "mock-1",
                   firm_name: "Sample VC Fund",
-                  angel_score: 87,
-                  sector_overlap: true,
-                  stage_overlap: true,
-                  why_blurb:
-                    "Strong alignment with your sector focus and stage preference.",
+                  fit_score: 87,
+                  reason:
+                    "They invest in FinTech at your stage and in your region, and your $1M round fits their ticket range.",
                   deep_link: "/startup/matches?focus=mock-1",
+                  repeat: false,
                 },
               ],
         unsubscribeUrl: "#",

@@ -79,49 +79,6 @@ pub fn start_cleanup_task(state: Arc<AppState>) {
                 }
             }
 
-            match sqlx::query_as::<_, (sqlx::types::Uuid, String, String, Option<String>, chrono::DateTime<chrono::Utc>)>(
-                r#"
-                SELECT id, email, role::text, to_char(subscription_period_end, 'DD Mon YYYY'), subscription_period_end FROM users
-                WHERE subscription_status = 'active'
-                AND subscription_period_end BETWEEN NOW() + INTERVAL '3 days' AND NOW() + INTERVAL '4 days'
-                AND (renewal_reminder_sent_for IS NULL OR renewal_reminder_sent_for != subscription_period_end)
-                "#,
-            )
-            .fetch_all(&state.db)
-            .await
-            {
-                Ok(rows) => {
-                    for (id, email_addr, role, period_end, period_end_raw) in rows {
-                        let expiry = period_end.unwrap_or_else(|| "in 3 days".to_string());
-                        email::send_email(
-                            &state.http_client,
-                            state.resend_api_key.as_deref(),
-                            &state.email_from,
-                            &email_addr,
-                            "Your subscription renews in 3 days",
-                            &email::renewal_reminder_email_html(&expiry, &role),
-                        )
-                        .await;
-                        let _ = sqlx::query(
-                            "UPDATE users SET renewal_reminder_sent_for = $1 WHERE id = $2",
-                        )
-                        .bind(period_end_raw)
-                        .bind(id)
-                        .execute(&state.db)
-                        .await;
-                        tracing::info!(
-                            "cleanup: renewal reminder sent attempt for user {} ({}) role={}",
-                            id,
-                            email_addr,
-                            role
-                        );
-                    }
-                }
-                Err(e) => {
-                    tracing::error!("cleanup: failed loading renewal reminder users: {e}");
-                }
-            }
-
             // ----------------------------------------------------------------
             // Deck expiry: day-7 email reminder
             // ----------------------------------------------------------------
@@ -363,7 +320,7 @@ async fn generate_proactive_suggestions(state: &AppState) {
             &state.http_client,
             "gemini",
             &gemini_key,
-            "gemini-2.5-flash",
+            &state.gemini_model,
             "You are Kevin, metatron's AI matchmaker. Be concise and professional.",
             &prompt,
         )
@@ -378,7 +335,7 @@ async fn generate_proactive_suggestions(state: &AppState) {
                     None,
                     "kevin_intro_suggestion",
                     "gemini",
-                    "gemini-2.5-flash",
+                    &state.gemini_model,
                     usage.input_tokens,
                     usage.output_tokens,
                 )

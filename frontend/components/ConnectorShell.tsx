@@ -69,7 +69,7 @@ export default function ConnectorShell({ children }: { children: ReactNode }) {
       title: "Home",
       items: [
         { key: "/connector", href: "/connector", label: "Dashboard", icon: IconLayoutDashboard, kind: "link" },
-        { key: "/connector/kevin", href: "/connector/kevin", label: "Chat with Kevin", icon: IconRobot, kind: "link" },
+        { key: "/connector/kevin", href: "/connector/kevin", label: "Connect Kevin", icon: IconRobot, kind: "link" },
         { key: "/connector/profile", href: "/connector/profile", label: "Connector Profile", icon: IconUserCircle, kind: "link" },
       ],
     },

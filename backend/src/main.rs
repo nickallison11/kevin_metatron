@@ -7,6 +7,7 @@ mod alerts;
 mod cleanup;
 mod compliance;
 mod cost;
+mod countries;
 mod crypto;
 mod email;
 mod identity;

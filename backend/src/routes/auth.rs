@@ -53,7 +53,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/profile", put(update_profile))
         .route("/me", get(get_me))
         .route("/messaging-signup", get(messaging_signup))
-        .route("/whatsapp-number", put(set_whatsapp_number))
+        .route("/whatsapp/link-code", post(whatsapp_link_code))
         .route("/2fa/setup", post(two_fa_setup))
         .route("/2fa/confirm", post(two_fa_confirm))
         .route("/2fa", delete(two_fa_disable))
@@ -274,17 +274,8 @@ async fn signup(
             email::send_email(
                 &state.http_client,
                 state.resend_api_key.as_deref(),
-                "deals@metatron.id",
+                &state.account_email_from,
                 "nick.allison@metatrondao.io",
-                &subject,
-                &html,
-            )
-            .await;
-            email::send_email(
-                &state.http_client,
-                state.resend_api_key.as_deref(),
-                "deals@metatron.id",
-                "rianna@metatrondao.io",
                 &subject,
                 &html,
             )
@@ -344,7 +335,7 @@ async fn finish_signup(
     email::send_email(
         &state.http_client,
         state.resend_api_key.as_deref(),
-        &state.email_from,
+        &state.account_email_from,
         email_addr,
         "Welcome to metatron",
         &email::welcome_email_html(db_role),
@@ -446,7 +437,7 @@ async fn send_signup_code(state: &AppState, email_addr: &str, code: &str) {
     email::send_email(
         &state.http_client,
         state.resend_api_key.as_deref(),
-        &state.email_from,
+        &state.account_email_from,
         email_addr,
         &format!("Your metatron code: {code}"),
         &html,
@@ -654,18 +645,9 @@ async fn signup_verify(
     {
         tracing::error!("signup_verify: save phone: {e}");
     }
-    // A WhatsApp number on the account is what lets Kevin recognise the
-    // user's first message. Telegram links through a /start code instead.
-    if channel == "whatsapp" {
-        if let Err(e) = sqlx::query("UPDATE users SET whatsapp_number = $2 WHERE id = $1")
-            .bind(user_id)
-            .bind(&phone)
-            .execute(&state.db)
-            .await
-        {
-            tracing::error!("signup_verify: save whatsapp number: {e}");
-        }
-    }
+    // WhatsApp isn't linked here: the typed number is unproven. The dashboard
+    // gives a one-time code to send Kevin, and that message links the number
+    // (whatsapp::link_by_code), the way Telegram links with its /start code.
 
     let _ = sqlx::query("DELETE FROM signup_pending WHERE email = $1")
         .bind(&email_addr)
@@ -748,7 +730,7 @@ async fn forgot_password(
             email::send_password_reset_email(
                 &state.http_client,
                 state.resend_api_key.as_deref(),
-                &state.email_from,
+                &state.account_email_from,
                 &user_email,
                 &token_hex,
             )
@@ -1193,7 +1175,7 @@ async fn change_email(
     email::send_email(
         &state.http_client,
         state.resend_api_key.as_deref(),
-        &state.email_from,
+        &state.account_email_from,
         &old_email,
         "Your metatron email has been changed",
         &email::email_changed_notice_html(&body.new_email),
@@ -1374,51 +1356,49 @@ async fn get_me(
     Ok(Json(me))
 }
 
-#[derive(Deserialize)]
-pub struct SetWhatsappNumberRequest {
-    pub whatsapp_number: Option<String>,
+/// Letters and digits that can't be mixed up when read (no 0/O, 1/I/L).
+const WHATSAPP_CODE_CHARS: &[u8] = b"ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+
+#[derive(Serialize)]
+pub struct WhatsappLinkCodeResponse {
+    pub code: String,
 }
 
-async fn set_whatsapp_number(
+/// A one-time code the user sends Kevin on WhatsApp. The number is saved only
+/// when that message arrives (whatsapp::link_by_code), so it's always the
+/// number WhatsApp says sent it, never one typed in.
+async fn whatsapp_link_code(
     State(state): State<Arc<AppState>>,
     TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
-    Json(body): Json<SetWhatsappNumberRequest>,
-) -> Result<StatusCode, (StatusCode, String)> {
+) -> Result<Json<WhatsappLinkCodeResponse>, (StatusCode, String)> {
     let authed = require_user(&state, bearer.token()).await?;
-    let normalized: Option<String> = body.whatsapp_number.and_then(|s| {
-        let d: String = s.chars().filter(|c| c.is_ascii_digit()).collect();
-        if d.is_empty() {
-            None
-        } else {
-            Some(d)
-        }
-    });
 
-    sqlx::query(
-        r#"
-        -- One messaging channel per account: connecting WhatsApp disconnects
-        -- Telegram (and the phone shared through it), so two people can't use
-        -- the same account from different apps.
-        UPDATE users SET whatsapp_number = $1,
-            telegram_id = CASE WHEN $1::text IS NULL THEN telegram_id ELSE NULL END,
-            shared_phone = CASE WHEN $1::text IS NULL THEN shared_phone ELSE NULL END,
-            updated_at = now()
-        WHERE id = $2
-        "#,
-    )
-    .bind(normalized)
-    .bind(authed.id)
-    .execute(&state.db)
-    .await
-    .map_err(|e| {
-        tracing::error!("set_whatsapp_number: {e}");
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "database error".to_string(),
+    for _ in 0..64 {
+        let code: String = {
+            let mut rng = rand::thread_rng();
+            (0..8)
+                .map(|_| WHATSAPP_CODE_CHARS[rng.gen_range(0..WHATSAPP_CODE_CHARS.len())] as char)
+                .collect()
+        };
+        let res = sqlx::query(
+            "INSERT INTO whatsapp_link_codes (user_id, code, expires_at) VALUES ($1, $2, NOW() + INTERVAL '15 minutes')",
         )
-    })?;
+        .bind(authed.id)
+        .bind(&code)
+        .execute(&state.db)
+        .await;
 
-    Ok(StatusCode::OK)
+        match res {
+            Ok(_) => return Ok(Json(WhatsappLinkCodeResponse { code })),
+            Err(e) if is_pg_unique_violation(&e) => continue,
+            Err(e) => {
+                tracing::error!("whatsapp_link_code: insert failed: {e}");
+                return Err((StatusCode::INTERNAL_SERVER_ERROR, "database error".to_string()));
+            }
+        }
+    }
+
+    Err((StatusCode::INTERNAL_SERVER_ERROR, "could not generate unique code".to_string()))
 }
 
 async fn two_fa_setup(

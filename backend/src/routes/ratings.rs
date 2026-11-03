@@ -565,7 +565,7 @@ async fn submit_rating(
             let verify_url = format!("{}/ratings/verify?token={}", state.frontend_url, confirm_token);
             let http_client = state.http_client.clone();
             let api_key = state.resend_api_key.clone();
-            let from = state.email_from.clone();
+            let from = state.account_email_from.clone();
             let to = email.clone();
             tokio::spawn(async move {
                 email::send_review_verification_email(

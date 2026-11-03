@@ -176,7 +176,7 @@ async fn generate_memo(
         &state.http_client,
         "gemini",
         api_key,
-        "gemini-2.5-flash",
+        &state.gemini_model,
         "You are a professional investment analyst writing concise, factual investment memos.",
         vec![("user".into(), prompt)],
     )
@@ -191,7 +191,7 @@ async fn generate_memo(
         Some(tier),
         "investment_memo",
         "gemini",
-        "gemini-2.5-flash",
+        &state.gemini_model,
         usage.input_tokens,
         usage.output_tokens,
     )

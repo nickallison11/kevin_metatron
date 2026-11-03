@@ -7,6 +7,7 @@ use axum::{Json, Router};
 use reqwest::multipart::{Form, Part};
 use serde::Deserialize;
 use serde_json::{json, Value};
+use uuid::Uuid;
 
 use crate::state::AppState;
 
@@ -209,12 +210,92 @@ async fn transcribe_whisper(state: &AppState, audio_bytes: &[u8]) -> Result<Stri
     Ok(txt.trim().to_string())
 }
 
+/// Links this WhatsApp number to the account whose one-time code is in the
+/// message (from /auth/whatsapp/link-code). The number comes from WhatsApp,
+/// so only the phone's owner can link it. Returns the reply to send, or None
+/// when the message has no code in it.
+async fn link_by_code(state: &AppState, norm: &str, text: &str) -> Result<Option<String>, String> {
+    // Codes are 8 characters; any 8-character word could be one.
+    let words: Vec<String> = text
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|w| w.len() == 8)
+        .map(|w| w.to_ascii_uppercase())
+        .collect();
+    if words.is_empty() || norm.is_empty() {
+        return Ok(None);
+    }
+
+    let mut tx = state.db.begin().await.map_err(|e| e.to_string())?;
+    let row: Option<(Uuid, Uuid, bool)> = sqlx::query_as(
+        "SELECT id, user_id, expires_at > NOW() FROM whatsapp_link_codes
+         WHERE code = ANY($1) AND used_at IS NULL
+         ORDER BY created_at DESC LIMIT 1 FOR UPDATE",
+    )
+    .bind(&words)
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(|e| e.to_string())?;
+    let Some((code_id, user_id, fresh)) = row else {
+        return Ok(None);
+    };
+    if !fresh {
+        return Ok(Some(format!(
+            "That code has expired. Get a new one on metatron and send it again: {}",
+            crate::email::frontend_url()
+        )));
+    }
+
+    // Holding the phone wins: the number moves off any other account
+    // (including one that typed it in before codes existed).
+    sqlx::query(
+        "UPDATE users SET whatsapp_number = NULL
+         WHERE regexp_replace(COALESCE(whatsapp_number, ''), '[^0-9]', '', 'g') = $1 AND id <> $2",
+    )
+    .bind(norm)
+    .bind(user_id)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    // One messaging channel per account: linking WhatsApp disconnects Telegram.
+    let role: String = sqlx::query_scalar(
+        "UPDATE users SET whatsapp_number = $1, telegram_id = NULL, shared_phone = NULL,
+             channel_connected_at = COALESCE(channel_connected_at, NOW()), updated_at = NOW()
+         WHERE id = $2 RETURNING role::text",
+    )
+    .bind(norm)
+    .bind(user_id)
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    sqlx::query("UPDATE whatsapp_link_codes SET used_at = NOW() WHERE id = $1")
+        .bind(code_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| e.to_string())?;
+    // A half-finished WhatsApp sign-up from this number is no longer needed.
+    sqlx::query("DELETE FROM messaging_onboarding WHERE channel = 'whatsapp' AND channel_id = $1")
+        .bind(norm)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| e.to_string())?;
+    tx.commit().await.map_err(|e| e.to_string())?;
+
+    tracing::info!("whatsapp: linked number to user {user_id} by code");
+    Ok(Some(onboarding::messaging_welcome(&role)))
+}
+
 async fn handle_whatsapp_message(
     state: &Arc<AppState>,
     from_wa_id: &str,
     text: String,
 ) -> Result<(), String> {
     let norm = normalize_digits(from_wa_id);
+
+    if let Some(reply) = link_by_code(state, &norm, &text).await? {
+        return send_whatsapp_text(state, from_wa_id, &reply).await;
+    }
 
     let user: Option<UserForTelegram> = sqlx::query_as(
         r#"

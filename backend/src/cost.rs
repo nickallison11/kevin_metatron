@@ -48,6 +48,7 @@ pub async fn free_budget_exceeded(db: &PgPool) -> bool {
 /// (input $ per million tokens, output $ per million tokens).
 fn pricing_per_million(provider: &str, model: &str) -> Option<(f64, f64)> {
     match (provider, model) {
+        ("gemini", "gemini-3.5-flash-lite") => Some((0.30, 2.50)),
         ("gemini", "gemini-2.5-flash") => Some((0.30, 2.50)),
         ("gemini", "gemini-2.5-flash-lite") => Some((0.10, 0.40)),
         ("gemini", "text-embedding-004") | ("gemini", "gemini-embedding-001") => {

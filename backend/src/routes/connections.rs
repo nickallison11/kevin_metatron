@@ -116,7 +116,7 @@ pub async fn try_first_accept_connect(
 /// Same semantics as `accept_intro`: `accepter_user_id` is the JWT user; `km_for_user_id` is
 /// `kevin_matches.for_user_id` (legacy variable name `founder_id` in that handler).
 pub async fn send_kevin_warm_email_for_intro_accept(
-    state: &Arc<AppState>,
+    state: &AppState,
     accepter_user_id: Uuid,
     km_for_user_id: Uuid,
 ) {

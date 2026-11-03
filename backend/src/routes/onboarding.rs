@@ -55,7 +55,10 @@ async fn onboarding_reply(
             .await
             .map_err(|e| e.to_string())?;
 
-            Ok("Hi, I'm Kevin from metatron, your AI dealmaker for founders and investors.\n\nWhat's your email address?".to_string())
+            Ok(format!(
+                "Hi, I'm Kevin from metatron, your AI dealmaker for founders and investors.\n\nBy signing up you agree to our Terms and Privacy Policy, including that we use what you share to improve matching for everyone: {}/terms\n\nWhat's your email address?",
+                crate::email::frontend_url()
+            ))
         }
 
         Some((current_state, email, _role)) => match current_state.as_str() {

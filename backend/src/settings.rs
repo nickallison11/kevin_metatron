@@ -15,7 +15,7 @@ pub struct Settings {
     pub upload_dir: PathBuf,
     pub public_base_url: String,
     pub ai_api_key: Option<String>,
-    /// Gemini model id for API paths (e.g. `gemini-2.5-flash`). Env: `GEMINI_MODEL`.
+    /// Gemini model id for API paths (e.g. `gemini-3.5-flash-lite`). Env: `GEMINI_MODEL`.
     pub gemini_model: String,
     /// Optional separate key for Gemini embeddings (semantic memory for paid tiers). If unset, only text memory is used.
     pub gemini_embedding_key: Option<String>,
@@ -37,6 +37,8 @@ pub struct Settings {
     pub whisper_url: String,
     pub resend_api_key: Option<String>,
     pub email_from: String,
+    /// Sender for account emails (welcome, codes, password reset, sign-up alerts).
+    pub account_email_from: String,
     pub internal_automation_token: Option<String>,
     /// Stripe secret key (sk_test_/sk_live_) and webhook signing secret (whsec_).
     pub stripe_secret_key: Option<String>,
@@ -107,7 +109,7 @@ impl Settings {
             .ok()
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| "gemini-2.5-flash".to_string());
+            .unwrap_or_else(|| "gemini-3.5-flash-lite".to_string());
         // A Gemini API key covers both generateContent and embedContent under
         // the same project, so GEMINI_EMBEDDING_KEY only needs setting if
         // someone wants embeddings on a separate key/quota later — otherwise
@@ -157,6 +159,11 @@ impl Settings {
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| "Kevin AI <kevin@metatron.id>".to_string());
+        let account_email_from = env::var("ACCOUNT_EMAIL_FROM")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "metatron <hello@metatron.id>".to_string());
         let internal_automation_token = env::var("INTERNAL_AUTOMATION_TOKEN")
             .ok()
             .and_then(|s| (!s.trim().is_empty()).then_some(s));
@@ -270,6 +277,7 @@ impl Settings {
             whisper_url,
             resend_api_key,
             email_from,
+            account_email_from,
             internal_automation_token,
             stripe_secret_key,
             stripe_webhook_secret,

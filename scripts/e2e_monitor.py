@@ -40,8 +40,8 @@ run identically against both environments.
      country (54) + one basic investor per US/UK/major-EU country (6),
      added 2026-08-22 to verify isLocalMonday8amWindow fires correctly
      across timezones, not just a single fixed UTC time. [shared — reflects dev]
-  9a-10a. Kevin chat — Moderate tier (Hermes 4 70B → Haiku) and
-      Complex/DeepComplex tier (Kimi K3 → Sonnet/Opus), against dev.
+  9a-10a. Kevin chat — Moderate tier (Haiku) and
+      Complex/DeepComplex tier (Sonnet/Opus), against dev.
   11a/11b. kevin-learning cron endpoint reachable + secret-enforced
       (doesn't trigger a real run daily — that's a real LLM synthesis job,
       already scheduled weekly via its own crontab entry; this just
@@ -77,6 +77,11 @@ run identically against both environments.
       none. Uses STRIPE_SECRET_KEY from the dev env file (test key only).
   19. Paystack fully switched off — no Paystack webhook requests in the
       nginx log in the last 24h [shared]. Paystack was removed 2026-10-22.
+  20. AI providers [shared] — for each Gemini/Anthropic/OpenAI key in
+      either env: every model Kevin uses still exists and a one-token
+      request succeeds (catches empty credits). Added 2026-10-26: Kevin's
+      quiet fallbacks kept 9a/10a green while Hermes was gone and
+      OpenRouter credits ran out (OpenRouter was then dropped).
 
 Not covered here: the proactive high-value-match notification (fires once
 per match the first time it crosses the score threshold, so it isn't a good
@@ -252,9 +257,9 @@ def check_subscription(jwt, base_url=None):
 def check_kevin_chat(jwt, message, timeout=60, base_url=None):
     """
     Round-trips a message through /kevin/chat and returns the reply text.
-    Doesn't distinguish which model tier actually answered (Hermes/Kimi vs.
-    their Haiku/Sonnet/Opus fallback) — the API doesn't expose that, and
-    checking would mean SSH log access this script doesn't have. What this
+    Doesn't show which model actually answered (a fallback looks the same)
+    — the API doesn't expose that; check 20 tests each provider directly
+    instead. What this
     does confirm: the tier's whole request pipeline (routing, tool-calling
     loop, provider call) is healthy enough to produce a real reply.
     """
@@ -991,6 +996,140 @@ def render_paystack_gone_check(lines, drifts, number, tag):
     lines.append("")
 
 
+# Every model the backend calls, per provider. Keep in step with the backend
+# (grep for the model names) when one is added or swapped.
+AI_MODELS = {
+    "gemini":     ["gemini-3.5-flash-lite", "gemini-2.5-flash-lite", "gemini-embedding-001"],
+    "anthropic":  ["claude-haiku-4-5-20251001", "claude-sonnet-4-6", "claude-opus-4-5-20251101"],
+    "openai":     ["gpt-4o-mini"],
+}
+
+
+def ai_keys(name):
+    """The key from production's env (sourced by cron) and dev's env file,
+    without duplicates -- each distinct key is checked once."""
+    keys = []
+    for label, value in (("production", os.environ.get(name)), ("dev", read_env_file_value(DEV_ENV_FILE, name))):
+        if value and value not in [k for _, k in keys]:
+            keys.append((label, value))
+    return keys
+
+
+def render_ai_providers_check(lines, drifts, number, tag):
+    """Check 20: AI providers. Kevin's chat checks (9a/10a) only see that some
+    reply came back, so a fallback can hide a dead provider -- found
+    2026-10-26 when OpenRouter (since removed) had run dry and Hermes was gone
+    for days unnoticed. For each key: every model Kevin uses still exists and
+    a one-token request goes through (catches empty credits)."""
+    lines.append(f"## Check {number} — AI providers: credits, keys and models [{tag}]")
+
+    def drift(msg):
+        lines.append(f"- ⚠ DRIFT — {msg}")
+        drifts.append(msg)
+
+    def short(r):
+        return re.sub(r"\s+", " ", r.text)[:160]
+
+    for label, key in ai_keys("GEMINI_API_KEY"):
+        base = "https://generativelanguage.googleapis.com/v1beta/models"
+        try:
+            for model in AI_MODELS["gemini"]:
+                r = requests.get(f"{base}/{model}", params={"key": key}, timeout=20)
+                if r.status_code != 200:
+                    drift(f"Gemini ({label} key): {model} → {r.status_code} {short(r)}")
+            r = requests.post(
+                f"{base}/gemini-2.5-flash-lite:generateContent", params={"key": key}, timeout=30,
+                json={"contents": [{"parts": [{"text": "hi"}]}], "generationConfig": {"maxOutputTokens": 1}},
+            )
+            if r.status_code == 200:
+                lines.append(f"- Gemini ({label} key): request ok, {len(AI_MODELS['gemini'])} models present ✓")
+            else:
+                drift(f"Gemini ({label} key) request failed → {r.status_code} {short(r)}")
+        except Exception as e:
+            drift(f"Gemini ({label} key) check error: {e}")
+
+    for label, key in ai_keys("ANTHROPIC_API_KEY"):
+        headers = {"x-api-key": key, "anthropic-version": "2023-06-01"}
+        try:
+            for model in AI_MODELS["anthropic"]:
+                r = requests.get(f"https://api.anthropic.com/v1/models/{model}", headers=headers, timeout=20)
+                if r.status_code != 200:
+                    drift(f"Anthropic ({label} key): {model} → {r.status_code} {short(r)}")
+            r = requests.post(
+                "https://api.anthropic.com/v1/messages", headers=headers, timeout=30,
+                json={"model": AI_MODELS["anthropic"][0], "max_tokens": 1, "messages": [{"role": "user", "content": "hi"}]},
+            )
+            if r.status_code == 200:
+                lines.append(f"- Anthropic ({label} key): request ok, {len(AI_MODELS['anthropic'])} models present ✓")
+            else:
+                drift(f"Anthropic ({label} key) request failed → {r.status_code} {short(r)}")
+        except Exception as e:
+            drift(f"Anthropic ({label} key) check error: {e}")
+
+    for label, key in ai_keys("OPENAI_API_KEY"):
+        headers = {"Authorization": f"Bearer {key}"}
+        try:
+            model = AI_MODELS["openai"][0]
+            r = requests.post(
+                "https://api.openai.com/v1/chat/completions", headers=headers, timeout=30,
+                json={"model": model, "max_tokens": 1, "messages": [{"role": "user", "content": "hi"}]},
+            )
+            if r.status_code == 200:
+                lines.append(f"- OpenAI ({label} key): {model} request ok ✓")
+            else:
+                drift(f"OpenAI ({label} key): {model} request failed → {r.status_code} {short(r)}")
+        except Exception as e:
+            drift(f"OpenAI ({label} key) check error: {e}")
+
+    lines.append("")
+
+
+def render_security_updates_check(lines, drifts, number, tag):
+    """Check 21: KVM2 security updates. Runs locally on KVM2, like Check 13.
+    DRIFTs on any pending package from the -security pocket (a new kernel
+    included) or a pending reboot; other updates are listed for info only.
+    Added 2026-11-01 while waiting on the kernel fix for CVE-2026-98432
+    (6.8.0-149) -- that kernel showing up here is the cue to upgrade + reboot."""
+    lines.append(f"## Check {number} — KVM2 security updates (Ubuntu) [{tag}]")
+
+    def drift(msg):
+        lines.append(f"- ⚠ DRIFT — {msg}")
+        drifts.append(msg)
+
+    try:
+        subprocess.run(["apt-get", "update", "-qq"], capture_output=True, text=True, timeout=180)
+        upgradable = subprocess.run(
+            ["apt", "list", "--upgradable"], capture_output=True, text=True, timeout=60,
+        ).stdout.splitlines()
+        upgradable = [l for l in upgradable if "[upgradable from:" in l]
+        security = [l for l in upgradable if "-security" in l.split(" ")[0]]
+        other = [l for l in upgradable if l not in security]
+        running = subprocess.run(["uname", "-r"], capture_output=True, text=True, timeout=10).stdout.strip()
+        lines.append(f"- running kernel: {running}")
+
+        if security:
+            names = [l.split("/")[0] for l in security]
+            kernel = [n for n in names if n.startswith("linux-")]
+            if kernel:
+                drift(f"kernel security update available ({', '.join(kernel)}) — apt upgrade + reboot")
+            drift(f"{len(security)} security update(s) pending: {', '.join(names)}")
+        else:
+            lines.append("- no pending security updates ✓")
+        if other:
+            lines.append(f"- {len(other)} other update(s) (not security): {', '.join(l.split('/')[0] for l in other)}")
+
+        if os.path.exists("/var/run/reboot-required"):
+            pkgs = ""
+            if os.path.exists("/var/run/reboot-required.pkgs"):
+                with open("/var/run/reboot-required.pkgs") as f:
+                    pkgs = ", ".join(sorted(set(f.read().split())))
+            drift(f"reboot required to finish installed updates{f' ({pkgs})' if pkgs else ''}")
+    except Exception as e:
+        drift(f"security updates check error: {e}")
+
+    lines.append("")
+
+
 def send_report(subject, plain_body, html_body=None):
     if html_body:
         msg = MIMEMultipart("alternative")
@@ -1335,12 +1474,12 @@ def main():
         "reasons seed-stage fintech deals tend to fall through during diligence?"
     )
     render_kevin_chat_check(lines, drifts, "9a", "DEV", DEV_BACKEND_URL, jwts_dev,
-                             "Kevin chat, Moderate tier (Hermes 4 70B → Haiku fallback)", moderate_msg)
-    render_na_check(lines, "9b", "PRODUCTION", "Kevin chat, Moderate tier (Hermes 4 70B → Haiku fallback)")
+                             "Kevin chat, Moderate tier (Haiku)", moderate_msg)
+    render_na_check(lines, "9b", "PRODUCTION", "Kevin chat, Moderate tier (Haiku)")
 
     render_kevin_chat_check(lines, drifts, "10a", "DEV", DEV_BACKEND_URL, jwts_dev,
-                             "Kevin chat, DeepComplex tier (Kimi K3 → Sonnet/Opus fallback)", deepcomplex_msg, timeout=90)
-    render_na_check(lines, "10b", "PRODUCTION", "Kevin chat, DeepComplex tier (Kimi K3 → Sonnet/Opus fallback)")
+                             "Kevin chat, DeepComplex tier (Opus)", deepcomplex_msg, timeout=90)
+    render_na_check(lines, "10b", "PRODUCTION", "Kevin chat, DeepComplex tier (Opus)")
 
     render_kevin_learning_check(lines, drifts, "11a", "DEV", DEV_BACKEND_URL)
     render_kevin_learning_check(lines, drifts, "11b", "PRODUCTION", BACKEND_URL)
@@ -1372,13 +1511,17 @@ def main():
 
     render_paystack_gone_check(lines, drifts, "19", "SHARED — both environments")
 
+    render_ai_providers_check(lines, drifts, "20", "SHARED — both environments")
+
+    render_security_updates_check(lines, drifts, "21", "SHARED — both environments")
+
     # ── Summary ───────────────────────────────────────────────────────────────
     tag = "DRIFT" if drifts else "OK"
     lines.append(f"## Summary: {tag}")
     lines.append(
         "(15 checks on [DEV]: 1a,2a,3a,4a,5a,9a,10a,11a,12a,13a,14a,15a,16a,17a,18a · "
         "15 on [PRODUCTION]: 1b,2b,3b,4b,5b,9b,10b,11b,12b,13b,14b,15b,16b,17b,18b · "
-        "4 [SHARED] shown in both: 6,7,8,19 · 19 checks per environment)"
+        "6 [SHARED] shown in both: 6,7,8,19,20,21 · 21 checks per environment)"
     )
     if drifts:
         for d in drifts:

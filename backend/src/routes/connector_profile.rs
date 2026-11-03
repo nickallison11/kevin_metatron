@@ -1279,6 +1279,7 @@ async fn enrich_staged_contacts(
 
     let pool = state.db.clone();
     let key = gemini_key.clone();
+    let model = state.gemini_model.clone();
     let uid_for_notify = user_id;
     let email_for_notify = user_email;
     tokio::spawn(async move {
@@ -1308,6 +1309,7 @@ async fn enrich_staged_contacts(
         for row in rows {
             let pool = pool.clone();
             let key = key.clone();
+            let model = model.clone();
             let sem = sem.clone();
             let client = client.clone();
             handles.push(tokio::spawn(async move {
@@ -1321,6 +1323,7 @@ async fn enrich_staged_contacts(
                     &row.name,
                     row.raw_notes.as_deref(),
                     &key,
+                    &model,
                 )
                 .await;
             }));
@@ -1490,6 +1493,7 @@ async fn enrich_one_contact(
     name: &str,
     notes: Option<&str>,
     gemini_key: &str,
+    gemini_model: &str,
 ) {
     let context = notes
         .map(|n| format!("\nContext from spreadsheet: {}", n))
@@ -1508,8 +1512,8 @@ async fn enrich_one_contact(
     };
 
     let url = format!(
-        "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={}",
-        gemini_key
+        "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
+        gemini_model, gemini_key
     );
 
     let payload = serde_json::json!({
@@ -1587,9 +1591,9 @@ async fn enrich_one_contact(
         None,
         "connector_enrichment",
         "gemini",
-        "gemini-2.5-flash",
-        body["usageMetadata"]["promptTokenCount"].as_i64().unwrap_or(0) as i32,
-        body["usageMetadata"]["candidatesTokenCount"].as_i64().unwrap_or(0) as i32,
+        gemini_model,
+        crate::ai::gemini_usage(&body).input_tokens,
+        crate::ai::gemini_usage(&body).output_tokens,
     )
     .await;
 

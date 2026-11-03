@@ -804,6 +804,16 @@ pub fn email_changed_notice_html(new_email: &str) -> String {
     )
 }
 
+pub fn password_changed_notice_html() -> String {
+    shell_html(
+        "Your metatron password was changed",
+        r#"
+<p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">This is a confirmation that your metatron password was changed. Other devices have been signed out.</p>
+<p style="margin:0 0 0 0;font-size:14px;color:#e8e8ed;">If you did not make this change, reset your password at <a href="https://platform.metatron.id/auth/forgot-password" style="color:#6c5ce7;text-decoration:none;">platform.metatron.id</a> and contact us at <a href="mailto:hello@metatron.id" style="color:#6c5ce7;text-decoration:none;">hello@metatron.id</a>.</p>
+"#,
+    )
+}
+
 fn password_reset_email_html(token_hex: &str) -> String {
     let reset_url = format!(
         "https://platform.metatron.id/auth/reset-password?token={}",

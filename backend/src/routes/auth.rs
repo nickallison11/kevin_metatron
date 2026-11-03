@@ -49,6 +49,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/telegram/confirm", post(telegram_confirm))
         .route("/telegram/unlink", delete(unlink_telegram))
         .route("/change-email", put(change_email))
+        .route("/change-email/confirm", put(confirm_email_change))
         .route("/change-password", put(change_password))
         .route("/profile", put(update_profile))
         .route("/me", get(get_me))
@@ -702,7 +703,7 @@ async fn forgot_password(
     }
 
     let user: Option<(Uuid, String)> = sqlx::query_as::<_, (Uuid, String)>(
-        "SELECT id, email FROM users WHERE email = $1",
+        "SELECT id, email FROM users WHERE LOWER(email) = LOWER($1)",
     )
     .bind(email)
     .fetch_optional(&state.db)
@@ -824,6 +825,12 @@ async fn reset_password(
             "internal error".to_string(),
         )
     })?;
+
+    // Whoever had the old password is signed out everywhere.
+    if auth::revoke_all_refresh_tokens(&state, user_id).await.is_err() {
+        tracing::error!("reset_password: could not revoke sessions");
+    }
+    send_password_changed_notice(&state, user_id).await;
 
     Ok(StatusCode::OK)
 }
@@ -1149,10 +1156,16 @@ async fn change_email(
         .await
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string()))?;
 
+    let new_email = normalize_signup_email(&body.new_email)
+        .ok_or((StatusCode::BAD_REQUEST, "Enter a valid email address.".to_string()))?;
+    if new_email == old_email.to_lowercase() {
+        return Err((StatusCode::BAD_REQUEST, "That's already your email.".to_string()));
+    }
+
     let email_in_use: Option<uuid::Uuid> = sqlx::query_scalar(
-        "SELECT id FROM users WHERE email = $1 AND id <> $2",
+        "SELECT id FROM users WHERE LOWER(email) = $1 AND id <> $2",
     )
-    .bind(&body.new_email)
+    .bind(&new_email)
     .bind(authed.id)
     .fetch_optional(&state.db)
     .await
@@ -1165,12 +1178,105 @@ async fn change_email(
         ));
     }
 
-    sqlx::query("UPDATE users SET email = $1 WHERE id = $2")
-        .bind(&body.new_email)
+    // The switch waits until the code sent to the new address is entered.
+    let code = new_signup_code();
+    sqlx::query(
+        r#"
+        INSERT INTO email_change_requests (user_id, new_email, code_hash, attempts, expires_at)
+        VALUES ($1, $2, $3, 0, NOW() + INTERVAL '15 minutes')
+        ON CONFLICT (user_id) DO UPDATE
+           SET new_email = EXCLUDED.new_email, code_hash = EXCLUDED.code_hash,
+               attempts = 0, expires_at = EXCLUDED.expires_at, created_at = NOW()
+        "#,
+    )
+    .bind(authed.id)
+    .bind(&new_email)
+    .bind(sha256_hex_token(&code))
+    .execute(&state.db)
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string()))?;
+
+    let html = format!(
+        r#"<p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">Here's your code to confirm this as your new metatron email:</p>
+<p style="margin:0 0 16px 0;font-size:28px;font-weight:700;letter-spacing:6px;color:#e8e8ed;">{code}</p>
+<p style="margin:0;font-size:13px;color:#8888a0;">Enter it in Settings. It expires in 15 minutes. If you didn't ask for it, you can ignore this email.</p>"#
+    );
+    email::send_email(
+        &state.http_client,
+        state.resend_api_key.as_deref(),
+        &state.account_email_from,
+        &new_email,
+        &format!("Your metatron code: {code}"),
+        &html,
+    )
+    .await;
+
+    Ok(StatusCode::ACCEPTED)
+}
+
+#[derive(Deserialize)]
+pub struct ConfirmEmailChangeRequest {
+    pub code: String,
+}
+
+async fn confirm_email_change(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+    Json(body): Json<ConfirmEmailChangeRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let authed = require_user(&state, bearer.token()).await?;
+    let internal = |_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string());
+
+    let row: Option<(String, String, i32, bool)> = sqlx::query_as(
+        "SELECT new_email, code_hash, attempts, expires_at > NOW() FROM email_change_requests WHERE user_id = $1",
+    )
+    .bind(authed.id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(internal)?;
+    let Some((new_email, code_hash, attempts, fresh)) = row else {
+        return Err((StatusCode::NOT_FOUND, "Start again to get a new code.".to_string()));
+    };
+    if attempts >= SIGNUP_CODE_MAX_ATTEMPTS {
+        return Err((
+            StatusCode::TOO_MANY_REQUESTS,
+            "Too many wrong codes. Send yourself a new one.".to_string(),
+        ));
+    }
+    if !fresh {
+        return Err((StatusCode::BAD_REQUEST, "That code has expired. Send yourself a new one.".to_string()));
+    }
+    let entered: String = body.code.chars().filter(|c| c.is_ascii_digit()).collect();
+    if sha256_hex_token(&entered) != code_hash {
+        let _ = sqlx::query("UPDATE email_change_requests SET attempts = attempts + 1 WHERE user_id = $1")
+            .bind(authed.id)
+            .execute(&state.db)
+            .await;
+        return Err((StatusCode::BAD_REQUEST, "That code doesn't match. Check the email and try again.".to_string()));
+    }
+
+    let old_email: String = sqlx::query_scalar("SELECT email FROM users WHERE id = $1")
+        .bind(authed.id)
+        .fetch_one(&state.db)
+        .await
+        .map_err(internal)?;
+
+    // Someone may have signed up with the address while the code was out.
+    let updated = sqlx::query(
+        "UPDATE users SET email = $1 WHERE id = $2 AND NOT EXISTS (SELECT 1 FROM users WHERE LOWER(email) = $1 AND id <> $2)",
+    )
+    .bind(&new_email)
+    .bind(authed.id)
+    .execute(&state.db)
+    .await
+    .map_err(internal)?;
+    let _ = sqlx::query("DELETE FROM email_change_requests WHERE user_id = $1")
         .bind(authed.id)
         .execute(&state.db)
-        .await
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string()))?;
+        .await;
+    if updated.rows_affected() == 0 {
+        return Err((StatusCode::CONFLICT, "email already in use".to_string()));
+    }
 
     email::send_email(
         &state.http_client,
@@ -1178,18 +1284,38 @@ async fn change_email(
         &state.account_email_from,
         &old_email,
         "Your metatron email has been changed",
-        &email::email_changed_notice_html(&body.new_email),
+        &email::email_changed_notice_html(&new_email),
     )
     .await;
 
-    Ok(StatusCode::OK)
+    Ok(Json(serde_json::json!({ "email": new_email })))
+}
+
+/// Tells the user their password changed, so a change they didn't make is noticed.
+async fn send_password_changed_notice(state: &AppState, user_id: Uuid) {
+    let Ok(to) = sqlx::query_scalar::<_, String>("SELECT email FROM users WHERE id = $1")
+        .bind(user_id)
+        .fetch_one(&state.db)
+        .await
+    else {
+        return;
+    };
+    email::send_email(
+        &state.http_client,
+        state.resend_api_key.as_deref(),
+        &state.account_email_from,
+        &to,
+        "Your metatron password was changed",
+        &email::password_changed_notice_html(),
+    )
+    .await;
 }
 
 async fn change_password(
     State(state): State<Arc<AppState>>,
     TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
     Json(body): Json<ChangePasswordRequest>,
-) -> Result<StatusCode, (StatusCode, String)> {
+) -> Result<Json<AuthResponse>, (StatusCode, String)> {
     let authed = require_user(&state, bearer.token()).await?;
 
     if !password_meets_rules(&body.new_password) {
@@ -1224,7 +1350,25 @@ async fn change_password(
         .await
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string()))?;
 
-    Ok(StatusCode::OK)
+    // Sign out every other session; this one gets a fresh pair.
+    auth::revoke_all_refresh_tokens(&state, authed.id)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "could not revoke sessions".to_string()))?;
+    let role: String = sqlx::query_scalar("SELECT role::text FROM users WHERE id = $1")
+        .bind(authed.id)
+        .fetch_one(&state.db)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string()))?;
+    let (token, refresh_token) = auth::issue_token_pair(&state, authed.id, &role)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "could not issue token".to_string()))?;
+
+    // A first password (messaging sign-up) isn't a change.
+    if !stored_hash.trim().is_empty() {
+        send_password_changed_notice(&state, authed.id).await;
+    }
+
+    Ok(Json(AuthResponse { token, refresh_token }))
 }
 
 #[derive(Deserialize)]

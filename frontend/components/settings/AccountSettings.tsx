@@ -4,7 +4,7 @@ import { FormEvent, useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import QRCode from "qrcode";
 import { API_BASE, authHeaders, authJsonHeaders } from "@/lib/api";
-import { clearTokens } from "@/lib/tokenStore";
+import { clearTokens, setTokenPair } from "@/lib/tokenStore";
 import { useAuth } from "@/lib/auth";
 import type { MeResponse } from "@/lib/me";
 import { passwordMeetsRules } from "@/lib/passwordRules";
@@ -101,6 +101,8 @@ export function AccountSettings({ role }: { role: "STARTUP" | "INVESTOR" | "INTE
   const [newEmail, setNewEmail] = useState("");
   const [changeEmailMsg, setChangeEmailMsg] = useState<string | null>(null);
   const [changingEmail, setChangingEmail] = useState(false);
+  const [emailCodeSent, setEmailCodeSent] = useState(false);
+  const [emailCode, setEmailCode] = useState("");
 
   const [editingPassword, setEditingPassword] = useState(false);
   const [pwCurrentPassword, setPwCurrentPassword] = useState("");
@@ -254,16 +256,45 @@ export function AccountSettings({ role }: { role: "STARTUP" | "INVESTOR" | "INTE
       });
       const txt = await res.text();
       if (!res.ok) throw new Error(txt.trim() || "Could not change email");
-      setMe((prev) => (prev ? { ...prev, email: newEmail } : prev));
-      setChangeEmailMsg("Email updated.");
-      setEmailCurrentPassword("");
-      setNewEmail("");
-      setEditingEmail(false);
+      setEmailCode("");
+      setEmailCodeSent(true);
+      setChangeEmailMsg(null);
     } catch (err) {
       setChangeEmailMsg(err instanceof Error ? err.message : "Could not change email");
     } finally {
       setChangingEmail(false);
     }
+  }
+
+  async function onConfirmEmail(e: FormEvent) {
+    e.preventDefault();
+    if (!token) return;
+    setChangingEmail(true);
+    setChangeEmailMsg(null);
+    try {
+      const res = await fetch(`${API_BASE}/auth/change-email/confirm`, {
+        method: "PUT",
+        headers: authJsonHeaders(token),
+        body: JSON.stringify({ code: emailCode }),
+      });
+      if (!res.ok) throw new Error((await res.text()).trim() || "Could not change email");
+      const data = (await res.json()) as { email: string };
+      setMe((prev) => (prev ? { ...prev, email: data.email } : prev));
+      setChangeEmailMsg("Email updated.");
+      closeEmailForm();
+    } catch (err) {
+      setChangeEmailMsg(err instanceof Error ? err.message : "Could not change email");
+    } finally {
+      setChangingEmail(false);
+    }
+  }
+
+  function closeEmailForm() {
+    setEmailCurrentPassword("");
+    setNewEmail("");
+    setEmailCode("");
+    setEmailCodeSent(false);
+    setEditingEmail(false);
   }
 
   async function onChangePassword(e: FormEvent) {
@@ -285,9 +316,11 @@ export function AccountSettings({ role }: { role: "STARTUP" | "INVESTOR" | "INTE
         headers: authJsonHeaders(token),
         body: JSON.stringify({ current_password: pwCurrentPassword, new_password: newPassword }),
       });
-      const txt = await res.text();
-      if (!res.ok) throw new Error(txt.trim() || "Could not change password");
-      setChangePasswordMsg("Password updated.");
+      if (!res.ok) throw new Error((await res.text()).trim() || "Could not change password");
+      // Other sessions are signed out; this one gets a fresh pair.
+      const pair = (await res.json()) as { token: string; refresh_token: string };
+      setTokenPair(pair.token, pair.refresh_token);
+      setChangePasswordMsg("Password updated. Other devices are signed out.");
       setPwCurrentPassword("");
       setNewPassword("");
       setConfirmNewPassword("");
@@ -588,7 +621,30 @@ export function AccountSettings({ role }: { role: "STARTUP" | "INVESTOR" | "INTE
                       </button>
                     )}
                   </Row>
-                  {editingEmail && (
+                  {editingEmail && emailCodeSent && (
+                    <form onSubmit={onConfirmEmail} className="flex flex-col gap-3 border-t border-[var(--border)] px-5 py-4">
+                      <Field label={`Code sent to ${newEmail.trim()}`}>
+                        <input
+                          className={input}
+                          inputMode="numeric"
+                          maxLength={6}
+                          value={emailCode}
+                          onChange={(e) => setEmailCode(e.target.value)}
+                          required
+                          autoComplete="one-time-code"
+                        />
+                      </Field>
+                      <div className="flex justify-end gap-2">
+                        <button type="button" className={btn} onClick={closeEmailForm}>
+                          Cancel
+                        </button>
+                        <button type="submit" className={btnPrimary} disabled={changingEmail}>
+                          {changingEmail ? "Confirming…" : "Confirm"}
+                        </button>
+                      </div>
+                    </form>
+                  )}
+                  {editingEmail && !emailCodeSent && (
                     <form onSubmit={onChangeEmail} className="flex flex-col gap-3 border-t border-[var(--border)] px-5 py-4">
                       <div className="grid gap-3 sm:grid-cols-2">
                         <Field label="New email">
@@ -606,11 +662,11 @@ export function AccountSettings({ role }: { role: "STARTUP" | "INVESTOR" | "INTE
                         </Field>
                       </div>
                       <div className="flex justify-end gap-2">
-                        <button type="button" className={btn} onClick={() => setEditingEmail(false)}>
+                        <button type="button" className={btn} onClick={closeEmailForm}>
                           Cancel
                         </button>
                         <button type="submit" className={btnPrimary} disabled={changingEmail}>
-                          {changingEmail ? "Updating…" : "Update email"}
+                          {changingEmail ? "Sending…" : "Send code"}
                         </button>
                       </div>
                     </form>

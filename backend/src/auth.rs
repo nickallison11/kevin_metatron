@@ -215,10 +215,10 @@ pub async fn rotate_refresh_token(
 ) -> Result<(Uuid, String, String, String), AuthError> {
     let hash = sha256_hex(raw_token);
 
-    let row: Option<(Uuid, Uuid, Option<chrono::DateTime<chrono::Utc>>, chrono::DateTime<chrono::Utc>)> =
+    let row: Option<(Uuid, Uuid, Option<chrono::DateTime<chrono::Utc>>, Option<Uuid>, chrono::DateTime<chrono::Utc>)> =
         sqlx::query_as(
             r#"
-            SELECT id, user_id, revoked_at, expires_at
+            SELECT id, user_id, revoked_at, replaced_by, expires_at
             FROM refresh_tokens
             WHERE token_hash = $1
             "#,
@@ -228,12 +228,17 @@ pub async fn rotate_refresh_token(
         .await
         .map_err(|_| AuthError::Internal)?;
 
-    let Some((token_id, user_id, revoked_at, expires_at)) = row else {
+    let Some((token_id, user_id, revoked_at, replaced_by, expires_at)) = row else {
         return Err(AuthError::InvalidCredentials);
     };
 
     if revoked_at.is_some() {
-        revoke_all_refresh_tokens(state, user_id).await?;
+        // Only a replayed rotated token looks like theft. One revoked by
+        // sign-out or a password change is just dead; revoking everything
+        // here would also sign out the session that changed the password.
+        if replaced_by.is_some() {
+            revoke_all_refresh_tokens(state, user_id).await?;
+        }
         return Err(AuthError::InvalidCredentials);
     }
 

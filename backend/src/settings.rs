@@ -39,6 +39,8 @@ pub struct Settings {
     pub email_from: String,
     /// Sender for account emails (welcome, codes, password reset, sign-up alerts).
     pub account_email_from: String,
+    /// Sender for our own plan emails (plan started / ended). Send-only.
+    pub billing_email_from: String,
     pub internal_automation_token: Option<String>,
     /// Stripe secret key (sk_test_/sk_live_) and webhook signing secret (whsec_).
     pub stripe_secret_key: Option<String>,
@@ -164,6 +166,11 @@ impl Settings {
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| "metatron <hello@metatron.id>".to_string());
+        let billing_email_from = env::var("BILLING_EMAIL_FROM")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "metatron <billing@metatron.id>".to_string());
         let internal_automation_token = env::var("INTERNAL_AUTOMATION_TOKEN")
             .ok()
             .and_then(|s| (!s.trim().is_empty()).then_some(s));
@@ -278,6 +285,7 @@ impl Settings {
             resend_api_key,
             email_from,
             account_email_from,
+            billing_email_from,
             internal_automation_token,
             stripe_secret_key,
             stripe_webhook_secret,

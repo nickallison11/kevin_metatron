@@ -406,13 +406,20 @@ async fn sync_subscription(state: &AppState, sub: &Value) -> Result<(), String> 
     };
     let cancel_at_period_end = sub["cancel_at_period_end"].as_bool().unwrap_or(false);
 
-    sqlx::query(
-        "UPDATE users
+    // The row lock makes Stripe's near-simultaneous created/updated events
+    // queue up, so only one of them sees the plan change and emails.
+    let before: Option<(Option<String>, Option<String>, String, String)> = sqlx::query_as(
+        "WITH old AS (
+             SELECT subscription_plan, subscription_status FROM users WHERE id = $8 FOR UPDATE
+         )
+         UPDATE users
          SET subscription_plan = $1, subscription_tier = $2, subscription_status = $3,
              subscription_period_end = to_timestamp($4), cancel_at_period_end = $5,
              pending_downgrade_to = NULL,
              stripe_subscription_id = $6, stripe_customer_id = COALESCE(stripe_customer_id, $7)
-         WHERE id = $8",
+         FROM old
+         WHERE id = $8
+         RETURNING old.subscription_plan, old.subscription_status, COALESCE(users.email, ''), users.role::text",
     )
     .bind(plan)
     .bind(billing)
@@ -422,11 +429,118 @@ async fn sync_subscription(state: &AppState, sub: &Value) -> Result<(), String> 
     .bind(sub_id)
     .bind(customer)
     .bind(user_id)
-    .execute(&state.db)
+    .fetch_optional(&state.db)
     .await
     .map_err(|e| e.to_string())?;
     tracing::info!("stripe: user {user_id} -> {plan} {billing} {status}");
+
+    let Some((old_plan, old_status, email_to, role)) = before else {
+        return Ok(());
+    };
+    let was_paid = old_status.as_deref() == Some("active")
+        && matches!(old_plan.as_deref(), Some("basic") | Some("pro"));
+    if status == "active" && (!was_paid || old_plan.as_deref() != Some(plan)) {
+        let renews = chrono::DateTime::from_timestamp(period_end, 0)
+            .map(|d| d.format("%-d %B %Y").to_string())
+            .unwrap_or_default();
+        let name = plan_name(plan);
+        send_billing_email(
+            state,
+            &email_to,
+            &format!("Welcome to metatron {name}"),
+            &crate::email::plan_started_email_html(name, &plan_includes(state, &role, plan), &renews),
+        )
+        .await;
+    } else if status == "inactive" && was_paid {
+        let name = plan_name(old_plan.as_deref().unwrap_or(plan));
+        let base = match role.as_str() {
+            "INVESTOR" => "/investor",
+            "INTERMEDIARY" => "/connector",
+            _ => "/startup",
+        };
+        send_billing_email(
+            state,
+            &email_to,
+            &format!("Your metatron {name} plan has ended"),
+            &crate::email::plan_ended_email_html(
+                name,
+                &plan_includes(state, &role, "free"),
+                &format!("https://platform.metatron.id{base}/settings/subscription"),
+            ),
+        )
+        .await;
+    }
     Ok(())
+}
+
+fn plan_name(plan: &str) -> &'static str {
+    match plan {
+        "pro" => "Pro",
+        "basic" => "Basic",
+        _ => "Free",
+    }
+}
+
+/// What a plan gives this role, from the limits the code enforces.
+fn plan_includes(state: &AppState, role: &str, plan: &str) -> Vec<String> {
+    let per_week = |limit: i64, who: &str| {
+        if limit <= 0 {
+            format!("Unlimited {who} matches")
+        } else if limit == 1 {
+            format!("1 {who} match a week")
+        } else {
+            format!("{limit} {who} matches a week")
+        }
+    };
+    let messages = match plan {
+        "pro" => "Unlimited Kevin messages".to_string(),
+        "basic" => "200 Kevin messages a day".to_string(),
+        _ => "20 Kevin messages a day".to_string(),
+    };
+    let paid = plan != "free";
+    match role {
+        "INVESTOR" => {
+            let limit = match plan {
+                "pro" => state.investor_match_limit_pro,
+                "basic" => state.investor_match_limit_basic,
+                _ => state.investor_match_limit_free,
+            };
+            let mut items = vec![per_week(limit, "founder"), messages];
+            if paid {
+                items.push("Call Intelligence".to_string());
+            }
+            items
+        }
+        "INTERMEDIARY" => vec![messages],
+        _ => {
+            let limit = match plan {
+                "pro" => state.match_limit_pro,
+                "basic" => state.match_limit_basic,
+                _ => state.match_limit_free,
+            };
+            let mut items = vec![per_week(limit, "investor"), messages];
+            if paid {
+                items.push("Call Intelligence".to_string());
+                items.push("Kevin imports your deck into your profile".to_string());
+                items.push("Full Angel Score breakdown".to_string());
+            }
+            items
+        }
+    }
+}
+
+/// billing@ only sends; replies go to hello@.
+async fn send_billing_email(state: &AppState, to: &str, subject: &str, html: &str) {
+    crate::email::send_email_with_headers(
+        &state.http_client,
+        state.resend_api_key.as_deref(),
+        &state.billing_email_from,
+        to,
+        subject,
+        html,
+        json!({ "Reply-To": "hello@metatron.id" }),
+    )
+    .await;
 }
 
 async fn record_invoice(state: &AppState, invoice: &Value) -> Result<(), String> {

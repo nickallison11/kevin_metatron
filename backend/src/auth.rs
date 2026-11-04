@@ -34,6 +34,8 @@ pub enum AuthError {
     InvalidCredentials,
     #[error("registration closed")]
     RegistrationClosed,
+    #[error("verified email required")]
+    EmailRequired,
     #[error("internal error")]
     Internal,
 }
@@ -393,13 +395,16 @@ pub async fn find_or_create_oauth_user(
         return Ok((user_id, false));
     }
 
-    // 2) Existing platform user by email: link oauth account.
-    if let Some(email) = email {
+    // 2) Existing platform user by email: link oauth account. Callers pass
+    // only an email the provider has verified, so nobody can attach their
+    // login to someone else's account by claiming that address.
+    let email = email.map(|e| e.trim().to_lowercase());
+    if let Some(email) = email.as_deref() {
         let existing_user_id: Option<Uuid> = sqlx::query_scalar(
             r#"
             SELECT id
             FROM users
-            WHERE email = $1
+            WHERE LOWER(email) = $1
             "#,
         )
         .bind(email)
@@ -430,8 +435,10 @@ pub async fn find_or_create_oauth_user(
     if !allow_create {
         return Err(AuthError::RegistrationClosed);
     }
+    let Some(email_val) = email.as_deref() else {
+        return Err(AuthError::EmailRequired);
+    };
     let user_id = Uuid::new_v4();
-    let email_val = email.unwrap_or("unknown@oauth.metatron.id");
 
     sqlx::query(
         r#"

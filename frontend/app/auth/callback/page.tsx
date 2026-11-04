@@ -55,15 +55,10 @@ function OAuthCallbackContent() {
       return;
     }
 
+    // An account OAuth created that hasn't finished sign-up yet: founder or
+    // investor, mobile number and WhatsApp or Telegram.
     if (isNew) {
-      try {
-        window.sessionStorage.setItem("metatron_oauth_token", token);
-        window.sessionStorage.setItem("metatron_oauth_new", "true");
-      } catch {
-        router.replace("/login?error=oauth_failed");
-        return;
-      }
-      router.replace("/?select_role=1");
+      router.replace("/?setup=1");
       return;
     }
 

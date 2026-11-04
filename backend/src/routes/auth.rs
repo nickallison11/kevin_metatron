@@ -62,7 +62,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/2fa/backup-codes", post(two_fa_regenerate_backup_codes))
         .route("/account", delete(delete_account))
         .route("/me/export", get(export_data))
-        .route("/role", put(set_role))
+        .route("/oauth/setup", post(oauth_setup))
         .route("/ai-settings", put(set_ai_settings))
 }
 
@@ -429,6 +429,35 @@ async fn whatsapp_taken(state: &AppState, phone: &str) -> Result<bool, (StatusCo
     })
 }
 
+/// Mobile number (digits only), channel and role from a sign-up form, checked
+/// the same way for email sign-up and for finishing an OAuth sign-up.
+async fn check_signup_details(
+    state: &AppState,
+    phone: &str,
+    channel: &str,
+    role: &str,
+) -> Result<(String, String, String), (StatusCode, String)> {
+    let phone: String = phone.chars().filter(|c| c.is_ascii_digit()).collect();
+    if !(8..=15).contains(&phone.len()) {
+        return Err((StatusCode::BAD_REQUEST, "Enter a valid mobile number.".to_string()));
+    }
+    let channel = channel.trim().to_lowercase();
+    if channel != "whatsapp" && channel != "telegram" {
+        return Err((StatusCode::BAD_REQUEST, "Choose WhatsApp or Telegram.".to_string()));
+    }
+    let role = role.trim().to_lowercase();
+    if role != "founder" && role != "investor" {
+        return Err((StatusCode::BAD_REQUEST, "Choose founder or investor.".to_string()));
+    }
+    if channel == "whatsapp" && whatsapp_taken(state, &phone).await? {
+        return Err((
+            StatusCode::CONFLICT,
+            "This WhatsApp number is already linked to another account.".to_string(),
+        ));
+    }
+    Ok((phone, channel, role))
+}
+
 async fn send_signup_code(state: &AppState, email_addr: &str, code: &str) {
     let html = format!(
         r#"<p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">Here's your code to finish signing up to metatron:</p>
@@ -470,29 +499,13 @@ async fn signup_start(
     require_registration_open(&state)?;
     let email_addr = normalize_signup_email(&body.email)
         .ok_or((StatusCode::BAD_REQUEST, "Enter a valid email address.".to_string()))?;
-    let phone: String = body.phone.chars().filter(|c| c.is_ascii_digit()).collect();
-    if !(8..=15).contains(&phone.len()) {
-        return Err((StatusCode::BAD_REQUEST, "Enter a valid mobile number.".to_string()));
-    }
-    let channel = body.channel.trim().to_lowercase();
-    if channel != "whatsapp" && channel != "telegram" {
-        return Err((StatusCode::BAD_REQUEST, "Choose WhatsApp or Telegram.".to_string()));
-    }
-    let role = body.role.trim().to_lowercase();
-    if role != "founder" && role != "investor" {
-        return Err((StatusCode::BAD_REQUEST, "Choose founder or investor.".to_string()));
-    }
+    let (phone, channel, role) =
+        check_signup_details(&state, &body.phone, &body.channel, &body.role).await?;
 
     if email_taken(&state, &email_addr).await? {
         return Err((
             StatusCode::CONFLICT,
             "An account with this email already exists. Sign in instead.".to_string(),
-        ));
-    }
-    if channel == "whatsapp" && whatsapp_taken(&state, &phone).await? {
-        return Err((
-            StatusCode::CONFLICT,
-            "This WhatsApp number is already linked to another account.".to_string(),
         ));
     }
 
@@ -967,7 +980,7 @@ async fn logout_all(
     Ok(StatusCode::NO_CONTENT)
 }
 
-fn issue_two_fa_pending_jwt(
+pub(crate) fn issue_two_fa_pending_jwt(
     state: &AppState,
     user_id: uuid::Uuid,
     role: &str,
@@ -2082,31 +2095,65 @@ async fn unlink_telegram(
 }
 
 #[derive(Deserialize)]
-pub struct SetRoleRequest {
+pub struct OAuthSetupRequest {
+    pub phone: String,
+    /// `whatsapp` or `telegram`.
+    pub channel: String,
+    /// `founder` or `investor`.
     pub role: String,
 }
 
-async fn set_role(
+/// Finishes an account created by Google, LinkedIn or GitHub sign-in. The
+/// provider already verified the email, so this asks for the rest of what
+/// sign-up asks for (founder or investor, mobile number, WhatsApp or
+/// Telegram) and then runs the usual new-account steps. Only for accounts
+/// without a password that haven't chosen a channel yet; returns a new token
+/// pair because the role may have changed.
+async fn oauth_setup(
     State(state): State<Arc<AppState>>,
     TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
-    Json(body): Json<SetRoleRequest>,
-) -> Result<StatusCode, (StatusCode, String)> {
+    Json(body): Json<OAuthSetupRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let authed = require_user(&state, bearer.token()).await?;
+    let email_addr: Option<String> = sqlx::query_scalar(
+        "SELECT email FROM users WHERE id = $1 AND password_hash IS NULL AND preferred_channel IS NULL",
+    )
+    .bind(authed.id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| {
+        tracing::error!("oauth_setup: lookup: {e}");
+        (StatusCode::INTERNAL_SERVER_ERROR, "database error".to_string())
+    })?;
+    let Some(email_addr) = email_addr else {
+        return Err((StatusCode::CONFLICT, "Your account is already set up.".to_string()));
+    };
+    let (phone, channel, role) =
+        check_signup_details(&state, &body.phone, &body.channel, &body.role).await?;
+    let db_role = auth::signup_role_from_frontend(Some(&role));
 
     sqlx::query(
-        r#"
-        UPDATE users
-        SET role = $1::user_role
-        WHERE id = $2
-        "#,
+        "UPDATE users SET role = $2::user_role, phone_number = $3, preferred_channel = $4 WHERE id = $1",
     )
-    .bind(auth::signup_role_from_frontend(Some(&body.role)))
     .bind(authed.id)
+    .bind(db_role)
+    .bind(&phone)
+    .bind(&channel)
     .execute(&state.db)
     .await
-    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string()))?;
+    .map_err(|e| {
+        tracing::error!("oauth_setup: update: {e}");
+        (StatusCode::INTERNAL_SERVER_ERROR, "database error".to_string())
+    })?;
 
-    Ok(StatusCode::OK)
+    let (token, refresh_token) =
+        finish_signup(&state, authed.id, &email_addr, db_role, None, true).await?;
+
+    Ok(Json(serde_json::json!({
+        "token": token,
+        "refresh_token": refresh_token,
+        "role": db_role,
+    })))
 }
 
 #[derive(Deserialize)]

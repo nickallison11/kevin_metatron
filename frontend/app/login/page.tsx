@@ -109,14 +109,27 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // OAuth sends new users back here while registration is closed before launch.
-  useEffect(() => {
-    if (new URLSearchParams(window.location.search).get("error") === "registration_closed") {
-      setError("No metatron account uses that login yet, and sign-ups open at launch.");
-    }
-  }, []);
   const [twoFaStep, setTwoFaStep] = useState(false);
   const [partialToken, setPartialToken] = useState<string | null>(null);
+
+  // OAuth sends people back here: new users while registration is closed
+  // before launch, logins without a verified email, and 2FA accounts, which
+  // continue at the code step.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const oauthError = params.get("error");
+    if (oauthError === "registration_closed") {
+      setError("No metatron account uses that login yet, and sign-ups open at launch.");
+    } else if (oauthError === "oauth_no_email") {
+      setError("That login has no verified email address. Verify one with the provider, or sign in with email.");
+    }
+    const twofa = params.get("twofa");
+    if (twofa) {
+      setPartialToken(twofa);
+      setTwoFaStep(true);
+      window.history.replaceState(null, "", "/login");
+    }
+  }, []);
   const [twoFaCode, setTwoFaCode] = useState("");
   // Lost-phone path: one of the backup codes shown when 2FA was turned on.
   const [useBackupCode, setUseBackupCode] = useState(false);

@@ -416,26 +416,41 @@ async fn email_taken(state: &AppState, email_addr: &str) -> Result<bool, (Status
         })
 }
 
-async fn whatsapp_taken(state: &AppState, phone: &str) -> Result<bool, (StatusCode, String)> {
+/// One mobile number per account, whichever channel was chosen: the number
+/// counts as taken if another account typed it at sign-up, linked it on
+/// WhatsApp or shared it from Telegram. (Linking WhatsApp with a one-time
+/// code proves the phone, so that path moves the number over instead.)
+async fn phone_taken(
+    state: &AppState,
+    phone: &str,
+    except_user: Option<Uuid>,
+) -> Result<bool, (StatusCode, String)> {
     sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM users WHERE regexp_replace(COALESCE(whatsapp_number, ''), '[^0-9]', '', 'g') = $1)",
+        "SELECT EXISTS(SELECT 1 FROM users
+         WHERE $1 IN (regexp_replace(COALESCE(phone_number, ''), '[^0-9]', '', 'g'),
+                      regexp_replace(COALESCE(whatsapp_number, ''), '[^0-9]', '', 'g'),
+                      regexp_replace(COALESCE(shared_phone, ''), '[^0-9]', '', 'g'))
+           AND id IS DISTINCT FROM $2)",
     )
     .bind(phone)
+    .bind(except_user)
     .fetch_one(&state.db)
     .await
     .map_err(|e| {
-        tracing::error!("signup: whatsapp lookup: {e}");
+        tracing::error!("signup: phone lookup: {e}");
         (StatusCode::INTERNAL_SERVER_ERROR, "database error".to_string())
     })
 }
 
 /// Mobile number (digits only), channel and role from a sign-up form, checked
-/// the same way for email sign-up and for finishing an OAuth sign-up.
+/// the same way for email sign-up and for finishing an OAuth sign-up
+/// (`except_user` is that account).
 async fn check_signup_details(
     state: &AppState,
     phone: &str,
     channel: &str,
     role: &str,
+    except_user: Option<Uuid>,
 ) -> Result<(String, String, String), (StatusCode, String)> {
     let phone: String = phone.chars().filter(|c| c.is_ascii_digit()).collect();
     if !(8..=15).contains(&phone.len()) {
@@ -449,10 +464,10 @@ async fn check_signup_details(
     if role != "founder" && role != "investor" {
         return Err((StatusCode::BAD_REQUEST, "Choose founder or investor.".to_string()));
     }
-    if channel == "whatsapp" && whatsapp_taken(state, &phone).await? {
+    if phone_taken(state, &phone, except_user).await? {
         return Err((
             StatusCode::CONFLICT,
-            "This WhatsApp number is already linked to another account.".to_string(),
+            "This mobile number is already used by another metatron account. Sign in to that account instead.".to_string(),
         ));
     }
     Ok((phone, channel, role))
@@ -500,7 +515,7 @@ async fn signup_start(
     let email_addr = normalize_signup_email(&body.email)
         .ok_or((StatusCode::BAD_REQUEST, "Enter a valid email address.".to_string()))?;
     let (phone, channel, role) =
-        check_signup_details(&state, &body.phone, &body.channel, &body.role).await?;
+        check_signup_details(&state, &body.phone, &body.channel, &body.role, None).await?;
 
     if email_taken(&state, &email_addr).await? {
         return Err((
@@ -637,6 +652,14 @@ async fn signup_verify(
             .execute(&state.db)
             .await;
         return Err((StatusCode::BAD_REQUEST, "That code doesn't match. Check the email and try again.".to_string()));
+    }
+    // Checked again here: another account may have taken the number in the
+    // minutes since the code was sent.
+    if phone_taken(&state, &phone, None).await? {
+        return Err((
+            StatusCode::CONFLICT,
+            "This mobile number is already used by another metatron account. Sign in to that account instead.".to_string(),
+        ));
     }
 
     let db_role = auth::signup_role_from_frontend(Some(&role));
@@ -2129,7 +2152,7 @@ async fn oauth_setup(
         return Err((StatusCode::CONFLICT, "Your account is already set up.".to_string()));
     };
     let (phone, channel, role) =
-        check_signup_details(&state, &body.phone, &body.channel, &body.role).await?;
+        check_signup_details(&state, &body.phone, &body.channel, &body.role, Some(authed.id)).await?;
     let db_role = auth::signup_role_from_frontend(Some(&role));
 
     sqlx::query(

@@ -506,7 +506,7 @@ fn plan_includes(state: &AppState, role: &str, plan: &str) -> Vec<String> {
                 _ => state.investor_match_limit_free,
             };
             let mut items = vec![per_week(limit, "founder"), messages];
-            if paid {
+            if plan == "pro" {
                 items.push("Call Intelligence".to_string());
             }
             items
@@ -519,8 +519,10 @@ fn plan_includes(state: &AppState, role: &str, plan: &str) -> Vec<String> {
                 _ => state.match_limit_free,
             };
             let mut items = vec![per_week(limit, "investor"), messages];
-            if paid {
+            if plan == "pro" {
                 items.push("Call Intelligence".to_string());
+            }
+            if paid {
                 items.push("Kevin imports your deck into your profile".to_string());
                 items.push("Full Angel Score breakdown".to_string());
             }

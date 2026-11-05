@@ -13,14 +13,16 @@ import {
 } from "@tabler/icons-react";
 import { useAuth } from "@/lib/auth";
 import { useIntroRequestCount } from "@/lib/useIntroRequestCount";
-import DashboardChrome, { type ChromeNavGroup } from "@/components/DashboardChrome";
+import DashboardChrome, { type ChromeNavGroup, type ChromeNavItem } from "@/components/DashboardChrome";
+import { useUpgrade } from "@/components/upgrade/UpgradeProvider";
 
 // Portfolio was a locked placeholder for a page that doesn't exist; it comes
 // back to the nav when that page is built.
 export default function InvestorShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  const { token, loading } = useAuth("INVESTOR");
+  const { token, isProTier, loading } = useAuth("INVESTOR");
   const requests = useIntroRequestCount(token);
+  const { openUpgrade } = useUpgrade();
 
   if (loading) {
     return (
@@ -31,6 +33,11 @@ export default function InvestorShell({ children }: { children: ReactNode }) {
   }
 
   if (!token) return null;
+
+  // Call Intelligence is Pro only.
+  const calls: ChromeNavItem = isProTier
+    ? { key: "/investor/calls", href: "/investor/calls", label: "Call Intelligence", icon: IconHeadset, kind: "link" }
+    : { key: "calls-locked", label: "Call Intelligence", icon: IconHeadset, kind: "locked", onClick: openUpgrade };
 
   const groups: ChromeNavGroup[] = [
     {
@@ -47,7 +54,7 @@ export default function InvestorShell({ children }: { children: ReactNode }) {
         { key: "/investor/matches", href: "/investor/matches", label: "Matches", icon: IconArrowsExchange, kind: "link", badge: requests },
         { key: "/investor/startups", href: "/investor/startups", label: "Browse Startups", icon: IconBuilding, kind: "link", matchPrefix: true },
         { key: "/investor/memos", href: "/investor/memos", label: "Memos", icon: IconFileText, kind: "link" },
-        { key: "/investor/calls", href: "/investor/calls", label: "Call Intelligence", icon: IconHeadset, kind: "link" },
+        calls,
       ],
     },
   ];

@@ -30,7 +30,7 @@ const SOURCE_LABELS: Record<string, string> = {
 
 export default function StartupCallsPage() {
   const router = useRouter();
-  const { token, isPro, loading } = useAuth();
+  const { token, isProTier: isPro, loading } = useAuth(); // Call Intelligence is Pro only.
   const [calls, setCalls] = useState<CallRow[]>([]);
   const [msg, setMsg] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);

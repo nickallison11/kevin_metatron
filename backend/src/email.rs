@@ -601,27 +601,34 @@ pub fn waitlist_admin_notification_html(
     )
 }
 
-pub fn welcome_email_html(role: &str) -> String {
-    let body = match role {
-        "INVESTOR" => r#"
-<p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">Your account is ready. Here's what you can do as a free investor:</p>
-<ul style="margin:0 0 14px 18px;padding:0;color:#e8e8ed;font-size:14px;line-height:1.6;">
-  <li>Build your investor profile with thesis, sectors, stages, and ticket size</li>
-  <li>Browse Kevin-matched founders aligned with your thesis</li>
-  <li>Request warm intros to founders you want to meet</li>
-  <li>Chat with Kevin, your AI deal-flow co-pilot</li>
-</ul>
-<p style="margin:0 0 8px 0;font-size:14px;color:#e8e8ed;">Ready to unlock more?</p>
-<p style="margin:0 0 14px 0;font-size:14px;">
-  <a href="https://platform.metatron.id/pricing" style="color:#6c5ce7;text-decoration:none;">View Free → Basic plans</a>
+/// `weekly_matches` is the Free plan's weekly match limit for this role.
+pub fn welcome_email_html(role: &str, weekly_matches: i64) -> String {
+    let free = |items: [String; 4]| {
+        format!(
+            r#"
+<p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">Your account is ready. On the free plan:</p>
+{}<p style="margin:0 0 0 0;">
+  <a href="https://platform.metatron.id" style="display:inline-block;background:#6c5ce7;color:#ffffff;text-decoration:none;font-size:14px;font-weight:600;padding:12px 20px;border-radius:12px;">Open metatron</a>
 </p>
-<ul style="margin:0 0 0 18px;padding:0;color:#e8e8ed;font-size:14px;line-height:1.6;">
-  <li>Unlimited match feed (vs. 1/week on Free)</li>
-  <li>Pipeline stage management</li>
-  <li>Investment memo generation</li>
-  <li>Public investor profile on metatron</li>
-</ul>
 "#,
+            bullet_list_html(&items)
+        )
+    };
+    let matches = |what: &str| {
+        if weekly_matches == 1 {
+            format!("1 {what} match a week from Kevin")
+        } else {
+            format!("{weekly_matches} {what} matches a week from Kevin")
+        }
+    };
+    let messages = "Up to 20 messages a day with Kevin on WhatsApp or Telegram".to_string();
+    let body = match role {
+        "INVESTOR" => free([
+            "Your investor profile: thesis, sectors, stages and cheque size".to_string(),
+            matches("founder"),
+            messages,
+            "Intro requests from founders who fit your thesis".to_string(),
+        ]),
         "INTERMEDIARY" => r#"
 <p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">Your account is ready. Here's what you can do as a free connector:</p>
 <ul style="margin:0 0 14px 18px;padding:0;color:#e8e8ed;font-size:14px;line-height:1.6;">
@@ -639,27 +646,16 @@ pub fn welcome_email_html(role: &str) -> String {
   <li>Referral and introduction tracking</li>
   <li>IPFS-anchored network ownership</li>
 </ul>
-"#,
-        _ => r#"
-<p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">Your account is ready. Here's what you can do as a free founder:</p>
-<ul style="margin:0 0 14px 18px;padding:0;color:#e8e8ed;font-size:14px;line-height:1.6;">
-  <li>Build your founder profile with company details, stage, and sector</li>
-  <li>Share your pitch deck link with investors</li>
-  <li>Chat with Kevin, your AI fundraising co-pilot</li>
-</ul>
-<p style="margin:0 0 8px 0;font-size:14px;color:#e8e8ed;">Ready to unlock more?</p>
-<p style="margin:0 0 14px 0;font-size:14px;">
-  <a href="https://platform.metatron.id/pricing" style="color:#6c5ce7;text-decoration:none;">View Free → Basic plans</a>
-</p>
-<ul style="margin:0 0 0 18px;padding:0;color:#e8e8ed;font-size:14px;line-height:1.6;">
-  <li>Private &amp; public IPFS pitch deck storage</li>
-  <li>Call intelligence (upload recordings for AI analysis)</li>
-  <li>Full contact card sharing on investor intros</li>
-  <li>Pitches management</li>
-</ul>
-"#,
+"#
+        .to_string(),
+        _ => free([
+            "Your founder profile and pitch deck, live for investors".to_string(),
+            matches("investor"),
+            messages,
+            "Warm intros when an investor wants to meet you".to_string(),
+        ]),
     };
-    shell_html("Welcome to metatron", body)
+    shell_html("Welcome to metatron", &body)
 }
 
 fn bullet_list_html(items: &[String]) -> String {

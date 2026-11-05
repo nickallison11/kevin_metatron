@@ -21,13 +21,13 @@ use crate::ai::{complete_json_object, mock_call_analysis_json};
 use crate::identity::{require_role, AuthedUser};
 use crate::state::AppState;
 
-/// Free tier (any role) never gets Call Intelligence -- is_pro/is_basic on
-/// `users` is the single source of truth. This used to also grant access to
-/// any investor whose (separate, redundant) investor_profiles.investor_tier
-/// column said "basic", which could let a genuinely free-tier investor in if
-/// that column ever drifted from the real subscription state.
+/// Call Intelligence is Pro only (any role) -- is_pro on `users` is the single
+/// source of truth. This used to also grant access to any investor whose
+/// (separate, redundant) investor_profiles.investor_tier column said "basic",
+/// which could let a genuinely free-tier investor in if that column ever
+/// drifted from the real subscription state.
 async fn calls_access_allowed(_state: &AppState, user: &AuthedUser) -> bool {
-    user.is_pro || user.is_basic
+    user.is_pro
 }
 
 const MAX_AUDIO_BYTES: usize = 80 * 1024 * 1024;

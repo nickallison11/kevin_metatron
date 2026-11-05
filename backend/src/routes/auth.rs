@@ -341,7 +341,10 @@ async fn finish_signup(
         &state.account_email_from,
         email_addr,
         "Welcome to metatron",
-        &email::welcome_email_html(db_role),
+        &email::welcome_email_html(
+            db_role,
+            if db_role == "INVESTOR" { state.investor_match_limit_free } else { state.match_limit_free },
+        ),
     )
     .await;
 

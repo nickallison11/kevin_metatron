@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { API_BASE, authHeaders, authJsonHeaders } from "@/lib/api";
+import { API_BASE, authHeaders } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { NotetakerConnections } from "@/components/NotetakerConnections";
 
@@ -30,37 +30,14 @@ const SOURCE_LABELS: Record<string, string> = {
 
 export default function InvestorCallsPage() {
   const router = useRouter();
-  const { token, loading } = useAuth("INVESTOR");
-  const [isPaid, setIsPaid] = useState<boolean | null>(null);
+  // Call Intelligence is Pro only.
+  const { token, isProTier: isPaid, loading } = useAuth("INVESTOR");
   const [calls, setCalls] = useState<CallRow[]>([]);
   const [msg, setMsg] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
-    if (!token) return;
-    let cancelled = false;
-    void (async () => {
-      try {
-        const res = await fetch(`${API_BASE}/investor-profile`, {
-          headers: authJsonHeaders(token),
-        });
-        if (!res.ok) {
-          if (!cancelled) setIsPaid(false);
-          return;
-        }
-        const data = (await res.json()) as { investor_tier?: string | null };
-        if (!cancelled) setIsPaid(data.investor_tier === "basic");
-      } catch {
-        if (!cancelled) setIsPaid(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [token]);
-
-  useEffect(() => {
-    if (!loading && token && isPaid === false) {
+    if (!loading && token && !isPaid) {
       router.replace("/investor/settings/subscription");
     }
   }, [loading, token, isPaid, router]);
@@ -83,7 +60,6 @@ export default function InvestorCallsPage() {
 
   if (loading) return null;
   if (!token) return null;
-  if (isPaid === null) return null;
   if (!isPaid) return null;
 
   async function onUpload(e: React.ChangeEvent<HTMLInputElement>) {

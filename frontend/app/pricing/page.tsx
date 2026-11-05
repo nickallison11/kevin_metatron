@@ -33,7 +33,6 @@ const freeFeatures = [
 const basicFeatures = [
   "Everything in Free",
   "Kevin AI chat (200 msg/day)",
-  "Call recording + AI analysis",
   "10 investor matches/week",
   "Permanent IPFS deck storage",
   "Kevin extracts pitch data from deck",
@@ -42,6 +41,7 @@ const basicFeatures = [
 const founderProFeatures = [
   "Everything in Basic",
   "Unlimited Kevin messages + matches",
+  "Call recording + AI analysis",
   "Private encrypted IPFS deck",
   "Full Virtual Data Room",
   "Custom AI backend",
@@ -64,6 +64,7 @@ const investorBasicFeatures = [
 
 const investorProFeatures = [
   "Everything in Basic",
+  "Call recording + AI analysis",
   "Advanced portfolio analytics",
   "Custom deal-flow workflows",
   "White-label investor profile",

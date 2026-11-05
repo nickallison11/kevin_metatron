@@ -17,7 +17,7 @@ use sqlx::types::Json as SqlxJson;
 use uuid::Uuid;
 
 use crate::crypto;
-use crate::identity::require_user;
+use crate::identity::{require_user, AuthedUser};
 use crate::routes::calls::analyze_transcript;
 use crate::state::AppState;
 
@@ -42,6 +42,15 @@ const PROVIDERS: [&str; 3] = ["fireflies", "fathom", "tldv"];
 
 fn valid_provider(p: &str) -> bool {
     PROVIDERS.contains(&p)
+}
+
+/// Note-takers feed Call Intelligence, which is Pro only (see `calls.rs`).
+fn require_pro(user: &AuthedUser) -> Result<(), (StatusCode, String)> {
+    if user.is_pro {
+        Ok(())
+    } else {
+        Err((StatusCode::FORBIDDEN, "subscription required".to_string()))
+    }
 }
 
 #[derive(Serialize)]
@@ -109,6 +118,7 @@ async fn connect(
     Json(body): Json<ConnectBody>,
 ) -> Result<Json<Value>, (StatusCode, String)> {
     let user = require_user(&state, bearer.token()).await?;
+    require_pro(&user)?;
     if !valid_provider(&provider) {
         return Err((StatusCode::BAD_REQUEST, "unknown provider".to_string()));
     }
@@ -169,6 +179,7 @@ async fn sync_now(
     Path(provider): Path<String>,
 ) -> Result<Json<Value>, (StatusCode, String)> {
     let user = require_user(&state, bearer.token()).await?;
+    require_pro(&user)?;
     if !valid_provider(&provider) {
         return Err((StatusCode::BAD_REQUEST, "unknown provider".to_string()));
     }
@@ -509,12 +520,13 @@ async fn sync_provider(
 }
 
 /// Background task: every 30 minutes, syncs every connected user/provider
-/// pair. Mirrors the pattern in `cleanup.rs` (`start_cleanup_task` etc).
+/// pair for Pro accounts. Mirrors the pattern in `cleanup.rs` (`start_cleanup_task` etc).
 pub fn start_notetaker_sync_task(state: Arc<AppState>) {
     tokio::task::spawn(async move {
         loop {
             let connections: Vec<(Uuid, String, String)> = sqlx::query_as(
-                "SELECT user_id, provider, api_key FROM meeting_notetaker_connections",
+                "SELECT m.user_id, m.provider, m.api_key FROM meeting_notetaker_connections m \
+                 JOIN users u ON u.id = m.user_id WHERE u.is_pro",
             )
             .fetch_all(&state.db)
             .await

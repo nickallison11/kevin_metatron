@@ -246,7 +246,7 @@ export default function StartupDashboardPage() {
             <section className={`${card} p-[22px]`}>
               <span className="text-[15px] font-semibold">Get more from Kevin with Basic</span>
               <span className="text-[13px] leading-relaxed text-[var(--text-muted)]">
-                10 matches a week, the full Angel Score breakdown, deck upload and Call Intelligence.
+                10 matches a week, the full Angel Score breakdown and deck upload.
               </span>
               <button type="button" onClick={openUpgrade} className={btn}>
                 See Basic

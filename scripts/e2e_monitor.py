@@ -63,8 +63,8 @@ run identically against both environments.
   15a. Tier assignments — logs into all 7 dev test accounts (founder/
       founderbasic/founderpro/investor/investorbasic/investorpro/connector)
       and verifies is_basic/is_pro match what each account's name promises.
-  16a. Call Intelligence gating — free tier must get 403, basic/pro must
-      get 200. This is the exact bug fixed in the 2026-07-28 subscription
+  16a. Call Intelligence gating — free and basic must get 403, pro must
+      get 200 (Pro only since 2026-11-05). Started as the bug fixed in the 2026-07-28 subscription
       audit (a legacy investor bypass let free investors in).
   17a/17b. Stripe billing: /commerce/config payments switch, and the Stripe
       webhook rejecting a bad signature (400). Dev must have payments on;
@@ -510,14 +510,14 @@ def check_tier_assignments(base_url, password, accounts=DEV_ACCOUNTS):
 
 def check_call_intelligence_gating(base_url, password, accounts=DEV_ACCOUNTS):
     """
-    Free tier must get 403 from Call Intelligence, Basic/Pro must get 200 --
+    Free and Basic must get 403 from Call Intelligence, Pro must get 200 --
     this is the exact bug fixed in the 2026-07-28 audit (a legacy investor
-    bypass could let free-tier investors through). Checks one free + one
-    paid account per role. Returns a list of failure strings, empty if clean.
+    bypass could let free-tier investors through). Checks one Free, one
+    Basic + one Pro account per role. Returns a list of failure strings, empty if clean.
     """
     cases = [
-        ("founder", 403), ("founderbasic", 200),
-        ("investor", 403), ("investorbasic", 200),
+        ("founder", 403), ("founderbasic", 403), ("founderpro", 200),
+        ("investor", 403), ("investorbasic", 403), ("investorpro", 200),
     ]
     failures = []
     for name, expected_status in cases:
@@ -831,7 +831,7 @@ def render_tier_assignment_check(lines, drifts, number, tag, base_url, password)
 
 def render_call_intelligence_gating_check(lines, drifts, number, tag, base_url, password):
     """Check 16a/16b."""
-    lines.append(f"## Check {number} — Call Intelligence gating (free=403, basic/pro=200) [{tag}]")
+    lines.append(f"## Check {number} — Call Intelligence gating (free/basic=403, pro=200) [{tag}]")
     if not password:
         lines.append(f"- ⚠ DRIFT — no password available for {tag}")
         drifts.append(f"call intelligence gating check ({tag}): no password available")
@@ -1500,7 +1500,7 @@ def main():
     render_na_check(lines, "15b", "PRODUCTION", "Tier assignments (founder/investor free-basic-pro ladder)")
 
     render_call_intelligence_gating_check(lines, drifts, "16a", "DEV", DEV_BACKEND_URL, DEV_TEST_PASSWORD)
-    render_na_check(lines, "16b", "PRODUCTION", "Call Intelligence gating (free=403, basic/pro=200)")
+    render_na_check(lines, "16b", "PRODUCTION", "Call Intelligence gating (free/basic=403, pro=200)")
 
     # ── Checks 17-19: Stripe billing (the only payment provider since 2026-10-22)
     render_stripe_endpoint_check(lines, drifts, "17a", "DEV", DEV_BACKEND_URL, payments_required=True)

@@ -17,7 +17,7 @@ import { useUpgrade } from "@/components/upgrade/UpgradeProvider";
 
 export default function StartupShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  const { token, isPro, loading } = useAuth();
+  const { token, isProTier, loading } = useAuth();
   const requests = useIntroRequestCount(token);
   const { openUpgrade } = useUpgrade();
 
@@ -31,8 +31,8 @@ export default function StartupShell({ children }: { children: ReactNode }) {
 
   if (!token) return null;
 
-  // Call Intelligence needs a paid plan (Basic or Pro).
-  const calls: ChromeNavItem = isPro
+  // Call Intelligence is Pro only.
+  const calls: ChromeNavItem = isProTier
     ? { key: "/startup/calls", href: "/startup/calls", label: "Call Intelligence", icon: IconHeadset, kind: "link" }
     : { key: "calls-locked", label: "Call Intelligence", icon: IconHeadset, kind: "locked", onClick: openUpgrade };
 

@@ -98,6 +98,12 @@ const FETCH_SQL: &str = r#"
     LEFT JOIN profiles p ON p.user_id = km.matched_user_id
     LEFT JOIN angel_scores a ON a.founder_user_id = km.matched_user_id
     WHERE km.for_user_id = $1
+      -- Only matches for the account's current role (a reset test account
+      -- can keep rows from when it had the other role).
+      AND km.match_type = CASE (SELECT role::text FROM users WHERE id = $1)
+          WHEN 'STARTUP' THEN 'founder_investor'
+          WHEN 'INVESTOR' THEN 'investor_founder'
+          ELSE km.match_type END
     ORDER BY (km.intro_requested_at IS NOT NULL), km.score DESC, km.generated_at DESC
 "#;
 

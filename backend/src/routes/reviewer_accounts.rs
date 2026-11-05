@@ -144,6 +144,7 @@ async fn consume_magic_link(
         sub: reviewer_id.to_string(),
         role: "REVIEWER".to_string(),
         exp: (now + Duration::from_secs(REVIEWER_JWT_TTL_SECS).as_secs()) as usize,
+        sid: None,
     };
     let jwt = encode(&Header::new(Algorithm::HS256), &claims, &state.jwt_encoding)
         .map_err(internal)?;

@@ -2,7 +2,8 @@ use std::sync::Arc;
 
 use axum::{
     extract::{Path, Query, State},
-    response::Redirect,
+    http::header,
+    response::{IntoResponse, Redirect, Response},
     routing::get,
     Router,
 };
@@ -11,6 +12,7 @@ use serde_json::Value;
 
 use crate::auth;
 use crate::crypto;
+use crate::session_cookie;
 use crate::settings::OAuthProviderConfig;
 use crate::state::AppState;
 
@@ -151,7 +153,7 @@ async fn callback(
     State(state): State<Arc<AppState>>,
     Path(provider): Path<String>,
     Query(q): Query<OAuthCallbackQuery>,
-) -> Result<Redirect, (axum::http::StatusCode, String)> {
+) -> Result<Response, (axum::http::StatusCode, String)> {
     let provider_lc = provider.to_ascii_lowercase();
     let spec = provider_spec(&provider_lc).ok_or((
         axum::http::StatusCode::BAD_REQUEST,
@@ -167,14 +169,14 @@ async fn callback(
 
     if q.error.is_some() {
         let redirect = format!("{}/login?error=oauth_failed", frontend_base);
-        return Ok(Redirect::to(&redirect));
+        return Ok(redirect_to(&redirect));
     }
 
     let code = match q.code.as_deref() {
         Some(c) => c,
         None => {
             let redirect = format!("{}/login?error=oauth_failed", frontend_base);
-            return Ok(Redirect::to(&redirect));
+            return Ok(redirect_to(&redirect));
         }
     };
 
@@ -182,7 +184,7 @@ async fn callback(
         Some(s) => s,
         None => {
             let redirect = format!("{}/login?error=oauth_failed", frontend_base);
-            return Ok(Redirect::to(&redirect));
+            return Ok(redirect_to(&redirect));
         }
     };
 
@@ -452,10 +454,10 @@ async fn callback(
     let user_id = match link {
         Ok((user_id, _)) => user_id,
         Err(auth::AuthError::RegistrationClosed) => {
-            return Ok(Redirect::to(&format!("{frontend_base}/login?error=registration_closed")));
+            return Ok(redirect_to(&format!("{frontend_base}/login?error=registration_closed")));
         }
         Err(auth::AuthError::EmailRequired) => {
-            return Ok(Redirect::to(&format!("{frontend_base}/login?error=oauth_no_email")));
+            return Ok(redirect_to(&format!("{frontend_base}/login?error=oauth_no_email")));
         }
         Err(_) => {
             return Err((
@@ -490,7 +492,7 @@ async fn callback(
                 "could not issue 2FA token".to_string(),
             )
         })?;
-        return Ok(Redirect::to(&format!(
+        return Ok(redirect_to(&format!(
             "{frontend_base}/login?twofa={}",
             percent_encode(&partial_token)
         )));
@@ -506,14 +508,20 @@ async fn callback(
         })?;
 
     let new_str = if needs_setup { "true" } else { "false" };
+    // The refresh token goes in the cookie, never in the URL.
     let redirect = format!(
-        "{}/auth/callback?token={}&refresh={}&new={}",
+        "{}/auth/callback?token={}&new={}",
         frontend_base,
         percent_encode(&jwt),
-        percent_encode(&refresh_token),
         new_str
     );
 
-    Ok(Redirect::to(&redirect))
+    let mut res = redirect_to(&redirect);
+    res.headers_mut().append(header::SET_COOKIE, session_cookie::set(&refresh_token));
+    Ok(res)
+}
+
+fn redirect_to(url: &str) -> Response {
+    Redirect::to(url).into_response()
 }
 

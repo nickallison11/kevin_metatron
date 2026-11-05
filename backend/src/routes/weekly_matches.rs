@@ -325,7 +325,7 @@ async fn refresh_matches(
     // If still low, trigger the AI generation endpoint with a short-lived internal JWT
     let generate_triggered = if unsent_after_recycle < limit {
         let exp = (chrono::Utc::now() + chrono::Duration::seconds(120)).timestamp() as usize;
-        let claims = Claims { sub: user_id.to_string(), role: role.clone(), exp };
+        let claims = Claims { sub: user_id.to_string(), role: role.clone(), exp, sid: None };
         let token = encode(&JwtHeader::default(), &claims, &state.jwt_encoding)
             .unwrap_or_default();
 
@@ -369,7 +369,7 @@ async fn rescore_matches(
         .map_err(|_| (StatusCode::NOT_FOUND, "user not found".into()))?;
 
     let exp = (chrono::Utc::now() + chrono::Duration::seconds(600)).timestamp() as usize;
-    let claims = Claims { sub: user_id.to_string(), role, exp };
+    let claims = Claims { sub: user_id.to_string(), role, exp, sid: None };
     let token = encode(&JwtHeader::default(), &claims, &state.jwt_encoding)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     let res = state

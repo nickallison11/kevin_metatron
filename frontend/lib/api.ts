@@ -1,4 +1,4 @@
-import { getAccessToken, getRefreshToken, refreshAccessToken } from "@/lib/tokenStore";
+import { getAccessToken, refreshAccessToken } from "@/lib/tokenStore";
 
 export const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
@@ -41,7 +41,7 @@ export async function apiFetch(
     });
 
   const res = await attempt(getAccessToken());
-  if (res.status !== 401 || !getRefreshToken()) return res;
+  if (res.status !== 401 || !getAccessToken()) return res;
 
   const refreshed = await refreshAccessToken();
   if (!refreshed) return res;

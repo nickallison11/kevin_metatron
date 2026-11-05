@@ -4,7 +4,7 @@ import { FormEvent, useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import QRCode from "qrcode";
 import { API_BASE, authHeaders, authJsonHeaders } from "@/lib/api";
-import { clearTokens, setTokenPair } from "@/lib/tokenStore";
+import { clearTokens, setAccessToken } from "@/lib/tokenStore";
 import { useAuth } from "@/lib/auth";
 import type { MeResponse } from "@/lib/me";
 import { passwordMeetsRules } from "@/lib/passwordRules";
@@ -101,6 +101,8 @@ export function AccountSettings({ role }: { role: "STARTUP" | "INVESTOR" | "INTE
   const [newEmail, setNewEmail] = useState("");
   const [changeEmailMsg, setChangeEmailMsg] = useState<string | null>(null);
   const [changingEmail, setChangingEmail] = useState(false);
+  const [signingOutAll, setSigningOutAll] = useState(false);
+  const [signOutAllMsg, setSignOutAllMsg] = useState<string | null>(null);
   const [emailCodeSent, setEmailCodeSent] = useState(false);
   const [emailCode, setEmailCode] = useState("");
 
@@ -315,11 +317,12 @@ export function AccountSettings({ role }: { role: "STARTUP" | "INVESTOR" | "INTE
         method: "PUT",
         headers: authJsonHeaders(token),
         body: JSON.stringify({ current_password: pwCurrentPassword, new_password: newPassword }),
+        credentials: "include",
       });
       if (!res.ok) throw new Error((await res.text()).trim() || "Could not change password");
-      // Other sessions are signed out; this one gets a fresh pair.
-      const pair = (await res.json()) as { token: string; refresh_token: string };
-      setTokenPair(pair.token, pair.refresh_token);
+      // Other sessions are signed out; this one gets a fresh token and cookie.
+      const pair = (await res.json()) as { token: string };
+      setAccessToken(pair.token);
       setChangePasswordMsg("Password updated. Other devices are signed out.");
       setPwCurrentPassword("");
       setNewPassword("");
@@ -513,6 +516,25 @@ export function AccountSettings({ role }: { role: "STARTUP" | "INVESTOR" | "INTE
     }
   }
 
+  async function onSignOutEverywhere() {
+    if (!token) return;
+    setSigningOutAll(true);
+    setSignOutAllMsg(null);
+    try {
+      const res = await fetch(`${API_BASE}/auth/logout-all`, {
+        method: "POST",
+        headers: authHeaders(token),
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error((await res.text()).trim() || "Could not sign out");
+      clearTokens();
+      router.push("/login");
+    } catch (err) {
+      setSignOutAllMsg(err instanceof Error ? err.message : "Could not sign out");
+      setSigningOutAll(false);
+    }
+  }
+
   async function onDeleteAccount() {
     if (!token || deleteText !== "DELETE") return;
     setDeleting(true);
@@ -682,7 +704,7 @@ export function AccountSettings({ role }: { role: "STARTUP" | "INVESTOR" | "INTE
             {tab === "security" && (
               <>
                 <section className={card}>
-                  <Row title="Password" sub="Use at least 8 characters.">
+                  <Row title="Password" sub="12+ characters, with upper and lower case, a number and a symbol.">
                     {!editingPassword && (
                       <button type="button" className={btn} onClick={() => setEditingPassword(true)}>
                         Change
@@ -911,9 +933,15 @@ export function AccountSettings({ role }: { role: "STARTUP" | "INVESTOR" | "INTE
                       </div>
                     </div>
                   )}
+                  <Row title="Devices" sub="Sign out on every device, including this one.">
+                    <button type="button" className={btn} onClick={onSignOutEverywhere} disabled={signingOutAll}>
+                      {signingOutAll ? "Signing out…" : "Sign out all"}
+                    </button>
+                  </Row>
                 </section>
                 <Note text={changePasswordMsg} />
                 <Note text={twoFaMsg} />
+                <Note text={signOutAllMsg} />
               </>
             )}
 

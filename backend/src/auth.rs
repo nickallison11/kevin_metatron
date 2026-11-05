@@ -17,6 +17,9 @@ pub struct Claims {
     pub sub: String,
     pub role: String,
     pub exp: usize,
+    /// Session (signed-in device) the token belongs to; absent on service tokens.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sid: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -133,6 +136,17 @@ pub fn issue_jwt(
     user_id: Uuid,
     role: &str,
 ) -> Result<String, AuthError> {
+    issue_session_jwt(state, user_id, role, None)
+}
+
+/// Access token for a signed-in device; `sid` lets `require_user` record the
+/// device's own activity.
+fn issue_session_jwt(
+    state: &AppState,
+    user_id: Uuid,
+    role: &str,
+    session_id: Option<Uuid>,
+) -> Result<String, AuthError> {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|_| AuthError::Internal)?
@@ -143,6 +157,7 @@ pub fn issue_jwt(
         sub: user_id.to_string(),
         role: role.to_string(),
         exp: exp as usize,
+        sid: session_id.map(|s| s.to_string()),
     };
 
     encode(
@@ -163,125 +178,154 @@ fn generate_raw_token() -> String {
     hex::encode(raw)
 }
 
-const REFRESH_TOKEN_TTL_SECS: i64 = 30 * 24 * 3600;
+/// A sign-in lasts at most this long, however active the device is.
+pub const SESSION_MAX_SECS: i64 = 30 * 24 * 3600;
 
-/// Real inactivity limit — separate from `REFRESH_TOKEN_TTL_SECS`, which is
-/// just the token's own absolute lifetime and slides forward on every
-/// silent refresh regardless of whether the user has done anything. See
-/// `rotate_refresh_token`.
+/// A device not used for this long is signed out. Activity is counted per
+/// device (`auth_sessions.last_active_at`, touched by `require_user`); the
+/// background token refresh doesn't count.
 const IDLE_TIMEOUT_SECS: i64 = 7 * 24 * 3600;
 
-/// Inserts a new refresh token row (30-day sliding expiry) and returns the
-/// raw token to hand to the client. Only the SHA-256 hash is stored.
-async fn create_refresh_token(state: &AppState, user_id: Uuid) -> Result<String, AuthError> {
+/// Two tabs can refresh with the same token at once. The loser presents a
+/// token rotated moments ago; within this window that's a race, not theft.
+const ROTATION_GRACE_SECS: i64 = 30;
+
+/// Inserts a refresh token for a session and returns its id and the raw
+/// token to hand to the client. Only the SHA-256 hash is stored.
+async fn create_refresh_token(
+    state: &AppState,
+    user_id: Uuid,
+    session_id: Uuid,
+) -> Result<(Uuid, String), AuthError> {
     let raw = generate_raw_token();
     let hash = sha256_hex(&raw);
 
-    sqlx::query(
+    let id: Uuid = sqlx::query_scalar(
         r#"
-        INSERT INTO refresh_tokens (user_id, token_hash, expires_at)
-        VALUES ($1, $2, now() + make_interval(secs => $3))
+        INSERT INTO refresh_tokens (user_id, token_hash, expires_at, session_id)
+        VALUES ($1, $2, now() + make_interval(secs => $3), $4)
+        RETURNING id
         "#,
     )
     .bind(user_id)
     .bind(&hash)
-    .bind(REFRESH_TOKEN_TTL_SECS as f64)
-    .execute(&state.db)
+    .bind(SESSION_MAX_SECS as f64)
+    .bind(session_id)
+    .fetch_one(&state.db)
     .await
     .map_err(|_| AuthError::Internal)?;
 
-    Ok(raw)
+    Ok((id, raw))
 }
 
-/// Issues a fresh access token + refresh token pair — the standard shape
-/// returned by every login-success path (signup, login, 2FA, telegram,
-/// OAuth).
+/// Starts a new session (one signed-in device) and issues its access token +
+/// refresh token — the standard shape returned by every login-success path
+/// (signup, login, 2FA, telegram, OAuth).
 pub async fn issue_token_pair(
     state: &AppState,
     user_id: Uuid,
     role: &str,
 ) -> Result<(String, String), AuthError> {
-    let access_token = issue_jwt(state, user_id, role)?;
-    let refresh_token = create_refresh_token(state, user_id).await?;
+    let session_id: Uuid =
+        sqlx::query_scalar("INSERT INTO auth_sessions (user_id) VALUES ($1) RETURNING id")
+            .bind(user_id)
+            .fetch_one(&state.db)
+            .await
+            .map_err(|_| AuthError::Internal)?;
+    let access_token = issue_session_jwt(state, user_id, role, Some(session_id))?;
+    let (_, refresh_token) = create_refresh_token(state, user_id, session_id).await?;
     Ok((access_token, refresh_token))
 }
 
 /// Validates + rotates a refresh token: the presented token is revoked and
 /// a new one issued in its place (`replaced_by` links them), so a refresh
-/// token is single-use. If a token that's already been rotated is presented
-/// again, that's a strong signal of theft/replay — every refresh token for
-/// that user is revoked as a defense-in-depth response.
+/// token is single-use. A rotated token presented again after the grace
+/// window is a strong signal of theft/replay — every session for that user
+/// is revoked as a defense-in-depth response.
+///
+/// Returns a new refresh token, or `None` when a tab lost a refresh race:
+/// it gets an access token only and keeps the newer refresh token the
+/// winning tab already received (the cookie is shared).
 pub async fn rotate_refresh_token(
     state: &AppState,
     raw_token: &str,
-) -> Result<(Uuid, String, String, String), AuthError> {
+) -> Result<(Uuid, String, String, Option<String>), AuthError> {
     let hash = sha256_hex(raw_token);
 
-    let row: Option<(Uuid, Uuid, Option<chrono::DateTime<chrono::Utc>>, Option<Uuid>, chrono::DateTime<chrono::Utc>)> =
-        sqlx::query_as(
-            r#"
-            SELECT id, user_id, revoked_at, replaced_by, expires_at
-            FROM refresh_tokens
-            WHERE token_hash = $1
-            "#,
-        )
-        .bind(&hash)
-        .fetch_optional(&state.db)
-        .await
-        .map_err(|_| AuthError::Internal)?;
+    let row: Option<(Uuid, Uuid, Option<Uuid>, bool, bool, Option<Uuid>, bool)> = sqlx::query_as(
+        r#"
+        SELECT id, user_id, session_id,
+               revoked_at IS NOT NULL,
+               COALESCE(revoked_at > now() - make_interval(secs => $2), FALSE),
+               replaced_by,
+               expires_at < now()
+        FROM refresh_tokens
+        WHERE token_hash = $1
+        "#,
+    )
+    .bind(&hash)
+    .bind(ROTATION_GRACE_SECS as f64)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|_| AuthError::Internal)?;
 
-    let Some((token_id, user_id, revoked_at, replaced_by, expires_at)) = row else {
+    let Some((token_id, user_id, session_id, revoked, just_rotated, replaced_by, expired)) = row else {
+        return Err(AuthError::InvalidCredentials);
+    };
+    // Tokens from before sessions existed that weren't live at the migration.
+    let Some(session_id) = session_id else {
         return Err(AuthError::InvalidCredentials);
     };
 
-    if revoked_at.is_some() {
+    let session: Option<(bool, bool, bool)> = sqlx::query_as(
+        r#"
+        SELECT revoked_at IS NOT NULL,
+               started_at < now() - make_interval(secs => $2),
+               last_active_at < now() - make_interval(secs => $3)
+        FROM auth_sessions WHERE id = $1
+        "#,
+    )
+    .bind(session_id)
+    .bind(SESSION_MAX_SECS as f64)
+    .bind(IDLE_TIMEOUT_SECS as f64)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|_| AuthError::Internal)?;
+    let Some((session_revoked, too_old, idle)) = session else {
+        return Err(AuthError::InvalidCredentials);
+    };
+    if session_revoked {
+        return Err(AuthError::InvalidCredentials);
+    }
+    if too_old || idle {
+        revoke_session(state, session_id).await?;
+        return Err(AuthError::InvalidCredentials);
+    }
+
+    let role: String = sqlx::query_scalar("SELECT role::text FROM users WHERE id = $1")
+        .bind(user_id)
+        .fetch_one(&state.db)
+        .await
+        .map_err(|_| AuthError::Internal)?;
+
+    if revoked {
         // Only a replayed rotated token looks like theft. One revoked by
-        // sign-out or a password change is just dead; revoking everything
-        // here would also sign out the session that changed the password.
+        // sign-out or a password change is just dead (its session is revoked
+        // too, caught above).
+        if replaced_by.is_some() && just_rotated {
+            let access_token = issue_session_jwt(state, user_id, &role, Some(session_id))?;
+            return Ok((user_id, role, access_token, None));
+        }
         if replaced_by.is_some() {
             revoke_all_refresh_tokens(state, user_id).await?;
         }
         return Err(AuthError::InvalidCredentials);
     }
-
-    if expires_at < chrono::Utc::now() {
+    if expired {
         return Err(AuthError::InvalidCredentials);
     }
 
-    let (role, last_active_at): (String, chrono::DateTime<chrono::Utc>) =
-        sqlx::query_as("SELECT role::text, last_active_at FROM users WHERE id = $1")
-            .bind(user_id)
-            .fetch_one(&state.db)
-            .await
-            .map_err(|_| AuthError::Internal)?;
-
-    // Idle timeout: the refresh token's own 30-day expiry is a sliding
-    // window with no activity signal (the silent-refresh timer alone keeps
-    // it alive forever), so it can't detect a genuinely idle account. This
-    // checks real activity instead — `last_active_at` is only touched by
-    // `require_user`, which the refresh endpoint itself never goes through.
-    // Idle-expiring ends the whole session (all devices), not just this token.
-    if chrono::Utc::now() - last_active_at > chrono::Duration::seconds(IDLE_TIMEOUT_SECS) {
-        revoke_all_refresh_tokens(state, user_id).await?;
-        return Err(AuthError::InvalidCredentials);
-    }
-
-    let new_raw = generate_raw_token();
-    let new_hash = sha256_hex(&new_raw);
-
-    let new_id: Uuid = sqlx::query_scalar(
-        r#"
-        INSERT INTO refresh_tokens (user_id, token_hash, expires_at)
-        VALUES ($1, $2, now() + make_interval(secs => $3))
-        RETURNING id
-        "#,
-    )
-    .bind(user_id)
-    .bind(&new_hash)
-    .bind(REFRESH_TOKEN_TTL_SECS as f64)
-    .fetch_one(&state.db)
-    .await
-    .map_err(|_| AuthError::Internal)?;
+    let (new_id, new_raw) = create_refresh_token(state, user_id, session_id).await?;
 
     sqlx::query("UPDATE refresh_tokens SET revoked_at = now(), replaced_by = $1 WHERE id = $2")
         .bind(new_id)
@@ -290,13 +334,37 @@ pub async fn rotate_refresh_token(
         .await
         .map_err(|_| AuthError::Internal)?;
 
-    let access_token = issue_jwt(state, user_id, &role)?;
+    let access_token = issue_session_jwt(state, user_id, &role, Some(session_id))?;
 
-    Ok((user_id, role, access_token, new_raw))
+    Ok((user_id, role, access_token, Some(new_raw)))
 }
 
+async fn revoke_session(state: &AppState, session_id: Uuid) -> Result<(), AuthError> {
+    sqlx::query("UPDATE auth_sessions SET revoked_at = now() WHERE id = $1 AND revoked_at IS NULL")
+        .bind(session_id)
+        .execute(&state.db)
+        .await
+        .map_err(|_| AuthError::Internal)?;
+    sqlx::query("UPDATE refresh_tokens SET revoked_at = now() WHERE session_id = $1 AND revoked_at IS NULL")
+        .bind(session_id)
+        .execute(&state.db)
+        .await
+        .map_err(|_| AuthError::Internal)?;
+    Ok(())
+}
+
+/// Signs out the device this refresh token belongs to.
 pub async fn revoke_refresh_token(state: &AppState, raw_token: &str) -> Result<(), AuthError> {
     let hash = sha256_hex(raw_token);
+    let session_id: Option<Option<Uuid>> =
+        sqlx::query_scalar("SELECT session_id FROM refresh_tokens WHERE token_hash = $1")
+            .bind(&hash)
+            .fetch_optional(&state.db)
+            .await
+            .map_err(|_| AuthError::Internal)?;
+    if let Some(sid) = session_id.flatten() {
+        return revoke_session(state, sid).await;
+    }
     sqlx::query("UPDATE refresh_tokens SET revoked_at = now() WHERE token_hash = $1 AND revoked_at IS NULL")
         .bind(&hash)
         .execute(&state.db)
@@ -305,7 +373,13 @@ pub async fn revoke_refresh_token(state: &AppState, raw_token: &str) -> Result<(
     Ok(())
 }
 
+/// Signs out every device.
 pub async fn revoke_all_refresh_tokens(state: &AppState, user_id: Uuid) -> Result<(), AuthError> {
+    sqlx::query("UPDATE auth_sessions SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL")
+        .bind(user_id)
+        .execute(&state.db)
+        .await
+        .map_err(|_| AuthError::Internal)?;
     sqlx::query("UPDATE refresh_tokens SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL")
         .bind(user_id)
         .execute(&state.db)
@@ -313,6 +387,31 @@ pub async fn revoke_all_refresh_tokens(state: &AppState, user_id: Uuid) -> Resul
         .map_err(|_| AuthError::Internal)?;
     Ok(())
 }
+
+/// Records activity on the device behind an access token, and reports
+/// whether that device is still signed in. Throttled to one write every
+/// 2 minutes.
+pub async fn touch_session(state: &AppState, session_id: Uuid) -> Result<bool, AuthError> {
+    let live: Option<bool> = sqlx::query_scalar(
+        "SELECT revoked_at IS NULL FROM auth_sessions WHERE id = $1",
+    )
+    .bind(session_id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|_| AuthError::Internal)?;
+    if live != Some(true) {
+        return Ok(false);
+    }
+    sqlx::query(
+        "UPDATE auth_sessions SET last_active_at = now() WHERE id = $1 AND last_active_at < now() - INTERVAL '2 minutes'",
+    )
+    .bind(session_id)
+    .execute(&state.db)
+    .await
+    .map_err(|_| AuthError::Internal)?;
+    Ok(true)
+}
+
 
 pub fn issue_oauth_state(state: &AppState, provider: &str) -> Result<String, AuthError> {
     let now = SystemTime::now()

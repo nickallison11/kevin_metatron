@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { API_BASE } from "@/lib/api";
-import { setTokenPair } from "@/lib/tokenStore";
+import { setAccessToken } from "@/lib/tokenStore";
 import { takeAfterLogin } from "@/lib/afterLogin";
 
 function decodeRoleFromJwt(token: string): string | null {
@@ -160,6 +160,7 @@ export default function LoginPage() {
       const res = await fetch(`${API_BASE}/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ email, password }),
       });
 
@@ -180,12 +181,12 @@ export default function LoginPage() {
         return;
       }
 
-      if (!res.ok || !data.token || !data.refresh_token) {
+      if (!res.ok || !data.token) {
         setError(text.trim() || "Login failed");
         return;
       }
 
-      setTokenPair(data.token, data.refresh_token);
+      setAccessToken(data.token);
       const role = decodeRoleFromJwt(data.token);
       router.push(takeAfterLogin() ?? dashboardPathForRole(role));
     } catch {
@@ -204,6 +205,7 @@ export default function LoginPage() {
       const res = await fetch(`${API_BASE}/auth/2fa/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ partial_token: partialToken, code: twoFaCode }),
       });
 
@@ -215,12 +217,12 @@ export default function LoginPage() {
         // ignore non-json errors
       }
 
-      if (!res.ok || !data.token || !data.refresh_token) {
+      if (!res.ok || !data.token) {
         setTwoFaError(text.trim() || "Verification failed");
         return;
       }
 
-      setTokenPair(data.token, data.refresh_token);
+      setAccessToken(data.token);
       const role = decodeRoleFromJwt(data.token);
       router.push(takeAfterLogin() ?? dashboardPathForRole(role));
     } catch {

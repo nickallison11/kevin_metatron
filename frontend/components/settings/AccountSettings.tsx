@@ -704,7 +704,7 @@ export function AccountSettings({ role }: { role: "STARTUP" | "INVESTOR" | "INTE
             {tab === "security" && (
               <>
                 <section className={card}>
-                  <Row title="Password" sub="Use at least 8 characters.">
+                  <Row title="Password" sub="12+ characters, with upper and lower case, a number and a symbol.">
                     {!editingPassword && (
                       <button type="button" className={btn} onClick={() => setEditingPassword(true)}>
                         Change

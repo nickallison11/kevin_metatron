@@ -62,7 +62,6 @@ pub struct AppState {
     pub http_client: Client,
     pub cron_secret: Option<String>,
     pub unsubscribe_secret: String,
-    pub nadirclaw_url: String,
 }
 
 impl AppState {
@@ -142,7 +141,6 @@ impl AppState {
             http_client,
             cron_secret: settings.cron_secret.clone(),
             unsubscribe_secret: settings.unsubscribe_secret.clone(),
-            nadirclaw_url: settings.nadirclaw_url.clone(),
         }))
     }
 }

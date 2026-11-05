@@ -67,8 +67,6 @@ pub struct Settings {
     pub investor_match_limit_pro: i64,
     pub cron_secret: Option<String>,
     pub unsubscribe_secret: String,
-    /// NadirClaw local LLM base URL (OpenAI-compat). Env: NADIRCLAW_URL.
-    pub nadirclaw_url: String,
 }
 
 impl Settings {
@@ -245,8 +243,6 @@ impl Settings {
             .ok()
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty());
-        let nadirclaw_url =
-            env::var("NADIRCLAW_URL").unwrap_or_else(|_| "http://localhost:8856/v1".to_string());
         let unsubscribe_secret = env::var("UNSUBSCRIBE_SECRET")
             .unwrap_or_else(|_| "changeme-unsubscribe-secret".to_string());
 
@@ -306,7 +302,6 @@ impl Settings {
             investor_match_limit_pro,
             cron_secret,
             unsubscribe_secret,
-            nadirclaw_url,
         })
     }
 }

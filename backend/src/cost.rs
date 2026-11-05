@@ -59,8 +59,6 @@ fn pricing_per_million(provider: &str, model: &str) -> Option<(f64, f64)> {
         ("anthropic", "claude-opus-4-5-20251101") => Some((5.00, 25.00)),
         ("openrouter", "nousresearch/hermes-4-70b") => Some((0.13, 0.40)),
         ("openrouter", "moonshotai/kimi-k3") => Some((3.00, 15.00)),
-        // NadirClaw is local — we don't observe what it costs on our side.
-        ("nadirclaw", _) => None,
         _ => None,
     }
 }

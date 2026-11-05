@@ -25,7 +25,8 @@ function isConnected(me: MeResponse): boolean {
 /**
  * First-run checklist for accounts made through the home-page sign-up:
  * 1 say hi to Kevin on the app they picked, 2 the main job (deck or thesis),
- * 3 matches, which unlock after step 2.
+ * 3 matches, which unlock after step 2. 4 (optional) Kevin in their own AI
+ * app; it never keeps the checklist on screen.
  */
 export default function GetStartedChecklist({
   token,
@@ -35,6 +36,7 @@ export default function GetStartedChecklist({
   mainDone,
   matchesHref,
   matchesTitle,
+  connectHref,
 }: {
   token: string;
   me: MeResponse;
@@ -43,12 +45,21 @@ export default function GetStartedChecklist({
   mainDone: boolean;
   matchesHref: string;
   matchesTitle: string;
+  connectHref: string;
 }) {
   const app = me.preferred_channel === "telegram" ? "Telegram" : "WhatsApp";
   const connected = isConnected(me);
   const [linkCode, setLinkCode] = useState<string | null>(null);
   const [waiting, setWaiting] = useState(false);
   const [qr, setQr] = useState<string | null>(null);
+  const [aiConnected, setAiConnected] = useState(false);
+
+  useEffect(() => {
+    void fetch(`${API_BASE}/mcp-auth/connections`, { headers: authHeaders(token) })
+      .then((r) => (r.ok ? r.json() : []))
+      .then((cs: unknown[]) => setAiConnected(cs.length > 0))
+      .catch(() => {});
+  }, [token]);
 
   const href = !linkCode
     ? null
@@ -177,6 +188,30 @@ export default function GetStartedChecklist({
         {mainDone && (
           <Link href={matchesHref} className={`${btn} w-full sm:w-auto`}>
             See matches
+          </Link>
+        )}
+      </div>
+
+      <div className={`${row} ${aiConnected ? "border-metatron-accent/40" : "border-[var(--overlay-12)]"} bg-[var(--bg-card)]`}>
+        <div className="flex min-w-0 flex-1 gap-3.5">
+          {badge(4, aiConnected)}
+          <div className="flex min-w-0 flex-col gap-1">
+            <strong className="flex items-center gap-2 text-base">
+              Use Kevin in your AI
+              {!aiConnected && (
+                <span className="rounded-full border border-[var(--overlay-12)] px-2 py-0.5 font-mono text-[11px] font-normal text-[var(--text-muted)]">
+                  Optional
+                </span>
+              )}
+            </strong>
+            <span className="text-sm leading-relaxed text-[var(--text-muted)]">
+              {aiConnected ? "Connected." : "Claude, ChatGPT, Gemini or Grok."}
+            </span>
+          </div>
+        </div>
+        {!aiConnected && (
+          <Link href={connectHref} className={`${btn} w-full sm:w-auto`}>
+            Connect
           </Link>
         )}
       </div>

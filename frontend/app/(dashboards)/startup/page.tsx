@@ -161,6 +161,7 @@ export default function StartupDashboardPage() {
             mainDone={pitchDone}
             matchesHref="/startup/matches"
             matchesTitle="See your first investor matches"
+            connectHref="/startup/kevin"
           />
         )}
 

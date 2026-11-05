@@ -219,6 +219,7 @@ export default function InvestorDashboardPage() {
             mainDone={thesisDone}
             matchesHref="/investor/matches"
             matchesTitle="See your first founders"
+            connectHref="/investor/kevin"
           />
         )}
 

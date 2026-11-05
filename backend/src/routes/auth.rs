@@ -979,7 +979,8 @@ async fn refresh(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
     body: Option<Json<RefreshRequest>>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let body_token = body.as_ref().is_some_and(|b| b.refresh_token.as_deref().is_some_and(|t| !t.is_empty()));
     let presented = presented_refresh_token(&state, &headers, body.as_ref().map(|b| &b.0))
         .ok_or((StatusCode::UNAUTHORIZED, "invalid refresh token".to_string()))?;
     let (_, _, token, refresh_token) = auth::rotate_refresh_token(&state, &presented)
@@ -988,10 +989,15 @@ async fn refresh(
 
     // No new refresh token when another tab just rotated it; the cookie
     // already holds the newer one.
-    Ok(Json(match refresh_token {
+    let json = Json(match refresh_token {
         Some(refresh_token) => serde_json::json!({ "token": token, "refresh_token": refresh_token }),
         None => serde_json::json!({ "token": token }),
-    }))
+    });
+    // A caller that sent its token in the body already holds it, so it gets
+    // the new one back in the body too. Frontends from before the cookie
+    // (a tab left open across a deploy) keep working that way.
+    let keep = if body_token { "1" } else { "0" };
+    Ok(([(session_cookie::KEEP_BODY_HEADER, keep)], json))
 }
 
 async fn logout(

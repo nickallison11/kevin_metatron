@@ -21,7 +21,13 @@ export function getAccessToken(): string | null {
 }
 
 function getLegacyRefreshToken(): string | null {
-  return window.localStorage.getItem(LEGACY_REFRESH_KEY);
+  const v = window.localStorage.getItem(LEGACY_REFRESH_KEY);
+  // An older frontend could store a missing token as the text "undefined".
+  if (!v || v === "undefined" || v === "null") {
+    window.localStorage.removeItem(LEGACY_REFRESH_KEY);
+    return null;
+  }
+  return v;
 }
 
 /**

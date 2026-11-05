@@ -18,6 +18,10 @@ use crate::state::AppState;
 
 pub const NAME: &str = "metatron_rt";
 
+/// Set by a handler to keep `refresh_token` in a browser's JSON body; the
+/// middleware removes it before the response leaves.
+pub const KEEP_BODY_HEADER: &str = "x-metatron-keep-refresh";
+
 fn cookie(value: &str, max_age: i64) -> HeaderValue {
     // Host-only on the API host; Strict, so other sites can never send it.
     HeaderValue::from_str(&format!(
@@ -55,7 +59,8 @@ pub fn origin_allowed(state: &AppState, headers: &HeaderMap) -> bool {
 
 pub async fn middleware(req: Request, next: Next) -> Response {
     let from_browser = req.headers().contains_key(header::ORIGIN);
-    let res = next.run(req).await;
+    let mut res = next.run(req).await;
+    let keep_body = res.headers_mut().remove(KEEP_BODY_HEADER).is_some_and(|v| v == "1");
 
     let is_json = res
         .headers()
@@ -77,7 +82,7 @@ pub async fn middleware(req: Request, next: Next) -> Response {
     };
 
     parts.headers.append(header::SET_COOKIE, set(&token));
-    if from_browser {
+    if from_browser && !keep_body {
         if let Some(obj) = value.as_object_mut() {
             obj.remove("refresh_token");
         }

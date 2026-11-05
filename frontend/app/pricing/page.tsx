@@ -23,52 +23,49 @@ const CURRENCY_LABELS: Record<Currency, string> = {
   EUR: "EUR (€)",
 };
 
+// Only what's built and enforced today. Basic/Pro lists match PLAN_COPY in lib/plans.ts.
 const freeFeatures = [
-  "Kevin AI chat (20 msg/day)",
-  "Kevin on Telegram & WhatsApp",
-  "Founder profile + cloud deck link",
+  "Kevin on WhatsApp, Telegram or your own AI",
+  "20 Kevin messages/day",
+  "Founder profile + pitch deck",
+  "Angel Score",
   "1 investor match/week",
 ];
 
 const basicFeatures = [
   "Everything in Free",
-  "Kevin AI chat (200 msg/day)",
+  "200 Kevin messages/day",
   "10 investor matches/week",
-  "Permanent IPFS deck storage",
-  "Kevin extracts pitch data from deck",
+  "Kevin fills in your profile from your deck",
+  "Full Angel Score breakdown",
 ];
 
 const founderProFeatures = [
   "Everything in Basic",
-  "Unlimited Kevin messages + matches",
+  "Unlimited Kevin messages",
+  "25 investor matches/week",
   "Call recording + AI analysis",
-  "Private encrypted IPFS deck",
-  "Full Virtual Data Room",
-  "Custom AI backend",
-  "Custom subdomain (startup.metatron.id)",
-  "Embeddable widget",
 ];
 
 const investorFreeFeatures = [
-  "Browse public founder profiles",
-  "Short follow list",
-  "Kevin on Telegram & WhatsApp",
+  "Kevin on WhatsApp, Telegram or your own AI",
+  "20 Kevin messages/day",
+  "Browse founder profiles + decks",
+  "Pipeline + investment memos",
+  "1 founder match/week",
 ];
 
 const investorBasicFeatures = [
-  "Full deal-flow visibility",
-  "Kevin match feed (unlimited)",
-  "Pipeline stage management",
-  "Investment memo generation",
+  "Everything in Free",
+  "200 Kevin messages/day",
+  "10 founder matches/week",
 ];
 
 const investorProFeatures = [
   "Everything in Basic",
+  "Unlimited Kevin messages",
+  "25 founder matches/week",
   "Call recording + AI analysis",
-  "Advanced portfolio analytics",
-  "Custom deal-flow workflows",
-  "White-label investor profile",
-  "Priority Kevin AI access",
 ];
 
 const connectorFreeFeatures = [
@@ -78,7 +75,6 @@ const connectorFreeFeatures = [
 
 const connectorBasicFeatures = [
   "Unlimited contacts",
-  "50 enrichment credits/month",
   "IPFS network storage",
   "Connect tracker",
 ];

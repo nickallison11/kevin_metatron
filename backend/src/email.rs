@@ -629,25 +629,12 @@ pub fn welcome_email_html(role: &str, weekly_matches: i64) -> String {
             messages,
             "Intro requests from founders who fit your thesis".to_string(),
         ]),
-        "INTERMEDIARY" => r#"
-<p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">Your account is ready. Here's what you can do as a free connector:</p>
-<ul style="margin:0 0 14px 18px;padding:0;color:#e8e8ed;font-size:14px;line-height:1.6;">
-  <li>Import your founder & investor network via CSV</li>
-  <li>Enrich contacts with AI to surface intro opportunities</li>
-  <li>Get credited for warm intros that lead to deals</li>
-  <li>Chat with Kevin, your AI network co-pilot</li>
-</ul>
-<p style="margin:0 0 8px 0;font-size:14px;color:#e8e8ed;">Ready to unlock more?</p>
-<p style="margin:0 0 14px 0;font-size:14px;">
-  <a href="https://platform.metatron.id/pricing" style="color:#6c5ce7;text-decoration:none;">View Free → Basic plans</a>
-</p>
-<ul style="margin:0 0 0 18px;padding:0;color:#e8e8ed;font-size:14px;line-height:1.6;">
-  <li>Unlimited contact imports & enrichments</li>
-  <li>Referral and introduction tracking</li>
-  <li>IPFS-anchored network ownership</li>
-</ul>
-"#
-        .to_string(),
+        "INTERMEDIARY" => free([
+            "Your connector profile".to_string(),
+            "Import up to 50 contacts from your network".to_string(),
+            messages,
+            "Track the intros and referrals you make".to_string(),
+        ]),
         _ => free([
             "Your founder profile and pitch deck, live for investors".to_string(),
             matches("investor"),
@@ -695,48 +682,6 @@ pub fn plan_ended_email_html(plan_name: &str, free_includes: &[String], resubscr
 </p>
 "#
         ),
-    )
-}
-
-pub fn deck_expiry_7_days_html() -> String {
-    shell_html(
-        "Your pitch deck expires in 7 days",
-        r#"
-<p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">Your free pitch deck on metatron IPFS storage will expire in <strong>7 days</strong>.</p>
-<p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">After expiry, your deck link will stop working and investors will no longer be able to view it through the platform.</p>
-<p style="margin:0 0 16px 0;font-size:14px;">
-  <a href="https://platform.metatron.id/pricing" style="display:inline-block;background:#6c5ce7;color:#ffffff;text-decoration:none;padding:10px 18px;border-radius:12px;font-weight:600;">Upgrade to Basic — keep your deck live →</a>
-</p>
-<p style="margin:0 0 0 0;font-size:13px;color:#8888a0;">Basic includes permanent IPFS storage, unlimited re-uploads, and Kevin re-extraction on every update.</p>
-"#,
-    )
-}
-
-pub fn deck_expiry_1_day_html() -> String {
-    shell_html(
-        "Investors are looking — your deck goes dark tomorrow",
-        r#"
-<p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">Kevin has been matching you with investors this week. Tomorrow your pitch deck link goes dead — and anyone Kevin sends your way will hit a blank page.</p>
-<p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">Upgrading to Basic keeps your deck live permanently, so every intro Kevin makes can actually land.</p>
-<p style="margin:0 0 16px 0;font-size:14px;">
-  <a href="https://platform.metatron.id/pricing" style="display:inline-block;background:#6c5ce7;color:#ffffff;text-decoration:none;padding:10px 18px;border-radius:12px;font-weight:600;">Upgrade Plan — keep your deck live →</a>
-</p>
-<p style="margin:0 0 0 0;font-size:13px;color:#8888a0;">Basic includes permanent IPFS storage, unlimited re-uploads, and Kevin re-extraction on every update.</p>
-"#,
-    )
-}
-
-pub fn deck_expired_html() -> String {
-    shell_html(
-        "Your pitch deck has expired",
-        r#"
-<p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">Your free pitch deck on metatron has expired and your deck link is no longer active.</p>
-<p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">Upgrade to Basic to re-upload your deck and keep it permanently live for investors.</p>
-<p style="margin:0 0 16px 0;font-size:14px;">
-  <a href="https://platform.metatron.id/pricing" style="display:inline-block;background:#6c5ce7;color:#ffffff;text-decoration:none;padding:10px 18px;border-radius:12px;font-weight:600;">Upgrade Plan →</a>
-</p>
-<p style="margin:0 0 0 0;font-size:13px;color:#8888a0;">Questions? Reply to this email — we're happy to help.</p>
-"#,
     )
 }
 

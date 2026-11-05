@@ -115,7 +115,7 @@ Authentication: Connect Solana wallet (Phantom/Solflare) **OR** email/password (
 3. **Wallet Connect** — Phantom/Solflare integration, MTN token balance check, alternative to email auth
 4. **Pro Tier** — $9.99/month subscription via Stripe
 
-### Pro Tier Features (gated behind subscription)
+### Pro Tier Features (original roadmap — NOT built; see Tier Feature Matrix below for what is live)
 - Private deck storage on Pinata (free tier = public IPFS only)
 - Full contact card shared on intros (free = deck link only)
 - `startup_name.metatron.id` — custom subdomain with own AI agent
@@ -124,7 +124,7 @@ Authentication: Connect Solana wallet (Phantom/Solflare) **OR** email/password (
 - Embeddable widget on founder's own website
 - Call Intelligence access
 
-### Free vs Pro Contact Sharing
+### Free vs Pro Contact Sharing (original roadmap — today every plan gets the full contact card)
 | | Free Founder | Pro Founder |
 |---|---|---|
 | Investor sees on intro | Deck link only | Full contact card (name, email, LinkedIn, website) |
@@ -202,12 +202,14 @@ A metatron white paper rewrite (from V1.3) is pending, targeting institutional p
 | Feature | Free | Basic | Pro |
 |---|---|---|---|
 | Kevin messages/day | 20 (shared all channels) | 200 (shared all channels) | Unlimited |
-| Kevin matches/week | 1 | 10 | Unlimited (0 in env = unlimited) |
+| Kevin matches/week | 1 | 10 | 25 (env; 0 = unlimited) |
 | Match cache refresh | 7 days | 6 hours | 6 hours |
-| Pitch deck | External URL only | Permanent public IPFS | Permanent private IPFS |
-| Deck re-uploads | 1 (14-day pin) | Unlimited | Unlimited |
-| Call Intelligence | No | Yes | Yes |
+| Pitch deck | Permanent public IPFS | Permanent public IPFS | Permanent public IPFS |
+| Kevin imports deck into profile | No | Yes | Yes |
+| Call Intelligence (incl. note-taker imports) | No | No | Yes (Pro only since 2026-11-05) |
 | Angel Score detail | Summary only | Full breakdown | Full breakdown |
+
+Plan cards (`frontend/lib/plans.ts`, `frontend/app/pricing/page.tsx`, metatron-landing `app/page.tsx`) list only what is built and enforced. Investor deal flow, pipeline and memos have no plan gate yet, so they are listed under Free.
 
 ### Match Limits — Critical Rules
 - Match limits apply to **ALL roles equally** — founders AND investors see the same limits
@@ -222,11 +224,9 @@ A metatron white paper rewrite (from V1.3) is pending, targeting institutional p
 - Limit function: `kevin_daily_limit(is_pro, subscription_tier)` in `backend/src/routes/kevin.rs`
 
 ### Pitch Deck Expiry
-- Free decks: 14-day Pinata pin. Emails sent at day 7 and day 13. After day 14, `pitch_deck_expires_at` is past.
+- Decks never expire, on any plan (decided 2026-10-21): uploads set `deck_expires_at = NULL`. The day-7/day-13/expired emails were removed 2026-11-05.
 - **Do NOT unpin from Pinata** — IPFS is public network, unpinning only removes from our account. Just hide the URL.
-- Expired deck URL is hidden from investors by a CASE expression in SQL (returns NULL if expired).
-- This CASE is applied in: `deals.rs`, `connections.rs`, `kevin_matches.rs`
-- Deduplication flags: `deck_7day_email_sent`, `deck_1day_email_sent`, `deck_expired_email_sent` on `pitches` table
+- Legacy: a deck with a past `deck_expires_at` is still hidden from investors by a CASE expression in SQL (returns NULL if expired), in `deals.rs`, `connections.rs`, `kevin_matches.rs`.
 
 ### Payment Providers
 - **Paystack** — fiat/ZAR recurring subscriptions

@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use axum::extract::DefaultBodyLimit;
 use axum::{routing::get, Router};
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::{AllowHeaders, AllowMethods, AllowOrigin, CorsLayer};
 
 use crate::routes;
 use crate::settings::Settings;
@@ -10,11 +10,16 @@ use crate::state::AppState;
 
 pub fn build_app(_settings: &Settings, state: Arc<AppState>) -> Router {
     let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
+        // Mirrored rather than "*" so the browser may send the refresh cookie;
+        // only /auth reads it, and only from our own frontend.
+        .allow_origin(AllowOrigin::mirror_request())
+        .allow_methods(AllowMethods::mirror_request())
+        .allow_headers(AllowHeaders::mirror_request())
+        .allow_credentials(true);
 
-    let auth_router = routes::auth::router().merge(routes::oauth::router());
+    let auth_router = routes::auth::router()
+        .merge(routes::oauth::router())
+        .layer(axum::middleware::from_fn(crate::session_cookie::middleware));
 
     Router::new()
         .route("/health", get(health))

@@ -7,7 +7,8 @@ use argon2::{
 };
 use axum::{
     extract::{Query, State},
-    http::StatusCode,
+    http::{header, HeaderMap, StatusCode},
+    response::IntoResponse,
     routing::{delete, get, post, put},
     Json, Router,
 };
@@ -28,6 +29,7 @@ use uuid::Uuid;
 use crate::auth;
 use crate::crypto;
 use crate::email;
+use crate::session_cookie;
 use crate::identity::require_user;
 use crate::state::AppState;
 
@@ -958,39 +960,55 @@ async fn login(
     }))
 }
 
-#[derive(Deserialize)]
+/// Body token: scripts, and browsers moving a token from local storage to
+/// the cookie once. Otherwise the cookie, from our own frontend only.
+#[derive(Deserialize, Default)]
 struct RefreshRequest {
-    refresh_token: String,
+    #[serde(default)]
+    refresh_token: Option<String>,
+}
+
+fn presented_refresh_token(state: &AppState, headers: &HeaderMap, body: Option<&RefreshRequest>) -> Option<String> {
+    if let Some(t) = body.and_then(|b| b.refresh_token.clone()).filter(|t| !t.is_empty()) {
+        return Some(t);
+    }
+    session_cookie::read(headers).filter(|_| session_cookie::origin_allowed(state, headers))
 }
 
 async fn refresh(
     State(state): State<Arc<AppState>>,
-    Json(body): Json<RefreshRequest>,
-) -> Result<Json<AuthResponse>, (StatusCode, String)> {
-    let (_, _, token, refresh_token) = auth::rotate_refresh_token(&state, &body.refresh_token)
+    headers: HeaderMap,
+    body: Option<Json<RefreshRequest>>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let presented = presented_refresh_token(&state, &headers, body.as_ref().map(|b| &b.0))
+        .ok_or((StatusCode::UNAUTHORIZED, "invalid refresh token".to_string()))?;
+    let (_, _, token, refresh_token) = auth::rotate_refresh_token(&state, &presented)
         .await
         .map_err(|_| (StatusCode::UNAUTHORIZED, "invalid refresh token".to_string()))?;
 
-    Ok(Json(AuthResponse { token, refresh_token }))
-}
-
-#[derive(Deserialize)]
-struct LogoutRequest {
-    refresh_token: String,
+    // No new refresh token when another tab just rotated it; the cookie
+    // already holds the newer one.
+    Ok(Json(match refresh_token {
+        Some(refresh_token) => serde_json::json!({ "token": token, "refresh_token": refresh_token }),
+        None => serde_json::json!({ "token": token }),
+    }))
 }
 
 async fn logout(
     State(state): State<Arc<AppState>>,
-    Json(body): Json<LogoutRequest>,
-) -> StatusCode {
-    let _ = auth::revoke_refresh_token(&state, &body.refresh_token).await;
-    StatusCode::NO_CONTENT
+    headers: HeaderMap,
+    body: Option<Json<RefreshRequest>>,
+) -> impl IntoResponse {
+    if let Some(t) = presented_refresh_token(&state, &headers, body.as_ref().map(|b| &b.0)) {
+        let _ = auth::revoke_refresh_token(&state, &t).await;
+    }
+    (StatusCode::NO_CONTENT, [(header::SET_COOKIE, session_cookie::clear())])
 }
 
 async fn logout_all(
     State(state): State<Arc<AppState>>,
     TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
-) -> Result<StatusCode, (StatusCode, String)> {
+) -> Result<impl IntoResponse, (StatusCode, String)> {
     let user = require_user(&state, bearer.token()).await?;
     auth::revoke_all_refresh_tokens(&state, user.id)
         .await
@@ -1000,7 +1018,7 @@ async fn logout_all(
                 "could not revoke sessions".to_string(),
             )
         })?;
-    Ok(StatusCode::NO_CONTENT)
+    Ok((StatusCode::NO_CONTENT, [(header::SET_COOKIE, session_cookie::clear())]))
 }
 
 pub(crate) fn issue_two_fa_pending_jwt(

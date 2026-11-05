@@ -17,6 +17,7 @@ mod logo;
 mod memory;
 mod net;
 mod routes; // Routers composed in `app::build_app` (e.g. `.nest("/kevin", routes::kevin::router())`).
+mod session_cookie;
 mod settings;
 mod state;
 

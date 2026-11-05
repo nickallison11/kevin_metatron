@@ -34,6 +34,17 @@ pub async fn require_user(
     let uid = Uuid::parse_str(&claims.sub)
         .map_err(|_| (StatusCode::UNAUTHORIZED, "invalid token".to_string()))?;
 
+    // A signed-out device's access token stops working at once, not after
+    // its 20 minutes; a live one records the device's activity.
+    if let Some(sid) = claims.sid.as_deref().and_then(|s| Uuid::parse_str(s).ok()) {
+        let live = crate::auth::touch_session(state, sid)
+            .await
+            .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "could not check session".to_string()))?;
+        if !live {
+            return Err((StatusCode::UNAUTHORIZED, "signed out".to_string()));
+        }
+    }
+
     let (
         role,
         is_pro,
@@ -82,10 +93,8 @@ pub async fn require_user(
         return Err((StatusCode::FORBIDDEN, "account suspended".to_string()));
     }
 
-    // Real activity signal for idle-timeout (see `auth::rotate_refresh_token`)
-    // — every protected route goes through `require_user`, but the silent
-    // token-refresh endpoint does not (it takes the refresh token directly,
-    // no bearer auth), so this can't be gamed by just leaving a tab open.
+    // Account-wide last activity. The idle sign-out uses each device's own
+    // `auth_sessions.last_active_at` (touched above), not this.
     // Throttled to avoid a write on every single request from active users.
     if let Err(e) = sqlx::query(
         "UPDATE users SET last_active_at = now() WHERE id = $1 AND last_active_at < now() - INTERVAL '2 minutes'",

@@ -2595,51 +2595,7 @@ pub(crate) async fn execute_kevin_tool(
             if query.is_empty() {
                 return "Please provide a search query.".to_string();
             }
-
-            let output = tokio::process::Command::new("openclaw")
-                .args(["capability", "web", "search", "--query", &query, "--limit", "5", "--json"])
-                .output()
-                .await;
-
-            match output {
-                Err(e) => {
-                    tracing::error!("search_web: openclaw spawn failed: {e}");
-                    format!("Web search unavailable: {e}")
-                }
-                Ok(out) if !out.status.success() => {
-                    let stderr = String::from_utf8_lossy(&out.stderr);
-                    tracing::error!("search_web: openclaw error: {stderr}");
-                    format!("Web search failed. Try a different query.")
-                }
-                Ok(out) => {
-                    let raw = String::from_utf8_lossy(&out.stdout);
-                    match serde_json::from_str::<serde_json::Value>(&raw) {
-                        Err(_) => "Web search returned unreadable data.".to_string(),
-                        Ok(json) => {
-                            let result = &json["outputs"][0]["result"];
-                            let content = result["content"].as_str().unwrap_or("").trim().to_string();
-                            let citations = result["citations"]
-                                .as_array()
-                                .map(|arr| {
-                                    arr.iter()
-                                        .filter_map(|c| c["url"].as_str())
-                                        .map(|u| format!("- {u}"))
-                                        .collect::<Vec<_>>()
-                                        .join("\n")
-                                })
-                                .unwrap_or_default();
-
-                            if content.is_empty() {
-                                "No results found for that query.".to_string()
-                            } else if citations.is_empty() {
-                                content
-                            } else {
-                                format!("{content}\n\nSources:\n{citations}")
-                            }
-                        }
-                    }
-                }
-            }
+            search_web(state, user_id, role, &query).await
         }
 
         "record_feedback" => super::kevin_feedback::record(state, user_id, tool_input).await,
@@ -2653,6 +2609,124 @@ pub(crate) async fn execute_kevin_tool(
         }
 
         _ => format!("Unknown tool: {tool_name}"),
+    }
+}
+
+/// The `search_web` tool: Gemini with Google Search grounding. Returns the
+/// grounded answer and up to five source links.
+async fn search_web(state: &AppState, user_id: Uuid, role: &str, query: &str) -> String {
+    let Some(api_key) = state.ai_api_key.as_deref() else {
+        return "Web search unavailable.".to_string();
+    };
+    let model = state.gemini_model.as_str();
+    let prompt = format!(
+        "Search the web and answer factually and concisely. Name the specific people, firms or companies you find, with their location and website where relevant.\n\nQuery: {query}"
+    );
+    let body = serde_json::json!({
+        "contents": [{ "role": "user", "parts": [{ "text": prompt }] }],
+        "tools": [{ "google_search": {} }]
+    });
+    let url = format!("https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent");
+    let response = match state
+        .http_client
+        .post(&url)
+        .query(&[("key", api_key)])
+        .json(&body)
+        .timeout(std::time::Duration::from_secs(60))
+        .send()
+        .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::error!("search_web request failed: {e}");
+            return "Web search unavailable right now.".to_string();
+        }
+    };
+    let status = response.status();
+    let value: serde_json::Value = match response.json().await {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::error!("search_web json parse failed: {e}");
+            return "Web search returned unreadable data.".to_string();
+        }
+    };
+    if !status.is_success() {
+        crate::alerts::check_provider_error("gemini", status.as_u16(), &value.to_string());
+        tracing::error!("search_web error {status}: {value}");
+        return "Web search failed. Try a different query.".to_string();
+    }
+    let usage = crate::ai::gemini_usage(&value);
+    crate::cost::record_llm_usage(
+        &state.db,
+        Some(user_id),
+        Some(role),
+        None,
+        "kevin_web_search",
+        "gemini",
+        model,
+        usage.input_tokens,
+        usage.output_tokens,
+    )
+    .await;
+
+    let content = crate::ai::gemini_text(&value).trim().to_string();
+    if content.is_empty() {
+        return "No results found for that query.".to_string();
+    }
+
+    // Grounding chunks link through a Google redirect, titled with the domain.
+    // Follow each redirect once to get the real page; fall back to the domain.
+    let chunks: Vec<(String, String)> = value["candidates"][0]["groundingMetadata"]["groundingChunks"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|c| {
+                    let uri = c["web"]["uri"].as_str()?.to_string();
+                    let title = c["web"]["title"].as_str().unwrap_or("").to_string();
+                    Some((uri, title))
+                })
+                .take(5)
+                .collect()
+        })
+        .unwrap_or_default();
+    let no_redirect = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(std::time::Duration::from_secs(5))
+        .build();
+    let mut tasks = tokio::task::JoinSet::new();
+    for (i, (uri, title)) in chunks.into_iter().enumerate() {
+        let client = no_redirect.as_ref().ok().cloned();
+        tasks.spawn(async move {
+            let resolved = match client {
+                Some(c) => c
+                    .get(&uri)
+                    .send()
+                    .await
+                    .ok()
+                    .and_then(|r| r.headers().get(reqwest::header::LOCATION)?.to_str().ok().map(str::to_string))
+                    .filter(|u| u.starts_with("http")),
+                None => None,
+            };
+            let link = resolved.or_else(|| (!title.is_empty()).then(|| format!("https://{title}")));
+            (i, link)
+        });
+    }
+    let mut links: Vec<(usize, String)> = Vec::new();
+    while let Some(Ok((i, Some(link)))) = tasks.join_next().await {
+        links.push((i, link));
+    }
+    links.sort_by_key(|(i, _)| *i);
+    let mut seen = std::collections::HashSet::new();
+    let sources: Vec<String> = links
+        .into_iter()
+        .filter(|(_, l)| seen.insert(l.clone()))
+        .map(|(_, l)| format!("- {l}"))
+        .collect();
+
+    if sources.is_empty() {
+        content
+    } else {
+        format!("{content}\n\nSources:\n{}", sources.join("\n"))
     }
 }
 

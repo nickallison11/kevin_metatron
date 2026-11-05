@@ -22,6 +22,10 @@ mod state;
 
 #[tokio::main]
 async fn main() {
+    // Local runs only. On KVM2 systemd supplies the env file; there a `.env`
+    // lookup walks up from /root/kevin_metatron_dev to /root/.env and fills
+    // whatever .env.dev lacks with production values.
+    #[cfg(debug_assertions)]
     let _ = dotenvy::dotenv();
     tracing_subscriber::registry()
         .with(tracing_subscriber::EnvFilter::new(

@@ -34,6 +34,8 @@ pub enum AuthError {
     InvalidCredentials,
     #[error("registration closed")]
     RegistrationClosed,
+    #[error("verified email required")]
+    EmailRequired,
     #[error("internal error")]
     Internal,
 }
@@ -98,7 +100,7 @@ pub async fn verify_user_credentials(
         r#"
         SELECT id, password_hash
         FROM users
-        WHERE email = $1
+        WHERE LOWER(email) = LOWER($1)
         "#,
     )
     .bind(email)
@@ -215,10 +217,10 @@ pub async fn rotate_refresh_token(
 ) -> Result<(Uuid, String, String, String), AuthError> {
     let hash = sha256_hex(raw_token);
 
-    let row: Option<(Uuid, Uuid, Option<chrono::DateTime<chrono::Utc>>, chrono::DateTime<chrono::Utc>)> =
+    let row: Option<(Uuid, Uuid, Option<chrono::DateTime<chrono::Utc>>, Option<Uuid>, chrono::DateTime<chrono::Utc>)> =
         sqlx::query_as(
             r#"
-            SELECT id, user_id, revoked_at, expires_at
+            SELECT id, user_id, revoked_at, replaced_by, expires_at
             FROM refresh_tokens
             WHERE token_hash = $1
             "#,
@@ -228,12 +230,17 @@ pub async fn rotate_refresh_token(
         .await
         .map_err(|_| AuthError::Internal)?;
 
-    let Some((token_id, user_id, revoked_at, expires_at)) = row else {
+    let Some((token_id, user_id, revoked_at, replaced_by, expires_at)) = row else {
         return Err(AuthError::InvalidCredentials);
     };
 
     if revoked_at.is_some() {
-        revoke_all_refresh_tokens(state, user_id).await?;
+        // Only a replayed rotated token looks like theft. One revoked by
+        // sign-out or a password change is just dead; revoking everything
+        // here would also sign out the session that changed the password.
+        if replaced_by.is_some() {
+            revoke_all_refresh_tokens(state, user_id).await?;
+        }
         return Err(AuthError::InvalidCredentials);
     }
 
@@ -388,13 +395,16 @@ pub async fn find_or_create_oauth_user(
         return Ok((user_id, false));
     }
 
-    // 2) Existing platform user by email: link oauth account.
-    if let Some(email) = email {
+    // 2) Existing platform user by email: link oauth account. Callers pass
+    // only an email the provider has verified, so nobody can attach their
+    // login to someone else's account by claiming that address.
+    let email = email.map(|e| e.trim().to_lowercase());
+    if let Some(email) = email.as_deref() {
         let existing_user_id: Option<Uuid> = sqlx::query_scalar(
             r#"
             SELECT id
             FROM users
-            WHERE email = $1
+            WHERE LOWER(email) = $1
             "#,
         )
         .bind(email)
@@ -425,8 +435,10 @@ pub async fn find_or_create_oauth_user(
     if !allow_create {
         return Err(AuthError::RegistrationClosed);
     }
+    let Some(email_val) = email.as_deref() else {
+        return Err(AuthError::EmailRequired);
+    };
     let user_id = Uuid::new_v4();
-    let email_val = email.unwrap_or("unknown@oauth.metatron.id");
 
     sqlx::query(
         r#"

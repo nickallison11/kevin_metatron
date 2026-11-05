@@ -61,7 +61,8 @@ function MessagingSignupInner() {
         body: JSON.stringify({ current_password: "", new_password: password }),
       });
       if (!res.ok) throw new Error("Could not set password");
-      setTokenPair(jwt, refreshJwt);
+      const pair = (await res.json()) as { token: string; refresh_token: string };
+      setTokenPair(pair.token, pair.refresh_token);
       const dest =
         role === "INVESTOR" ? "/investor" : role === "INTERMEDIARY" ? "/connector" : "/startup";
       router.replace(dest);

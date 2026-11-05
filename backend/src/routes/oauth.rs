@@ -74,6 +74,22 @@ fn percent_encode(input: &str) -> String {
     out
 }
 
+/// The email from an OpenID Connect userinfo response (Google, LinkedIn),
+/// only when the provider says it's verified. An unverified address could
+/// belong to someone else, and the email is what links a login to an account.
+/// Some providers send `email_verified` as the string "true".
+fn verified_email(userinfo: &Value) -> Option<String> {
+    let verified = match &userinfo["email_verified"] {
+        Value::Bool(b) => *b,
+        Value::String(s) => s.eq_ignore_ascii_case("true"),
+        _ => false,
+    };
+    if !verified {
+        return None;
+    }
+    userinfo["email"].as_str().map(str::to_string)
+}
+
 fn provider_config<'a>(
     state: &'a AppState,
     provider: &str,
@@ -278,8 +294,7 @@ async fn callback(
                     "userinfo missing sub".to_string(),
                 ))?
                 .to_string();
-            let email_opt = v.get("email").and_then(|s| s.as_str()).map(|s| s.to_string());
-            (provider_uid, email_opt)
+            (provider_uid, verified_email(&v))
         }
         "linkedin" => {
             let resp = state
@@ -311,13 +326,7 @@ async fn callback(
                 ))?
                 .to_string();
 
-            let email_opt = v
-                .get("emailAddress")
-                .or_else(|| v.get("email"))
-                .and_then(|s| s.as_str())
-                .map(|s| s.to_string());
-
-            (provider_uid, email_opt)
+            (provider_uid, verified_email(&v))
         }
         "github" => {
             // Primary call to /user + secondary call to /user/emails.
@@ -440,11 +449,13 @@ async fn callback(
         state.registration_open,
     )
     .await;
-    let (user_id, is_new) = match link {
-        Ok(v) => v,
+    let user_id = match link {
+        Ok((user_id, _)) => user_id,
         Err(auth::AuthError::RegistrationClosed) => {
-            let frontend_base = state.frontend_url.trim_end_matches('/');
             return Ok(Redirect::to(&format!("{frontend_base}/login?error=registration_closed")));
+        }
+        Err(auth::AuthError::EmailRequired) => {
+            return Ok(Redirect::to(&format!("{frontend_base}/login?error=oauth_no_email")));
         }
         Err(_) => {
             return Err((
@@ -454,17 +465,36 @@ async fn callback(
         }
     };
 
-    // Issue a platform JWT (need the role for frontend redirects).
-    let role: String = sqlx::query_scalar("SELECT role::text FROM users WHERE id = $1")
-        .bind(user_id)
-        .fetch_one(&state.db)
-        .await
-        .map_err(|_| {
+    // Role for the token, whether 2FA is on, and whether this is an account
+    // OAuth created that hasn't finished sign-up (no password and no
+    // WhatsApp/Telegram chosen yet), which goes back to that step every time.
+    let (role, totp_enabled, needs_setup): (String, bool, bool) = sqlx::query_as(
+        "SELECT role::text, totp_enabled, password_hash IS NULL AND preferred_channel IS NULL FROM users WHERE id = $1",
+    )
+    .bind(user_id)
+    .fetch_one(&state.db)
+    .await
+    .map_err(|_| {
+        (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            "could not load user".to_string(),
+        )
+    })?;
+
+    // Same as the password login: 2FA accounts get a short-lived token that
+    // only /auth/2fa/login accepts, and the login page asks for the code.
+    if totp_enabled {
+        let partial_token = super::auth::issue_two_fa_pending_jwt(&state, user_id, &role).map_err(|_| {
             (
                 axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                "could not load user role".to_string(),
+                "could not issue 2FA token".to_string(),
             )
         })?;
+        return Ok(Redirect::to(&format!(
+            "{frontend_base}/login?twofa={}",
+            percent_encode(&partial_token)
+        )));
+    }
 
     let (jwt, refresh_token) = auth::issue_token_pair(&state, user_id, &role)
         .await
@@ -475,8 +505,7 @@ async fn callback(
             )
         })?;
 
-    let frontend_base = state.frontend_url.trim_end_matches('/');
-    let new_str = if is_new { "true" } else { "false" };
+    let new_str = if needs_setup { "true" } else { "false" };
     let redirect = format!(
         "{}/auth/callback?token={}&refresh={}&new={}",
         frontend_base,

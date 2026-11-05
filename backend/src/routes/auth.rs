@@ -49,6 +49,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/telegram/confirm", post(telegram_confirm))
         .route("/telegram/unlink", delete(unlink_telegram))
         .route("/change-email", put(change_email))
+        .route("/change-email/confirm", put(confirm_email_change))
         .route("/change-password", put(change_password))
         .route("/profile", put(update_profile))
         .route("/me", get(get_me))
@@ -61,7 +62,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/2fa/backup-codes", post(two_fa_regenerate_backup_codes))
         .route("/account", delete(delete_account))
         .route("/me/export", get(export_data))
-        .route("/role", put(set_role))
+        .route("/oauth/setup", post(oauth_setup))
         .route("/ai-settings", put(set_ai_settings))
 }
 
@@ -415,17 +416,61 @@ async fn email_taken(state: &AppState, email_addr: &str) -> Result<bool, (Status
         })
 }
 
-async fn whatsapp_taken(state: &AppState, phone: &str) -> Result<bool, (StatusCode, String)> {
+/// One mobile number per account, whichever channel was chosen: the number
+/// counts as taken if another account typed it at sign-up, linked it on
+/// WhatsApp or shared it from Telegram. (Linking WhatsApp with a one-time
+/// code proves the phone, so that path moves the number over instead.)
+async fn phone_taken(
+    state: &AppState,
+    phone: &str,
+    except_user: Option<Uuid>,
+) -> Result<bool, (StatusCode, String)> {
     sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM users WHERE regexp_replace(COALESCE(whatsapp_number, ''), '[^0-9]', '', 'g') = $1)",
+        "SELECT EXISTS(SELECT 1 FROM users
+         WHERE $1 IN (regexp_replace(COALESCE(phone_number, ''), '[^0-9]', '', 'g'),
+                      regexp_replace(COALESCE(whatsapp_number, ''), '[^0-9]', '', 'g'),
+                      regexp_replace(COALESCE(shared_phone, ''), '[^0-9]', '', 'g'))
+           AND id IS DISTINCT FROM $2)",
     )
     .bind(phone)
+    .bind(except_user)
     .fetch_one(&state.db)
     .await
     .map_err(|e| {
-        tracing::error!("signup: whatsapp lookup: {e}");
+        tracing::error!("signup: phone lookup: {e}");
         (StatusCode::INTERNAL_SERVER_ERROR, "database error".to_string())
     })
+}
+
+/// Mobile number (digits only), channel and role from a sign-up form, checked
+/// the same way for email sign-up and for finishing an OAuth sign-up
+/// (`except_user` is that account).
+async fn check_signup_details(
+    state: &AppState,
+    phone: &str,
+    channel: &str,
+    role: &str,
+    except_user: Option<Uuid>,
+) -> Result<(String, String, String), (StatusCode, String)> {
+    let phone: String = phone.chars().filter(|c| c.is_ascii_digit()).collect();
+    if !(8..=15).contains(&phone.len()) {
+        return Err((StatusCode::BAD_REQUEST, "Enter a valid mobile number.".to_string()));
+    }
+    let channel = channel.trim().to_lowercase();
+    if channel != "whatsapp" && channel != "telegram" {
+        return Err((StatusCode::BAD_REQUEST, "Choose WhatsApp or Telegram.".to_string()));
+    }
+    let role = role.trim().to_lowercase();
+    if role != "founder" && role != "investor" {
+        return Err((StatusCode::BAD_REQUEST, "Choose founder or investor.".to_string()));
+    }
+    if phone_taken(state, &phone, except_user).await? {
+        return Err((
+            StatusCode::CONFLICT,
+            "This mobile number is already used by another metatron account. Sign in to that account instead.".to_string(),
+        ));
+    }
+    Ok((phone, channel, role))
 }
 
 async fn send_signup_code(state: &AppState, email_addr: &str, code: &str) {
@@ -469,29 +514,13 @@ async fn signup_start(
     require_registration_open(&state)?;
     let email_addr = normalize_signup_email(&body.email)
         .ok_or((StatusCode::BAD_REQUEST, "Enter a valid email address.".to_string()))?;
-    let phone: String = body.phone.chars().filter(|c| c.is_ascii_digit()).collect();
-    if !(8..=15).contains(&phone.len()) {
-        return Err((StatusCode::BAD_REQUEST, "Enter a valid mobile number.".to_string()));
-    }
-    let channel = body.channel.trim().to_lowercase();
-    if channel != "whatsapp" && channel != "telegram" {
-        return Err((StatusCode::BAD_REQUEST, "Choose WhatsApp or Telegram.".to_string()));
-    }
-    let role = body.role.trim().to_lowercase();
-    if role != "founder" && role != "investor" {
-        return Err((StatusCode::BAD_REQUEST, "Choose founder or investor.".to_string()));
-    }
+    let (phone, channel, role) =
+        check_signup_details(&state, &body.phone, &body.channel, &body.role, None).await?;
 
     if email_taken(&state, &email_addr).await? {
         return Err((
             StatusCode::CONFLICT,
             "An account with this email already exists. Sign in instead.".to_string(),
-        ));
-    }
-    if channel == "whatsapp" && whatsapp_taken(&state, &phone).await? {
-        return Err((
-            StatusCode::CONFLICT,
-            "This WhatsApp number is already linked to another account.".to_string(),
         ));
     }
 
@@ -624,6 +653,14 @@ async fn signup_verify(
             .await;
         return Err((StatusCode::BAD_REQUEST, "That code doesn't match. Check the email and try again.".to_string()));
     }
+    // Checked again here: another account may have taken the number in the
+    // minutes since the code was sent.
+    if phone_taken(&state, &phone, None).await? {
+        return Err((
+            StatusCode::CONFLICT,
+            "This mobile number is already used by another metatron account. Sign in to that account instead.".to_string(),
+        ));
+    }
 
     let db_role = auth::signup_role_from_frontend(Some(&role));
     let user_id = auth::create_user_with_password(&state.db, &email_addr, &body.password, db_role)
@@ -702,7 +739,7 @@ async fn forgot_password(
     }
 
     let user: Option<(Uuid, String)> = sqlx::query_as::<_, (Uuid, String)>(
-        "SELECT id, email FROM users WHERE email = $1",
+        "SELECT id, email FROM users WHERE LOWER(email) = LOWER($1)",
     )
     .bind(email)
     .fetch_optional(&state.db)
@@ -824,6 +861,12 @@ async fn reset_password(
             "internal error".to_string(),
         )
     })?;
+
+    // Whoever had the old password is signed out everywhere.
+    if auth::revoke_all_refresh_tokens(&state, user_id).await.is_err() {
+        tracing::error!("reset_password: could not revoke sessions");
+    }
+    send_password_changed_notice(&state, user_id).await;
 
     Ok(StatusCode::OK)
 }
@@ -960,7 +1003,7 @@ async fn logout_all(
     Ok(StatusCode::NO_CONTENT)
 }
 
-fn issue_two_fa_pending_jwt(
+pub(crate) fn issue_two_fa_pending_jwt(
     state: &AppState,
     user_id: uuid::Uuid,
     role: &str,
@@ -1149,10 +1192,16 @@ async fn change_email(
         .await
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string()))?;
 
+    let new_email = normalize_signup_email(&body.new_email)
+        .ok_or((StatusCode::BAD_REQUEST, "Enter a valid email address.".to_string()))?;
+    if new_email == old_email.to_lowercase() {
+        return Err((StatusCode::BAD_REQUEST, "That's already your email.".to_string()));
+    }
+
     let email_in_use: Option<uuid::Uuid> = sqlx::query_scalar(
-        "SELECT id FROM users WHERE email = $1 AND id <> $2",
+        "SELECT id FROM users WHERE LOWER(email) = $1 AND id <> $2",
     )
-    .bind(&body.new_email)
+    .bind(&new_email)
     .bind(authed.id)
     .fetch_optional(&state.db)
     .await
@@ -1165,12 +1214,105 @@ async fn change_email(
         ));
     }
 
-    sqlx::query("UPDATE users SET email = $1 WHERE id = $2")
-        .bind(&body.new_email)
+    // The switch waits until the code sent to the new address is entered.
+    let code = new_signup_code();
+    sqlx::query(
+        r#"
+        INSERT INTO email_change_requests (user_id, new_email, code_hash, attempts, expires_at)
+        VALUES ($1, $2, $3, 0, NOW() + INTERVAL '15 minutes')
+        ON CONFLICT (user_id) DO UPDATE
+           SET new_email = EXCLUDED.new_email, code_hash = EXCLUDED.code_hash,
+               attempts = 0, expires_at = EXCLUDED.expires_at, created_at = NOW()
+        "#,
+    )
+    .bind(authed.id)
+    .bind(&new_email)
+    .bind(sha256_hex_token(&code))
+    .execute(&state.db)
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string()))?;
+
+    let html = format!(
+        r#"<p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">Here's your code to confirm this as your new metatron email:</p>
+<p style="margin:0 0 16px 0;font-size:28px;font-weight:700;letter-spacing:6px;color:#e8e8ed;">{code}</p>
+<p style="margin:0;font-size:13px;color:#8888a0;">Enter it in Settings. It expires in 15 minutes. If you didn't ask for it, you can ignore this email.</p>"#
+    );
+    email::send_email(
+        &state.http_client,
+        state.resend_api_key.as_deref(),
+        &state.account_email_from,
+        &new_email,
+        &format!("Your metatron code: {code}"),
+        &html,
+    )
+    .await;
+
+    Ok(StatusCode::ACCEPTED)
+}
+
+#[derive(Deserialize)]
+pub struct ConfirmEmailChangeRequest {
+    pub code: String,
+}
+
+async fn confirm_email_change(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
+    Json(body): Json<ConfirmEmailChangeRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let authed = require_user(&state, bearer.token()).await?;
+    let internal = |_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string());
+
+    let row: Option<(String, String, i32, bool)> = sqlx::query_as(
+        "SELECT new_email, code_hash, attempts, expires_at > NOW() FROM email_change_requests WHERE user_id = $1",
+    )
+    .bind(authed.id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(internal)?;
+    let Some((new_email, code_hash, attempts, fresh)) = row else {
+        return Err((StatusCode::NOT_FOUND, "Start again to get a new code.".to_string()));
+    };
+    if attempts >= SIGNUP_CODE_MAX_ATTEMPTS {
+        return Err((
+            StatusCode::TOO_MANY_REQUESTS,
+            "Too many wrong codes. Send yourself a new one.".to_string(),
+        ));
+    }
+    if !fresh {
+        return Err((StatusCode::BAD_REQUEST, "That code has expired. Send yourself a new one.".to_string()));
+    }
+    let entered: String = body.code.chars().filter(|c| c.is_ascii_digit()).collect();
+    if sha256_hex_token(&entered) != code_hash {
+        let _ = sqlx::query("UPDATE email_change_requests SET attempts = attempts + 1 WHERE user_id = $1")
+            .bind(authed.id)
+            .execute(&state.db)
+            .await;
+        return Err((StatusCode::BAD_REQUEST, "That code doesn't match. Check the email and try again.".to_string()));
+    }
+
+    let old_email: String = sqlx::query_scalar("SELECT email FROM users WHERE id = $1")
+        .bind(authed.id)
+        .fetch_one(&state.db)
+        .await
+        .map_err(internal)?;
+
+    // Someone may have signed up with the address while the code was out.
+    let updated = sqlx::query(
+        "UPDATE users SET email = $1 WHERE id = $2 AND NOT EXISTS (SELECT 1 FROM users WHERE LOWER(email) = $1 AND id <> $2)",
+    )
+    .bind(&new_email)
+    .bind(authed.id)
+    .execute(&state.db)
+    .await
+    .map_err(internal)?;
+    let _ = sqlx::query("DELETE FROM email_change_requests WHERE user_id = $1")
         .bind(authed.id)
         .execute(&state.db)
-        .await
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string()))?;
+        .await;
+    if updated.rows_affected() == 0 {
+        return Err((StatusCode::CONFLICT, "email already in use".to_string()));
+    }
 
     email::send_email(
         &state.http_client,
@@ -1178,18 +1320,38 @@ async fn change_email(
         &state.account_email_from,
         &old_email,
         "Your metatron email has been changed",
-        &email::email_changed_notice_html(&body.new_email),
+        &email::email_changed_notice_html(&new_email),
     )
     .await;
 
-    Ok(StatusCode::OK)
+    Ok(Json(serde_json::json!({ "email": new_email })))
+}
+
+/// Tells the user their password changed, so a change they didn't make is noticed.
+async fn send_password_changed_notice(state: &AppState, user_id: Uuid) {
+    let Ok(to) = sqlx::query_scalar::<_, String>("SELECT email FROM users WHERE id = $1")
+        .bind(user_id)
+        .fetch_one(&state.db)
+        .await
+    else {
+        return;
+    };
+    email::send_email(
+        &state.http_client,
+        state.resend_api_key.as_deref(),
+        &state.account_email_from,
+        &to,
+        "Your metatron password was changed",
+        &email::password_changed_notice_html(),
+    )
+    .await;
 }
 
 async fn change_password(
     State(state): State<Arc<AppState>>,
     TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
     Json(body): Json<ChangePasswordRequest>,
-) -> Result<StatusCode, (StatusCode, String)> {
+) -> Result<Json<AuthResponse>, (StatusCode, String)> {
     let authed = require_user(&state, bearer.token()).await?;
 
     if !password_meets_rules(&body.new_password) {
@@ -1224,7 +1386,25 @@ async fn change_password(
         .await
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string()))?;
 
-    Ok(StatusCode::OK)
+    // Sign out every other session; this one gets a fresh pair.
+    auth::revoke_all_refresh_tokens(&state, authed.id)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "could not revoke sessions".to_string()))?;
+    let role: String = sqlx::query_scalar("SELECT role::text FROM users WHERE id = $1")
+        .bind(authed.id)
+        .fetch_one(&state.db)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string()))?;
+    let (token, refresh_token) = auth::issue_token_pair(&state, authed.id, &role)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "could not issue token".to_string()))?;
+
+    // A first password (messaging sign-up) isn't a change.
+    if !stored_hash.trim().is_empty() {
+        send_password_changed_notice(&state, authed.id).await;
+    }
+
+    Ok(Json(AuthResponse { token, refresh_token }))
 }
 
 #[derive(Deserialize)]
@@ -1938,31 +2118,65 @@ async fn unlink_telegram(
 }
 
 #[derive(Deserialize)]
-pub struct SetRoleRequest {
+pub struct OAuthSetupRequest {
+    pub phone: String,
+    /// `whatsapp` or `telegram`.
+    pub channel: String,
+    /// `founder` or `investor`.
     pub role: String,
 }
 
-async fn set_role(
+/// Finishes an account created by Google, LinkedIn or GitHub sign-in. The
+/// provider already verified the email, so this asks for the rest of what
+/// sign-up asks for (founder or investor, mobile number, WhatsApp or
+/// Telegram) and then runs the usual new-account steps. Only for accounts
+/// without a password that haven't chosen a channel yet; returns a new token
+/// pair because the role may have changed.
+async fn oauth_setup(
     State(state): State<Arc<AppState>>,
     TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
-    Json(body): Json<SetRoleRequest>,
-) -> Result<StatusCode, (StatusCode, String)> {
+    Json(body): Json<OAuthSetupRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let authed = require_user(&state, bearer.token()).await?;
+    let email_addr: Option<String> = sqlx::query_scalar(
+        "SELECT email FROM users WHERE id = $1 AND password_hash IS NULL AND preferred_channel IS NULL",
+    )
+    .bind(authed.id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| {
+        tracing::error!("oauth_setup: lookup: {e}");
+        (StatusCode::INTERNAL_SERVER_ERROR, "database error".to_string())
+    })?;
+    let Some(email_addr) = email_addr else {
+        return Err((StatusCode::CONFLICT, "Your account is already set up.".to_string()));
+    };
+    let (phone, channel, role) =
+        check_signup_details(&state, &body.phone, &body.channel, &body.role, Some(authed.id)).await?;
+    let db_role = auth::signup_role_from_frontend(Some(&role));
 
     sqlx::query(
-        r#"
-        UPDATE users
-        SET role = $1::user_role
-        WHERE id = $2
-        "#,
+        "UPDATE users SET role = $2::user_role, phone_number = $3, preferred_channel = $4 WHERE id = $1",
     )
-    .bind(auth::signup_role_from_frontend(Some(&body.role)))
     .bind(authed.id)
+    .bind(db_role)
+    .bind(&phone)
+    .bind(&channel)
     .execute(&state.db)
     .await
-    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string()))?;
+    .map_err(|e| {
+        tracing::error!("oauth_setup: update: {e}");
+        (StatusCode::INTERNAL_SERVER_ERROR, "database error".to_string())
+    })?;
 
-    Ok(StatusCode::OK)
+    let (token, refresh_token) =
+        finish_signup(&state, authed.id, &email_addr, db_role, None, true).await?;
+
+    Ok(Json(serde_json::json!({
+        "token": token,
+        "refresh_token": refresh_token,
+        "role": db_role,
+    })))
 }
 
 #[derive(Deserialize)]

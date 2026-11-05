@@ -662,89 +662,42 @@ pub fn welcome_email_html(role: &str) -> String {
     shell_html("Welcome to metatron", body)
 }
 
-/// Bullet-point benefit list for a plan, shared by the activation and
-/// renewal emails so both say the same thing about what a tier includes.
-/// Keyed as "{role}_{level}" — matches the `tier` values already written to
-/// `subscription_invoices` (e.g. "founder_basic", "investor_pro"), so call
-/// sites can pass that same string straight through.
-fn plan_benefits_html(plan_key: &str) -> String {
-    let items: &[&str] = match plan_key {
-        "founder_basic" => &[
-            "Permanent public IPFS pitch deck storage, unlimited re-uploads",
-            "Call Intelligence — AI summary, key takeaways, and sentiment on every recorded call",
-            "10 Kevin matches a week (vs. 1 on Free)",
-            "200 Kevin messages a day, across platform, email, Telegram, and WhatsApp",
-        ],
-        "founder_pro" => &[
-            "Permanent private IPFS pitch deck storage, unlimited re-uploads",
-            "Call Intelligence — AI summary, key takeaways, and sentiment on every recorded call",
-            "Unlimited Kevin matches and messages",
-            "Full contact card shared automatically on investor introductions",
-            "Priority Kevin AI responses",
-        ],
-        "investor_basic" => &[
-            "10 Kevin matches a week (vs. 1 on Free)",
-            "Full Angel Score breakdown on every founder, not just a summary",
-            "Call Intelligence — AI summary, key takeaways, and sentiment on every call",
-            "200 Kevin messages a day, across platform, email, Telegram, and WhatsApp",
-        ],
-        "investor_pro" => &[
-            "Unlimited Kevin matches and messages",
-            "Full Angel Score breakdown on every founder, not just a summary",
-            "Call Intelligence — AI summary, key takeaways, and sentiment on every call",
-        ],
-        "connector_basic" => &[
-            "Unlimited contact imports & enrichments",
-            "Referral and introduction tracking",
-            "IPFS-anchored network ownership",
-        ],
-        _ => &[],
-    };
-    if items.is_empty() {
-        return String::new();
-    }
+fn bullet_list_html(items: &[String]) -> String {
     let lis: String = items.iter().map(|i| format!("  <li>{i}</li>\n")).collect();
     format!(
         "<ul style=\"margin:0 0 14px 18px;padding:0;color:#e8e8ed;font-size:14px;line-height:1.6;\">\n{lis}</ul>\n"
     )
 }
 
-pub fn subscription_activated_email_html(
-    plan_name: &str,
-    plan_key: &str,
-    period_end: &str,
-    amount_paid: &str,
-) -> String {
-    let benefits = plan_benefits_html(plan_key);
+/// Sent from billing@ when a paid plan starts. Stripe sends the receipt.
+pub fn plan_started_email_html(plan_name: &str, includes: &[String], renews: &str) -> String {
+    let list = bullet_list_html(includes);
     shell_html(
-        &format!("{plan_name} activated"),
+        &format!("Welcome to {plan_name}"),
         &format!(
             r#"
-<p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">Thank you for subscribing to <strong>{plan_name}</strong> — here's what's unlocked:</p>
-{benefits}<p style="margin:0 0 14px 0;font-size:13px;color:#e8e8ed;">Renews: {period_end} · Amount paid: {amount_paid}</p>
-<p style="margin:0 0 0 0;font-size:14px;">
-  <a href="https://platform.metatron.id" style="color:#6c5ce7;text-decoration:none;">Open platform</a> ·
-  <a href="mailto:hello@metatron.id" style="color:#6c5ce7;text-decoration:none;">Support</a>
+<p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">You're on metatron {plan_name}. It includes:</p>
+{list}<p style="margin:0 0 16px 0;font-size:13px;color:#8888a0;">Renews {renews}. Your receipt comes separately from Stripe.</p>
+<p style="margin:0 0 0 0;">
+  <a href="https://platform.metatron.id" style="display:inline-block;background:#6c5ce7;color:#ffffff;text-decoration:none;font-size:14px;font-weight:600;padding:12px 20px;border-radius:12px;">Open metatron</a>
 </p>
 "#
         ),
     )
 }
 
-pub fn subscription_cancelled_email_html(period_end: &str) -> String {
+/// Sent from billing@ when a paid plan ends and the account is back on Free.
+pub fn plan_ended_email_html(plan_name: &str, free_includes: &[String], resubscribe_url: &str) -> String {
+    let list = bullet_list_html(free_includes);
     shell_html(
-        "Your subscription has been cancelled",
+        &format!("Your {plan_name} plan has ended"),
         &format!(
             r#"
-<p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">Your subscription has been set to cancel at the end of your current billing period.</p>
-<p style="margin:0 0 12px 0;font-size:13px;color:#e8e8ed;">You will retain full access until: <strong>{period_end}</strong></p>
-<p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">After that date your account will revert to the free tier.</p>
-<p style="margin:0 0 0 0;font-size:14px;">
-  <a href="https://platform.metatron.id/pricing" style="color:#6c5ce7;text-decoration:none;">Resubscribe</a> ·
-  <a href="mailto:hello@metatron.id" style="color:#6c5ce7;text-decoration:none;">Support</a>
+<p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">You're back on Free. Your profile, deck and matches stay. Free includes:</p>
+{list}<p style="margin:0 0 0 0;">
+  <a href="{resubscribe_url}" style="display:inline-block;background:#6c5ce7;color:#ffffff;text-decoration:none;font-size:14px;font-weight:600;padding:12px 20px;border-radius:12px;">Resubscribe</a>
 </p>
-"#,
-            period_end = period_end
+"#
         ),
     )
 }
@@ -801,6 +754,16 @@ pub fn email_changed_notice_html(new_email: &str) -> String {
 <p style="margin:0 0 0 0;font-size:14px;color:#e8e8ed;">If you did not make this change, contact us immediately at <a href="mailto:hello@metatron.id" style="color:#6c5ce7;text-decoration:none;">hello@metatron.id</a>.</p>
 "#
         ),
+    )
+}
+
+pub fn password_changed_notice_html() -> String {
+    shell_html(
+        "Your metatron password was changed",
+        r#"
+<p style="margin:0 0 12px 0;font-size:14px;color:#e8e8ed;">This is a confirmation that your metatron password was changed. Other devices have been signed out.</p>
+<p style="margin:0 0 0 0;font-size:14px;color:#e8e8ed;">If you did not make this change, reset your password at <a href="https://platform.metatron.id/auth/forgot-password" style="color:#6c5ce7;text-decoration:none;">platform.metatron.id</a> and contact us at <a href="mailto:hello@metatron.id" style="color:#6c5ce7;text-decoration:none;">hello@metatron.id</a>.</p>
+"#,
     )
 }
 

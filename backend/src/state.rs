@@ -40,6 +40,7 @@ pub struct AppState {
     pub resend_api_key: Option<String>,
     pub email_from: String,
     pub account_email_from: String,
+    pub billing_email_from: String,
     pub internal_automation_token: Option<String>,
     pub stripe_secret_key: Option<String>,
     pub stripe_webhook_secret: Option<String>,
@@ -61,7 +62,6 @@ pub struct AppState {
     pub http_client: Client,
     pub cron_secret: Option<String>,
     pub unsubscribe_secret: String,
-    pub nadirclaw_url: String,
 }
 
 impl AppState {
@@ -119,6 +119,7 @@ impl AppState {
             resend_api_key: settings.resend_api_key.clone(),
             email_from: settings.email_from.clone(),
             account_email_from: settings.account_email_from.clone(),
+            billing_email_from: settings.billing_email_from.clone(),
             internal_automation_token: settings.internal_automation_token.clone(),
             stripe_secret_key: settings.stripe_secret_key.clone(),
             stripe_webhook_secret: settings.stripe_webhook_secret.clone(),
@@ -140,7 +141,6 @@ impl AppState {
             http_client,
             cron_secret: settings.cron_secret.clone(),
             unsubscribe_secret: settings.unsubscribe_secret.clone(),
-            nadirclaw_url: settings.nadirclaw_url.clone(),
         }))
     }
 }

@@ -9,7 +9,7 @@ import { API_BASE } from "@/lib/api";
 import { COUNTRY_COOKIE } from "@/lib/countryCookie";
 import { passwordMeetsRules } from "@/lib/passwordRules";
 import { PasswordRules } from "@/components/PasswordRules";
-import { setTokenPair } from "@/lib/tokenStore";
+import { getAccessToken, setTokenPair } from "@/lib/tokenStore";
 
 export type SignupRole = "founder" | "investor";
 type Choice = SignupRole | "other";
@@ -46,11 +46,11 @@ function visitorCountry(): CountryCode {
   return "ZA";
 }
 
-async function post(path: string, body: unknown): Promise<{ ok: boolean; status: number; text: string }> {
+async function post(path: string, body: unknown, token?: string | null): Promise<{ ok: boolean; status: number; text: string }> {
   try {
     const res = await fetch(`${API_BASE}${path}`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       body: JSON.stringify(body),
     });
     return { ok: res.ok, status: res.status, text: (await res.text()).trim() };
@@ -63,14 +63,21 @@ async function post(path: string, body: unknown): Promise<{ ok: boolean; status:
  * Sign-up: what you're looking for → email, mobile number and WhatsApp or
  * Telegram → the emailed code plus a password. Full screen on a phone, a
  * dialog on wider screens. Ends logged in on the dashboard.
+ *
+ * `oauth`: finishing an account Google, LinkedIn or GitHub just created. The
+ * email is already verified and there's no password, so it's two steps
+ * (founder or investor, then mobile number and channel), with no way to
+ * close it or to pick "Something else".
  */
 export default function SignupFlow({
   initialRole,
   referralCode,
+  oauth = false,
   onClose,
 }: {
   initialRole?: SignupRole | null;
   referralCode?: string | null;
+  oauth?: boolean;
   onClose: () => void;
 }) {
   const router = useRouter();
@@ -95,13 +102,13 @@ export default function SignupFlow({
   useEffect(() => {
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && !oauth && onClose();
     window.addEventListener("keydown", onKey);
     return () => {
       document.body.style.overflow = prev;
       window.removeEventListener("keydown", onKey);
     };
-  }, [onClose]);
+  }, [onClose, oauth]);
 
   useEffect(() => {
     setError(null);
@@ -112,13 +119,35 @@ export default function SignupFlow({
 
   const phone = parsePhoneNumberFromString(national, country);
   const phoneOk = Boolean(phone?.isValid());
-  const emailOk = EMAIL_RE.test(email.trim());
+  const emailOk = oauth || EMAIL_RE.test(email.trim());
   const passwordOk = passwordMeetsRules(password);
   const role: SignupRole = choice === "investor" ? "investor" : "founder";
   const stepNo = STEP_NO[step] ?? 0;
+  const stepCount = oauth ? 2 : 3;
   const back = BACK[step];
+  const options = oauth ? OPTIONS.filter((o) => o.id !== "other") : OPTIONS;
+
+  async function submitOAuthSetup() {
+    setBusy(true);
+    setError(null);
+    const r = await post("/auth/oauth/setup", { phone: phone?.number ?? "", channel, role }, getAccessToken());
+    if (!r.ok) {
+      setBusy(false);
+      setError(r.text || "Something went wrong. Please try again.");
+      return;
+    }
+    try {
+      const d = JSON.parse(r.text) as { token: string; refresh_token: string; role: string };
+      setTokenPair(d.token, d.refresh_token);
+      router.replace(d.role === "INVESTOR" ? "/investor" : "/startup");
+    } catch {
+      setBusy(false);
+      setError("Something went wrong. Please sign in again.");
+    }
+  }
 
   async function submitDetails() {
+    if (oauth) return submitOAuthSetup();
     setBusy(true);
     setError(null);
     setEmailExists(false);
@@ -182,7 +211,7 @@ export default function SignupFlow({
   if (step === "otherDone") cta = { label: "Back to start", ok: true, run: () => setStep("choose") };
   if (step === "details")
     cta = {
-      label: "Continue",
+      label: oauth ? "Finish" : "Continue",
       ok: emailOk && phoneOk,
       run: () => void submitDetails(),
       hint: !emailOk ? "Enter your email to continue." : !phoneOk ? "Enter a valid mobile number to continue." : undefined,
@@ -231,17 +260,25 @@ export default function SignupFlow({
               </span>
             )}
             <span className="flex-1" />
-            {stepNo > 0 && <span className="pr-1 font-mono text-xs text-[var(--text-muted)]">0{stepNo} / 03</span>}
-            <button type="button" aria-label="Close" onClick={onClose} className="flex h-11 w-11 items-center justify-center text-[var(--text-muted)] hover:text-[var(--text)]">
-              <svg aria-hidden width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                <path d="M6 6l12 12M18 6L6 18" />
-              </svg>
-            </button>
+            {stepNo > 0 && (
+              <span className="pr-1 font-mono text-xs text-[var(--text-muted)]">
+                0{stepNo} / 0{stepCount}
+              </span>
+            )}
+            {oauth ? (
+              <span className="w-3" />
+            ) : (
+              <button type="button" aria-label="Close" onClick={onClose} className="flex h-11 w-11 items-center justify-center text-[var(--text-muted)] hover:text-[var(--text)]">
+                <svg aria-hidden width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <path d="M6 6l12 12M18 6L6 18" />
+                </svg>
+              </button>
+            )}
           </div>
 
           {stepNo > 0 && (
-            <div aria-hidden className="grid grid-cols-3 gap-1.5 px-5 pt-1 sm:px-8">
-              {[1, 2, 3].map((n) => (
+            <div aria-hidden className={`grid ${oauth ? "grid-cols-2" : "grid-cols-3"} gap-1.5 px-5 pt-1 sm:px-8`}>
+              {(oauth ? [1, 2] : [1, 2, 3]).map((n) => (
                 <span key={n} className={`h-[3px] rounded-full ${n <= stepNo ? "bg-metatron-accent" : "bg-[var(--overlay-12)]"}`} />
               ))}
             </div>
@@ -255,7 +292,7 @@ export default function SignupFlow({
                   <p className={sub}>Pick one and Kevin takes it from there.</p>
                 </div>
                 <div role="radiogroup" aria-label="Who you're looking to meet" className="flex flex-col gap-2.5">
-                  {OPTIONS.map((o) => {
+                  {options.map((o) => {
                     const on = choice === o.id;
                     return (
                       <button
@@ -277,12 +314,14 @@ export default function SignupFlow({
                     );
                   })}
                 </div>
-                <p className="text-sm text-[var(--text-muted)]">
-                  Already have an account?{" "}
-                  <Link href="/login" className={linkBtn}>
-                    Sign in
-                  </Link>
-                </p>
+                {!oauth && (
+                  <p className="text-sm text-[var(--text-muted)]">
+                    Already have an account?{" "}
+                    <Link href="/login" className={linkBtn}>
+                      Sign in
+                    </Link>
+                  </p>
+                )}
               </div>
             )}
 
@@ -313,10 +352,12 @@ export default function SignupFlow({
             {step === "details" && (
               <div className="flex flex-col gap-5">
                 {title("Let's get introduced.")}
-                <label className={label}>
-                  Email address
-                  <input className={field} type="email" inputMode="email" autoComplete="email" placeholder="alex@company.com" value={email} onChange={(e) => setEmail(e.target.value)} required />
-                </label>
+                {!oauth && (
+                  <label className={label}>
+                    Email address
+                    <input className={field} type="email" inputMode="email" autoComplete="email" placeholder="alex@company.com" value={email} onChange={(e) => setEmail(e.target.value)} required />
+                  </label>
+                )}
                 <div className="flex flex-col gap-2">
                   <span id="signup-phone-label" className="text-sm font-medium text-[var(--text)]">
                     Mobile number

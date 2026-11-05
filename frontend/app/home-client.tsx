@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import SignupFlow, { type SignupRole } from "@/components/onboarding/SignupFlow";
 
@@ -82,86 +82,6 @@ const HOW_IT_WORKS = [
     desc: "Kevin sends introductions with his reasoning to both parties — via email, Telegram, or WhatsApp — so first contact is always warm and relevant.",
   },
 ];
-
-// ─── OAuth role selector (compact, shown only in select_role=1 mode) ──────────
-
-function OAuthRoleSelector() {
-  const [selected, setSelected] = useState<Role | null>(null);
-  const [loading, setLoading] = useState(false);
-  const router = useRouter();
-
-  function dashboardPath(r: Role): string {
-    if (r === "investor") return "/investor";
-    if (r === "connector") return "/connector";
-    return "/startup";
-  }
-
-  async function onContinue() {
-    if (!selected) return;
-    const oauthToken = window.sessionStorage.getItem("metatron_oauth_token");
-    if (!oauthToken) return;
-    setLoading(true);
-    try {
-      const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
-      const res = await fetch(`${apiBase}/auth/role`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${oauthToken}` },
-        body: JSON.stringify({ role: selected }),
-      });
-      if (!res.ok) throw new Error();
-      window.sessionStorage.removeItem("metatron_oauth_token");
-      window.sessionStorage.removeItem("metatron_oauth_new");
-      router.replace(dashboardPath(selected));
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  return (
-    <div className="flex min-h-[calc(100vh-72px)] items-center justify-center px-5 py-12">
-      <div className="w-full max-w-[480px] text-center">
-        <p className="mb-2 font-mono text-[10px] uppercase tracking-[3px] text-[var(--text-muted)]">
-          One last step
-        </p>
-        <h1 className="mb-6 text-[24px] font-bold text-[var(--text)]">
-          Select your role
-        </h1>
-        <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
-          {ROLES.filter((r) => !HIDDEN_LANDING_ROLES.includes(r.id)).map((r) => (
-            <button
-              key={r.id}
-              type="button"
-              onClick={() => setSelected(r.id)}
-              className="rounded-[12px] px-4 py-5 text-center transition-all duration-200"
-              style={{
-                background: "var(--bg-card)",
-                border: selected === r.id
-                  ? "1px solid rgba(var(--accent-rgb),0.6)"
-                  : "1px solid var(--border)",
-                boxShadow: selected === r.id ? "0 0 32px rgba(var(--accent-rgb),0.15)" : "none",
-              }}
-            >
-              <div className="mb-1.5 font-mono text-[10px] uppercase tracking-[3px] text-metatron-accent">
-                {r.label}
-              </div>
-              <div className="text-[14px] font-semibold text-[var(--text)]">
-                {r.label.charAt(0) + r.label.slice(1).toLowerCase()}
-              </div>
-            </button>
-          ))}
-        </div>
-        <button
-          type="button"
-          disabled={!selected || loading}
-          onClick={onContinue}
-          className="rounded-[12px] bg-metatron-accent px-8 py-3 text-sm font-semibold text-white transition-colors hover:bg-metatron-accent-hover disabled:opacity-40"
-        >
-          {loading ? "Saving…" : "Continue →"}
-        </button>
-      </div>
-    </div>
-  );
-}
 
 // ─── Main landing page ────────────────────────────────────────────────────────
 
@@ -368,9 +288,9 @@ function LandingPage({ startOpen, referralCode }: { startOpen: boolean; referral
 
 function HomePageContent() {
   const searchParams = useSearchParams();
-  const selectRoleMode = searchParams.get("select_role") === "1";
-
-  if (selectRoleMode) return <OAuthRoleSelector />;
+  // `?setup=1`: back from Google, LinkedIn or GitHub with a new account that
+  // still needs founder/investor, a mobile number and a channel.
+  if (searchParams.get("setup") === "1") return <SignupFlow oauth onClose={() => {}} />;
   return <LandingPage startOpen={searchParams.get("start") === "1"} referralCode={searchParams.get("ref")?.trim() || null} />;
 }
 

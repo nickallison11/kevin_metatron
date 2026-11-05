@@ -84,12 +84,13 @@ export default function GetStartedChecklist({
     void QRCode.toDataURL(href, { width: 160, margin: 1 }).then(setQr).catch(() => setQr(null));
   }, [href, connected]);
 
-  // After they tap the button, watch for the first message to land.
+  // Once the link is ready, watch for the first message to land, whether they
+  // tap the button or scan the QR code.
   useEffect(() => {
-    if (!waiting || connected) return;
+    if (!href || connected) return;
     const started = Date.now();
     const t = setInterval(async () => {
-      if (Date.now() - started > 15 * 60 * 1000) return setWaiting(false);
+      if (Date.now() - started > 15 * 60 * 1000) return clearInterval(t);
       const res = await fetch(`${API_BASE}/auth/me`, { headers: authHeaders(token) }).catch(() => null);
       if (res?.ok) {
         const d = (await res.json()) as MeResponse;
@@ -97,7 +98,7 @@ export default function GetStartedChecklist({
       }
     }, 4000);
     return () => clearInterval(t);
-  }, [waiting, connected, token, onMe]);
+  }, [href, connected, token, onMe]);
 
   const badge = (n: number, done: boolean, locked = false) => (
     <span

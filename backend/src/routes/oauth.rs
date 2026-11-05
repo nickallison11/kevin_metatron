@@ -188,12 +188,11 @@ async fn callback(
         }
     };
 
-    auth::verify_oauth_state(&state, state_param, &provider_lc).map_err(|_| {
-        (
-            axum::http::StatusCode::UNAUTHORIZED,
-            "invalid oauth state".to_string(),
-        )
-    })?;
+    // Usually an old sign-in page reached with the browser's back button after
+    // the 5-minute state expired. Send them back to start again.
+    if auth::verify_oauth_state(&state, state_param, &provider_lc).is_err() {
+        return Ok(redirect_to(&format!("{frontend_base}/login?error=oauth_expired")));
+    }
 
     let redirect_uri = format!(
         "{}/auth/oauth/{}/callback",

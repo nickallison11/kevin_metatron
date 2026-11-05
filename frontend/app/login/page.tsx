@@ -122,6 +122,10 @@ export default function LoginPage() {
       setError("No metatron account uses that login yet, and sign-ups open at launch.");
     } else if (oauthError === "oauth_no_email") {
       setError("That login has no verified email address. Verify one with the provider, or sign in with email.");
+    } else if (oauthError === "oauth_expired") {
+      setError("That sign-in timed out. Try again.");
+    } else if (oauthError === "oauth_failed") {
+      setError("Sign-in didn't work. Try again.");
     }
     const twofa = params.get("twofa");
     if (twofa) {

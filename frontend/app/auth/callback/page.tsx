@@ -2,7 +2,7 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect } from "react";
-import { setTokenPair } from "@/lib/tokenStore";
+import { setAccessToken } from "@/lib/tokenStore";
 import { takeAfterLogin } from "@/lib/afterLogin";
 
 function decodeRoleFromJwt(token: string): string | null {
@@ -38,18 +38,18 @@ function OAuthCallbackContent() {
   const searchParams = useSearchParams();
 
   useEffect(() => {
+    // The API set the refresh cookie on its redirect here.
     const token = searchParams.get("token");
-    const refreshToken = searchParams.get("refresh");
     const newParam = searchParams.get("new");
     const isNew = newParam === "true";
 
-    if (!token || !refreshToken) {
+    if (!token) {
       router.replace("/login?error=oauth_failed");
       return;
     }
 
     try {
-      setTokenPair(token, refreshToken);
+      setAccessToken(token);
     } catch {
       router.replace("/login?error=oauth_failed");
       return;

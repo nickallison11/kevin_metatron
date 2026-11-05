@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { API_BASE } from "@/lib/api";
-import { setTokenPair } from "@/lib/tokenStore";
+import { setAccessToken } from "@/lib/tokenStore";
 import { passwordMeetsRules } from "@/lib/passwordRules";
 import { PasswordRules } from "@/components/PasswordRules";
 
@@ -15,7 +15,6 @@ function MessagingSignupInner() {
   const [step, setStep] = useState<"loading" | "set-password" | "error" | "done">("loading");
   const [error, setError] = useState<string | null>(null);
   const [jwt, setJwt] = useState<string | null>(null);
-  const [refreshJwt, setRefreshJwt] = useState<string | null>(null);
   const [role, setRole] = useState<string | null>(null);
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -27,14 +26,14 @@ function MessagingSignupInner() {
       setStep("error");
       return;
     }
-    fetch(`${API_BASE}/auth/messaging-signup?token=${encodeURIComponent(token)}`)
+    // credentials: the API sets the refresh cookie on this response.
+    fetch(`${API_BASE}/auth/messaging-signup?token=${encodeURIComponent(token)}`, { credentials: "include" })
       .then((r) => {
         if (!r.ok) throw new Error("invalid or expired link");
         return r.json();
       })
-      .then((data: { token?: string; refresh_token?: string; role?: string }) => {
+      .then((data: { token?: string; role?: string }) => {
         setJwt(data.token ?? null);
-        setRefreshJwt(data.refresh_token ?? null);
         setRole(data.role ?? null);
         setStep("set-password");
       })
@@ -48,7 +47,7 @@ function MessagingSignupInner() {
     e.preventDefault();
     if (!passwordMeetsRules(password)) return setError("Your password doesn't meet the rules yet.");
     if (password !== confirm) return setError("Passwords do not match.");
-    if (!jwt || !refreshJwt) return;
+    if (!jwt) return;
     setSaving(true);
     setError(null);
     try {
@@ -59,10 +58,11 @@ function MessagingSignupInner() {
           Authorization: `Bearer ${jwt}`,
         },
         body: JSON.stringify({ current_password: "", new_password: password }),
+        credentials: "include",
       });
       if (!res.ok) throw new Error("Could not set password");
-      const pair = (await res.json()) as { token: string; refresh_token: string };
-      setTokenPair(pair.token, pair.refresh_token);
+      const pair = (await res.json()) as { token: string };
+      setAccessToken(pair.token);
       const dest =
         role === "INVESTOR" ? "/investor" : role === "INTERMEDIARY" ? "/connector" : "/startup";
       router.replace(dest);
@@ -74,8 +74,8 @@ function MessagingSignupInner() {
   }
 
   function skipPassword() {
-    if (!jwt || !refreshJwt) return;
-    setTokenPair(jwt, refreshJwt);
+    if (!jwt) return;
+    setAccessToken(jwt);
     const dest =
       role === "INVESTOR" ? "/investor" : role === "INTERMEDIARY" ? "/connector" : "/startup";
     router.replace(dest);

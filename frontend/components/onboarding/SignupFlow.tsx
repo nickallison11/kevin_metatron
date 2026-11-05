@@ -9,7 +9,7 @@ import { API_BASE } from "@/lib/api";
 import { COUNTRY_COOKIE } from "@/lib/countryCookie";
 import { passwordMeetsRules } from "@/lib/passwordRules";
 import { PasswordRules } from "@/components/PasswordRules";
-import { getAccessToken, setTokenPair } from "@/lib/tokenStore";
+import { getAccessToken, setAccessToken } from "@/lib/tokenStore";
 
 export type SignupRole = "founder" | "investor";
 type Choice = SignupRole | "other";
@@ -52,6 +52,8 @@ async function post(path: string, body: unknown, token?: string | null): Promise
       method: "POST",
       headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       body: JSON.stringify(body),
+      // Sign-in responses set the refresh cookie.
+      credentials: "include",
     });
     return { ok: res.ok, status: res.status, text: (await res.text()).trim() };
   } catch {
@@ -137,8 +139,8 @@ export default function SignupFlow({
       return;
     }
     try {
-      const d = JSON.parse(r.text) as { token: string; refresh_token: string; role: string };
-      setTokenPair(d.token, d.refresh_token);
+      const d = JSON.parse(r.text) as { token: string; role: string };
+      setAccessToken(d.token);
       router.replace(d.role === "INVESTOR" ? "/investor" : "/startup");
     } catch {
       setBusy(false);
@@ -178,8 +180,8 @@ export default function SignupFlow({
       return;
     }
     try {
-      const d = JSON.parse(r.text) as { token: string; refresh_token: string; role: string };
-      setTokenPair(d.token, d.refresh_token);
+      const d = JSON.parse(r.text) as { token: string; role: string };
+      setAccessToken(d.token);
       router.push(d.role === "INVESTOR" ? "/investor" : "/startup");
     } catch {
       setBusy(false);

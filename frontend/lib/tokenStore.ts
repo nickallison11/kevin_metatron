@@ -1,7 +1,8 @@
 import { API_BASE } from "@/lib/api";
 
 const TOKEN_KEY = "metatron_token";
-const REFRESH_KEY = "metatron_refresh_token";
+/** Where the refresh token used to live; now only read once to move it into the cookie. */
+const LEGACY_REFRESH_KEY = "metatron_refresh_token";
 
 /**
  * Same-tab counterpart to the `storage` event (which only fires in *other*
@@ -19,50 +20,50 @@ export function getAccessToken(): string | null {
   return window.localStorage.getItem(TOKEN_KEY);
 }
 
-export function getRefreshToken(): string | null {
-  return window.localStorage.getItem(REFRESH_KEY);
+function getLegacyRefreshToken(): string | null {
+  return window.localStorage.getItem(LEGACY_REFRESH_KEY);
 }
 
-export function setTokenPair(accessToken: string, refreshToken: string): void {
+/**
+ * Stores the 20-minute access token. The refresh token is an HttpOnly cookie
+ * the API sets on sign-in, so scripts on the page can't read it; every call
+ * that signs in must send `credentials: "include"` for the cookie to stick.
+ */
+export function setAccessToken(accessToken: string): void {
   window.localStorage.setItem(TOKEN_KEY, accessToken);
-  window.localStorage.setItem(REFRESH_KEY, refreshToken);
   notifyChanged();
 }
 
 /**
- * Revokes the refresh token server-side (fire-and-forget — logout should
- * never be blocked by a network error) and clears both tokens locally.
+ * Signs this device out server-side (fire-and-forget — logout should never
+ * be blocked by a network error) and clears the access token locally.
  */
 export function clearTokens(): void {
-  const refreshToken = getRefreshToken();
-  if (refreshToken) {
-    fetch(`${API_BASE}/auth/logout`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ refresh_token: refreshToken }),
-      keepalive: true,
-    }).catch(() => {
-      /* logout must succeed locally regardless of network state */
-    });
-  }
+  const legacy = getLegacyRefreshToken();
+  fetch(`${API_BASE}/auth/logout`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(legacy ? { refresh_token: legacy } : {}),
+    credentials: "include",
+    keepalive: true,
+  }).catch(() => {
+    /* logout must succeed locally regardless of network state */
+  });
   window.localStorage.removeItem(TOKEN_KEY);
-  window.localStorage.removeItem(REFRESH_KEY);
+  window.localStorage.removeItem(LEGACY_REFRESH_KEY);
   notifyChanged();
 }
 
 /**
- * Exchanges the stored refresh token for a fresh access + refresh pair.
- * Returns false (and clears tokens) if the refresh token is missing,
- * expired, revoked, or reused — the caller should treat that as "logged
- * out" and redirect to /login.
+ * Exchanges the refresh cookie for a fresh access token (the API rotates the
+ * cookie as it goes). Returns false (and clears tokens) if the session has
+ * ended — expired, idle, signed out, or reused — and the caller should treat
+ * that as "logged out" and redirect to /login.
  *
- * Refresh tokens are single-use/rotating server-side (each call revokes the
- * old one and issues a new one) — if two callers both try to refresh with
- * the same stored token at once (e.g. the background interval fires the
- * same moment a component's API call 401s), the second to reach the server
- * would find its token already revoked and get treated as replay/theft,
- * revoking the whole session. `inFlightRefresh` makes every caller in this
- * tab share one in-progress request instead, so that race can't happen.
+ * Refresh tokens are single-use/rotating server-side. If two callers in this
+ * tab refreshed at once, the second would present an already-rotated token;
+ * `inFlightRefresh` makes every caller in this tab share one request. (Two
+ * tabs racing is handled by a short grace window on the server.)
  */
 let inFlightRefresh: Promise<boolean> | null = null;
 
@@ -77,21 +78,22 @@ export async function refreshAccessToken(): Promise<boolean> {
 }
 
 async function doRefresh(): Promise<boolean> {
-  const refreshToken = getRefreshToken();
-  if (!refreshToken) return false;
-
+  // A token from before the cookie is sent once; the API answers with the cookie.
+  const legacy = getLegacyRefreshToken();
   try {
     const res = await fetch(`${API_BASE}/auth/refresh`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ refresh_token: refreshToken }),
+      body: JSON.stringify(legacy ? { refresh_token: legacy } : {}),
+      credentials: "include",
     });
     if (!res.ok) {
       clearTokens();
       return false;
     }
-    const data = (await res.json()) as { token: string; refresh_token: string };
-    setTokenPair(data.token, data.refresh_token);
+    const data = (await res.json()) as { token: string };
+    window.localStorage.removeItem(LEGACY_REFRESH_KEY);
+    setAccessToken(data.token);
     return true;
   } catch {
     // Network hiccup — leave existing tokens in place and let the next
@@ -111,6 +113,8 @@ export function startAutoRefresh(): void {
   if (autoRefreshStarted) return;
   autoRefreshStarted = true;
   setInterval(() => {
-    if (getRefreshToken()) void refreshAccessToken();
+    if (getAccessToken()) void refreshAccessToken();
   }, REFRESH_INTERVAL_MS);
+  // Move a pre-cookie refresh token into the cookie straight away.
+  if (getAccessToken() && getLegacyRefreshToken()) void refreshAccessToken();
 }
